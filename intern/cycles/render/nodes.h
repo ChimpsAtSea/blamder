@@ -526,6 +526,37 @@ class AnisotropicBsdfNode : public BsdfNode {
   }
 };
 
+enum HaloGen3AlbedoOption
+{
+  ALBEDO_OPTION_DEFAULT = 0,
+  ALBEDO_OPTION_DETAIL_BLEND = 1,
+  ALBEDO_OPTION_CONSTANT_COLOR = 2,
+  ALBEDO_OPTION_TWO_CHANGE_COLOR = 3,
+  ALBEDO_OPTION_FOUR_CHANGE_COLOR = 4,
+  ALBEDO_OPTION_THREE_DETAIL_BLEND = 5,
+  ALBEDO_OPTION_TWO_DETAIL_OVERLAY = 6,
+  ALBEDO_OPTION_TWO_DETAIL = 7,
+  ALBEDO_OPTION_COLOR_MASK = 8,
+  ALBEDO_OPTION_TWO_DETAIL_BLACK_POINT = 9,
+  ALBEDO_OPTION_FOUR_CHANGE_COLOR_APPLYING_TO_SPECULAR = 10,
+  ALBEDO_OPTION_SIMPLE = 11,
+};
+
+class HaloGen3ShaderNode : public BsdfNode {
+ public:
+  SHADER_NODE_CLASS(HaloGen3ShaderNode)
+
+  float3 tangent;
+  float roughness, anisotropy, rotation;
+  HaloGen3AlbedoOption albedo_option;
+
+  void attributes(Shader *shader, AttributeRequestSet *attributes);
+  bool has_attribute_dependency()
+  {
+    return true;
+  }
+};
+
 class DiffuseBsdfNode : public BsdfNode {
  public:
   SHADER_NODE_CLASS(DiffuseBsdfNode)

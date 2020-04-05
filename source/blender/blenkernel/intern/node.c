@@ -4041,6 +4041,7 @@ static void registerShaderNodes(void)
   register_node_type_sh_uvmap();
   register_node_type_sh_uvalongstroke();
   register_node_type_sh_eevee_specular();
+  register_node_type_sh_halo_gen3_shader();
 
   register_node_type_sh_output_light();
   register_node_type_sh_output_material();

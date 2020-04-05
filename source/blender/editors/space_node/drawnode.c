@@ -1063,6 +1063,22 @@ static void node_shader_buts_anisotropic(uiLayout *layout, bContext *UNUSED(C), 
   uiItemR(layout, ptr, "distribution", 0, "", ICON_NONE);
 }
 
+static void node_shader_buts_halo_gen3_shader(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
+{
+  uiItemR(layout, ptr, "albedo_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "bump_mapping_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "alpha_test_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "specular_mask_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "material_model_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "environment_mapping_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "self_illumination_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "blend_mode_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "parallax_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "misc_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "wetness_option", 0, "", ICON_NONE);
+  uiItemR(layout, ptr, "alpha_blend_source_option", 0, "", ICON_NONE);
+}
+
 static void node_shader_buts_subsurface(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
 {
   uiItemR(layout, ptr, "falloff", 0, "", ICON_NONE);
@@ -1286,6 +1302,9 @@ static void node_shader_set_butfunc(bNodeType *ntype)
       break;
     case SH_NODE_BSDF_ANISOTROPIC:
       ntype->draw_buttons = node_shader_buts_anisotropic;
+      break;
+    case SH_NODE_HALO_GEN3_SHADER:
+      ntype->draw_buttons = node_shader_buts_halo_gen3_shader;
       break;
     case SH_NODE_SUBSURFACE_SCATTERING:
       ntype->draw_buttons = node_shader_buts_subsurface;

@@ -67,6 +67,7 @@ extern char datatoc_gpu_shader_material_geometry_glsl[];
 extern char datatoc_gpu_shader_material_glass_glsl[];
 extern char datatoc_gpu_shader_material_glossy_glsl[];
 extern char datatoc_gpu_shader_material_hair_info_glsl[];
+extern char datatoc_gpu_shader_material_halo_gen3_shader_glsl[];
 extern char datatoc_gpu_shader_material_hash_glsl[];
 extern char datatoc_gpu_shader_material_holdout_glsl[];
 extern char datatoc_gpu_shader_material_hue_sat_val_glsl[];
@@ -171,6 +172,11 @@ static GPUMaterialLibrary gpu_shader_material_glossy_library = {
 
 static GPUMaterialLibrary gpu_shader_material_anisotropic_library = {
     .code = datatoc_gpu_shader_material_anisotropic_glsl,
+    .dependencies = {&gpu_shader_material_glossy_library, NULL},
+};
+
+static GPUMaterialLibrary gpu_shader_material_halo_gen3_shader_library = {
+    .code = datatoc_gpu_shader_material_halo_gen3_shader_glsl,
     .dependencies = {&gpu_shader_material_glossy_library, NULL},
 };
 
@@ -605,6 +611,7 @@ static GPUMaterialLibrary *gpu_material_libraries[] = {
     &gpu_shader_material_geometry_library,
     &gpu_shader_material_glass_library,
     &gpu_shader_material_hair_info_library,
+    &gpu_shader_material_halo_gen3_shader_library,
     &gpu_shader_material_holdout_library,
     &gpu_shader_material_hue_sat_val_library,
     &gpu_shader_material_invert_library,

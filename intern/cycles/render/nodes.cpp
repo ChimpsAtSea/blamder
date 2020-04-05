@@ -2210,6 +2210,75 @@ void AnisotropicBsdfNode::compile(OSLCompiler &compiler)
   compiler.add(this, "node_anisotropic_bsdf");
 }
 
+/* Anisotropic BSDF Closure */
+
+NODE_DEFINE(HaloGen3ShaderNode)
+{
+  NodeType *type = NodeType::add("halo_gen3_shader", create, NodeType::SHADER);
+
+  SOCKET_IN_COLOR(color, "Color", make_float3(0.8f, 0.8f, 0.8f));
+  SOCKET_IN_NORMAL(normal, "Normal", make_float3(0.0f, 0.0f, 0.0f), SocketType::LINK_NORMAL);
+  SOCKET_IN_FLOAT(surface_mix_weight, "SurfaceMixWeight", 0.0f, SocketType::SVM_INTERNAL);
+
+  /* halo gen3 shader albedo */
+  static NodeEnum albedo_mode_enum;
+  albedo_mode_enum.insert("Default", ALBEDO_OPTION_DEFAULT);
+  albedo_mode_enum.insert("Detail Blend", ALBEDO_OPTION_DETAIL_BLEND);
+  albedo_mode_enum.insert("Constant Color", ALBEDO_OPTION_CONSTANT_COLOR);
+  albedo_mode_enum.insert("Two Change Color", ALBEDO_OPTION_TWO_CHANGE_COLOR);
+  albedo_mode_enum.insert("Four Change Color", ALBEDO_OPTION_FOUR_CHANGE_COLOR);
+  albedo_mode_enum.insert("Three Detail Blend", ALBEDO_OPTION_THREE_DETAIL_BLEND);
+  albedo_mode_enum.insert("Two Detail Overlay", ALBEDO_OPTION_TWO_DETAIL_OVERLAY);
+  albedo_mode_enum.insert("Two Detail", ALBEDO_OPTION_TWO_DETAIL);
+  albedo_mode_enum.insert("Color Mask", ALBEDO_OPTION_COLOR_MASK);
+  albedo_mode_enum.insert("Two Detail Black Point", ALBEDO_OPTION_TWO_DETAIL_BLACK_POINT);
+  albedo_mode_enum.insert("Four Change Color (Applying to Specular)", ALBEDO_OPTION_FOUR_CHANGE_COLOR_APPLYING_TO_SPECULAR);
+  albedo_mode_enum.insert("Simple", ALBEDO_OPTION_SIMPLE);
+  SOCKET_ENUM(albedo_option, "Albedo Mode", albedo_mode_enum, ALBEDO_OPTION_DEFAULT);
+
+  SOCKET_IN_VECTOR(tangent, "Tangent", make_float3(0.0f, 0.0f, 0.0f), SocketType::LINK_TANGENT);
+
+  SOCKET_IN_FLOAT(roughness, "Roughness", 0.5f);
+  SOCKET_IN_FLOAT(anisotropy, "Anisotropy", 0.5f);
+  SOCKET_IN_FLOAT(rotation, "Rotation", 0.0f);
+
+  SOCKET_OUT_CLOSURE(BSDF, "BSDF");
+
+  return type;
+}
+
+HaloGen3ShaderNode::HaloGen3ShaderNode() : BsdfNode(node_type)
+{
+  closure = CLOSURE_BSDF_MICROFACET_GGX_ANISO_ID;
+}
+
+void HaloGen3ShaderNode::attributes(Shader *shader, AttributeRequestSet *attributes)
+{
+  if (shader->has_surface) {
+    ShaderInput *tangent_in = input("Tangent");
+
+    if (!tangent_in->link)
+      attributes->add(ATTR_STD_GENERATED);
+  }
+
+  ShaderNode::attributes(shader, attributes);
+}
+
+void HaloGen3ShaderNode::compile(SVMCompiler &compiler)
+{
+  if (closure == CLOSURE_BSDF_MICROFACET_MULTI_GGX_ANISO_ID)
+    BsdfNode::compile(
+        compiler, input("Roughness"), input("Anisotropy"), input("Rotation"), input("Color"));
+  else
+    BsdfNode::compile(compiler, input("Roughness"), input("Anisotropy"), input("Rotation"));
+}
+
+void HaloGen3ShaderNode::compile(OSLCompiler &compiler)
+{
+  compiler.parameter(this, "albedo_option");
+  compiler.add(this, "node_halo_gen3_shader");
+}
+
 /* Glossy BSDF Closure */
 
 NODE_DEFINE(GlossyBsdfNode)

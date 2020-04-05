@@ -3796,6 +3796,51 @@ static const EnumPropertyItem node_anisotropic_items[] = {
     {0, NULL, 0, NULL, NULL},
 };
 
+static const EnumPropertyItem node_halo_gen3_shader_albedo_items[] = {
+    {SHD_HALO_GEN3_ALBEDO_DEFAULT, "DEFAULT", 0, "Default", ""},
+    {SHD_HALO_GEN3_ALBEDO_DETAIL_BLEND, "DETAIL_BLEND", 0, "Detail Blend", ""},
+    {SHD_HALO_GEN3_ALBEDO_CONSTANT_COLOR, "CONSTANT_COLOR", 0, "Constant Color", ""},
+    {SHD_HALO_GEN3_ALBEDO_TWO_CHANGE_COLOR, "TWO_CHANGE_COLOR", 0, "Two Change Color", ""},
+    {SHD_HALO_GEN3_ALBEDO_FOUR_CHANGE_COLOR, "FOUR_CHANGE_COLOR", 0, "Four Change Color", ""},
+    {SHD_HALO_GEN3_ALBEDO_THREE_DETAIL_BLEND, "THREE_DETAIL_BLEND", 0, "Three Detail Blend", ""},
+    {SHD_HALO_GEN3_ALBEDO_TWO_DETAIL_OVERLAY, "TWO_DETAIL_OVERLAY", 0, "Two Detail Overlay", ""},
+    {SHD_HALO_GEN3_ALBEDO_TWO_DETAIL, "TWO_DETAIL", 0, "Two Detail", ""},
+    {SHD_HALO_GEN3_ALBEDO_COLOR_MASK, "COLOR_MASK", 0, "Color Mask", ""},
+    {SHD_HALO_GEN3_ALBEDO_TWO_DETAIL_BLACK_POINT,
+     "TWO_DETAIL_BLACK_POINT",
+     0,
+     "Two Detail Black Point",
+     ""},
+    {SHD_HALO_GEN3_ALBEDO_FOUR_CHANGE_COLOR_APPLYING_TO_SPECULAR,
+     "FOUR_CHANGE_COLOR_APPLYING_TO_SPECULAR",
+     0,
+     "Four Change Color (Applying to Specular)",
+     ""},
+    {SHD_HALO_GEN3_ALBEDO_SIMPLE, "SIMPLE", 0, "Simple", ""},
+    {0, NULL, 0, NULL, NULL},
+};
+
+static const EnumPropertyItem node_halo_gen3_shader_bump_mapping_items[] = {
+    {SHD_HALO_GEN3_BUMP_MAPPING_OFF, "OFF", 0, "Off", ""},
+    {SHD_HALO_GEN3_BUMP_MAPPING_STANDARD, "STANDARD", 0, "Standard", ""},
+    {SHD_HALO_GEN3_BUMP_MAPPING_DETAIL, "DETAIL", 0, "Detail", ""},
+    {SHD_HALO_GEN3_BUMP_MAPPING_DETAIL_BLEND, "DETAIL_BLEND", 0, "Detail Blend", ""},
+    {SHD_HALO_GEN3_BUMP_MAPPING_THREE_DETAIL_BLEND,
+     "THREE_DETAIL_BLEND",
+     0,
+     "Three Detail Blend",
+     ""},
+    {SHD_HALO_GEN3_BUMP_MAPPING_STANDARD_WRINKLE, "STANDARD_WRINKLE", 0, "Standard Wrinkle", ""},
+    {SHD_HALO_GEN3_BUMP_MAPPING_DETAIL_WRINKLE, "DETAIL_WRINKLE", 0, "Detail Wrinkle", ""},
+    {0, NULL, 0, NULL, NULL},
+};
+
+static const EnumPropertyItem node_halo_gen3_shader_alpha_test_items[] = {
+    {SHD_HALO_GEN3_ALPHA_TEST_OFF, "OFF", 0, "Off", ""},
+    {SHD_HALO_GEN3_ALPHA_TEST_SIMPLE, "SIMPLE", 0, "Simple", ""},
+    {0, NULL, 0, NULL, NULL},
+};
+
 static const EnumPropertyItem node_glass_items[] = {
     {SHD_GLOSSY_SHARP, "SHARP", 0, "Sharp", ""},
     {SHD_GLOSSY_BECKMANN, "BECKMANN", 0, "Beckmann", ""},
@@ -4948,6 +4993,30 @@ static void def_anisotropic(StructRNA *srna)
   RNA_def_property_enum_items(prop, node_anisotropic_items);
   RNA_def_property_ui_text(prop, "Distribution", "");
   RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_Node_update");
+}
+
+static void def_halo_gen3_shader(StructRNA *srna)
+{
+  PropertyRNA *prop;
+
+  prop = RNA_def_property(srna, "albedo_option", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, NULL, "opus_custom_option0");
+  RNA_def_property_enum_items(prop, node_halo_gen3_shader_albedo_items);
+  RNA_def_property_ui_text(prop, "Albedo", "");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_ShaderNode_socket_update");
+
+  prop = RNA_def_property(srna, "bump_mapping_option", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, NULL, "opus_custom_option1");
+  RNA_def_property_enum_items(prop, node_halo_gen3_shader_bump_mapping_items);
+  RNA_def_property_ui_text(prop, "Bump Mapping", "");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_ShaderNode_socket_update");
+
+  prop = RNA_def_property(srna, "alpha_test_option", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, NULL, "opus_custom_option2");
+  RNA_def_property_enum_items(prop, node_halo_gen3_shader_alpha_test_items);
+  RNA_def_property_ui_text(prop, "Alpha Test", "");
+  RNA_def_property_update(prop, NC_NODE | NA_EDITED, "rna_ShaderNode_socket_update");
+
 }
 
 static void def_toon(StructRNA *srna)

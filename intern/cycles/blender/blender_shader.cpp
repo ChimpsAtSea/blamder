@@ -399,6 +399,12 @@ static ShaderNode *add_node(Scene *scene,
 
     node = aniso;
   }
+  else if (b_node.is_a(&RNA_ShaderNodeHaloGen3Shader)) {
+    BL::ShaderNodeHaloGen3Shader b_halo_gen3_shader(b_node);
+    HaloGen3ShaderNode *halo_gen3_shader_node = new HaloGen3ShaderNode();
+
+    node = halo_gen3_shader_node;
+  }
   else if (b_node.is_a(&RNA_ShaderNodeBsdfDiffuse)) {
     node = new DiffuseBsdfNode();
   }

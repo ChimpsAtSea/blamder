@@ -158,6 +158,7 @@ set(SRC
   shader/nodes/node_shader_gamma.c
   shader/nodes/node_shader_geometry.c
   shader/nodes/node_shader_hair_info.c
+  shader/nodes/node_shader_halo_gen3_shader.c
   shader/nodes/node_shader_holdout.c
   shader/nodes/node_shader_hueSatVal.c
   shader/nodes/node_shader_ies_light.c

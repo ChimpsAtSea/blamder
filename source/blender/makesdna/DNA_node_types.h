@@ -257,6 +257,39 @@ typedef struct bNode {
   short custom1, custom2;
   float custom3, custom4;
 
+  short opus_custom_option0;
+  short opus_custom_option1;
+  short opus_custom_option2;
+  short opus_custom_option3;
+  short opus_custom_option4;
+  short opus_custom_option5;
+  short opus_custom_option6;
+  short opus_custom_option7;
+  short opus_custom_option8;
+  short opus_custom_option9;
+  short opus_custom_option10;
+  short opus_custom_option11;
+  short opus_custom_option12;
+  short opus_custom_option13;
+  short opus_custom_option14;
+  short opus_custom_option15;
+  short opus_custom_option16;
+  short opus_custom_option17;
+  short opus_custom_option18;
+  short opus_custom_option19;
+  short opus_custom_option20;
+  short opus_custom_option21;
+  short opus_custom_option22;
+  short opus_custom_option23;
+  short opus_custom_option24;
+  short opus_custom_option25;
+  short opus_custom_option26;
+  short opus_custom_option27;
+  short opus_custom_option28;
+  short opus_custom_option29;
+  short opus_custom_option30;
+  short opus_custom_option31;
+
   /** Need_exec is set as UI execution event, exec is flag during exec. */
   short need_exec, exec;
   /** Optional extra storage for use in thread (read only then!). */
@@ -1062,6 +1095,33 @@ typedef struct NodeDenoise {
 #define SHD_GLOSSY_GGX 2
 #define SHD_GLOSSY_ASHIKHMIN_SHIRLEY 3
 #define SHD_GLOSSY_MULTI_GGX 4
+
+/* halo gen3 shader albedo */
+#define SHD_HALO_GEN3_ALBEDO_DEFAULT 0
+#define SHD_HALO_GEN3_ALBEDO_DETAIL_BLEND 1
+#define SHD_HALO_GEN3_ALBEDO_CONSTANT_COLOR 2
+#define SHD_HALO_GEN3_ALBEDO_TWO_CHANGE_COLOR 3
+#define SHD_HALO_GEN3_ALBEDO_FOUR_CHANGE_COLOR 4
+#define SHD_HALO_GEN3_ALBEDO_THREE_DETAIL_BLEND 5
+#define SHD_HALO_GEN3_ALBEDO_TWO_DETAIL_OVERLAY 6
+#define SHD_HALO_GEN3_ALBEDO_TWO_DETAIL 7
+#define SHD_HALO_GEN3_ALBEDO_COLOR_MASK 8
+#define SHD_HALO_GEN3_ALBEDO_TWO_DETAIL_BLACK_POINT 9
+#define SHD_HALO_GEN3_ALBEDO_FOUR_CHANGE_COLOR_APPLYING_TO_SPECULAR 10
+#define SHD_HALO_GEN3_ALBEDO_SIMPLE 11
+
+/* halo gen3 shader bump mapping */
+#define SHD_HALO_GEN3_BUMP_MAPPING_OFF 0
+#define SHD_HALO_GEN3_BUMP_MAPPING_STANDARD 1
+#define SHD_HALO_GEN3_BUMP_MAPPING_DETAIL 2
+#define SHD_HALO_GEN3_BUMP_MAPPING_DETAIL_BLEND 3
+#define SHD_HALO_GEN3_BUMP_MAPPING_THREE_DETAIL_BLEND 4
+#define SHD_HALO_GEN3_BUMP_MAPPING_STANDARD_WRINKLE 5
+#define SHD_HALO_GEN3_BUMP_MAPPING_DETAIL_WRINKLE 6
+
+/* halo3 gen3 shader alpha test */
+#define SHD_HALO_GEN3_ALPHA_TEST_OFF 0
+#define SHD_HALO_GEN3_ALPHA_TEST_SIMPLE 1
 
 /* vector transform */
 #define SHD_VECT_TRANSFORM_TYPE_VECTOR 0
