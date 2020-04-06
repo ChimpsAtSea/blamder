@@ -4,36 +4,34 @@
    See 'release/text/readme.html' for the end user read-me.
 
 
-Blender
-=======
+Blamder: Blender for Halo
+=========================
 
-Blender is the free and open source 3D creation suite.
-It supports the entirety of the 3D pipeline-modeling, rigging, animation, simulation, rendering, compositing,
+Blamder is a modification to Blender the free an open source 3D creation suite for creating assets for Halo.
+Support for all the existing Blender 3D pipeline-modeling, rigging, animation, simulation, rendering, compositing,
 motion tracking and video editing.
 
 .. figure:: https://code.blender.org/wp-content/uploads/2018/12/springrg.jpg
    :scale: 50 %
    :align: center
 
-
-Project Pages
--------------
-
-- `Main Website <http://www.blender.org>`__
-- `Reference Manual <https://docs.blender.org/manual/en/latest/index.html>`__
-- `User Community <https://www.blender.org/community/>`__
-
 Development
 -----------
 
-- `Build Instructions <https://wiki.blender.org/wiki/Building_Blender>`__
-- `Code Review & Bug Tracker <https://developer.blender.org>`__
-- `Developer Forum <https://devtalk.blender.org>`__
-- `Developer Documentation <https://wiki.blender.org>`__
+- `Blender Build Instructions <https://wiki.blender.org/wiki/Building_Blender>`__
+- `Assault on the Control Room Discord <https://discord.gg/ksvhEQD>`__
 
+Blender Pages
+-------------
+
+- `Blender Main Website <http://www.blender.org>`__
+- `Blender GitHub Repo <https://github.com/blender/blender>`__
+- `Blender Reference Manual <https://docs.blender.org/manual/en/latest/index.html>`__
 
 License
 -------
+
+Blamder is licensed under the GNU Public License, Version 3.
 
 Blender as a whole is licensed under the GNU Public License, Version 3.
 Individual files may have a different, but compatible license.
