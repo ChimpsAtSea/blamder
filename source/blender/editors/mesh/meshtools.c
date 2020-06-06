@@ -314,7 +314,7 @@ int join_mesh_exec(bContext *C, wmOperator *op)
   int a, b, totcol, totmat = 0, totedge = 0, totvert = 0;
   int totloop = 0, totpoly = 0, vertofs, *matmap = NULL;
   int i, haskey = 0, edgeofs, loopofs, polyofs;
-  bool ok = false;
+  bool ok = false, join_parent = false;
   bDeformGroup *dg, *odg;
   CustomData vdata, edata, fdata, ldata, pdata;
 
@@ -346,6 +346,10 @@ int join_mesh_exec(bContext *C, wmOperator *op)
         ok = true;
       }
 
+      if ((ob->parent != NULL) && (ob_iter == ob->parent)) {
+        join_parent = true;
+      }
+
       /* check for shapekeys */
       if (me->key) {
         haskey++;
@@ -353,6 +357,13 @@ int join_mesh_exec(bContext *C, wmOperator *op)
     }
   }
   CTX_DATA_END;
+
+  /* Apply parent transform if the active object's parent was joined to it.
+   * Note: This doesn't apply recursive parenting. */
+  if (join_parent) {
+    ob->parent = NULL;
+    BKE_object_apply_mat4_ex(ob, ob->obmat, ob->parent, ob->parentinv, false);
+  }
 
   /* that way the active object is always selected */
   if (ok == false) {
@@ -849,10 +860,10 @@ static int ed_mesh_mirror_topo_table_update(Object *ob, Mesh *me_eval)
 
 /** \} */
 
-static int mesh_get_x_mirror_vert_spatial(Object *ob, Mesh *mesh, int index)
+static int mesh_get_x_mirror_vert_spatial(Object *ob, Mesh *me_eval, int index)
 {
   Mesh *me = ob->data;
-  MVert *mvert = mesh ? mesh->mvert : me->mvert;
+  MVert *mvert = me_eval ? me_eval->mvert : me->mvert;
   float vec[3];
 
   mvert = &mvert[index];
@@ -860,7 +871,7 @@ static int mesh_get_x_mirror_vert_spatial(Object *ob, Mesh *mesh, int index)
   vec[1] = mvert->co[1];
   vec[2] = mvert->co[2];
 
-  return ED_mesh_mirror_spatial_table_lookup(ob, NULL, mesh, vec);
+  return ED_mesh_mirror_spatial_table_lookup(ob, NULL, me_eval, vec);
 }
 
 static int mesh_get_x_mirror_vert_topo(Object *ob, Mesh *mesh, int index)

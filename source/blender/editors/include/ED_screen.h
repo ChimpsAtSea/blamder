@@ -215,7 +215,7 @@ ScrArea *ED_screen_areas_iter_next(const bScreen *screen, const ScrArea *area);
 #define ED_screen_verts_iter(win, screen, vert_name) \
   for (ScrVert *vert_name = (win)->global_areas.vertbase.first ? \
                                 (win)->global_areas.vertbase.first : \
-                                screen->vertbase.first; \
+                                (screen)->vertbase.first; \
        vert_name != NULL; \
        vert_name = (vert_name == (win)->global_areas.vertbase.last) ? (screen)->vertbase.first : \
                                                                       vert_name->next)
@@ -347,6 +347,7 @@ bool ED_operator_info_active(struct bContext *C);
 bool ED_operator_console_active(struct bContext *C);
 
 bool ED_operator_object_active(struct bContext *C);
+bool ED_operator_object_active_editable_ex(struct bContext *C, const Object *ob);
 bool ED_operator_object_active_editable(struct bContext *C);
 bool ED_operator_object_active_editable_mesh(struct bContext *C);
 bool ED_operator_object_active_editable_font(struct bContext *C);

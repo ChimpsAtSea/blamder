@@ -184,78 +184,74 @@ static void *ed_armature_pick_bone_from_selectbuffer_impl(const bool is_editmode
   for (i = 0; i < hits; i++) {
     hitresult = buffer[3 + (i * 4)];
 
-    if (!(hitresult & BONESEL_NOSEL)) {
-      if (hitresult & BONESEL_ANY) { /* to avoid including objects in selection */
-        Base *base = NULL;
-        bool sel;
+    if (hitresult & BONESEL_ANY) { /* to avoid including objects in selection */
+      Base *base = NULL;
+      bool sel;
 
-        hitresult &= ~(BONESEL_ANY);
-        /* Determine what the current bone is */
-        if (is_editmode == false) {
-          base = ED_armature_base_and_pchan_from_select_buffer(
-              bases, bases_len, hitresult, &pchan);
-          if (pchan != NULL) {
-            if (findunsel) {
-              sel = (pchan->bone->flag & BONE_SELECTED);
-            }
-            else {
-              sel = !(pchan->bone->flag & BONE_SELECTED);
-            }
-
-            data = pchan;
+      hitresult &= ~(BONESEL_ANY);
+      /* Determine what the current bone is */
+      if (is_editmode == false) {
+        base = ED_armature_base_and_pchan_from_select_buffer(bases, bases_len, hitresult, &pchan);
+        if (pchan != NULL) {
+          if (findunsel) {
+            sel = (pchan->bone->flag & BONE_SELECTED);
           }
           else {
-            data = NULL;
-            sel = 0;
+            sel = !(pchan->bone->flag & BONE_SELECTED);
+          }
+
+          data = pchan;
+        }
+        else {
+          data = NULL;
+          sel = 0;
+        }
+      }
+      else {
+        base = ED_armature_base_and_ebone_from_select_buffer(bases, bases_len, hitresult, &ebone);
+        if (findunsel) {
+          sel = (ebone->flag & BONE_SELECTED);
+        }
+        else {
+          sel = !(ebone->flag & BONE_SELECTED);
+        }
+
+        data = ebone;
+      }
+
+      if (data) {
+        if (sel) {
+          if (do_nearest) {
+            if (minsel > buffer[4 * i + 1]) {
+              firstSel = data;
+              firstSel_base = base;
+              minsel = buffer[4 * i + 1];
+            }
+          }
+          else {
+            if (!firstSel) {
+              firstSel = data;
+              firstSel_base = base;
+            }
+            takeNext = 1;
           }
         }
         else {
-          base = ED_armature_base_and_ebone_from_select_buffer(
-              bases, bases_len, hitresult, &ebone);
-          if (findunsel) {
-            sel = (ebone->flag & BONE_SELECTED);
-          }
-          else {
-            sel = !(ebone->flag & BONE_SELECTED);
-          }
-
-          data = ebone;
-        }
-
-        if (data) {
-          if (sel) {
-            if (do_nearest) {
-              if (minsel > buffer[4 * i + 1]) {
-                firstSel = data;
-                firstSel_base = base;
-                minsel = buffer[4 * i + 1];
-              }
-            }
-            else {
-              if (!firstSel) {
-                firstSel = data;
-                firstSel_base = base;
-              }
-              takeNext = 1;
+          if (do_nearest) {
+            if (minunsel > buffer[4 * i + 1]) {
+              firstunSel = data;
+              firstunSel_base = base;
+              minunsel = buffer[4 * i + 1];
             }
           }
           else {
-            if (do_nearest) {
-              if (minunsel > buffer[4 * i + 1]) {
-                firstunSel = data;
-                firstunSel_base = base;
-                minunsel = buffer[4 * i + 1];
-              }
+            if (!firstunSel) {
+              firstunSel = data;
+              firstunSel_base = base;
             }
-            else {
-              if (!firstunSel) {
-                firstunSel = data;
-                firstunSel_base = base;
-              }
-              if (takeNext) {
-                *r_base = base;
-                return data;
-              }
+            if (takeNext) {
+              *r_base = base;
+              return data;
             }
           }
         }
@@ -657,45 +653,28 @@ static EditBone *get_nearest_editbonepoint(
     uint hitresult;
     Base *base;
     EditBone *ebone;
-  } best = {
-      .hitresult = BONESEL_NOSEL,
-      .base = NULL,
-      .ebone = NULL,
-  };
+  } *result = NULL,
+
+    result_cycle = {.hitresult = -1, .base = NULL, .ebone = NULL},
+    result_bias = {.hitresult = -1, .base = NULL, .ebone = NULL};
 
   /* find the bone after the current active bone, so as to bump up its chances in selection.
    * this way overlapping bones will cycle selection state as with objects. */
-  EditBone *ebone_next_act = ((bArmature *)vc->obedit->data)->act_edbone;
-  {
-    bArmature *arm = (bArmature *)vc->obedit->data;
-    if (ebone_next_act && EBONE_VISIBLE(arm, ebone_next_act) &&
-        ebone_next_act->flag & (BONE_SELECTED | BONE_ROOTSEL | BONE_TIPSEL)) {
-      ebone_next_act = ebone_next_act->next ? ebone_next_act->next : arm->edbo->first;
-    }
-    else {
-      ebone_next_act = NULL;
-    }
+  Object *obedit_orig = vc->obedit;
+  EditBone *ebone_active_orig = ((bArmature *)obedit_orig->data)->act_edbone;
+  if (ebone_active_orig == NULL) {
+    use_cycle = false;
   }
 
-  bool do_nearest = false;
-
-  /* define if we use solid nearest select or not */
   if (use_cycle) {
     static int last_mval[2] = {-100, -100};
-
-    if (!XRAY_ACTIVE(vc->v3d)) {
-      do_nearest = true;
-      if (len_manhattan_v2v2_int(vc->mval, last_mval) <= WM_EVENT_CURSOR_MOTION_THRESHOLD) {
-        do_nearest = false;
-      }
+    if ((len_manhattan_v2v2_int(vc->mval, last_mval) <= WM_EVENT_CURSOR_MOTION_THRESHOLD) == 0) {
+      use_cycle = false;
     }
     copy_v2_v2_int(last_mval, vc->mval);
   }
-  else {
-    if (!XRAY_ACTIVE(vc->v3d)) {
-      do_nearest = true;
-    }
-  }
+
+  const bool do_nearest = !(XRAY_ACTIVE(vc->v3d) || use_cycle);
 
   /* matching logic from 'mixed_bones_object_selectbuffer' */
   int hits = 0;
@@ -749,87 +728,144 @@ cache_end:
   /* See if there are any selected bones in this group */
   if (hits > 0) {
     if (hits == 1) {
-      if (!(buffer[3] & BONESEL_NOSEL)) {
-        best.hitresult = buffer[3];
-        best.base = ED_armature_base_and_ebone_from_select_buffer(
-            bases, bases_len, best.hitresult, &best.ebone);
-      }
+      result_bias.hitresult = buffer[3];
+      result_bias.base = ED_armature_base_and_ebone_from_select_buffer(
+          bases, bases_len, result_bias.hitresult, &result_bias.ebone);
     }
     else {
-      int dep_min = 5;
+      int bias_max = INT_MIN;
+
+      /* Track Cycle Variables
+       * - Offset is always set to the active bone.
+       * - The object & bone indices subtracted by the 'offset.as_u32' value.
+       *   Unsigned subtraction wrapping means we always select the next bone in the cycle.
+       */
+      struct {
+        union {
+          uint32_t as_u32;
+          struct {
+#ifdef __BIG_ENDIAN__
+            uint16_t ob;
+            uint16_t bone;
+#else
+            uint16_t bone;
+            uint16_t ob;
+#endif
+          };
+        } offset, test, best;
+      } cycle_order;
+
+      if (use_cycle) {
+        bArmature *arm = obedit_orig->data;
+        int ob_index = obedit_orig->runtime.select_id & 0xFFFF;
+        int bone_index = BLI_findindex(arm->edbo, ebone_active_orig);
+        /* Offset from the current active bone, so we cycle onto the next. */
+        cycle_order.offset.ob = ob_index;
+        cycle_order.offset.bone = bone_index;
+        /* The value of the active bone (with offset subtracted, a signal to always overwrite). */
+        cycle_order.best.as_u32 = 0;
+      }
+
       for (int i = 0; i < hits; i++) {
         const uint hitresult = buffer[3 + (i * 4)];
-        if (!(hitresult & BONESEL_NOSEL)) {
-          Base *base = NULL;
-          EditBone *ebone;
-          base = ED_armature_base_and_ebone_from_select_buffer(
-              bases, bases_len, hitresult, &ebone);
-          /* If this fails, selection code is setting the selection ID's incorrectly. */
-          BLI_assert(base && ebone);
 
-          int dep;
+        Base *base = NULL;
+        EditBone *ebone;
+        base = ED_armature_base_and_ebone_from_select_buffer(bases, bases_len, hitresult, &ebone);
+        /* If this fails, selection code is setting the selection ID's incorrectly. */
+        BLI_assert(base && ebone);
+
+        /* Prioritized selection. */
+        {
+          int bias;
           /* clicks on bone points get advantage */
           if (hitresult & (BONESEL_ROOT | BONESEL_TIP)) {
             /* but also the unselected one */
             if (findunsel) {
               if ((hitresult & BONESEL_ROOT) && (ebone->flag & BONE_ROOTSEL) == 0) {
-                dep = 1;
+                bias = 4;
               }
               else if ((hitresult & BONESEL_TIP) && (ebone->flag & BONE_TIPSEL) == 0) {
-                dep = 1;
+                bias = 4;
               }
               else {
-                dep = 2;
+                bias = 3;
               }
             }
             else {
-              dep = 1;
+              bias = 4;
             }
           }
           else {
             /* bone found */
             if (findunsel) {
               if ((ebone->flag & BONE_SELECTED) == 0) {
-                dep = 3;
+                bias = 2;
               }
               else {
-                dep = 4;
+                bias = 1;
               }
             }
             else {
-              dep = 3;
+              bias = 2;
             }
           }
 
-          if (ebone == ebone_next_act) {
-            dep -= 1;
-          }
+          if (bias > bias_max) {
+            bias_max = bias;
 
-          if (dep < dep_min) {
-            dep_min = dep;
-            best.hitresult = hitresult;
-            best.base = base;
-            best.ebone = ebone;
+            result_bias.hitresult = hitresult;
+            result_bias.base = base;
+            result_bias.ebone = ebone;
+          }
+        }
+
+        /* Cycle selected items (objects & bones). */
+        if (use_cycle) {
+          cycle_order.test.ob = hitresult & 0xFFFF;
+          cycle_order.test.bone = (hitresult & ~BONESEL_ANY) >> 16;
+          if (ebone == ebone_active_orig) {
+            BLI_assert(cycle_order.test.ob == cycle_order.offset.ob);
+            BLI_assert(cycle_order.test.bone == cycle_order.offset.bone);
+          }
+          /* Subtraction as a single value is needed to support cycling through bones
+           * from multiple objects. So once the last bone is selected,
+           * the bits for the bone index wrap into the object,
+           * causing the next object to be stepped onto. */
+          cycle_order.test.as_u32 -= cycle_order.offset.as_u32;
+
+          /* Even though this logic avoids stepping onto the active bone,
+           * always set the 'best' value for the first time.
+           * Otherwise ensure the value is the smallest it can be,
+           * relative to the active bone, as long as it's not the active bone. */
+          if ((cycle_order.best.as_u32 == 0) ||
+              (cycle_order.test.as_u32 && (cycle_order.test.as_u32 < cycle_order.best.as_u32))) {
+            cycle_order.best = cycle_order.test;
+            result_cycle.hitresult = hitresult;
+            result_cycle.base = base;
+            result_cycle.ebone = ebone;
           }
         }
       }
     }
 
-    if (!(best.hitresult & BONESEL_NOSEL)) {
-      *r_base = best.base;
+    result = (use_cycle && result_cycle.ebone) ? &result_cycle : &result_bias;
+
+    if (result->hitresult != -1) {
+      *r_base = result->base;
 
       *r_selmask = 0;
-      if (best.hitresult & BONESEL_ROOT) {
+      if (result->hitresult & BONESEL_ROOT) {
         *r_selmask |= BONE_ROOTSEL;
       }
-      if (best.hitresult & BONESEL_TIP) {
+      if (result->hitresult & BONESEL_TIP) {
         *r_selmask |= BONE_TIPSEL;
       }
-      if (best.hitresult & BONESEL_BONE) {
+      if (result->hitresult & BONESEL_BONE) {
         *r_selmask |= BONE_SELECTED;
       }
       MEM_freeN(bases);
-      return best.ebone;
+      return result->ebone;
     }
   }
   *r_selmask = 0;
@@ -1169,8 +1205,8 @@ bool ED_armature_edit_select_op_from_tagged(bArmature *arm, const int sel_op)
       ebone->temp.i = ebone->flag;
 
       /* When there is a partial selection without both endpoints, only select an endpoint. */
-      if ((is_inside_flag & BONESEL_BONE) && (is_inside_flag & (BONESEL_ROOT | BONESEL_TIP)) &&
-          ((is_inside_flag & (BONESEL_ROOT | BONESEL_TIP)) != (BONESEL_ROOT | BONESEL_TIP))) {
+      if ((is_inside_flag & BONESEL_BONE) &&
+          ELEM(is_inside_flag & (BONESEL_ROOT | BONESEL_TIP), BONESEL_ROOT, BONESEL_TIP)) {
         is_inside_flag &= ~BONESEL_BONE;
       }
 

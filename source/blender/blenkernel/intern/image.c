@@ -199,6 +199,7 @@ IDTypeInfo IDType_ID_IM = {
     .copy_data = image_copy_data,
     .free_data = image_free_data,
     .make_local = NULL,
+    .foreach_id = NULL,
 };
 
 /* prototypes */
@@ -571,7 +572,7 @@ ImageTile *BKE_image_get_tile(Image *ima, int tile_number)
   return NULL;
 }
 
-ImageTile *BKE_image_get_tile_from_iuser(Image *ima, ImageUser *iuser)
+ImageTile *BKE_image_get_tile_from_iuser(Image *ima, const ImageUser *iuser)
 {
   return BKE_image_get_tile(ima, (iuser && iuser->tile) ? iuser->tile : 1001);
 }
@@ -3977,7 +3978,9 @@ static ImBuf *load_sequence_single(
     iuser_t = *iuser;
   }
   else {
-    /* TODO(sergey): Do we need to initialize something here? */
+    /* BKE_image_user_file_path() uses this value for file name for sequences. */
+    iuser_t.framenr = frame;
+    /* TODO(sergey): Do we need to initialize something else here? */
   }
 
   iuser_t.view = view_id;
@@ -4794,7 +4797,7 @@ static ImBuf *image_get_cached_ibuf(Image *ima, ImageUser *iuser, int *r_entry, 
   return ibuf;
 }
 
-BLI_INLINE bool image_quick_test(Image *ima, ImageUser *iuser)
+BLI_INLINE bool image_quick_test(Image *ima, const ImageUser *iuser)
 {
   if (ima == NULL) {
     return false;
@@ -5316,8 +5319,8 @@ void BKE_image_user_file_path(ImageUser *iuser, Image *ima, char *filepath)
       index = (iuser && iuser->tile) ? iuser->tile : 1001;
     }
 
-    BLI_stringdec(filepath, head, tail, &numlen);
-    BLI_stringenc(filepath, head, tail, numlen, index);
+    BLI_path_sequence_decode(filepath, head, tail, &numlen);
+    BLI_path_sequence_encode(filepath, head, tail, numlen, index);
   }
 
   BLI_path_abs(filepath, ID_BLEND_PATH_FROM_GLOBAL(&ima->id));
@@ -5458,7 +5461,7 @@ float *BKE_image_get_float_pixels_for_frame(struct Image *image, int frame, int 
 
 int BKE_image_sequence_guess_offset(Image *image)
 {
-  return BLI_stringdec(image->name, NULL, NULL, NULL);
+  return BLI_path_sequence_decode(image->name, NULL, NULL, NULL);
 }
 
 bool BKE_image_has_anim(Image *ima)
@@ -5724,6 +5727,13 @@ RenderSlot *BKE_image_add_renderslot(Image *ima, const char *name)
 
 bool BKE_image_remove_renderslot(Image *ima, ImageUser *iuser, int index)
 {
+  if (index == ima->last_render_slot) {
+    /* Don't remove render slot while rendering to it. */
+    if (G.is_rendering) {
+      return false;
+    }
+  }
+
   int num_slots = BLI_listbase_count(&ima->renderslots);
   if (index >= num_slots || num_slots == 1) {
     return false;

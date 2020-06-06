@@ -435,7 +435,7 @@ extern GHOST_TSuccess GHOST_SetCursorGrab(GHOST_WindowHandle windowhandle,
  ***************************************************************************************/
 
 /**
- * Returns the state of a modifier key (ouside the message queue).
+ * Returns the state of a modifier key (outside the message queue).
  * \param systemhandle The handle to the system
  * \param mask The modifier key state to retrieve.
  * \param isDown Pointer to return modifier state in.
@@ -446,7 +446,7 @@ extern GHOST_TSuccess GHOST_GetModifierKeyState(GHOST_SystemHandle systemhandle,
                                                 int *isDown);
 
 /**
- * Returns the state of a mouse button (ouside the message queue).
+ * Returns the state of a mouse button (outside the message queue).
  * \param systemhandle The handle to the system
  * \param mask The button state to retrieve.
  * \param isDown Pointer to return button state in.
@@ -760,13 +760,6 @@ extern unsigned int GHOST_GetDefaultOpenGLFramebuffer(GHOST_WindowHandle windwHa
  * \param api Enum indicating which API to use.
  */
 extern void GHOST_SetTabletAPI(GHOST_SystemHandle systemhandle, GHOST_TTabletAPI api);
-
-/**
- * Returns the status of the tablet
- * \param windowhandle The handle to the window
- * \return Status of tablet
- */
-extern const GHOST_TabletData *GHOST_GetTabletData(GHOST_WindowHandle windowhandle);
 
 /**
  * Access to rectangle width.

@@ -375,7 +375,7 @@ void GPU_batch_program_set_no_use(GPUBatch *batch,
                                   const GPUShaderInterface *shaderface)
 {
 #if TRUST_NO_ONE
-  assert(glIsProgram(shaderface->program));
+  assert(glIsProgram(program));
   assert(batch->program_in_use == 0);
 #endif
   batch->interface = shaderface;
@@ -551,11 +551,11 @@ void GPU_batch_program_use_end(GPUBatch *batch)
 
 #if TRUST_NO_ONE
 #  define GET_UNIFORM \
-    const GPUShaderInput *uniform = GPU_shaderinterface_uniform_ensure(batch->interface, name); \
+    const GPUShaderInput *uniform = GPU_shaderinterface_uniform(batch->interface, name); \
     assert(uniform);
 #else
 #  define GET_UNIFORM \
-    const GPUShaderInput *uniform = GPU_shaderinterface_uniform_ensure(batch->interface, name);
+    const GPUShaderInput *uniform = GPU_shaderinterface_uniform(batch->interface, name);
 #endif
 
 void GPU_batch_uniform_1ui(GPUBatch *batch, const char *name, uint value)
@@ -675,6 +675,7 @@ void GPU_batch_draw(GPUBatch *batch)
 #endif
   GPU_batch_program_use_begin(batch);
   GPU_matrix_bind(batch->interface);  // external call.
+  GPU_shader_set_srgb_uniform(batch->interface);
 
   GPU_batch_bind(batch);
   GPU_batch_draw_advanced(batch, 0, 0, 0, 0);

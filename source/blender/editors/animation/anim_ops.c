@@ -49,6 +49,7 @@
 #include "ED_anim_api.h"
 #include "ED_screen.h"
 #include "ED_sequencer.h"
+#include "ED_time_scrub_ui.h"
 #include "ED_util.h"
 
 #include "DEG_depsgraph.h"
@@ -72,14 +73,8 @@ static bool change_frame_poll(bContext *C)
    * this shouldn't show up in 3D editor (or others without 2D timeline view) via search
    */
   if (area) {
-    if (ELEM(area->spacetype, SPACE_ACTION, SPACE_NLA, SPACE_SEQ, SPACE_CLIP)) {
+    if (ELEM(area->spacetype, SPACE_ACTION, SPACE_NLA, SPACE_SEQ, SPACE_CLIP, SPACE_GRAPH)) {
       return true;
-    }
-    else if (area->spacetype == SPACE_GRAPH) {
-      /* NOTE: Graph Editor has special version which does some extra stuff.
-       * No need to show the generic error message for that case though!
-       */
-      return false;
     }
   }
 
@@ -155,7 +150,9 @@ static void change_frame_seq_preview_begin(bContext *C, const wmEvent *event)
   bScreen *screen = CTX_wm_screen(C);
   if (area && area->spacetype == SPACE_SEQ) {
     SpaceSeq *sseq = area->spacedata.first;
-    if (ED_space_sequencer_check_show_strip(sseq)) {
+    ARegion *region = CTX_wm_region(C);
+    if (ED_space_sequencer_check_show_strip(sseq) &&
+        !ED_time_scrub_event_in_region(region, event)) {
       ED_sequencer_special_preview_set(C, event->mval);
     }
   }
