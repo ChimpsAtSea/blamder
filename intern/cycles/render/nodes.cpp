@@ -2256,7 +2256,7 @@ NODE_DEFINE(HaloGen3ShaderNode)
 
 HaloGen3ShaderNode::HaloGen3ShaderNode() : BsdfNode(node_type)
 {
-  closure = CLOSURE_BSDF_MICROFACET_GGX_ANISO_ID;
+  closure = CLOSURE_BSDF_MICROFACET_GGX_ID;
 }
 
 void HaloGen3ShaderNode::attributes(Shader *shader, AttributeRequestSet *attributes)
@@ -2273,7 +2273,7 @@ void HaloGen3ShaderNode::attributes(Shader *shader, AttributeRequestSet *attribu
 
 void HaloGen3ShaderNode::compile(SVMCompiler &compiler)
 {
-  if (closure == CLOSURE_BSDF_MICROFACET_MULTI_GGX_ANISO_ID)
+  if (closure == CLOSURE_BSDF_MICROFACET_GGX_ID)
     BsdfNode::compile(
         compiler, input("Roughness"), input("Anisotropy"), input("Rotation"), input("Color"));
   else
