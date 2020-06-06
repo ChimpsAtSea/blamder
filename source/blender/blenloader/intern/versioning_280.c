@@ -40,6 +40,7 @@
 #include "DNA_constraint_types.h"
 #include "DNA_curve_types.h"
 #include "DNA_curveprofile_types.h"
+#include "DNA_fluid_types.h"
 #include "DNA_freestyle_types.h"
 #include "DNA_genfile.h"
 #include "DNA_gpencil_modifier_types.h"
@@ -74,6 +75,7 @@
 #include "BKE_curveprofile.h"
 #include "BKE_customdata.h"
 #include "BKE_fcurve.h"
+#include "BKE_fcurve_driver.h"
 #include "BKE_freestyle.h"
 #include "BKE_global.h"
 #include "BKE_gpencil.h"
@@ -111,6 +113,35 @@
 /* Make preferences read-only, use versioning_userdef.c. */
 #define U (*((const UserDef *)&U))
 
+/**
+ * Rename if the ID doesn't exist.
+ */
+static ID *rename_id_for_versioning(Main *bmain,
+                                    const short id_type,
+                                    const char *name_src,
+                                    const char *name_dst)
+{
+  /* We can ignore libraries */
+  ListBase *lb = which_libbase(bmain, id_type);
+  ID *id = NULL;
+  LISTBASE_FOREACH (ID *, idtest, lb) {
+    if (idtest->lib == NULL) {
+      if (STREQ(idtest->name + 2, name_src)) {
+        id = idtest;
+      }
+      if (STREQ(idtest->name + 2, name_dst)) {
+        return NULL;
+      }
+    }
+  }
+  if (id != NULL) {
+    BLI_strncpy(id->name + 2, name_dst, sizeof(id->name) - 2);
+    /* We know it's unique, this just sorts. */
+    BLI_libblock_ensure_unique_name(bmain, id->name);
+  }
+  return id;
+}
+
 static bScreen *screen_parent_find(const bScreen *screen)
 {
   /* Can avoid lookup if screen state isn't maximized/full
@@ -129,6 +160,8 @@ static bScreen *screen_parent_find(const bScreen *screen)
 
 static void do_version_workspaces_create_from_screens(Main *bmain)
 {
+  bmain->is_locked_for_linking = false;
+
   for (bScreen *screen = bmain->screens.first; screen; screen = screen->id.next) {
     const bScreen *screen_parent = screen_parent_find(screen);
     WorkSpace *workspace;
@@ -150,6 +183,8 @@ static void do_version_workspaces_create_from_screens(Main *bmain)
     }
     BKE_workspace_layout_add(bmain, workspace, screen, screen->id.name + 2);
   }
+
+  bmain->is_locked_for_linking = true;
 }
 
 static void do_version_area_change_space_to_space_action(ScrArea *area, const Scene *scene)
@@ -222,7 +257,7 @@ static void do_version_workspaces_after_lib_link(Main *bmain)
       win->workspace_hook = BKE_workspace_instance_hook_create(bmain);
 
       BKE_workspace_active_set(win->workspace_hook, workspace);
-      BKE_workspace_active_layout_set(win->workspace_hook, layout);
+      BKE_workspace_active_layout_set(win->workspace_hook, workspace, layout);
 
       /* Move scene and view layer to window. */
       Scene *scene = screen->scene;
@@ -724,7 +759,7 @@ static void do_version_bbone_scale_fcurve_fix(ListBase *curves, FCurve *fcu)
   /* Update F-Curve's path. */
   if (replace_bbone_scale_rnapath(&fcu->rna_path)) {
     /* If matched, duplicate the curve and tweak name. */
-    FCurve *second = copy_fcurve(fcu);
+    FCurve *second = BKE_fcurve_copy(fcu);
 
     second->rna_path[strlen(second->rna_path) - 1] = 'y';
 
@@ -1633,13 +1668,41 @@ void do_versions_after_linking_280(Main *bmain, ReportList *UNUSED(reports))
 
   if (!MAIN_VERSION_ATLEAST(bmain, 282, 2)) {
     /* Init all Vertex/Sculpt and Weight Paint brushes. */
-    Brush *brush = BLI_findstring(&bmain->brushes, "Pencil", offsetof(ID, name) + 2);
+    Brush *brush;
+    Material *ma;
+    /* Pen Soft brush. */
+    brush = (Brush *)rename_id_for_versioning(bmain, ID_BR, "Draw Soft", "Pencil Soft");
+    if (brush) {
+      brush->gpencil_settings->icon_id = GP_BRUSH_ICON_PEN;
+    }
+    rename_id_for_versioning(bmain, ID_BR, "Draw Pencil", "Pencil");
+    rename_id_for_versioning(bmain, ID_BR, "Draw Pen", "Pen");
+    rename_id_for_versioning(bmain, ID_BR, "Draw Ink", "Ink Pen");
+    rename_id_for_versioning(bmain, ID_BR, "Draw Noise", "Ink Pen Rough");
+    rename_id_for_versioning(bmain, ID_BR, "Draw Marker", "Marker Bold");
+    rename_id_for_versioning(bmain, ID_BR, "Draw Block", "Marker Chisel");
+
+    ma = BLI_findstring(&bmain->materials, "Black", offsetof(ID, name) + 2);
+    if (ma && ma->gp_style) {
+      rename_id_for_versioning(bmain, ID_MA, "Black", "Solid Stroke");
+    }
+    ma = BLI_findstring(&bmain->materials, "Red", offsetof(ID, name) + 2);
+    if (ma && ma->gp_style) {
+      rename_id_for_versioning(bmain, ID_MA, "Red", "Squares Stroke");
+    }
+    ma = BLI_findstring(&bmain->materials, "Grey", offsetof(ID, name) + 2);
+    if (ma && ma->gp_style) {
+      rename_id_for_versioning(bmain, ID_MA, "Grey", "Solid Fill");
+    }
+    ma = BLI_findstring(&bmain->materials, "Black Dots", offsetof(ID, name) + 2);
+    if (ma && ma->gp_style) {
+      rename_id_for_versioning(bmain, ID_MA, "Black Dots", "Dots Stroke");
+    }
+
+    brush = BLI_findstring(&bmain->brushes, "Pencil", offsetof(ID, name) + 2);
+
     for (Scene *scene = bmain->scenes.first; scene; scene = scene->id.next) {
       ToolSettings *ts = scene->toolsettings;
-
-      BKE_brush_gpencil_vertex_presets(bmain, ts);
-      BKE_brush_gpencil_sculpt_presets(bmain, ts);
-      BKE_brush_gpencil_weight_presets(bmain, ts);
 
       /* Ensure new Paint modes. */
       BKE_paint_ensure_from_paintmode(scene, PAINT_MODE_GPENCIL);
@@ -1654,8 +1717,6 @@ void do_versions_after_linking_280(Main *bmain, ReportList *UNUSED(reports))
         /* Enable cursor by default. */
         paint->flags |= PAINT_SHOW_BRUSH;
       }
-      /* Ensure Palette by default. */
-      BKE_gpencil_palette_ensure(bmain, scene);
     }
   }
 
@@ -1665,6 +1726,14 @@ void do_versions_after_linking_280(Main *bmain, ReportList *UNUSED(reports))
      * removed, and reintroduced in 5e968a996a53 as "Object.hide_viewport". */
     LISTBASE_FOREACH (Object *, ob, &bmain->objects) {
       BKE_fcurves_id_cb(&ob->id, do_version_fcurve_hide_viewport_fix, NULL);
+    }
+
+    /* Reset all grease pencil brushes. */
+    LISTBASE_FOREACH (Scene *, scene, &bmain->scenes) {
+      /* Ensure new Paint modes. */
+      BKE_paint_ensure_from_paintmode(scene, PAINT_MODE_VERTEX_GPENCIL);
+      BKE_paint_ensure_from_paintmode(scene, PAINT_MODE_SCULPT_GPENCIL);
+      BKE_paint_ensure_from_paintmode(scene, PAINT_MODE_WEIGHT_GPENCIL);
     }
   }
 
@@ -2833,8 +2902,7 @@ void blo_do_versions_280(FileData *fd, Library *UNUSED(lib), Main *bmain)
             v3d->overlay.edit_flag |= V3D_OVERLAY_EDIT_FACES | V3D_OVERLAY_EDIT_SEAMS |
                                       V3D_OVERLAY_EDIT_SHARP | V3D_OVERLAY_EDIT_FREESTYLE_EDGE |
                                       V3D_OVERLAY_EDIT_FREESTYLE_FACE | V3D_OVERLAY_EDIT_EDGES |
-                                      V3D_OVERLAY_EDIT_CREASES | V3D_OVERLAY_EDIT_BWEIGHTS |
-                                      V3D_OVERLAY_EDIT_CU_HANDLES | V3D_OVERLAY_EDIT_CU_NORMALS;
+                                      V3D_OVERLAY_EDIT_CREASES | V3D_OVERLAY_EDIT_BWEIGHTS;
           }
         }
       }
@@ -4125,7 +4193,7 @@ void blo_do_versions_280(FileData *fd, Library *UNUSED(lib), Main *bmain)
             v3d->shading.flag |= V3D_SHADING_SCENE_LIGHTS_RENDER | V3D_SHADING_SCENE_WORLD_RENDER;
 
             /* files by default don't have studio lights selected unless interacted
-             * with the shading popover. When no studiolight could be read, we will
+             * with the shading popover. When no studio-light could be read, we will
              * select the default world one. */
             StudioLight *studio_light = BKE_studiolight_find(v3d->shading.lookdev_light,
                                                              STUDIOLIGHT_TYPE_WORLD);
@@ -4194,7 +4262,7 @@ void blo_do_versions_280(FileData *fd, Library *UNUSED(lib), Main *bmain)
       }
     }
 
-    /* Added studiolight intensity */
+    /* Added studio-light intensity. */
     if (!DNA_struct_elem_find(fd->filesdna, "View3DShading", "float", "studiolight_intensity")) {
       for (bScreen *screen = bmain->screens.first; screen; screen = screen->id.next) {
         LISTBASE_FOREACH (ScrArea *, area, &screen->areabase) {
@@ -4405,6 +4473,19 @@ void blo_do_versions_280(FileData *fd, Library *UNUSED(lib), Main *bmain)
   }
 
   if (!MAIN_VERSION_ATLEAST(bmain, 283, 3)) {
+    /* Color Management Look. */
+    for (Scene *scene = bmain->scenes.first; scene; scene = scene->id.next) {
+      ColorManagedViewSettings *view_settings;
+      view_settings = &scene->view_settings;
+      if (BLI_str_startswith(view_settings->look, "Filmic - ")) {
+        char *src = view_settings->look + strlen("Filmic - ");
+        memmove(view_settings->look, src, strlen(src) + 1);
+      }
+      else if (BLI_str_startswith(view_settings->look, "Standard - ")) {
+        char *src = view_settings->look + strlen("Standard - ");
+        memmove(view_settings->look, src, strlen(src) + 1);
+      }
+    }
 
     /* Sequencer Tool region */
     do_versions_area_ensure_tool_region(bmain, SPACE_SEQ, RGN_FLAG_HIDDEN);
@@ -4553,8 +4634,6 @@ void blo_do_versions_280(FileData *fd, Library *UNUSED(lib), Main *bmain)
             brush->gpencil_weight_tool = brush->gpencil_settings->brush_type;
           }
         }
-
-        BKE_paint_toolslots_init_from_main(bmain);
       }
 
       LISTBASE_FOREACH (Material *, mat, &bmain->materials) {
@@ -4878,18 +4957,18 @@ void blo_do_versions_280(FileData *fd, Library *UNUSED(lib), Main *bmain)
     }
   }
 
-  /**
-   * Versioning code until next subversion bump goes here.
-   *
-   * \note Be sure to check when bumping the version:
-   * - #do_versions_after_linking_280 in this file.
-   * - "versioning_userdef.c", #BLO_version_defaults_userpref_blend
-   * - "versioning_userdef.c", #do_versions_theme
-   *
-   * \note Keep this message at the bottom of the function.
-   */
-  {
-    /* Keep this block, even when empty. */
+  if (!MAIN_VERSION_ATLEAST(bmain, 283, 12)) {
+    /* Activate f-curve drawing in the sequencer. */
+    for (bScreen *screen = bmain->screens.first; screen; screen = screen->id.next) {
+      for (ScrArea *area = screen->areabase.first; area; area = area->next) {
+        for (SpaceLink *sl = area->spacedata.first; sl; sl = sl->next) {
+          if (sl->spacetype == SPACE_SEQ) {
+            SpaceSeq *sseq = (SpaceSeq *)sl;
+            sseq->flag |= SEQ_SHOW_FCURVES;
+          }
+        }
+      }
+    }
 
     /* Remesh Modifier Voxel Mode. */
     if (!DNA_struct_elem_find(fd->filesdna, "RemeshModifierData", "float", "voxel_size")) {
@@ -4903,5 +4982,99 @@ void blo_do_versions_280(FileData *fd, Library *UNUSED(lib), Main *bmain)
         }
       }
     }
+  }
+
+  if (!MAIN_VERSION_ATLEAST(bmain, 283, 14)) {
+    /* Solidify modifier merge tolerance. */
+    if (!DNA_struct_elem_find(fd->filesdna, "SolidifyModifierData", "float", "merge_tolerance")) {
+      for (Object *ob = bmain->objects.first; ob; ob = ob->id.next) {
+        for (ModifierData *md = ob->modifiers.first; md; md = md->next) {
+          if (md->type == eModifierType_Solidify) {
+            SolidifyModifierData *smd = (SolidifyModifierData *)md;
+            /* set to 0.0003 since that is what was used before, default now is 0.0001 */
+            smd->merge_tolerance = 0.0003f;
+          }
+        }
+      }
+    }
+
+    /* Enumerator was incorrect for a time in 2.83 development.
+     * Note that this only corrects values known to be invalid. */
+    for (Object *ob = bmain->objects.first; ob; ob = ob->id.next) {
+      RigidBodyCon *rbc = ob->rigidbody_constraint;
+      if (rbc != NULL) {
+        enum {
+          INVALID_RBC_TYPE_SLIDER = 2,
+          INVALID_RBC_TYPE_6DOF_SPRING = 4,
+          INVALID_RBC_TYPE_MOTOR = 7,
+        };
+        switch (rbc->type) {
+          case INVALID_RBC_TYPE_SLIDER:
+            rbc->type = RBC_TYPE_SLIDER;
+            break;
+          case INVALID_RBC_TYPE_6DOF_SPRING:
+            rbc->type = RBC_TYPE_6DOF_SPRING;
+            break;
+          case INVALID_RBC_TYPE_MOTOR:
+            rbc->type = RBC_TYPE_MOTOR;
+            break;
+        }
+      }
+    }
+  }
+
+  /* Match scale of fluid modifier gravity with scene gravity. */
+  if (!MAIN_VERSION_ATLEAST(bmain, 283, 15)) {
+    for (Object *ob = bmain->objects.first; ob; ob = ob->id.next) {
+      for (ModifierData *md = ob->modifiers.first; md; md = md->next) {
+        if (md->type == eModifierType_Fluid) {
+          FluidModifierData *fmd = (FluidModifierData *)md;
+          if (fmd->domain != NULL) {
+            mul_v3_fl(fmd->domain->gravity, 9.81f);
+          }
+        }
+      }
+    }
+  }
+
+  if (!MAIN_VERSION_ATLEAST(bmain, 283, 16)) {
+    /* Init SMAA threshold for grease pencil render. */
+    LISTBASE_FOREACH (Scene *, scene, &bmain->scenes) {
+      scene->grease_pencil_settings.smaa_threshold = 1.0f;
+    }
+  }
+
+  if (!MAIN_VERSION_ATLEAST(bmain, 283, 17)) {
+    /* Reset the cloth mass to 1.0 in brushes with an invalid value. */
+    for (Brush *br = bmain->brushes.first; br; br = br->id.next) {
+      if (br->sculpt_tool == SCULPT_TOOL_CLOTH) {
+        if (br->cloth_mass == 0.0f) {
+          br->cloth_mass = 1.0f;
+        }
+      }
+    }
+
+    /* Set Brush default color for grease pencil. */
+    LISTBASE_FOREACH (Brush *, brush, &bmain->brushes) {
+      if (brush->gpencil_settings) {
+        brush->rgb[0] = 0.498f;
+        brush->rgb[1] = 1.0f;
+        brush->rgb[2] = 0.498f;
+      }
+    }
+  }
+
+  /**
+   * Versioning code until next subversion bump goes here.
+   *
+   * \note Be sure to check when bumping the version:
+   * - #do_versions_after_linking_280 in this file.
+   * - "versioning_userdef.c", #BLO_version_defaults_userpref_blend
+   * - "versioning_userdef.c", #do_versions_theme
+   *
+   * \note Keep this message at the bottom of the function.
+   */
+  {
+    /* Keep this block, even when empty. */
   }
 }

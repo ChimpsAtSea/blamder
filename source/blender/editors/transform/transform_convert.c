@@ -83,16 +83,47 @@
 #include "transform_convert.h"
 #include "transform_mode.h"
 
+bool transform_mode_use_local_origins(const TransInfo *t)
+{
+  return ELEM(t->mode, TFM_ROTATION, TFM_RESIZE, TFM_TRACKBALL);
+}
+
 /**
  * Transforming around ourselves is no use, fallback to individual origins,
  * useful for curve/armatures.
  */
 void transform_around_single_fallback(TransInfo *t)
 {
-  if ((t->data_len_all == 1) &&
-      (ELEM(t->around, V3D_AROUND_CENTER_BOUNDS, V3D_AROUND_CENTER_MEDIAN, V3D_AROUND_ACTIVE)) &&
-      (ELEM(t->mode, TFM_RESIZE, TFM_ROTATION, TFM_TRACKBALL))) {
-    t->around = V3D_AROUND_LOCAL_ORIGINS;
+  if ((ELEM(t->around, V3D_AROUND_CENTER_BOUNDS, V3D_AROUND_CENTER_MEDIAN, V3D_AROUND_ACTIVE)) &&
+      transform_mode_use_local_origins(t)) {
+
+    bool is_data_single = false;
+    if (t->data_len_all == 1) {
+      is_data_single = true;
+    }
+    else if (t->data_len_all == 3) {
+      if (t->obedit_type == OB_CURVE) {
+        /* Special case check for curve, if we have a single curve bezier triple selected
+         * treat */
+        FOREACH_TRANS_DATA_CONTAINER (t, tc) {
+          if (!tc->data_len) {
+            continue;
+          }
+          if (tc->data_len == 3) {
+            const TransData *td = tc->data;
+            if ((td[0].flag | td[1].flag | td[2].flag) & TD_BEZTRIPLE) {
+              if ((td[0].loc == td[1].loc) && (td[1].loc == td[2].loc)) {
+                is_data_single = true;
+              }
+            }
+          }
+          break;
+        }
+      }
+    }
+    if (is_data_single) {
+      t->around = V3D_AROUND_LOCAL_ORIGINS;
+    }
   }
 }
 
@@ -377,23 +408,25 @@ static short apply_targetless_ik(Object *ob)
       }
       for (; segcount; segcount--) {
         Bone *bone;
-        float rmat[4][4] /*, tmat[4][4], imat[4][4]*/;
+        float mat[4][4];
 
         /* pose_mat(b) = pose_mat(b-1) * offs_bone * channel * constraint * IK  */
-        /* we put in channel the entire result of rmat = (channel * constraint * IK) */
-        /* pose_mat(b) = pose_mat(b-1) * offs_bone * rmat  */
-        /* rmat = pose_mat(b) * inv(pose_mat(b-1) * offs_bone ) */
+        /* we put in channel the entire result of mat = (channel * constraint * IK) */
+        /* pose_mat(b) = pose_mat(b-1) * offs_bone * mat  */
+        /* mat = pose_mat(b) * inv(pose_mat(b-1) * offs_bone ) */
 
         parchan = chanlist[segcount - 1];
         bone = parchan->bone;
         bone->flag |= BONE_TRANSFORM; /* ensures it gets an auto key inserted */
 
-        BKE_armature_mat_pose_to_bone(parchan, parchan->pose_mat, rmat);
-
+        BKE_armature_mat_pose_to_bone(parchan, parchan->pose_mat, mat);
         /* apply and decompose, doesn't work for constraints or non-uniform scale well */
         {
           float rmat3[3][3], qrmat[3][3], imat3[3][3], smat[3][3];
-          copy_m3_m4(rmat3, rmat);
+
+          copy_m3_m4(rmat3, mat);
+          /* Make sure that our rotation matrix only contains rotation and not scale. */
+          normalize_m3(rmat3);
 
           /* rotation */
           /* [#22409] is partially caused by this, as slight numeric error introduced during
@@ -413,7 +446,7 @@ static short apply_targetless_ik(Object *ob)
 
           /* causes problems with some constraints (e.g. childof), so disable this */
           /* as it is IK shouldn't affect location directly */
-          /* copy_v3_v3(parchan->loc, rmat[3]); */
+          /* copy_v3_v3(parchan->loc, mat[3]); */
         }
       }
 
@@ -445,12 +478,12 @@ static void bone_children_clear_transflag(int mode, short around, ListBase *lb)
   }
 }
 
-/* sets transform flags in the bones
- * returns total number of bones with BONE_TRANSFORM */
-int count_set_pose_transflags(Object *ob,
-                              const int mode,
-                              const short around,
-                              bool has_translate_rotate[2])
+/* Sets transform flags in the bones.
+ * Returns total number of bones with `BONE_TRANSFORM`. */
+int transform_convert_pose_transflags_update(Object *ob,
+                                             const int mode,
+                                             const short around,
+                                             bool has_translate_rotate[2])
 {
   bArmature *arm = ob->data;
   bPoseChannel *pchan;
@@ -796,10 +829,6 @@ void clipUVData(TransInfo *t)
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
     TransData *td = tc->data;
     for (int a = 0; a < tc->data_len; a++, td++) {
-      if (td->flag & TD_NOACTION) {
-        break;
-      }
-
       if ((td->flag & TD_SKIP) || (!td->loc)) {
         continue;
       }
@@ -817,25 +846,28 @@ void clipUVData(TransInfo *t)
  * \{ */
 
 /**
- * For modal operation: `t->center_global` may not have been set yet.
+ * Used for `TFM_TIME_EXTEND`.
  */
-void transform_convert_center_global_v2(TransInfo *t, float r_center[2])
+char transform_convert_frame_side_dir_get(TransInfo *t, float cframe)
 {
+  char r_dir;
+  float center[2];
   if (t->flag & T_MODAL) {
     UI_view2d_region_to_view(
-        (View2D *)t->view, t->mouse.imval[0], t->mouse.imval[1], &r_center[0], &r_center[1]);
+        (View2D *)t->view, t->mouse.imval[0], t->mouse.imval[1], &center[0], &center[1]);
+    r_dir = (center[0] > cframe) ? 'R' : 'L';
+    {
+      /* XXX: This saves the direction in the "mirror" property to be used for redo! */
+      if (r_dir == 'R') {
+        t->flag |= T_NO_MIRROR;
+      }
+    }
   }
   else {
-    copy_v2_v2(r_center, t->center_global);
+    r_dir = (t->flag & T_NO_MIRROR) ? 'R' : 'L';
   }
-}
 
-void transform_convert_center_global_v2_int(TransInfo *t, int r_center[2])
-{
-  float center[2];
-  transform_convert_center_global_v2(t, center);
-  r_center[0] = round_fl_to_int(center[0]);
-  r_center[1] = round_fl_to_int(center[1]);
+  return r_dir;
 }
 
 /* This function tests if a point is on the "mouse" side of the cursor/frame-marking */
@@ -1814,7 +1846,10 @@ static void special_aftertrans_update__mask(bContext *C, TransInfo *t)
   if (IS_AUTOKEY_ON(t->scene)) {
     Scene *scene = t->scene;
 
-    ED_mask_layer_shape_auto_key_select(mask, CFRA);
+    if (ED_mask_layer_shape_auto_key_select(mask, CFRA)) {
+      WM_event_add_notifier(C, NC_MASK | ND_DATA, &mask->id);
+      DEG_id_tag_update(&mask->id, 0);
+    }
   }
 }
 
@@ -1835,14 +1870,15 @@ static void special_aftertrans_update__node(bContext *C, TransInfo *t)
           nodeRemoveNode(bmain, ntree, node, true);
         }
       }
+      ntreeUpdateTree(bmain, ntree);
     }
   }
 }
 
 static void special_aftertrans_update__mesh(bContext *UNUSED(C), TransInfo *t)
 {
-  /* so automerge supports mirror */
-  if ((t->scene->toolsettings->automerge) && ((t->flag & T_EDIT) && t->obedit_type == OB_MESH)) {
+  bool use_automerge = (t->flag & (T_AUTOMERGE | T_AUTOSPLIT)) != 0;
+  if (use_automerge && ((t->flag & T_EDIT) && t->obedit_type == OB_MESH)) {
     FOREACH_TRANS_DATA_CONTAINER (t, tc) {
 
       BMEditMesh *em = BKE_editmesh_from_object(tc->obedit);
@@ -1868,14 +1904,12 @@ static void special_aftertrans_update__mesh(bContext *UNUSED(C), TransInfo *t)
         hflag = BM_ELEM_SELECT;
       }
 
-      if (t->scene->toolsettings->automerge & AUTO_MERGE) {
-        if (t->scene->toolsettings->automerge & AUTO_MERGE_AND_SPLIT) {
-          EDBM_automerge_and_split(
-              tc->obedit, true, true, true, hflag, t->scene->toolsettings->doublimit);
-        }
-        else {
-          EDBM_automerge(tc->obedit, true, hflag, t->scene->toolsettings->doublimit);
-        }
+      if (t->flag & T_AUTOSPLIT) {
+        EDBM_automerge_and_split(
+            tc->obedit, true, true, true, hflag, t->scene->toolsettings->doublimit);
+      }
+      else {
+        EDBM_automerge(tc->obedit, true, hflag, t->scene->toolsettings->doublimit);
       }
 
       /* Special case, this is needed or faces won't re-select.
@@ -2283,7 +2317,7 @@ void special_aftertrans_update(bContext *C, TransInfo *t)
 
       /* set BONE_TRANSFORM flags for autokey, gizmo draw might have changed them */
       if (!canceled && (t->mode != TFM_DUMMY)) {
-        count_set_pose_transflags(ob, t->mode, t->around, NULL);
+        transform_convert_pose_transflags_update(ob, t->mode, t->around, NULL);
       }
 
       /* if target-less IK grabbing, we calculate the pchan transforms and clear flag */
@@ -2353,10 +2387,6 @@ void special_aftertrans_update(bContext *C, TransInfo *t)
       ListBase pidlist;
       PTCacheID *pid;
       ob = td->ob;
-
-      if (td->flag & TD_NOACTION) {
-        break;
-      }
 
       if (td->flag & TD_SKIP) {
         continue;
@@ -2738,7 +2768,7 @@ void createTransData(bContext *C, TransInfo *t)
     /* important that ob_armature can be set even when its not selected [#23412]
      * lines below just check is also visible */
     has_transform_context = false;
-    Object *ob_armature = modifiers_isDeformedByArmature(ob);
+    Object *ob_armature = BKE_modifiers_is_deformed_by_armature(ob);
     if (ob_armature && ob_armature->mode & OB_MODE_POSE) {
       Base *base_arm = BKE_view_layer_base_find(t->view_layer, ob_armature);
       if (base_arm) {

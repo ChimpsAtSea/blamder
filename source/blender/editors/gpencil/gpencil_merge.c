@@ -117,7 +117,7 @@ static bGPDstroke *gpencil_prepare_stroke(bContext *C, wmOperator *op, int totpo
   /* if not exist, create a new one */
   if ((paint->brush == NULL) || (paint->brush->gpencil_settings == NULL)) {
     /* create new brushes */
-    BKE_brush_gpencil_paint_presets(bmain, ts);
+    BKE_brush_gpencil_paint_presets(bmain, ts, false);
   }
   Brush *brush = paint->brush;
 
@@ -622,7 +622,7 @@ static int gp_stroke_merge_material_exec(bContext *C, wmOperator *op)
 
   /* notifiers */
   if (changed) {
-    BKE_reportf(op->reports, RPT_INFO, "Merged %d materiales of %d", removed, *totcol);
+    BKE_reportf(op->reports, RPT_INFO, "Merged %d materials of %d", removed, *totcol);
     DEG_id_tag_update(&gpd->id, ID_RECALC_TRANSFORM | ID_RECALC_GEOMETRY);
     WM_event_add_notifier(C, NC_GPENCIL | ND_DATA | NA_EDITED, NULL);
   }

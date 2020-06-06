@@ -211,7 +211,7 @@ static FileSelect file_select_do(bContext *C, int selected_idx, bool do_diropen)
       else {
         if (is_parent_dir) {
           /* avoids /../../ */
-          BLI_parent_dir(params->dir);
+          BLI_path_parent_dir(params->dir);
 
           if (params->recursion_level > 1) {
             /* Disable 'dirtree' recursion when going up in tree. */
@@ -220,9 +220,9 @@ static FileSelect file_select_do(bContext *C, int selected_idx, bool do_diropen)
           }
         }
         else {
-          BLI_cleanup_dir(BKE_main_blendfile_path(bmain), params->dir);
+          BLI_path_normalize_dir(BKE_main_blendfile_path(bmain), params->dir);
           strcat(params->dir, file->relpath);
-          BLI_add_slash(params->dir);
+          BLI_path_slash_ensure(params->dir);
         }
 
         ED_file_change_dir(C);
@@ -940,7 +940,7 @@ static int bookmark_select_exec(bContext *C, wmOperator *op)
 
     RNA_property_string_get(op->ptr, prop, entry);
     BLI_strncpy(params->dir, entry, sizeof(params->dir));
-    BLI_cleanup_dir(BKE_main_blendfile_path(bmain), params->dir);
+    BLI_path_normalize_dir(BKE_main_blendfile_path(bmain), params->dir);
     ED_file_change_dir(C);
 
     WM_event_add_notifier(C, NC_SPACE | ND_SPACE_FILE_LIST, NULL);
@@ -1469,9 +1469,12 @@ void file_sfile_to_operator_ex(bContext *C, wmOperator *op, SpaceFile *sfile, ch
       for (i = 0; i < numfiles; i++) {
         if (filelist_entry_select_index_get(sfile->files, i, CHECK_FILES)) {
           FileDirEntry *file = filelist_file(sfile->files, i);
-          RNA_property_collection_add(op->ptr, prop, &itemptr);
-          RNA_string_set(&itemptr, "name", file->relpath);
-          num_files++;
+          /* Cannot (currently) mix regular items and alias/shortcuts in multiple selection. */
+          if (!file->redirection_path) {
+            RNA_property_collection_add(op->ptr, prop, &itemptr);
+            RNA_string_set(&itemptr, "name", file->relpath);
+            num_files++;
+          }
         }
       }
       /* make sure the file specified in the filename button is added even if no
@@ -1617,8 +1620,22 @@ static int file_exec(bContext *C, wmOperator *exec_op)
   Main *bmain = CTX_data_main(C);
   wmWindowManager *wm = CTX_wm_manager(C);
   SpaceFile *sfile = CTX_wm_space_file(C);
-  const struct FileDirEntry *file = filelist_file(sfile->files, sfile->params->active_file);
+  struct FileDirEntry *file = filelist_file(sfile->files, sfile->params->active_file);
   char filepath[FILE_MAX];
+
+  if (file && file->redirection_path) {
+    /* redirection_path is an absolute path that takes precedence
+     * over using sfile->params->dir + sfile->params->file. */
+    BLI_split_dirfile(file->redirection_path,
+                      sfile->params->dir,
+                      sfile->params->file,
+                      sizeof(sfile->params->dir),
+                      sizeof(sfile->params->file));
+    /* Update relpath with redirected filename as well so that the alternative
+     * combination of sfile->params->dir + relpath remains valid as well. */
+    MEM_freeN(file->relpath);
+    file->relpath = BLI_strdup(sfile->params->file);
+  }
 
   /* directory change */
   if (file && (file->typeflag & FILE_TYPE_DIR)) {
@@ -1627,15 +1644,12 @@ static int file_exec(bContext *C, wmOperator *exec_op)
     }
 
     if (FILENAME_IS_PARENT(file->relpath)) {
-      BLI_parent_dir(sfile->params->dir);
+      BLI_path_parent_dir(sfile->params->dir);
     }
     else {
-      BLI_cleanup_path(BKE_main_blendfile_path(bmain), sfile->params->dir);
+      BLI_path_normalize(BKE_main_blendfile_path(bmain), sfile->params->dir);
       BLI_path_append(sfile->params->dir, sizeof(sfile->params->dir) - 1, file->relpath);
-      BLI_add_slash(sfile->params->dir);
-    }
-    if (file->redirection_path) {
-      STRNCPY(sfile->params->dir, file->redirection_path);
+      BLI_path_slash_ensure(sfile->params->dir);
     }
     ED_file_change_dir(C);
   }
@@ -1754,8 +1768,8 @@ static int file_parent_exec(bContext *C, wmOperator *UNUSED(unused))
   SpaceFile *sfile = CTX_wm_space_file(C);
 
   if (sfile->params) {
-    if (BLI_parent_dir(sfile->params->dir)) {
-      BLI_cleanup_dir(BKE_main_blendfile_path(bmain), sfile->params->dir);
+    if (BLI_path_parent_dir(sfile->params->dir)) {
+      BLI_path_normalize_dir(BKE_main_blendfile_path(bmain), sfile->params->dir);
       ED_file_change_dir(C);
       if (sfile->params->recursion_level > 1) {
         /* Disable 'dirtree' recursion when going up in tree. */
@@ -2274,7 +2288,7 @@ static void file_expand_directory(bContext *C)
       sfile->params->dir[3] = '\0';
     }
     else if (BLI_path_is_unc(sfile->params->dir)) {
-      BLI_cleanup_unc(sfile->params->dir, FILE_MAX_LIBEXTRA);
+      BLI_path_normalize_unc(sfile->params->dir, FILE_MAX_LIBEXTRA);
     }
 #endif
   }
@@ -2291,7 +2305,7 @@ static bool can_create_dir(const char *dir)
   if (BLI_path_is_unc(dir)) {
     char parent[PATH_MAX];
     BLI_strncpy(parent, dir, PATH_MAX);
-    BLI_parent_dir(parent);
+    BLI_path_parent_dir(parent);
     return BLI_is_dir(parent);
   }
   return true;
@@ -2338,7 +2352,7 @@ void file_directory_enter_handle(bContext *C, void *UNUSED(arg_unused), void *UN
       }
     }
 
-    BLI_cleanup_dir(BKE_main_blendfile_path(bmain), sfile->params->dir);
+    BLI_path_normalize_dir(BKE_main_blendfile_path(bmain), sfile->params->dir);
 
     if (filelist_is_dir(sfile->files, sfile->params->dir)) {
       if (!STREQ(sfile->params->dir, old_dir)) { /* Avoids flickering when nothing's changed. */
@@ -2423,7 +2437,7 @@ void file_filename_enter_handle(bContext *C, void *UNUSED(arg_unused), void *arg
 
       /* if directory, open it and empty filename field */
       if (filelist_is_dir(sfile->files, filepath)) {
-        BLI_cleanup_dir(BKE_main_blendfile_path(bmain), filepath);
+        BLI_path_normalize_dir(BKE_main_blendfile_path(bmain), filepath);
         BLI_strncpy(sfile->params->dir, filepath, sizeof(sfile->params->dir));
         sfile->params->file[0] = '\0';
         ED_file_change_dir(C);
@@ -2487,7 +2501,7 @@ static bool file_filenum_poll(bContext *C)
 }
 
 /**
- * Looks for a string of digits within name (using BLI_stringdec) and adjusts it by add.
+ * Looks for a string of digits within name (using BLI_path_sequence_decode) and adjusts it by add.
  */
 static void filenum_newname(char *name, size_t name_size, int add)
 {
@@ -2496,7 +2510,7 @@ static void filenum_newname(char *name, size_t name_size, int add)
   int pic;
   ushort digits;
 
-  pic = BLI_stringdec(name, head, tail, &digits);
+  pic = BLI_path_sequence_decode(name, head, tail, &digits);
 
   /* are we going from 100 -> 99 or from 10 -> 9 */
   if (add < 0 && digits > 0) {
@@ -2514,7 +2528,7 @@ static void filenum_newname(char *name, size_t name_size, int add)
   if (pic < 0) {
     pic = 0;
   }
-  BLI_stringenc(name_temp, head, tail, digits, pic);
+  BLI_path_sequence_encode(name_temp, head, tail, digits, pic);
   BLI_strncpy(name, name_temp, name_size);
 }
 

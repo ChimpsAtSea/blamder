@@ -29,8 +29,10 @@
 #include "BKE_animsys.h"
 #include "BKE_context.h"
 #include "BKE_fcurve.h"
+#include "BKE_fcurve_driver.h"
 #include "BKE_global.h"
 #include "BKE_lib_id.h"
+#include "BKE_lib_query.h"
 #include "BKE_main.h"
 #include "BKE_nla.h"
 #include "BKE_node.h"
@@ -95,6 +97,7 @@ bool id_type_can_have_animdata(const short id_type)
     case ID_HA:
     case ID_PT:
     case ID_VO:
+    case ID_SIM:
       return true;
 
     /* no AnimData */
@@ -253,7 +256,7 @@ void BKE_animdata_free(ID *id, const bool do_id_user)
       BKE_nla_tracks_free(&adt->nla_tracks, do_id_user);
 
       /* free drivers - stored as a list of F-Curves */
-      free_fcurves(&adt->drivers);
+      BKE_fcurves_free(&adt->drivers);
 
       /* free driver array cache */
       MEM_SAFE_FREE(adt->driver_array);
@@ -285,6 +288,24 @@ bool BKE_animdata_id_is_animated(const struct ID *id)
 
   return !BLI_listbase_is_empty(&adt->drivers) || !BLI_listbase_is_empty(&adt->nla_tracks) ||
          !BLI_listbase_is_empty(&adt->overrides);
+}
+
+/** Callback used by lib_query to walk over all ID usages (mimics `foreach_id` callback of
+ * `IDTypeInfo` structure). */
+void BKE_animdata_foreach_id(AnimData *adt, LibraryForeachIDData *data)
+{
+  LISTBASE_FOREACH (FCurve *, fcu, &adt->drivers) {
+    BKE_fcurve_foreach_id(fcu, data);
+  }
+
+  BKE_LIB_FOREACHID_PROCESS(data, adt->action, IDWALK_CB_USER);
+  BKE_LIB_FOREACHID_PROCESS(data, adt->tmpact, IDWALK_CB_USER);
+
+  LISTBASE_FOREACH (NlaTrack *, nla_track, &adt->nla_tracks) {
+    LISTBASE_FOREACH (NlaStrip *, nla_strip, &nla_track->strips) {
+      BKE_nla_strip_foreach_id(nla_strip, data);
+    }
+  }
 }
 
 /* Copying -------------------------------------------- */
@@ -324,7 +345,7 @@ AnimData *BKE_animdata_copy(Main *bmain, AnimData *adt, const int flag)
   BKE_nla_tracks_copy(bmain, &dadt->nla_tracks, &adt->nla_tracks, flag);
 
   /* duplicate drivers (F-Curves) */
-  copy_fcurves(&dadt->drivers, &adt->drivers);
+  BKE_fcurves_copy(&dadt->drivers, &adt->drivers);
   dadt->driver_array = NULL;
 
   /* don't copy overrides */
@@ -426,7 +447,7 @@ void BKE_animdata_merge_copy(
   if (src->drivers.first) {
     ListBase drivers = {NULL, NULL};
 
-    copy_fcurves(&drivers, &src->drivers);
+    BKE_fcurves_copy(&drivers, &src->drivers);
 
     /* Fix up all driver targets using the old target id
      * - This assumes that the src ID is being merged into the dst ID
@@ -1080,7 +1101,7 @@ static bool fcurves_path_remove_fix(const char *prefix, ListBase *curves)
     if (fcu->rna_path) {
       if (STRPREFIX(fcu->rna_path, prefix)) {
         BLI_remlink(curves, fcu);
-        free_fcurve(fcu);
+        BKE_fcurve_free(fcu);
         any_removed = true;
       }
     }
@@ -1321,6 +1342,9 @@ void BKE_animdata_main_cb(Main *bmain, ID_AnimData_Edit_Callback func, void *use
 
   /* volumes */
   ANIMDATA_IDS_CB(bmain->volumes.first);
+
+  /* simulations */
+  ANIMDATA_IDS_CB(bmain->simulations.first);
 }
 
 /* Fix all RNA-Paths throughout the database (directly access the Global.main version)
@@ -1429,6 +1453,9 @@ void BKE_animdata_fix_paths_rename_all(ID *ref_id,
 
   /* volumes */
   RENAMEFIX_ANIM_IDS(bmain->volumes.first);
+
+  /* simulations */
+  RENAMEFIX_ANIM_IDS(bmain->simulations.first);
 
   /* scenes */
   RENAMEFIX_ANIM_NODETREE_IDS(bmain->scenes.first, Scene);

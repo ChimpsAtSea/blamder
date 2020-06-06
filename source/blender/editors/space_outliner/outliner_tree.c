@@ -46,6 +46,7 @@
 #include "DNA_pointcloud_types.h"
 #include "DNA_scene_types.h"
 #include "DNA_sequence_types.h"
+#include "DNA_simulation_types.h"
 #include "DNA_speaker_types.h"
 #include "DNA_volume_types.h"
 #include "DNA_world_types.h"
@@ -58,7 +59,7 @@
 
 #include "BLT_translation.h"
 
-#include "BKE_fcurve.h"
+#include "BKE_fcurve_driver.h"
 #include "BKE_idtype.h"
 #include "BKE_layer.h"
 #include "BKE_lib_id.h"
@@ -773,6 +774,13 @@ static void outliner_add_id_contents(SpaceOutliner *soops,
         outliner_add_element(soops, &te->subtree, volume, te, TSE_ANIM_DATA, 0);
       break;
     }
+    case ID_SIM: {
+      Simulation *simulation = (Simulation *)id;
+      if (outliner_animdata_test(simulation->adt)) {
+        outliner_add_element(soops, &te->subtree, simulation, te, TSE_ANIM_DATA, 0);
+      }
+      break;
+    }
     default:
       break;
   }
@@ -1419,9 +1427,9 @@ static void outliner_add_layer_collections_recursive(SpaceOutliner *soops,
       ten->name = id->name + 2;
       ten->directdata = lc;
 
-      /* Open by default. */
+      /* Open by default, except linked collections, which may contain many elements. */
       TreeStoreElem *tselem = TREESTORE(ten);
-      if (!tselem->used) {
+      if (!(tselem->used || ID_IS_LINKED(id) || ID_IS_OVERRIDE_LIBRARY(id))) {
         tselem->flag &= ~TSE_CLOSED;
       }
 

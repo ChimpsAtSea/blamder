@@ -87,8 +87,10 @@ def context_path_validate(context, data_path):
             # One of the items in the rna path is None, just ignore this
             value = Ellipsis
         else:
-            # We have a real error in the rna path, don't ignore that
-            raise
+            # Print invalid path, but don't show error to the users and fully
+            # break the UI if the operator is bound to an event like left click.
+            print("context_path_validate error: context.%s not found (invalid keymap entry?)" % data_path)
+            value = Ellipsis
 
     return value
 
@@ -1014,10 +1016,15 @@ def _wm_doc_get_id(doc_id, do_url=True, url_prefix=""):
             else:
                 rna = "bpy.ops.%s.%s" % (class_name, class_prop)
         else:
-            # an RNA setting, common case
-            rna_class = getattr(bpy.types, class_name)
+            # An RNA setting, common case.
 
-            # detect if this is a inherited member and use that name instead
+            # Check the built-in RNA types.
+            rna_class = getattr(bpy.types, class_name, None)
+            if rna_class is None:
+                # Check class for dynamically registered types.
+                rna_class = bpy.types.PropertyGroup.bl_rna_get_subclass_py(class_name)
+
+            # Detect if this is a inherited member and use that name instead.
             rna_parent = rna_class.bl_rna
             rna_prop = rna_parent.properties.get(class_prop)
             if rna_prop:
@@ -1104,8 +1111,8 @@ class WM_OT_doc_view(Operator):
 
     doc_id: doc_id
     if bpy.app.version_cycle in {"release", "rc", "beta"}:
-        _prefix = ("https://docs.blender.org/api/%d.%d%s" %
-                   (bpy.app.version[0], bpy.app.version[1], bpy.app.version_char))
+        _prefix = ("https://docs.blender.org/api/%d.%d" %
+                   (bpy.app.version[0], bpy.app.version[1]))
     else:
         _prefix = ("https://docs.blender.org/api/master")
 
@@ -1161,7 +1168,7 @@ rna_max = FloatProperty(
 
 rna_use_soft_limits = BoolProperty(
     name="Use Soft Limits",
-    description="Limits the Property Value slider to a range, values outside the range must be inputed numerically",
+    description="Limits the Property Value slider to a range, values outside the range must be inputted numerically",
 )
 
 rna_is_overridable_library = BoolProperty(
@@ -2423,7 +2430,14 @@ class WM_MT_splash(Menu):
 
         col = split.column()
 
-        col.label()
+        sub = col.split(factor=0.35)
+        row = sub.row()
+        row.alignment = 'RIGHT'
+        row.label(text="Language")
+        prefs = context.preferences
+        sub.prop(prefs.view, "language", text="")
+
+        col.separator()
 
         sub = col.split(factor=0.35)
         row = sub.row()
@@ -2465,14 +2479,6 @@ class WM_MT_splash(Menu):
             label = "Blender Dark"
         sub.menu("USERPREF_MT_interface_theme_presets", text=label)
 
-        # We need to make switching to a language easier first
-        #sub = col.split(factor=0.35)
-        #row = sub.row()
-        #row.alignment = 'RIGHT'
-        # row.label(text="Language:")
-        #prefs = context.preferences
-        #sub.prop(prefs.system, "language", text="")
-
         # Keep height constant
         if not has_select_mouse:
             col.label()
@@ -2484,8 +2490,8 @@ class WM_MT_splash(Menu):
         row = layout.row()
 
         sub = row.row()
-        if bpy.types.PREFERENCES_OT_copy_prev.poll(context):
-            old_version = bpy.types.PREFERENCES_OT_copy_prev.previous_version()
+        old_version = bpy.types.PREFERENCES_OT_copy_prev.previous_version()
+        if bpy.types.PREFERENCES_OT_copy_prev.poll(context) and old_version:
             sub.operator("preferences.copy_prev", text="Load %d.%d Settings" % old_version)
             sub.operator("wm.save_userpref", text="Save New Settings")
         else:
@@ -2554,6 +2560,36 @@ class WM_MT_splash(Menu):
 
         layout.separator()
         layout.separator()
+
+
+class WM_MT_splash_about(Menu):
+    bl_label = "About"
+
+    def draw(self, context):
+
+        layout = self.layout
+        layout.operator_context = 'EXEC_DEFAULT'
+
+        layout.label(text="Blender is free software")
+        layout.label(text="Licensed under the GNU General Public License")
+        layout.separator()
+        layout.separator()
+
+        split = layout.split()
+        split.emboss = 'PULLDOWN_MENU'
+        split.scale_y = 1.3
+
+        col1 = split.column()
+
+        col1.operator("wm.url_open_preset", text="Release Notes", icon='URL').type = 'RELEASE_NOTES'
+        col1.operator("wm.url_open_preset", text="Credits", icon='URL').type = 'CREDITS'
+        col1.operator("wm.url_open", text="License", icon='URL').url = "https://www.blender.org/about/license/"
+
+        col2 = split.column()
+
+        col2.operator("wm.url_open_preset", text="Blender Website", icon='URL').type = 'BLENDER'
+        col2.operator("wm.url_open", text="Blender Store", icon='URL').url = "https://store.blender.org"
+        col2.operator("wm.url_open_preset", text="Development Fund", icon='FUND').type = 'FUND'
 
 
 class WM_OT_drop_blend_file(Operator):
@@ -2625,4 +2661,5 @@ classes = (
     BatchRenameAction,
     WM_OT_batch_rename,
     WM_MT_splash,
+    WM_MT_splash_about,
 )

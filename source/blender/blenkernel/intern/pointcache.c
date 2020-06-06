@@ -583,7 +583,7 @@ static int ptcache_cloth_totpoint(void *cloth_v, int UNUSED(cfra))
 static void ptcache_cloth_error(void *cloth_v, const char *message)
 {
   ClothModifierData *clmd = cloth_v;
-  modifier_setError(&clmd->modifier, "%s", message);
+  BKE_modifier_set_error(&clmd->modifier, "%s", message);
 }
 
 #ifdef WITH_SMOKE
@@ -604,7 +604,7 @@ static int ptcache_smoke_totpoint(void *smoke_v, int UNUSED(cfra))
 static void ptcache_smoke_error(void *smoke_v, const char *message)
 {
   FluidModifierData *mmd = (FluidModifierData *)smoke_v;
-  modifier_setError(&mmd->modifier, "%s", message);
+  BKE_modifier_set_error(&mmd->modifier, "%s", message);
 }
 
 #  define SMOKE_CACHE_VERSION "1.04"
@@ -2066,7 +2066,7 @@ static int ptcache_path(PTCacheID *pid, char *filename)
       BLI_path_abs(filename, blendfilename);
     }
 
-    return BLI_add_slash(filename); /* new strlen() */
+    return BLI_path_slash_ensure(filename); /* new strlen() */
   }
   else if (G.relbase_valid || lib) {
     char file[MAX_PTCACHE_PATH]; /* we don't want the dir, only the file */
@@ -2083,14 +2083,14 @@ static int ptcache_path(PTCacheID *pid, char *filename)
     BLI_snprintf(filename, MAX_PTCACHE_PATH, "//" PTCACHE_PATH "%s", file);
 
     BLI_path_abs(filename, blendfilename);
-    return BLI_add_slash(filename); /* new strlen() */
+    return BLI_path_slash_ensure(filename); /* new strlen() */
   }
 
   /* use the temp path. this is weak but better then not using point cache at all */
   /* temporary directory is assumed to exist and ALWAYS has a trailing slash */
   BLI_snprintf(filename, MAX_PTCACHE_PATH, "%s" PTCACHE_PATH, BKE_tempdir_session());
 
-  return BLI_add_slash(filename); /* new strlen() */
+  return BLI_path_slash_ensure(filename); /* new strlen() */
 }
 
 static int ptcache_filename(PTCacheID *pid, char *filename, int cfra, short do_path, short do_ext)

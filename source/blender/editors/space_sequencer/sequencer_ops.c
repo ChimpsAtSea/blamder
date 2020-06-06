@@ -32,7 +32,7 @@
 #include "ED_markers.h"
 #include "ED_select_utils.h"
 #include "ED_sequencer.h"
-#include "ED_transform.h" /* transform keymap */
+#include "ED_transform.h" /* Transform keymap. */
 
 #include "BKE_sequencer.h"
 
@@ -99,6 +99,7 @@ void sequencer_operatortypes(void)
   WM_operatortype_append(SEQUENCER_OT_select_linked);
   WM_operatortype_append(SEQUENCER_OT_select_handles);
   WM_operatortype_append(SEQUENCER_OT_select_side);
+  WM_operatortype_append(SEQUENCER_OT_select_side_of_frame);
   WM_operatortype_append(SEQUENCER_OT_select_box);
   WM_operatortype_append(SEQUENCER_OT_select_grouped);
 
