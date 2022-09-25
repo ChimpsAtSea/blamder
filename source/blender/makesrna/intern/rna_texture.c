@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -35,6 +21,7 @@
 #include "BLI_utildefines.h"
 
 #include "BKE_node.h"
+#include "BKE_node_tree_update.h"
 #include "BKE_paint.h"
 
 #include "RNA_define.h"
@@ -111,22 +98,22 @@ const EnumPropertyItem rna_enum_texture_type_items[] = {
 #ifndef RNA_RUNTIME
 static const EnumPropertyItem blend_type_items[] = {
     {MTEX_BLEND, "MIX", 0, "Mix", ""},
-    {0, "", ICON_NONE, NULL, NULL},
+    RNA_ENUM_ITEM_SEPR,
     {MTEX_DARK, "DARKEN", 0, "Darken", ""},
     {MTEX_MUL, "MULTIPLY", 0, "Multiply", ""},
-    {0, "", ICON_NONE, NULL, NULL},
+    RNA_ENUM_ITEM_SEPR,
     {MTEX_LIGHT, "LIGHTEN", 0, "Lighten", ""},
     {MTEX_SCREEN, "SCREEN", 0, "Screen", ""},
     {MTEX_ADD, "ADD", 0, "Add", ""},
-    {0, "", ICON_NONE, NULL, NULL},
+    RNA_ENUM_ITEM_SEPR,
     {MTEX_OVERLAY, "OVERLAY", 0, "Overlay", ""},
     {MTEX_SOFT_LIGHT, "SOFT_LIGHT", 0, "Soft Light", ""},
     {MTEX_LIN_LIGHT, "LINEAR_LIGHT", 0, "Linear Light", ""},
-    {0, "", ICON_NONE, NULL, NULL},
+    RNA_ENUM_ITEM_SEPR,
     {MTEX_DIFF, "DIFFERENCE", 0, "Difference", ""},
     {MTEX_SUB, "SUBTRACT", 0, "Subtract", ""},
     {MTEX_DIV, "DIVIDE", 0, "Divide", ""},
-    {0, "", ICON_NONE, NULL, NULL},
+    RNA_ENUM_ITEM_SEPR,
     {MTEX_BLEND_HUE, "HUE", 0, "Hue", ""},
     {MTEX_BLEND_SAT, "SATURATION", 0, "Saturation", ""},
     {MTEX_BLEND_COLOR, "COLOR", 0, "Color", ""},
@@ -148,6 +135,7 @@ static const EnumPropertyItem blend_type_items[] = {
 #  include "BKE_texture.h"
 
 #  include "DEG_depsgraph.h"
+#  include "DEG_depsgraph_build.h"
 
 #  include "ED_node.h"
 #  include "ED_render.h"
@@ -198,14 +186,29 @@ static void rna_Texture_update(Main *bmain, Scene *UNUSED(scene), PointerRNA *pt
   }
   else if (GS(id->name) == ID_NT) {
     bNodeTree *ntree = (bNodeTree *)ptr->owner_id;
-    ED_node_tag_update_nodetree(bmain, ntree, NULL);
+    ED_node_tree_propagate_change(NULL, bmain, ntree);
   }
 }
 
 static void rna_Texture_mapping_update(Main *bmain, Scene *scene, PointerRNA *ptr)
 {
+  ID *id = ptr->owner_id;
   TexMapping *texmap = ptr->data;
   BKE_texture_mapping_init(texmap);
+
+  if (GS(id->name) == ID_NT) {
+    bNodeTree *ntree = (bNodeTree *)ptr->owner_id;
+    /* Try to find and tag the node that this #TexMapping belongs to. */
+    LISTBASE_FOREACH (bNode *, node, &ntree->nodes) {
+      /* This assumes that the #TexMapping is stored at the beginning of the node storage. This is
+       * generally true, see #NodeTexBase. If the assumption happens to be false, there might be a
+       * missing update. */
+      if (node->storage == texmap) {
+        BKE_ntree_update_tag_node_property(ntree, node);
+      }
+    }
+  }
+
   rna_Texture_update(bmain, scene, ptr);
 }
 
@@ -231,6 +234,12 @@ static void rna_Texture_type_set(PointerRNA *ptr, int value)
   Tex *tex = (Tex *)ptr->data;
 
   BKE_texture_type_set(tex, value);
+}
+
+void rna_TextureSlotTexture_update(bContext *C, PointerRNA *ptr)
+{
+  DEG_relations_tag_update(CTX_data_main(C));
+  rna_TextureSlot_update(C, ptr);
 }
 
 void rna_TextureSlot_update(bContext *C, PointerRNA *ptr)
@@ -282,7 +291,7 @@ void rna_TextureSlot_update(bContext *C, PointerRNA *ptr)
   }
 }
 
-char *rna_TextureSlot_path(PointerRNA *ptr)
+char *rna_TextureSlot_path(const PointerRNA *ptr)
 {
   MTex *mtex = ptr->data;
 
@@ -317,7 +326,7 @@ char *rna_TextureSlot_path(PointerRNA *ptr)
   if (mtex->tex) {
     char name_esc[(sizeof(mtex->tex->id.name) - 2) * 2];
 
-    BLI_strescape(name_esc, mtex->tex->id.name + 2, sizeof(name_esc));
+    BLI_str_escape(name_esc, mtex->tex->id.name + 2, sizeof(name_esc));
     return BLI_sprintfN("texture_slots[\"%s\"]", name_esc);
   }
   else {
@@ -623,7 +632,7 @@ static void rna_def_mtex(BlenderRNA *brna)
   RNA_def_property_flag(prop, PROP_EDITABLE | PROP_CONTEXT_UPDATE);
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_ui_text(prop, "Texture", "Texture data-block used by this texture slot");
-  RNA_def_property_update(prop, NC_MATERIAL | ND_SHADING_LINKS, "rna_TextureSlot_update");
+  RNA_def_property_update(prop, NC_MATERIAL | ND_SHADING_LINKS, "rna_TextureSlotTexture_update");
 
   prop = RNA_def_property(srna, "name", PROP_STRING, PROP_NONE);
   RNA_def_property_string_funcs(
@@ -1038,7 +1047,7 @@ static void rna_def_texture_blend(BlenderRNA *brna)
       {TEX_HALO,
        "QUADRATIC_SPHERE",
        0,
-       "Quadratic sphere",
+       "Quadratic Sphere",
        "Create a quadratic progression in the shape of a sphere"},
       {TEX_RAD, "RADIAL", 0, "Radial", "Create a radial progression"},
       {0, NULL, 0, NULL, NULL},
@@ -1074,8 +1083,8 @@ static void rna_def_texture_stucci(BlenderRNA *brna)
 
   static const EnumPropertyItem prop_stucci_stype[] = {
       {TEX_PLASTIC, "PLASTIC", 0, "Plastic", "Use standard stucci"},
-      {TEX_WALLIN, "WALL_IN", 0, "Wall in", "Create Dimples"},
-      {TEX_WALLOUT, "WALL_OUT", 0, "Wall out", "Create Ridges"},
+      {TEX_WALLIN, "WALL_IN", 0, "Wall In", "Create Dimples"},
+      {TEX_WALLOUT, "WALL_OUT", 0, "Wall Out", "Create Ridges"},
       {0, NULL, 0, NULL, NULL},
   };
 
@@ -1547,7 +1556,7 @@ static void rna_def_texture(BlenderRNA *brna)
   RNA_def_struct_refine_func(srna, "rna_Texture_refine");
 
   prop = RNA_def_property(srna, "type", PROP_ENUM, PROP_NONE);
-  /*RNA_def_property_clear_flag(prop, PROP_EDITABLE); */
+  // RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_enum_sdna(prop, NULL, "type");
   RNA_def_property_enum_items(prop, rna_enum_texture_type_items);
   RNA_def_property_enum_funcs(prop, NULL, "rna_Texture_type_set", NULL);
@@ -1634,6 +1643,8 @@ static void rna_def_texture(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "node_tree", PROP_POINTER, PROP_NONE);
   RNA_def_property_pointer_sdna(prop, NULL, "nodetree");
+  RNA_def_property_clear_flag(prop, PROP_PTR_NO_OWNERSHIP);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_ui_text(prop, "Node Tree", "Node tree for node-based textures");
   RNA_def_property_update(prop, 0, "rna_Texture_nodes_update");
 
@@ -1651,7 +1662,7 @@ static void rna_def_texture(BlenderRNA *brna)
   rna_def_texture_musgrave(brna);
   rna_def_texture_voronoi(brna);
   rna_def_texture_distorted_noise(brna);
-  /* XXX add more types here .. */
+  /* XXX add more types here. */
 
   RNA_api_texture(srna);
 }

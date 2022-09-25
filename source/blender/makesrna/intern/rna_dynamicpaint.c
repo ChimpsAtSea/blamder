@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -51,35 +37,35 @@ const EnumPropertyItem rna_enum_prop_dynamicpaint_type_items[] = {
 #  include "DEG_depsgraph.h"
 #  include "DEG_depsgraph_build.h"
 
-static char *rna_DynamicPaintCanvasSettings_path(PointerRNA *ptr)
+static char *rna_DynamicPaintCanvasSettings_path(const PointerRNA *ptr)
 {
-  DynamicPaintCanvasSettings *settings = (DynamicPaintCanvasSettings *)ptr->data;
-  ModifierData *md = (ModifierData *)settings->pmd;
+  const DynamicPaintCanvasSettings *settings = (DynamicPaintCanvasSettings *)ptr->data;
+  const ModifierData *md = (ModifierData *)settings->pmd;
   char name_esc[sizeof(md->name) * 2];
 
-  BLI_strescape(name_esc, md->name, sizeof(name_esc));
+  BLI_str_escape(name_esc, md->name, sizeof(name_esc));
   return BLI_sprintfN("modifiers[\"%s\"].canvas_settings", name_esc);
 }
 
-static char *rna_DynamicPaintBrushSettings_path(PointerRNA *ptr)
+static char *rna_DynamicPaintBrushSettings_path(const PointerRNA *ptr)
 {
-  DynamicPaintBrushSettings *settings = (DynamicPaintBrushSettings *)ptr->data;
-  ModifierData *md = (ModifierData *)settings->pmd;
+  const DynamicPaintBrushSettings *settings = (DynamicPaintBrushSettings *)ptr->data;
+  const ModifierData *md = (ModifierData *)settings->pmd;
   char name_esc[sizeof(md->name) * 2];
 
-  BLI_strescape(name_esc, md->name, sizeof(name_esc));
+  BLI_str_escape(name_esc, md->name, sizeof(name_esc));
   return BLI_sprintfN("modifiers[\"%s\"].brush_settings", name_esc);
 }
 
-static char *rna_DynamicPaintSurface_path(PointerRNA *ptr)
+static char *rna_DynamicPaintSurface_path(const PointerRNA *ptr)
 {
-  DynamicPaintSurface *surface = (DynamicPaintSurface *)ptr->data;
-  ModifierData *md = (ModifierData *)surface->canvas->pmd;
+  const DynamicPaintSurface *surface = (DynamicPaintSurface *)ptr->data;
+  const ModifierData *md = (ModifierData *)surface->canvas->pmd;
   char name_esc[sizeof(md->name) * 2];
   char name_esc_surface[sizeof(surface->name) * 2];
 
-  BLI_strescape(name_esc, md->name, sizeof(name_esc));
-  BLI_strescape(name_esc_surface, surface->name, sizeof(name_esc_surface));
+  BLI_str_escape(name_esc, md->name, sizeof(name_esc));
+  BLI_str_escape(name_esc_surface, surface->name, sizeof(name_esc_surface));
   return BLI_sprintfN(
       "modifiers[\"%s\"].canvas_settings.canvas_surfaces[\"%s\"]", name_esc, name_esc_surface);
 }
@@ -226,7 +212,7 @@ static bool rna_DynamicPaint_is_cache_user_get(PointerRNA *ptr)
   return (surface->format != MOD_DPAINT_SURFACE_F_IMAGESEQ) ? 1 : 0;
 }
 
-/* does output layer exist*/
+/* Does output layer exist. */
 static bool rna_DynamicPaint_is_output_exists(DynamicPaintSurface *surface, Object *ob, int index)
 {
   return dynamicPaint_outputLayerExists(surface, ob, index);
@@ -251,8 +237,7 @@ static const EnumPropertyItem *rna_DynamicPaint_surface_type_itemf(bContext *UNU
   RNA_enum_item_add(&item, &totitem, &tmp);
 
   /* Displace */
-  if (surface->format == MOD_DPAINT_SURFACE_F_VERTEX ||
-      surface->format == MOD_DPAINT_SURFACE_F_IMAGESEQ) {
+  if (ELEM(surface->format, MOD_DPAINT_SURFACE_F_VERTEX, MOD_DPAINT_SURFACE_F_IMAGESEQ)) {
     tmp.value = MOD_DPAINT_SURFACE_T_DISPLACE;
     tmp.identifier = "DISPLACE";
     tmp.name = "Displace";
@@ -342,8 +327,8 @@ static void rna_def_canvas_surface(BlenderRNA *brna)
       {0, NULL, 0, NULL, NULL},
   };
 
-  /*  Effect type
-   *   Only used by ui to view per effect settings */
+  /* Effect type
+   * Only used by UI to view per effect settings. */
   static const EnumPropertyItem prop_dynamicpaint_effecttype[] = {
       {1, "SPREAD", 0, "Spread", ""},
       {2, "DRIP", 0, "Drip", ""},
@@ -351,7 +336,7 @@ static void rna_def_canvas_surface(BlenderRNA *brna)
       {0, NULL, 0, NULL, NULL},
   };
 
-  /* Displacemap file format */
+  /* Displace-map file format. */
   static const EnumPropertyItem prop_dynamicpaint_image_fileformat[] = {
       {MOD_DPAINT_IMGFORMAT_PNG, "PNG", 0, "PNG", ""},
 #  ifdef WITH_OPENEXR
@@ -360,7 +345,7 @@ static void rna_def_canvas_surface(BlenderRNA *brna)
       {0, NULL, 0, NULL, NULL},
   };
 
-  /* Displacemap type */
+  /* Displace-map type. */
   static const EnumPropertyItem prop_dynamicpaint_displace_type[] = {
       {MOD_DPAINT_DISP_DISPLACE, "DISPLACE", 0, "Displacement", ""},
       {MOD_DPAINT_DISP_DEPTH, "DEPTH", 0, "Depth", ""},
@@ -589,6 +574,7 @@ static void rna_def_canvas_surface(BlenderRNA *brna)
   prop = RNA_def_property(srna, "effector_weights", PROP_POINTER, PROP_NONE);
   RNA_def_property_struct_type(prop, "EffectorWeights");
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_ui_text(prop, "Effector Weights", "");
 
   prop = RNA_def_property(srna, "drip_velocity", PROP_FLOAT, PROP_NONE);
@@ -625,7 +611,7 @@ static void rna_def_canvas_surface(BlenderRNA *brna)
   RNA_def_property_boolean_sdna(prop, NULL, "flags", MOD_DPAINT_OUT1);
   RNA_def_property_ui_text(prop, "Use Output", "Save this output layer");
 
-  /* output for secondary sufrace data */
+  /* Output for secondary surface data. */
   prop = RNA_def_property(srna, "output_name_b", PROP_STRING, PROP_NONE);
   RNA_def_property_string_sdna(prop, NULL, "output_name2");
   RNA_def_property_ui_text(prop, "Output Name", "Name used to save output from this surface");

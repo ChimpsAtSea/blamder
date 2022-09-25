@@ -1,35 +1,18 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- * allocimbuf.c
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup imbuf
  */
 
 #ifdef _WIN32
-#  include "mmap_win.h"
 #  include <io.h>
 #  include <stddef.h>
 #  include <sys/types.h>
 #endif
 
 #include "BLI_fileops.h"
+#include "BLI_mmap.h"
 #include "BLI_path_util.h"
 #include "BLI_string.h"
 #include "BLI_utildefines.h"
@@ -39,6 +22,8 @@
 #include "IMB_filetype.h"
 #include "IMB_imbuf.h"
 #include "IMB_imbuf_types.h"
+#include "IMB_metadata.h"
+#include "IMB_thumbs.h"
 #include "imbuf.h"
 
 #include "IMB_colormanagement.h"
@@ -52,7 +37,7 @@ static void imb_handle_alpha(ImBuf *ibuf,
   if (colorspace) {
     if (ibuf->rect != NULL && ibuf->rect_float == NULL) {
       /* byte buffer is never internally converted to some standard space,
-       * store pointer to it's color space descriptor instead
+       * store pointer to its color space descriptor instead
        */
       ibuf->rect_colorspace = colormanage_colorspace_get_named(effective_colorspace);
     }
@@ -126,7 +111,7 @@ ImBuf *IMB_ibImageFromMemory(const unsigned char *mem,
   }
 
   if ((flags & IB_test) == 0) {
-    fprintf(stderr, "%s: unknown fileformat (%s)\n", __func__, descr);
+    fprintf(stderr, "%s: unknown file-format (%s)\n", __func__, descr);
   }
 
   return NULL;
@@ -186,40 +171,39 @@ ImBuf *IMB_loadifffile(
   size = BLI_file_descriptor_size(file);
 
   imb_mmap_lock();
-  mem = mmap(NULL, size, PROT_READ, MAP_SHARED, file, 0);
+  BLI_mmap_file *mmap_file = BLI_mmap_open(file);
   imb_mmap_unlock();
-
-  if (mem == (unsigned char *)-1) {
+  if (mmap_file == NULL) {
     fprintf(stderr, "%s: couldn't get mapping %s\n", __func__, descr);
     return NULL;
   }
 
+  mem = BLI_mmap_get_pointer(mmap_file);
+
   ibuf = IMB_ibImageFromMemory(mem, size, flags, colorspace, descr);
 
   imb_mmap_lock();
-  if (munmap(mem, size)) {
-    fprintf(stderr, "%s: couldn't unmap file %s\n", __func__, descr);
-  }
+  BLI_mmap_free(mmap_file);
   imb_mmap_unlock();
 
   return ibuf;
 }
 
-static void imb_cache_filename(char *filename, const char *name, int flags)
+static void imb_cache_filename(char *filepath, const char *name, int flags)
 {
   /* read .tx instead if it exists and is not older */
   if (flags & IB_tilecache) {
-    BLI_strncpy(filename, name, IMB_FILENAME_SIZE);
-    if (!BLI_path_extension_replace(filename, IMB_FILENAME_SIZE, ".tx")) {
+    BLI_strncpy(filepath, name, IMB_FILENAME_SIZE);
+    if (!BLI_path_extension_replace(filepath, IMB_FILENAME_SIZE, ".tx")) {
       return;
     }
 
-    if (BLI_file_older(name, filename)) {
+    if (BLI_file_older(name, filepath)) {
       return;
     }
   }
 
-  BLI_strncpy(filename, name, IMB_FILENAME_SIZE);
+  BLI_strncpy(filepath, name, IMB_FILENAME_SIZE);
 }
 
 ImBuf *IMB_loadiffname(const char *filepath, int flags, char colorspace[IM_MAX_SPACE])
@@ -248,6 +232,61 @@ ImBuf *IMB_loadiffname(const char *filepath, int flags, char colorspace[IM_MAX_S
   }
 
   close(file);
+
+  return ibuf;
+}
+
+struct ImBuf *IMB_thumb_load_image(const char *filepath,
+                                   size_t max_thumb_size,
+                                   char colorspace[IM_MAX_SPACE])
+{
+  const ImFileType *type = IMB_file_type_from_ftype(IMB_ispic_type(filepath));
+  if (type == NULL) {
+    return NULL;
+  }
+
+  ImBuf *ibuf = NULL;
+  int flags = IB_rect | IB_metadata;
+  /* Size of the original image. */
+  size_t width = 0;
+  size_t height = 0;
+
+  char effective_colorspace[IM_MAX_SPACE] = "";
+  if (colorspace) {
+    BLI_strncpy(effective_colorspace, colorspace, sizeof(effective_colorspace));
+  }
+
+  if (type->load_filepath_thumbnail) {
+    ibuf = type->load_filepath_thumbnail(
+        filepath, flags, max_thumb_size, colorspace, &width, &height);
+  }
+  else {
+    /* Skip images of other types if over 100MB. */
+    const size_t file_size = BLI_file_size(filepath);
+    if (file_size != -1 && file_size > THUMB_SIZE_MAX) {
+      return NULL;
+    }
+    ibuf = IMB_loadiffname(filepath, flags, colorspace);
+    if (ibuf) {
+      width = ibuf->x;
+      height = ibuf->y;
+    }
+  }
+
+  if (ibuf) {
+    imb_handle_alpha(ibuf, flags, colorspace, effective_colorspace);
+
+    if (width > 0 && height > 0) {
+      /* Save dimensions of original image into the thumbnail metadata. */
+      char cwidth[40];
+      char cheight[40];
+      SNPRINTF(cwidth, "%zu", width);
+      SNPRINTF(cheight, "%zu", height);
+      IMB_metadata_ensure(&ibuf->metadata);
+      IMB_metadata_set_field(ibuf->metadata, "Thumb::Image::Width", cwidth);
+      IMB_metadata_set_field(ibuf->metadata, "Thumb::Image::Height", cheight);
+    }
+  }
 
   return ibuf;
 }
@@ -282,7 +321,6 @@ ImBuf *IMB_testiffname(const char *filepath, int flags)
 
 static void imb_loadtilefile(ImBuf *ibuf, int file, int tx, int ty, unsigned int *rect)
 {
-  const ImFileType *type;
   unsigned char *mem;
   size_t size;
 
@@ -293,24 +331,24 @@ static void imb_loadtilefile(ImBuf *ibuf, int file, int tx, int ty, unsigned int
   size = BLI_file_descriptor_size(file);
 
   imb_mmap_lock();
-  mem = mmap(NULL, size, PROT_READ, MAP_SHARED, file, 0);
+  BLI_mmap_file *mmap_file = BLI_mmap_open(file);
   imb_mmap_unlock();
-
-  if (mem == (unsigned char *)-1) {
+  if (mmap_file == NULL) {
     fprintf(stderr, "Couldn't get memory mapping for %s\n", ibuf->cachename);
     return;
   }
 
-  for (type = IMB_FILE_TYPES; type < IMB_FILE_TYPES_LAST; type++) {
-    if (type->load_tile && type->ftype(type, ibuf)) {
+  mem = BLI_mmap_get_pointer(mmap_file);
+
+  const ImFileType *type = IMB_file_type_from_ibuf(ibuf);
+  if (type != NULL) {
+    if (type->load_tile != NULL) {
       type->load_tile(ibuf, mem, size, tx, ty, rect);
     }
   }
 
   imb_mmap_lock();
-  if (munmap(mem, size)) {
-    fprintf(stderr, "Couldn't unmap memory for %s.\n", ibuf->cachename);
-  }
+  BLI_mmap_free(mmap_file);
   imb_mmap_unlock();
 }
 

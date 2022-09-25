@@ -1,25 +1,21 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __PBVH_INTERN_H__
-#define __PBVH_INTERN_H__
+#pragma once
+
+struct PBVHGPUFormat;
 
 /** \file
- * \ingroup bli
+ * \ingroup bke
  */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+struct MLoop;
+struct MLoopTri;
+struct MPoly;
+struct MVert;
 
 /* Axis-aligned bounding box */
 typedef struct {
@@ -31,7 +27,9 @@ typedef struct {
   float bmin[3], bmax[3], bcentroid[3];
 } BBC;
 
-/* Note: this structure is getting large, might want to split it into
+struct MeshElemMap;
+
+/* NOTE: this structure is getting large, might want to split it into
  * union'd structs */
 struct PBVHNode {
   /* Opaque handle for drawing code */
@@ -45,13 +43,18 @@ struct PBVHNode {
    * 'nodes' array. */
   int children_offset;
 
-  /* Pointer into the PBVH prim_indices array and the number of
-   * primitives used by this leaf node.
+  /* List of primitives for this node. Semantics depends on
+   * PBVH type:
    *
-   * Used for leaf nodes in both mesh- and multires-based PBVHs.
+   * - PBVH_FACES: Indices into the PBVH.looptri array.
+   * - PBVH_GRIDS: Multires grid indices.
+   * - PBVH_BMESH: Unused.  See PBVHNode.bm_faces.
+   *
+   * NOTE: This is a pointer inside of PBVH.prim_indices; it
+   * is not allocated separately per node.
    */
   int *prim_indices;
-  unsigned int totprim;
+  unsigned int totprim; /* Number of primitives inside prim_indices. */
 
   /* Array of indices into the mesh's MVert array. Contains the
    * indices of all vertices used by faces that are within this
@@ -74,6 +77,12 @@ struct PBVHNode {
    */
   const int *vert_indices;
   unsigned int uniq_verts, face_verts;
+
+  /* Array of indices into the Mesh's MLoop array.
+   * PBVH_FACES only.
+   */
+  int *loop_indices;
+  unsigned int loop_indices_num;
 
   /* An array mapping face corners into the vert_indices
    * array. The array is sized to match 'totprim', and each of
@@ -99,17 +108,24 @@ struct PBVHNode {
   PBVHProxyNode *proxies;
 
   /* Dyntopo */
+
+  /* GSet of pointers to the BMFaces used by this node.
+   * NOTE: PBVH_BMESH only. Faces are always triangles
+   * (dynamic topology forcibly triangulates the mesh).
+   */
   GSet *bm_faces;
   GSet *bm_unique_verts;
   GSet *bm_other_verts;
   float (*bm_orco)[3];
   int (*bm_ortri)[3];
   int bm_tot_ortri;
+
+  /* Used to store the brush color during a stroke and composite it over the original color */
+  PBVHColorBufferNode color_buffer;
+  PBVHPixelsNode pixels;
 };
 
-typedef enum {
-  PBVH_DYNTOPO_SMOOTH_SHADING = 1,
-} PBVHFlags;
+typedef enum { PBVH_DYNTOPO_SMOOTH_SHADING = 1 } PBVHFlags;
 
 typedef struct PBVHBMeshLog PBVHBMeshLog;
 
@@ -120,6 +136,7 @@ struct PBVH {
   PBVHNode *nodes;
   int node_mem_count, totnode;
 
+  /* Memory backing for PBVHNode.prim_indices. */
   int *prim_indices;
   int totprim;
   int totvert;
@@ -128,10 +145,13 @@ struct PBVH {
 
   /* Mesh data */
   const struct Mesh *mesh;
-  MVert *verts;
-  const MPoly *mpoly;
-  const MLoop *mloop;
-  const MLoopTri *looptri;
+
+  /* NOTE: Normals are not `const` because they can be updated for drawing by sculpt code. */
+  float (*vert_normals)[3];
+  struct MVert *verts;
+  const struct MPoly *mpoly;
+  const struct MLoop *mloop;
+  const struct MLoopTri *looptri;
   CustomData *vdata;
   CustomData *ldata;
   CustomData *pdata;
@@ -148,9 +168,9 @@ struct PBVH {
   int totgrid;
   BLI_bitmap **grid_hidden;
 
-  /* Only used during BVH build and update,
-   * don't need to remain valid after */
-  BLI_bitmap *vert_bitmap;
+  /* Used during BVH build and later to mark that a vertex needs to update
+   * (its normal must be recalculated). */
+  bool *vert_bitmap;
 
 #ifdef PERFCNTRS
   int perf_modified;
@@ -174,48 +194,71 @@ struct PBVH {
 
   struct BMLog *bm_log;
   struct SubdivCCG *subdiv_ccg;
+
+  const struct MeshElemMap *pmap;
+
+  CustomDataLayer *color_layer;
+  eAttrDomain color_domain;
+
+  bool is_drawing;
+
+  /* Used by DynTopo to invalidate the draw cache. */
+  bool draw_cache_invalid;
+
+  struct PBVHGPUFormat *vbo_id;
 };
 
 /* pbvh.c */
+
 void BB_reset(BB *bb);
+/**
+ * Expand the bounding box to include a new coordinate.
+ */
 void BB_expand(BB *bb, const float co[3]);
+/**
+ * Expand the bounding box to include another bounding box.
+ */
 void BB_expand_with_bb(BB *bb, BB *bb2);
 void BBC_update_centroid(BBC *bbc);
+/**
+ * Return 0, 1, or 2 to indicate the widest axis of the bounding box.
+ */
 int BB_widest_axis(const BB *bb);
 void pbvh_grow_nodes(PBVH *bvh, int totnode);
 bool ray_face_intersection_quad(const float ray_start[3],
                                 struct IsectRayPrecalc *isect_precalc,
-                                const float *t0,
-                                const float *t1,
-                                const float *t2,
-                                const float *t3,
+                                const float t0[3],
+                                const float t1[3],
+                                const float t2[3],
+                                const float t3[3],
                                 float *depth);
 bool ray_face_intersection_tri(const float ray_start[3],
                                struct IsectRayPrecalc *isect_precalc,
-                               const float *t0,
-                               const float *t1,
-                               const float *t2,
+                               const float t0[3],
+                               const float t1[3],
+                               const float t2[3],
                                float *depth);
 
 bool ray_face_nearest_quad(const float ray_start[3],
                            const float ray_normal[3],
-                           const float *t0,
-                           const float *t1,
-                           const float *t2,
-                           const float *t3,
+                           const float t0[3],
+                           const float t1[3],
+                           const float t2[3],
+                           const float t3[3],
                            float *r_depth,
                            float *r_dist_sq);
 bool ray_face_nearest_tri(const float ray_start[3],
                           const float ray_normal[3],
-                          const float *t0,
-                          const float *t1,
-                          const float *t2,
+                          const float t0[3],
+                          const float t1[3],
+                          const float t2[3],
                           float *r_depth,
                           float *r_dist_sq);
 
 void pbvh_update_BB_redraw(PBVH *bvh, PBVHNode **nodes, int totnode, int flag);
 
 /* pbvh_bmesh.c */
+
 bool pbvh_bmesh_node_raycast(PBVHNode *node,
                              const float ray_start[3],
                              const float ray_normal[3],
@@ -233,4 +276,12 @@ bool pbvh_bmesh_node_nearest_to_ray(PBVHNode *node,
 
 void pbvh_bmesh_normals_update(PBVHNode **nodes, int totnode);
 
+/* pbvh_pixels.hh */
+
+void pbvh_pixels_free(PBVHNode *node);
+void pbvh_pixels_free_brush_test(PBVHNode *node);
+void pbvh_free_draw_buffers(PBVH *pbvh, PBVHNode *node);
+
+#ifdef __cplusplus
+}
 #endif

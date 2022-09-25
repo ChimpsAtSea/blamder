@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -28,7 +12,7 @@
 #include "DNA_ID.h"
 #include "intern/node/deg_node.h"
 
-namespace DEG {
+namespace blender::deg {
 
 struct ComponentNode;
 
@@ -50,12 +34,14 @@ const char *linkedStateAsString(eDepsNode_LinkedState_Type linked_state);
 struct IDNode : public Node {
   struct ComponentIDKey {
     ComponentIDKey(NodeType type, const char *name = "");
+    uint64_t hash() const;
     bool operator==(const ComponentIDKey &other) const;
 
     NodeType type;
     const char *name;
   };
 
+  /** Initialize 'id' node - from pointer data given. */
   virtual void init(const ID *id, const char *subdata) override;
   void init_copy_on_write(ID *id_cow_hint = nullptr);
   ~IDNode();
@@ -72,12 +58,22 @@ struct IDNode : public Node {
 
   IDComponentsMask get_visible_components_mask() const;
 
-  /* ID Block referenced. */
   /* Type of the ID stored separately, so it's possible to perform check whether CoW is needed
    * without de-referencing the id_cow (which is not safe when ID is NOT covered by CoW and has
    * been deleted from the main database.) */
   ID_Type id_type;
+
+  /* ID Block referenced. */
   ID *id_orig;
+
+  /* Session-wide UUID of the id_orig.
+   * Is used on relations update to map evaluated state from old nodes to the new ones, without
+   * relying on pointers (which are not guaranteed to be unique) and without dereferencing id_orig
+   * which could be "stale" pointer. */
+  uint id_orig_session_uuid;
+
+  /* Evaluated data-block.
+   * Will be covered by the copy-on-write system if the ID Type needs it. */
   ID *id_cow;
 
   /* Hash to make it faster to look up components. */
@@ -95,8 +91,21 @@ struct IDNode : public Node {
 
   eDepsNode_LinkedState_Type linked_state;
 
-  /* Indicates the datablock is visible in the evaluated scene. */
-  bool is_directly_visible;
+  /* Indicates the data-block is to be considered visible in the evaluated scene.
+   *
+   * This flag is set during dependency graph build where check for an actual visibility might not
+   * be available yet due to driven or animated restriction flags. So it is more of an intent or,
+   * in other words, plausibility of the data-block to be visible. */
+  bool is_visible_on_build;
+
+  /* Evaluated state of whether evaluation considered this data-block "enabled".
+   *
+   * For objects this is derived from the base restriction flags, which might be animated or
+   * driven. It is set to `BASE_ENABLED_<VIEWPORT, RENDER>` (depending on the graph mode) after
+   * the object's flags from layer were evaluated.
+   *
+   * For other data-types is currently always true. */
+  bool is_enabled_on_eval;
 
   /* For the collection type of ID, denotes whether collection was fully
    * recursed into. */
@@ -108,23 +117,16 @@ struct IDNode : public Node {
   /* Accumulated flag from operation. Is initialized and used during updates flush. */
   bool is_user_modified;
 
+  /* Copy-on-Write component has been explicitly tagged for update. */
+  bool is_cow_explicitly_tagged;
+
+  /* Accumulate recalc flags from multiple update passes. */
+  int id_cow_recalc_backup;
+
   IDComponentsMask visible_components_mask;
   IDComponentsMask previously_visible_components_mask;
 
   DEG_DEPSNODE_DECLARE;
 };
 
-}  // namespace DEG
-
-namespace BLI {
-
-template<> struct DefaultHash<DEG::IDNode::ComponentIDKey> {
-  uint32_t operator()(const DEG::IDNode::ComponentIDKey &key) const
-  {
-    const int type_as_int = static_cast<int>(key.type);
-    return BLI_ghashutil_combine_hash(BLI_ghashutil_uinthash(type_as_int),
-                                      BLI_ghashutil_strhash_p(key.name));
-  }
-};
-
-}  // namespace BLI
+}  // namespace blender::deg

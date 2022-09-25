@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -45,8 +31,8 @@ SteerableViewMap::SteerableViewMap(unsigned int nbOrientations)
   _nbOrientations = nbOrientations;
   _bound = cos(M_PI / (float)_nbOrientations);
   for (unsigned int i = 0; i < _nbOrientations; ++i) {
-    _directions.push_back(Vec2d(cos((float)i * M_PI / (float)_nbOrientations),
-                                sin((float)i * M_PI / (float)_nbOrientations)));
+    _directions.emplace_back(cos((float)i * M_PI / (float)_nbOrientations),
+                             sin((float)i * M_PI / (float)_nbOrientations));
   }
   Build();
 }
@@ -88,7 +74,7 @@ void SteerableViewMap::Clear()
       }
     }
     delete[] _imagesPyramids;
-    _imagesPyramids = 0;
+    _imagesPyramids = nullptr;
   }
   if (!_mapping.empty()) {
     for (map<unsigned int, double *>::iterator m = _mapping.begin(), mend = _mapping.end();
@@ -146,9 +132,8 @@ double *SteerableViewMap::AddFEdge(FEdge *iFEdge)
   return res;
 }
 
-unsigned SteerableViewMap::getSVMNumber(const Vec2f &orient)
+unsigned SteerableViewMap::getSVMNumber(Vec2f dir)
 {
-  Vec2f dir(orient);
   // soc unsigned res = 0;
   real norm = dir.norm();
   if (norm < 1.0e-6) {
@@ -193,9 +178,7 @@ void SteerableViewMap::buildImagesPyramids(GrayImage **steerableBases,
 {
   for (unsigned int i = 0; i <= _nbOrientations; ++i) {
     ImagePyramid *svm = (_imagesPyramids)[i];
-    if (svm) {
-      delete svm;
-    }
+    delete svm;
     if (copy) {
       svm = new GaussianPyramid(*(steerableBases[i]), iNbLevels, iSigma);
     }
@@ -243,7 +226,7 @@ unsigned int SteerableViewMap::getNumberOfPyramidLevels() const
 void SteerableViewMap::saveSteerableViewMap() const
 {
   for (unsigned int i = 0; i <= _nbOrientations; ++i) {
-    if (_imagesPyramids[i] == 0) {
+    if (_imagesPyramids[i] == nullptr) {
       cerr << "SteerableViewMap warning: orientation " << i
            << " of steerable View Map whas not been computed yet" << endl;
       continue;

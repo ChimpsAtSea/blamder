@@ -1,92 +1,85 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_COLORCURVEOPERATION_H__
-#define __COM_COLORCURVEOPERATION_H__
+#pragma once
+
 #include "COM_CurveBaseOperation.h"
-#include "COM_NodeOperation.h"
-#include "DNA_color_types.h"
+
+namespace blender::compositor {
 
 class ColorCurveOperation : public CurveBaseOperation {
  private:
   /**
-   * Cached reference to the inputProgram
+   * Cached reference to the input_program
    */
-  SocketReader *m_inputFacProgram;
-  SocketReader *m_inputImageProgram;
-  SocketReader *m_inputBlackProgram;
-  SocketReader *m_inputWhiteProgram;
+  SocketReader *input_fac_program_;
+  SocketReader *input_image_program_;
+  SocketReader *input_black_program_;
+  SocketReader *input_white_program_;
 
  public:
   ColorCurveOperation();
 
   /**
-   * the inner loop of this program
+   * The inner loop of this operation.
    */
-  void executePixelSampled(float output[4], float x, float y, PixelSampler sampler);
+  void execute_pixel_sampled(float output[4], float x, float y, PixelSampler sampler) override;
 
   /**
    * Initialize the execution
    */
-  void initExecution();
+  void init_execution() override;
 
   /**
    * Deinitialize the execution
    */
-  void deinitExecution();
+  void deinit_execution() override;
+
+  void update_memory_buffer_partial(MemoryBuffer *output,
+                                    const rcti &area,
+                                    Span<MemoryBuffer *> inputs) override;
 };
 
 class ConstantLevelColorCurveOperation : public CurveBaseOperation {
  private:
   /**
-   * Cached reference to the inputProgram
+   * Cached reference to the input_program
    */
-  SocketReader *m_inputFacProgram;
-  SocketReader *m_inputImageProgram;
-  float m_black[3];
-  float m_white[3];
+  SocketReader *input_fac_program_;
+  SocketReader *input_image_program_;
+  float black_[3];
+  float white_[3];
 
  public:
   ConstantLevelColorCurveOperation();
 
   /**
-   * the inner loop of this program
+   * The inner loop of this operation.
    */
-  void executePixelSampled(float output[4], float x, float y, PixelSampler sampler);
+  void execute_pixel_sampled(float output[4], float x, float y, PixelSampler sampler) override;
 
   /**
    * Initialize the execution
    */
-  void initExecution();
+  void init_execution() override;
 
   /**
    * Deinitialize the execution
    */
-  void deinitExecution();
+  void deinit_execution() override;
 
-  void setBlackLevel(float black[3])
+  void set_black_level(float black[3])
   {
-    copy_v3_v3(this->m_black, black);
+    copy_v3_v3(black_, black);
   }
-  void setWhiteLevel(float white[3])
+  void set_white_level(float white[3])
   {
-    copy_v3_v3(this->m_white, white);
+    copy_v3_v3(white_, white);
   }
+
+  void update_memory_buffer_partial(MemoryBuffer *output,
+                                    const rcti &area,
+                                    Span<MemoryBuffer *> inputs) override;
 };
 
-#endif
+}  // namespace blender::compositor

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -30,7 +14,7 @@
 #include <sys/stat.h>
 
 #if defined(__NetBSD__) || defined(__DragonFly__) || defined(__HAIKU__)
-/* Other modern unix os's should probably use this also */
+/* Other modern unix OS's should probably use this also. */
 #  include <sys/statvfs.h>
 #  define USE_STATFS_STATVFS
 #endif
@@ -47,15 +31,15 @@
 #endif
 
 #include <fcntl.h>
-#include <string.h> /* strcpy etc.. */
+#include <string.h> /* `strcpy` etc. */
 
 #ifdef WIN32
 #  include "BLI_string_utf8.h"
 #  include "BLI_winstuff.h"
 #  include "utfconv.h"
+#  include <ShObjIdl.h>
 #  include <direct.h>
 #  include <io.h>
-#  include <shobjidl_core.h>
 #  include <stdbool.h>
 #else
 #  include <pwd.h>
@@ -72,12 +56,6 @@
 #include "BLI_string.h"
 #include "BLI_utildefines.h"
 
-/**
- * Copies the current working directory into *dir (max size maxncpy), and
- * returns a pointer to same.
- *
- * \note can return NULL when the size is not big enough
- */
 char *BLI_current_working_dir(char *dir, const size_t maxncpy)
 {
 #if defined(WIN32)
@@ -96,18 +74,12 @@ char *BLI_current_working_dir(char *dir, const size_t maxncpy)
       memcpy(dir, pwd, srclen + 1);
       return dir;
     }
-    else {
-      return NULL;
-    }
+    return NULL;
   }
   return getcwd(dir, maxncpy);
 #endif
 }
 
-/**
- * Returns the number of free bytes on the volume containing the specified pathname. */
-/* Not actually used anywhere.
- */
 double BLI_dir_free_space(const char *dir)
 {
 #ifdef WIN32
@@ -115,8 +87,8 @@ double BLI_dir_free_space(const char *dir)
   char tmp[4];
 
   tmp[0] = '\\';
-  tmp[1] = 0; /* Just a failsafe */
-  if (ELEM(dir[0] == '/', '\\')) {
+  tmp[1] = 0; /* Just a fail-safe. */
+  if (ELEM(dir[0], '/', '\\')) {
     tmp[0] = '\\';
     tmp[1] = 0;
   }
@@ -203,9 +175,6 @@ int64_t BLI_lseek(int fd, int64_t offset, int whence)
 #endif
 }
 
-/**
- * Returns the file size of an opened file descriptor.
- */
 size_t BLI_file_descriptor_size(int file)
 {
   BLI_stat_t st;
@@ -215,9 +184,6 @@ size_t BLI_file_descriptor_size(int file)
   return st.st_size;
 }
 
-/**
- * Returns the size of a file.
- */
 size_t BLI_file_size(const char *path)
 {
   BLI_stat_t stats;
@@ -268,44 +234,50 @@ eFileAttributes BLI_file_attributes(const char *path)
   if (attr & FILE_ATTRIBUTE_SPARSE_FILE) {
     ret |= FILE_ATTR_SPARSE_FILE;
   }
-  if (attr & FILE_ATTRIBUTE_OFFLINE) {
+  if (attr & FILE_ATTRIBUTE_OFFLINE || attr & FILE_ATTRIBUTE_RECALL_ON_OPEN ||
+      attr & FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS) {
     ret |= FILE_ATTR_OFFLINE;
   }
   if (attr & FILE_ATTRIBUTE_REPARSE_POINT) {
     ret |= FILE_ATTR_REPARSE_POINT;
   }
 
-#  endif
+#  else
 
-#  ifdef __linux__
   UNUSED_VARS(path);
 
   /* TODO:
    * If Immutable set FILE_ATTR_READONLY
    * If Archived set FILE_ATTR_ARCHIVE
    */
-
 #  endif
-
   return ret;
 }
 #endif
 
 /* Return alias/shortcut file target. Apple version is defined in storage_apple.mm */
 #ifndef __APPLE__
-bool BLI_file_alias_target(char target[FILE_MAXDIR], const char *filepath)
+bool BLI_file_alias_target(const char *filepath,
+                           /* This parameter can only be `const` on Linux since
+                            * redirections are not supported there.
+                            * NOLINTNEXTLINE: readability-non-const-parameter. */
+                           char r_targetpath[/*FILE_MAXDIR*/])
 {
 #  ifdef WIN32
   if (!BLI_path_extension_check(filepath, ".lnk")) {
     return false;
   }
 
-  IShellLinkW *Shortcut = NULL;
-  bool success = false;
-  CoInitializeEx(NULL, COINIT_MULTITHREADED);
+  HRESULT hr = CoInitializeEx(NULL, COINIT_MULTITHREADED);
+  if (FAILED(hr)) {
+    return false;
+  }
 
-  HRESULT hr = CoCreateInstance(
+  IShellLinkW *Shortcut = NULL;
+  hr = CoCreateInstance(
       &CLSID_ShellLink, NULL, CLSCTX_INPROC_SERVER, &IID_IShellLinkW, (LPVOID *)&Shortcut);
+
+  bool success = false;
   if (SUCCEEDED(hr)) {
     IPersistFile *PersistFile;
     hr = Shortcut->lpVtbl->QueryInterface(Shortcut, &IID_IPersistFile, (LPVOID *)&PersistFile);
@@ -319,7 +291,7 @@ bool BLI_file_alias_target(char target[FILE_MAXDIR], const char *filepath)
             wchar_t target_utf16[FILE_MAXDIR] = {0};
             hr = Shortcut->lpVtbl->GetPath(Shortcut, target_utf16, FILE_MAXDIR, NULL, 0);
             if (SUCCEEDED(hr)) {
-              success = (conv_utf_16_to_8(target_utf16, target, FILE_MAXDIR) == 0);
+              success = (conv_utf_16_to_8(target_utf16, r_targetpath, FILE_MAXDIR) == 0);
             }
           }
           PersistFile->lpVtbl->Release(PersistFile);
@@ -329,26 +301,21 @@ bool BLI_file_alias_target(char target[FILE_MAXDIR], const char *filepath)
     Shortcut->lpVtbl->Release(Shortcut);
   }
 
-  return (success && target[0]);
-#  endif
-
-#  ifdef __linux__
-  UNUSED_VARS(target, filepath);
+  CoUninitialize();
+  return (success && r_targetpath[0]);
+#  else
+  UNUSED_VARS(r_targetpath, filepath);
   /* File-based redirection not supported. */
   return false;
 #  endif
 }
 #endif
 
-/**
- * Returns the st_mode from stat-ing the specified path name, or 0 if stat fails
- * (most likely doesn't exist or no access).
- */
-int BLI_exists(const char *name)
+int BLI_exists(const char *path)
 {
 #if defined(WIN32)
   BLI_stat_t st;
-  wchar_t *tmp_16 = alloc_utf16_from_8(name, 1);
+  wchar_t *tmp_16 = alloc_utf16_from_8(path, 1);
   int len, res;
 
   len = wcslen(tmp_16);
@@ -374,13 +341,13 @@ int BLI_exists(const char *name)
 
   free(tmp_16);
   if (res == -1) {
-    return (0);
+    return 0;
   }
 #else
   struct stat st;
-  BLI_assert(!BLI_path_is_rel(name));
-  if (stat(name, &st)) {
-    return (0);
+  BLI_assert(!BLI_path_is_rel(path));
+  if (stat(path, &st)) {
+    return 0;
   }
 #endif
   return (st.st_mode);
@@ -427,18 +394,11 @@ int BLI_stat(const char *path, struct stat *buffer)
 }
 #endif
 
-/**
- * Does the specified path point to a directory?
- * \note Would be better in fileops.c except that it needs stat.h so add here
- */
 bool BLI_is_dir(const char *file)
 {
   return S_ISDIR(BLI_exists(file));
 }
 
-/**
- * Does the specified path point to a non-directory?
- */
 bool BLI_is_file(const char *path)
 {
   const int mode = BLI_exists(path);
@@ -525,33 +485,6 @@ void *BLI_file_read_binary_as_mem(const char *filepath, size_t pad_bytes, size_t
   return mem;
 }
 
-/**
- * Return the text file data with:
-
- * - Newlines replaced with '\0'.
- * - Optionally trim whitespace, replacing trailing ' ' & '\t' with '\0'.
- *
- * This is an alternative to using #BLI_file_read_as_lines,
- * allowing us to loop over lines without converting it into a linked list
- * with individual allocations.
- *
- * \param trim_trailing_space: Replace trailing spaces & tabs with nil.
- * This arguments prevents the caller from counting blank lines (if that's important).
- * \param pad_bytes: When this is non-zero, the first byte is set to nil,
- * to simplify parsing the file.
- * It's recommended to pass in 1, so all text is nil terminated.
- *
- * Example looping over lines:
- *
- * \code{.c}
- * size_t data_len;
- * char *data = BLI_file_read_text_as_mem_with_newline_as_nil(filepath, true, 1, &data_len);
- * char *data_end = data + data_len;
- * for (char *line = data; line != data_end; line = strlen(line) + 1) {
- *  printf("line='%s'\n", line);
- * }
- * \endcode
- */
 void *BLI_file_read_text_as_mem_with_newline_as_nil(const char *filepath,
                                                     bool trim_trailing_space,
                                                     size_t pad_bytes,
@@ -582,12 +515,9 @@ void *BLI_file_read_text_as_mem_with_newline_as_nil(const char *filepath,
   return mem;
 }
 
-/**
- * Reads the contents of a text file and returns the lines in a linked list.
- */
-LinkNode *BLI_file_read_as_lines(const char *name)
+LinkNode *BLI_file_read_as_lines(const char *filepath)
 {
-  FILE *fp = BLI_fopen(name, "r");
+  FILE *fp = BLI_fopen(filepath, "r");
   LinkNodePair lines = {NULL, NULL};
   char *buf;
   size_t size;
@@ -631,15 +561,11 @@ LinkNode *BLI_file_read_as_lines(const char *name)
   return lines.list;
 }
 
-/*
- * Frees memory from a previous call to BLI_file_read_as_lines.
- */
 void BLI_file_free_lines(LinkNode *lines)
 {
   BLI_linklist_freeN(lines);
 }
 
-/** is file1 older then file2 */
 bool BLI_file_older(const char *file1, const char *file2)
 {
 #ifdef WIN32

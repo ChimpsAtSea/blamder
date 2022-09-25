@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -109,7 +95,7 @@ static BMEdge *bmo_edge_copy(BMOperator *op,
   BMO_slot_map_elem_insert(op, slot_edgemap_out, e_src, e_dst);
   BMO_slot_map_elem_insert(op, slot_edgemap_out, e_dst, e_src);
 
-  /* add to new/old edge map if necassary */
+  /* Add to new/old edge map if necessary. */
   if (rlen < 2) {
     /* not sure what non-manifold cases of greater than three
      * radial should do. */
@@ -363,10 +349,12 @@ void bmo_duplicate_exec(BMesh *bm, BMOperator *op)
 }
 
 #if 0 /* UNUSED */
-/* executes the duplicate operation, feeding elements of
- * type flag etypeflag and header flag flag to it.  note,
- * to get more useful information (such as the mapping from
- * original to new elements) you should run the dupe op manually */
+/**
+ * executes the duplicate operation, feeding elements of
+ * type flag etypeflag and header flag to it.
+ * \note to get more useful information (such as the mapping from
+ * original to new elements) you should run the dupe op manually.
+ */
 void BMO_dupe_from_flag(BMesh *bm, int htype, const char hflag)
 {
   BMOperator dupeop;

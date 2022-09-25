@@ -1,24 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
-
-#ifndef __CLG_LOG_H__
-#define __CLG_LOG_H__
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
- * \ingroup clog
+ * \ingroup intern_clog
  *
  * C Logging Library (clog)
  * ========================
@@ -67,6 +50,9 @@
  *
  * - 4+: May be used for more details than 3, should be avoided but not prevented.
  */
+
+#ifndef __CLG_LOG_H__
+#define __CLG_LOG_H__
 
 #ifdef __cplusplus
 extern "C" {
@@ -118,6 +104,7 @@ typedef struct CLG_LogType {
 typedef struct CLG_LogRef {
   const char *identifier;
   CLG_LogType *type;
+  struct CLG_LogRef *next;
 } CLG_LogRef;
 
 void CLG_log_str(CLG_LogType *lg,
@@ -132,13 +119,14 @@ void CLG_logf(CLG_LogType *lg,
               const char *format,
               ...) _CLOG_ATTR_NONNULL(1, 3, 4, 5) _CLOG_ATTR_PRINTF_FORMAT(5, 6);
 
-/* Main initializer and distructor (per session, not logger). */
+/* Main initializer and destructor (per session, not logger). */
 void CLG_init(void);
 void CLG_exit(void);
 
 void CLG_output_set(void *file_handle);
 void CLG_output_use_basename_set(int value);
 void CLG_output_use_timestamp_set(int value);
+void CLG_error_fn_set(void (*error_fn)(void *file_handle));
 void CLG_fatal_fn_set(void (*fatal_fn)(void *file_handle));
 void CLG_backtrace_fn_set(void (*fatal_fn)(void *file_handle));
 
@@ -148,6 +136,8 @@ void CLG_type_filter_exclude(const char *type_filter, int type_filter_len);
 void CLG_level_set(int level);
 
 void CLG_logref_init(CLG_LogRef *clg_ref);
+
+int CLG_color_support_get(CLG_LogRef *clg_ref);
 
 /** Declare outside function, declare as extern in header. */
 #define CLG_LOGREF_DECLARE_GLOBAL(var, id) \

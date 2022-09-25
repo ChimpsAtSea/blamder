@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 Blender Foundation
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup editor_physics
@@ -25,6 +9,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "DNA_collection_types.h"
 #include "DNA_object_types.h"
 #include "DNA_rigidbody_types.h"
 #include "DNA_scene_types.h"
@@ -55,12 +40,21 @@
 /* ********************************************** */
 /* Helper API's for RigidBody Constraint Editing */
 
+static bool operator_rigidbody_constraints_editable_poll(Scene *scene)
+{
+  if (scene == NULL || ID_IS_LINKED(scene) || ID_IS_OVERRIDE_LIBRARY(scene) ||
+      (scene->rigidbody_world != NULL && scene->rigidbody_world->constraints != NULL &&
+       (ID_IS_LINKED(scene->rigidbody_world->constraints) ||
+        ID_IS_OVERRIDE_LIBRARY(scene->rigidbody_world->constraints)))) {
+    return false;
+  }
+  return true;
+}
+
 static bool ED_operator_rigidbody_con_active_poll(bContext *C)
 {
   Scene *scene = CTX_data_scene(C);
-  if (scene == NULL || ID_IS_LINKED(&scene->id) ||
-      (scene->rigidbody_world != NULL && scene->rigidbody_world->constraints != NULL &&
-       ID_IS_LINKED(&scene->rigidbody_world->constraints->id))) {
+  if (!operator_rigidbody_constraints_editable_poll(scene)) {
     return false;
   }
 
@@ -68,17 +62,13 @@ static bool ED_operator_rigidbody_con_active_poll(bContext *C)
     Object *ob = ED_object_active_context(C);
     return (ob && ob->rigidbody_constraint);
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
 static bool ED_operator_rigidbody_con_add_poll(bContext *C)
 {
   Scene *scene = CTX_data_scene(C);
-  if (scene == NULL || ID_IS_LINKED(&scene->id) ||
-      (scene->rigidbody_world != NULL && scene->rigidbody_world->constraints != NULL &&
-       ID_IS_LINKED(&scene->rigidbody_world->constraints->id))) {
+  if (!operator_rigidbody_constraints_editable_poll(scene)) {
     return false;
   }
   return ED_operator_object_active_editable(C);
@@ -98,7 +88,7 @@ bool ED_rigidbody_constraint_add(
   /* create constraint group if it doesn't already exits */
   if (rbw->constraints == NULL) {
     rbw->constraints = BKE_collection_add(bmain, NULL, "RigidBodyConstraints");
-    id_fake_user_set(&rbw->constraints->id);
+    id_us_plus(&rbw->constraints->id);
   }
   /* make rigidbody constraint settings */
   ob->rigidbody_constraint = BKE_rigidbody_create_constraint(scene, ob, type);
@@ -151,9 +141,7 @@ static int rigidbody_con_add_exec(bContext *C, wmOperator *op)
     /* done */
     return OPERATOR_FINISHED;
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return OPERATOR_CANCELLED;
 }
 
 void RIGIDBODY_OT_constraint_add(wmOperatorType *ot)
@@ -193,9 +181,7 @@ static int rigidbody_con_remove_exec(bContext *C, wmOperator *op)
     BKE_report(op->reports, RPT_ERROR, "Object has no Rigid Body Constraint to remove");
     return OPERATOR_CANCELLED;
   }
-  else {
-    ED_rigidbody_constraint_remove(bmain, scene, ob);
-  }
+  ED_rigidbody_constraint_remove(bmain, scene, ob);
 
   /* send updates */
   WM_event_add_notifier(C, NC_OBJECT | ND_TRANSFORM, NULL);

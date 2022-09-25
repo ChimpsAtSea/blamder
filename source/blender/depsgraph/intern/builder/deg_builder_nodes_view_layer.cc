@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -25,8 +9,8 @@
 
 #include "intern/builder/deg_builder_nodes.h"
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
 
 #include "MEM_guardedalloc.h"
 
@@ -34,6 +18,7 @@
 #include "BLI_string.h"
 #include "BLI_utildefines.h"
 
+#include "DNA_collection_types.h"
 #include "DNA_freestyle_types.h"
 #include "DNA_layer_types.h"
 #include "DNA_linestyle_types.h"
@@ -55,15 +40,15 @@
 #include "intern/node/deg_node_component.h"
 #include "intern/node/deg_node_operation.h"
 
-namespace DEG {
+namespace blender::deg {
 
 void DepsgraphNodeBuilder::build_layer_collections(ListBase *lb)
 {
-  const int restrict_flag = (graph_->mode == DAG_EVAL_VIEWPORT) ? COLLECTION_RESTRICT_VIEWPORT :
-                                                                  COLLECTION_RESTRICT_RENDER;
+  const int visibility_flag = (graph_->mode == DAG_EVAL_VIEWPORT) ? COLLECTION_HIDE_VIEWPORT :
+                                                                    COLLECTION_HIDE_RENDER;
 
   for (LayerCollection *lc = (LayerCollection *)lb->first; lc; lc = lc->next) {
-    if (lc->collection->flag & restrict_flag) {
+    if (lc->collection->flag & visibility_flag) {
       continue;
     }
     if ((lc->flag & LAYER_COLLECTION_EXCLUDE) == 0) {
@@ -107,14 +92,20 @@ void DepsgraphNodeBuilder::build_view_layer(Scene *scene,
   int base_index = 0;
   LISTBASE_FOREACH (Base *, base, &view_layer->object_bases) {
     /* object itself */
-    if (need_pull_base_into_graph(base)) {
-      /* NOTE: We consider object visible even if it's currently
-       * restricted by the base/restriction flags. Otherwise its drivers
-       * will never be evaluated.
-       *
-       * TODO(sergey): Need to go more granular on visibility checks. */
-      build_object(base_index, base->object, linked_state, true);
-      base_index++;
+    if (!need_pull_base_into_graph(base)) {
+      continue;
+    }
+
+    /* NOTE: We consider object visible even if it's currently
+     * restricted by the base/restriction flags. Otherwise its drivers
+     * will never be evaluated.
+     *
+     * TODO(sergey): Need to go more granular on visibility checks. */
+    build_object(base_index, base->object, linked_state, true);
+    base_index++;
+
+    if (!graph_->has_animated_visibility) {
+      graph_->has_animated_visibility |= is_object_visibility_animated(base->object);
     }
   }
   build_layer_collections(&view_layer->layer_collections);
@@ -159,11 +150,12 @@ void DepsgraphNodeBuilder::build_view_layer(Scene *scene,
     build_scene_sequencer(scene);
   }
   /* Collections. */
-  add_operation_node(
-      &scene->id,
-      NodeType::LAYER_COLLECTIONS,
-      OperationCode::VIEW_LAYER_EVAL,
-      function_bind(BKE_layer_eval_view_layer_indexed, _1, scene_cow, view_layer_index_));
+  add_operation_node(&scene->id,
+                     NodeType::LAYER_COLLECTIONS,
+                     OperationCode::VIEW_LAYER_EVAL,
+                     [view_layer_index = view_layer_index_, scene_cow](::Depsgraph *depsgraph) {
+                       BKE_layer_eval_view_layer_indexed(depsgraph, scene_cow, view_layer_index);
+                     });
   /* Parameters evaluation for scene relations mainly. */
   build_scene_compositor(scene);
   build_scene_parameters(scene);
@@ -174,4 +166,4 @@ void DepsgraphNodeBuilder::build_view_layer(Scene *scene,
   }
 }
 
-}  // namespace DEG
+}  // namespace blender::deg

@@ -1,29 +1,15 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bli
  *
- * Common implementation of linked-list a non-recursive mergesort.
+ * Common implementation of linked-list a non-recursive merge-sort.
  *
- * Originally from Mono's eglib, adapted for portable inclusion.
+ * Originally from Mono's `eglib`, adapted for portable inclusion.
  * This file is to be directly included in C-source,
  * with defines to control its use.
  *
- * This code requires a typedef named `SORT_IMPL_LINKTYPE` for the list node.
+ * This code requires a `typedef` named `SORT_IMPL_LINKTYPE` for the list node.
  * It is assumed that the list type is the type of a pointer to a list
  * node, and that the node has a field named 'next' that implements to
  * the linked list.  No additional invariant is maintained
@@ -34,7 +20,7 @@
  * - `SORT_IMPL_LINKTYPE`:
  *   Struct type for sorting.
  * - `SORT_IMPL_LINKTYPE_DATA`:
- *   Data pointer or leave undefined to pass the link its self.
+ *   Data pointer or leave undefined to pass the link itself.
  * - `SORT_IMPL_FUNC`:
  *   Function name of the sort function.
  *
@@ -111,7 +97,7 @@ typedef int (*CompareFn)(
  * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  *
  * Author:
- *   Raja R Harinath (rharinath@novell.com)
+ *   Raja R Harinath <rharinath@novell.com>
  */
 
 /**
@@ -202,10 +188,10 @@ BLI_INLINE list_node *sweep_up(struct SortInfo *si, list_node *list, unsigned in
 }
 
 /**
- * The 'ranks' array essentially captures the recursion stack of a mergesort.
+ * The 'ranks' array essentially captures the recursion stack of a merge-sort.
  * The merge tree is built in a bottom-up manner.  The control loop for
  * updating the 'ranks' array is analogous to incrementing a binary integer,
- * and the `O(n)` time for counting upto n translates to `O(n)` merges when
+ * and the `O(n)` time for counting `upto` n translates to `O(n)` merges when
  * inserting `rank-0` lists.
  * When we plug in the sizes of the lists involved in those merges,
  * we get the `O(n log n)` time for the sort.

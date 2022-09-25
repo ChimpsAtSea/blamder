@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_LIGHT_DEFAULTS_H__
-#define __DNA_LIGHT_DEFAULTS_H__
+#pragma once
 
 /* Struct members on own line. */
 /* clang-format off */
@@ -64,13 +49,14 @@
     .contact_bias = 0.03f, \
     .contact_spread = 0.2f, \
     .contact_thickness = 0.2f, \
+    .diff_fac = 1.0f, \
     .spec_fac = 1.0f, \
+    .volume_fac = 1.0f, \
     .att_dist = 40.0f, \
     .sun_angle = DEG2RADF(0.526f), \
+    .area_spread = DEG2RADF(180.0f), \
   }
 
 /** \} */
 
 /* clang-format on */
-
-#endif /* __DNA_LIGHT_DEFAULTS_H__ */

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup spview3d
@@ -38,6 +24,7 @@
 #include "MEM_guardedalloc.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "WM_api.h"
 #include "WM_types.h"
@@ -99,7 +86,7 @@ static void WIDGETGROUP_light_spot_refresh(const bContext *C, wmGizmoGroup *gzgr
   WM_gizmo_set_matrix_rotation_from_z_axis(gz, dir);
   WM_gizmo_set_matrix_location(gz, ob->obmat[3]);
 
-  /* need to set property here for undo. TODO would prefer to do this in _init */
+  /* need to set property here for undo. TODO: would prefer to do this in _init. */
   PointerRNA lamp_ptr;
   const char *propname = "spot_size";
   RNA_pointer_create(&la->id, &RNA_Light, la, &lamp_ptr);
@@ -212,7 +199,7 @@ static void WIDGETGROUP_light_area_refresh(const bContext *C, wmGizmoGroup *gzgr
   }
   RNA_enum_set(gz->ptr, "transform", flag);
 
-  /* need to set property here for undo. TODO would prefer to do this in _init */
+  /* need to set property here for undo. TODO: would prefer to do this in _init. */
   WM_gizmo_target_property_def_func(gz,
                                     "matrix",
                                     &(const struct wmGizmoPropertyFnParams){

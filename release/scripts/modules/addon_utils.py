@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8-80 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 __all__ = (
     "paths",
@@ -49,16 +31,16 @@ def _initialize():
 
 def paths():
     # RELEASE SCRIPTS: official scripts distributed in Blender releases
-    addon_paths = _bpy.utils.script_paths("addons")
+    addon_paths = _bpy.utils.script_paths(subdir="addons")
 
     # CONTRIB SCRIPTS: good for testing but not official scripts yet
     # if folder addons_contrib/ exists, scripts in there will be loaded too
-    addon_paths += _bpy.utils.script_paths("addons_contrib")
+    addon_paths += _bpy.utils.script_paths(subdir="addons_contrib")
 
     return addon_paths
 
 
-def modules_refresh(module_cache=addons_fake_modules):
+def modules_refresh(*, module_cache=addons_fake_modules):
     global error_encoding
     import os
 
@@ -138,10 +120,10 @@ def modules_refresh(module_cache=addons_fake_modules):
                 mod.__file__ = mod_path
                 mod.__time__ = os.path.getmtime(mod_path)
             except:
-                print("AST error parsing bl_info for:", mod_name)
+                print("AST error parsing bl_info for:", repr(mod_path))
                 import traceback
                 traceback.print_exc()
-                raise
+                return None
 
             if force_support is not None:
                 mod.bl_info["support"] = force_support
@@ -172,8 +154,8 @@ def modules_refresh(module_cache=addons_fake_modules):
                 if mod.__file__ != mod_path:
                     print(
                         "multiple addons with the same name:\n"
-                        "  " f"{mod.__file__!r}" "\n"
-                        "  " f"{mod_path!r}"
+                        "  %r\n"
+                        "  %r" % (mod.__file__, mod_path)
                     )
                     error_duplicates.append((mod.bl_info["name"], mod.__file__, mod_path))
 
@@ -203,9 +185,9 @@ def modules_refresh(module_cache=addons_fake_modules):
     del modules_stale
 
 
-def modules(module_cache=addons_fake_modules, *, refresh=True):
+def modules(*, module_cache=addons_fake_modules, refresh=True):
     if refresh or ((module_cache is addons_fake_modules) and modules._is_first):
-        modules_refresh(module_cache)
+        modules_refresh(module_cache=module_cache)
         modules._is_first = False
 
     mod_list = list(module_cache.values())
@@ -241,7 +223,7 @@ def check(module_name):
 
     if loaded_state is Ellipsis:
         print(
-            "Warning: addon-module " f"{module_name:s}" " found module "
+            "Warning: addon-module", module_name, "found module "
             "but without '__addon_enabled__' field, "
             "possible name collision from file:",
             repr(getattr(mod, "__file__", "<unknown>")),
@@ -349,12 +331,17 @@ def enable(module_name, *, default_set=False, persistent=False, handle_error=Non
         # 1) try import
         try:
             mod = __import__(module_name)
+            if mod.__file__ is None:
+                # This can happen when the addon has been removed but there are
+                # residual `.pyc` files left behind.
+                raise ImportError(name=module_name)
             mod.__time__ = os.path.getmtime(mod.__file__)
             mod.__addon_enabled__ = False
         except Exception as ex:
             # if the addon doesn't exist, don't print full traceback
             if type(ex) is ImportError and ex.name == module_name:
-                print("addon not found:", repr(module_name))
+                print("addon not loaded:", repr(module_name))
+                print("cause:", str(ex))
             else:
                 handle_error(ex)
 
@@ -367,7 +354,7 @@ def enable(module_name, *, default_set=False, persistent=False, handle_error=Non
 
         if mod.bl_info.get("blender", (0, 0, 0)) < (2, 80, 0):
             if _bpy.app.debug:
-                print(f"Warning: Add-on '{module_name:s}' was not upgraded for 2.80, ignoring")
+                print("Warning: Add-on '%s' was not upgraded for 2.80, ignoring" % module_name)
             return None
 
         # 2) Try register collected modules.
@@ -439,8 +426,9 @@ def disable(module_name, *, default_set=False, handle_error=None):
             handle_error(ex)
     else:
         print(
-            "addon_utils.disable: " f"{module_name:s}" " not",
-            ("disabled" if mod is None else "loaded")
+            "addon_utils.disable: %s not %s" % (
+                module_name,
+                "disabled" if mod is None else "loaded")
         )
 
     # could be in more than once, unlikely but better do this just in case.
@@ -491,21 +479,18 @@ def disable_all():
         item for item in sys.modules.items()
         if getattr(item[1], "__addon_enabled__", False)
     ]
+    # Check the enabled state again since it's possible the disable call
+    # of one add-on disables others.
     for mod_name, mod in addon_modules:
         if getattr(mod, "__addon_enabled__", False):
             disable(mod_name)
 
 
 def _blender_manual_url_prefix():
-    if _bpy.app.version_cycle in {"rc", "release"}:
-        manual_version = "%d.%d" % _bpy.app.version[:2]
-    else:
-        manual_version = "dev"
-
-    return f"https://docs.blender.org/manual/en/{manual_version}"
+    return "https://docs.blender.org/manual/en/%d.%d" % _bpy.app.version[:2]
 
 
-def module_bl_info(mod, info_basis=None):
+def module_bl_info(mod, *, info_basis=None):
     if info_basis is None:
         info_basis = {
             "name": "",
@@ -535,22 +520,6 @@ def module_bl_info(mod, info_basis=None):
 
     if not addon_info["name"]:
         addon_info["name"] = mod.__name__
-
-    # Replace 'wiki_url' with 'doc_url'.
-    doc_url = addon_info.pop("wiki_url", None)
-    if doc_url is not None:
-        # Unlikely, but possible that both are set.
-        if not addon_info["doc_url"]:
-            addon_info["doc_url"] = doc_url
-        if _bpy.app.debug:
-            print(
-                "Warning: add-on \"{addon_name}\": 'wiki_url' in 'bl_info' "
-                "is deprecated please use 'doc_url' instead!\n"
-                "         {addon_path}".format(
-                    addon_name=addon_info['name'],
-                    addon_path=getattr(mod, "__file__", None),
-                )
-            )
 
     doc_url = addon_info["doc_url"]
     if doc_url:

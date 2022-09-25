@@ -1,25 +1,9 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- * Operators and API's for creating bones
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edarmature
+ * Operators and API's for creating bones.
  */
 
 #include "DNA_anim_types.h"
@@ -36,6 +20,7 @@
 #include "BLI_string_utils.h"
 
 #include "BKE_action.h"
+#include "BKE_armature.h"
 #include "BKE_constraint.h"
 #include "BKE_context.h"
 #include "BKE_deform.h"
@@ -63,8 +48,6 @@
 
 /* *************** Adding stuff in editmode *************** */
 
-/* default bone add, returns it selected, but without tail set */
-/* XXX should be used everywhere, now it mallocs bones still locally in functions */
 EditBone *ED_armature_ebone_add(bArmature *arm, const char *name)
 {
   EditBone *bone = MEM_callocN(sizeof(EditBone), "eBone");
@@ -88,15 +71,14 @@ EditBone *ED_armature_ebone_add(bArmature *arm, const char *name)
   bone->roll1 = 0.0f;
   bone->roll2 = 0.0f;
   bone->curve_in_x = 0.0f;
-  bone->curve_in_y = 0.0f;
+  bone->curve_in_z = 0.0f;
   bone->curve_out_x = 0.0f;
-  bone->curve_out_y = 0.0f;
+  bone->curve_out_z = 0.0f;
   bone->ease1 = 1.0f;
   bone->ease2 = 1.0f;
-  bone->scale_in_x = 1.0f;
-  bone->scale_in_y = 1.0f;
-  bone->scale_out_x = 1.0f;
-  bone->scale_out_y = 1.0f;
+
+  copy_v3_fl(bone->scale_in, 1.0f);
+  copy_v3_fl(bone->scale_out, 1.0f);
 
   return bone;
 }
@@ -120,9 +102,6 @@ EditBone *ED_armature_ebone_add_primitive(Object *obedit_arm, float length, bool
 
   return bone;
 }
-
-/* previously addvert_armature */
-/* the ctrl-click method */
 
 /**
  * Note this is already ported to multi-objects as it is.
@@ -182,9 +161,7 @@ static int armature_click_extrude_exec(bContext *C, wmOperator *UNUSED(op))
       if (flipbone == NULL) {
         break;
       }
-      else {
-        SWAP(EditBone *, flipbone, ebone);
-      }
+      SWAP(EditBone *, flipbone, ebone);
     }
 
     newbone = ED_armature_ebone_add(arm, ebone->name);
@@ -230,7 +207,7 @@ static int armature_click_extrude_exec(bContext *C, wmOperator *UNUSED(op))
 
 static int armature_click_extrude_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
-  /* TODO most of this code is copied from set3dcursor_invoke,
+  /* TODO: most of this code is copied from set3dcursor_invoke,
    * it would be better to reuse code in set3dcursor_invoke */
 
   /* temporarily change 3d cursor position */
@@ -264,7 +241,7 @@ static int armature_click_extrude_invoke(bContext *C, wmOperator *op, const wmEv
 void ARMATURE_OT_click_extrude(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Click-Extrude";
+  ot->name = "Extrude to Cursor";
   ot->idname = "ARMATURE_OT_click_extrude";
   ot->description = "Create a new bone going from the last selected joint to the mouse position";
 
@@ -274,12 +251,11 @@ void ARMATURE_OT_click_extrude(wmOperatorType *ot)
   ot->poll = ED_operator_editarmature;
 
   /* flags */
-  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO | OPTYPE_DEPENDS_ON_CURSOR;
 
   /* props */
 }
 
-/* adds an EditBone between the nominated locations (should be in the right space) */
 EditBone *add_points_bone(Object *obedit, float head[3], float tail[3])
 {
   EditBone *ebo;
@@ -307,8 +283,6 @@ static EditBone *get_named_editbone(ListBase *edbo, const char *name)
   return NULL;
 }
 
-/* Call this before doing any duplications
- * */
 void preEditBoneDuplicate(ListBase *editbones)
 {
   /* clear temp */
@@ -344,7 +318,7 @@ void postEditBoneDuplicate(struct ListBase *editbones, Object *ob)
   }
 
   BKE_pose_channels_hash_free(ob->pose);
-  BKE_pose_channels_hash_make(ob->pose);
+  BKE_pose_channels_hash_ensure(ob->pose);
 
   GHash *name_map = BLI_ghash_str_new(__func__);
 
@@ -387,7 +361,7 @@ static void updateDuplicateSubtarget(EditBone *dup_bone,
                                      Object *ob,
                                      bool lookup_mirror_subtarget)
 {
-  /* If an edit bone has been duplicated, lets update it's constraints if the
+  /* If an edit bone has been duplicated, lets update its constraints if the
    * subtarget they point to has also been duplicated.
    */
   EditBone *oldtarget, *newtarget;
@@ -395,19 +369,16 @@ static void updateDuplicateSubtarget(EditBone *dup_bone,
   bConstraint *curcon;
   ListBase *conlist;
 
-  if ((pchan = BKE_pose_channel_verify(ob->pose, dup_bone->name))) {
+  if ((pchan = BKE_pose_channel_ensure(ob->pose, dup_bone->name))) {
     if ((conlist = &pchan->constraints)) {
       for (curcon = conlist->first; curcon; curcon = curcon->next) {
         /* does this constraint have a subtarget in
          * this armature?
          */
-        const bConstraintTypeInfo *cti = BKE_constraint_typeinfo_get(curcon);
         ListBase targets = {NULL, NULL};
         bConstraintTarget *ct;
 
-        if (cti && cti->get_constraint_targets) {
-          cti->get_constraint_targets(curcon, &targets);
-
+        if (BKE_constraint_targets_get(curcon, &targets)) {
           for (ct = targets.first; ct; ct = ct->next) {
             if ((ct->tar == ob) && (ct->subtarget[0])) {
               oldtarget = get_named_editbone(editbones, ct->subtarget);
@@ -435,29 +406,28 @@ static void updateDuplicateSubtarget(EditBone *dup_bone,
             }
           }
 
-          if (cti->flush_constraint_targets) {
-            cti->flush_constraint_targets(curcon, &targets, 0);
-          }
+          BKE_constraint_targets_flush(curcon, &targets, 0);
         }
       }
     }
   }
 }
 
-static void updateDuplicateActionConstraintSettings(EditBone *dup_bone,
-                                                    EditBone *orig_bone,
-                                                    Object *ob,
-                                                    bConstraint *curcon)
+static void updateDuplicateActionConstraintSettings(
+    EditBone *dup_bone, EditBone *orig_bone, Object *ob, bPoseChannel *pchan, bConstraint *curcon)
 {
   bActionConstraint *act_con = (bActionConstraint *)curcon->data;
   bAction *act = (bAction *)act_con->act;
 
   float mat[4][4];
 
+  bConstraintOb cob = {.depsgraph = NULL, .scene = NULL, .ob = ob, .pchan = pchan};
+  BKE_constraint_custom_object_space_init(&cob, curcon);
+
   unit_m4(mat);
   bPoseChannel *target_pchan = BKE_pose_channel_find_name(ob->pose, act_con->subtarget);
   BKE_constraint_mat_convertspace(
-      ob, target_pchan, mat, curcon->tarspace, CONSTRAINT_SPACE_LOCAL, false);
+      ob, target_pchan, &cob, mat, curcon->tarspace, CONSTRAINT_SPACE_LOCAL, false);
 
   float max_axis_val = 0;
   int max_axis = 0;
@@ -516,7 +486,8 @@ static void updateDuplicateActionConstraintSettings(EditBone *dup_bone,
   /* See if there is any channels that uses this bone */
   ListBase ani_curves;
   BLI_listbase_clear(&ani_curves);
-  if (BKE_fcurves_filter(&ani_curves, &act->curves, "pose.bones[", orig_bone->name)) {
+  if ((act != NULL) &&
+      BKE_fcurves_filter(&ani_curves, &act->curves, "pose.bones[", orig_bone->name)) {
     /* Create a copy and mirror the animation */
     for (LinkData *ld = ani_curves.first; ld; ld = ld->next) {
       FCurve *old_curve = ld->data;
@@ -589,8 +560,6 @@ static void updateDuplicateLocRotConstraintSettings(Object *ob,
 {
   /* This code assumes that bRotLimitConstraint and bLocLimitConstraint have the same fields in
    * the same memory locations. */
-  BLI_assert(sizeof(bLocLimitConstraint) == sizeof(bRotLimitConstraint));
-
   bRotLimitConstraint *limit = (bRotLimitConstraint *)curcon->data;
   float local_mat[4][4], imat[4][4];
 
@@ -606,8 +575,11 @@ static void updateDuplicateLocRotConstraintSettings(Object *ob,
 
   unit_m4(local_mat);
 
+  bConstraintOb cob = {.depsgraph = NULL, .scene = NULL, .ob = ob, .pchan = pchan};
+  BKE_constraint_custom_object_space_init(&cob, curcon);
+
   BKE_constraint_mat_convertspace(
-      ob, pchan, local_mat, curcon->ownspace, CONSTRAINT_SPACE_LOCAL, false);
+      ob, pchan, &cob, local_mat, curcon->ownspace, CONSTRAINT_SPACE_LOCAL, false);
 
   if (curcon->type == CONSTRAINT_TYPE_ROTLIMIT) {
     /* Zero out any location translation */
@@ -658,9 +630,12 @@ static void updateDuplicateTransformConstraintSettings(Object *ob,
 
   float target_mat[4][4], own_mat[4][4], imat[4][4];
 
+  bConstraintOb cob = {.depsgraph = NULL, .scene = NULL, .ob = ob, .pchan = pchan};
+  BKE_constraint_custom_object_space_init(&cob, curcon);
+
   unit_m4(own_mat);
   BKE_constraint_mat_convertspace(
-      ob, pchan, own_mat, curcon->ownspace, CONSTRAINT_SPACE_LOCAL, false);
+      ob, pchan, &cob, own_mat, curcon->ownspace, CONSTRAINT_SPACE_LOCAL, false);
 
   /* ###Source map mirroring### */
   float old_min, old_max;
@@ -718,7 +693,7 @@ static void updateDuplicateTransformConstraintSettings(Object *ob,
   bPoseChannel *target_pchan = BKE_pose_channel_find_name(ob->pose, trans->subtarget);
   unit_m4(target_mat);
   BKE_constraint_mat_convertspace(
-      ob, target_pchan, target_mat, curcon->tarspace, CONSTRAINT_SPACE_LOCAL, false);
+      ob, target_pchan, &cob, target_mat, curcon->tarspace, CONSTRAINT_SPACE_LOCAL, false);
 
   invert_m4_m4(imat, target_mat);
   /* convert values into local object space */
@@ -800,6 +775,13 @@ static void updateDuplicateTransformConstraintSettings(Object *ob,
           trans->to_min_rot[i] = temp_vec[i];
         }
       }
+
+      if (trans->from == TRANS_ROTATION && trans->map[1] == Y) {
+        /* Y Rot to Y Rot: Flip and invert */
+        trans->to_max_rot[1] = -trans->to_min_rot[1];
+        trans->to_min_rot[1] = -temp_vec[1];
+      }
+
       break;
   }
   /* convert back to the settings space */
@@ -813,14 +795,14 @@ static void updateDuplicateTransformConstraintSettings(Object *ob,
 
 static void updateDuplicateConstraintSettings(EditBone *dup_bone, EditBone *orig_bone, Object *ob)
 {
-  /* If an edit bone has been duplicated, lets update it's constraints if the
+  /* If an edit bone has been duplicated, lets update its constraints if the
    * subtarget they point to has also been duplicated.
    */
   bPoseChannel *pchan;
   bConstraint *curcon;
   ListBase *conlist;
 
-  if ((pchan = BKE_pose_channel_verify(ob->pose, dup_bone->name)) == NULL ||
+  if ((pchan = BKE_pose_channel_ensure(ob->pose, dup_bone->name)) == NULL ||
       (conlist = &pchan->constraints) == NULL) {
     return;
   }
@@ -828,7 +810,7 @@ static void updateDuplicateConstraintSettings(EditBone *dup_bone, EditBone *orig
   for (curcon = conlist->first; curcon; curcon = curcon->next) {
     switch (curcon->type) {
       case CONSTRAINT_TYPE_ACTION:
-        updateDuplicateActionConstraintSettings(dup_bone, orig_bone, ob, curcon);
+        updateDuplicateActionConstraintSettings(dup_bone, orig_bone, ob, pchan, curcon);
         break;
       case CONSTRAINT_TYPE_KINEMATIC:
         updateDuplicateKinematicConstraintSettings(curcon);
@@ -850,19 +832,33 @@ static void updateDuplicateCustomBoneShapes(bContext *C, EditBone *dup_bone, Obj
     return;
   }
   bPoseChannel *pchan;
-  pchan = BKE_pose_channel_verify(ob->pose, dup_bone->name);
+  pchan = BKE_pose_channel_ensure(ob->pose, dup_bone->name);
 
   if (pchan->custom != NULL) {
     Main *bmain = CTX_data_main(C);
     char name_flip[MAX_ID_NAME - 2];
 
+    /* Invert the X location */
+    pchan->custom_translation[0] *= -1;
+    /* Invert the Y rotation */
+    pchan->custom_rotation_euler[1] *= -1;
+    /* Invert the Z rotation */
+    pchan->custom_rotation_euler[2] *= -1;
+
     /* Skip the first two chars in the object name as those are used to store object type */
     BLI_string_flip_side_name(name_flip, pchan->custom->id.name + 2, false, sizeof(name_flip));
     Object *shape_ob = (Object *)BKE_libblock_find_name(bmain, ID_OB, name_flip);
 
+    /* If name_flip doesn't exist, BKE_libblock_find_name() returns pchan->custom (best match) */
+    shape_ob = shape_ob == pchan->custom ? NULL : shape_ob;
+
     if (shape_ob != NULL) {
       /* A flipped shape object exists, use it! */
       pchan->custom = shape_ob;
+    }
+    else {
+      /* Flip shape */
+      pchan->custom_scale_xyz[0] *= -1;
     }
   }
 }
@@ -880,12 +876,12 @@ static void copy_pchan(EditBone *src_bone, EditBone *dst_bone, Object *src_ob, O
   if (src_ob->pose) {
     bPoseChannel *chanold, *channew;
 
-    chanold = BKE_pose_channel_verify(src_ob->pose, src_bone->name);
+    chanold = BKE_pose_channel_ensure(src_ob->pose, src_bone->name);
     if (chanold) {
       /* WARNING: this creates a new posechannel, but there will not be an attached bone
        * yet as the new bones created here are still 'EditBones' not 'Bones'.
        */
-      channew = BKE_pose_channel_verify(dst_ob->pose, dst_bone->name);
+      channew = BKE_pose_channel_ensure(dst_ob->pose, dst_bone->name);
 
       if (channew) {
         BKE_pose_channel_copy_data(channew, chanold);
@@ -943,7 +939,7 @@ static int armature_duplicate_selected_exec(bContext *C, wmOperator *op)
     Object *ob = objects[ob_index];
     bArmature *arm = ob->data;
 
-    ED_armature_edit_sync_selection(arm->edbo);  // XXX why is this needed?
+    ED_armature_edit_sync_selection(arm->edbo); /* XXX why is this needed? */
 
     preEditBoneDuplicate(arm->edbo);
 
@@ -1084,13 +1080,12 @@ static EditBone *get_symmetrized_bone(bArmature *arm, EditBone *bone)
   if (bone == NULL) {
     return NULL;
   }
-  else if (bone->temp.ebone != NULL) {
+  if (bone->temp.ebone != NULL) {
     return bone->temp.ebone;
   }
-  else {
-    EditBone *mirror = ED_armature_ebone_get_mirrored(arm->edbo, bone);
-    return (mirror != NULL) ? mirror : bone;
-  }
+
+  EditBone *mirror = ED_armature_ebone_get_mirrored(arm->edbo, bone);
+  return (mirror != NULL) ? mirror : bone;
 }
 
 /**
@@ -1119,7 +1114,7 @@ static int armature_symmetrize_exec(bContext *C, wmOperator *op)
     /* The beginning of the duplicated mirrored bones in the edbo list */
     EditBone *ebone_first_dupe = NULL;
 
-    ED_armature_edit_sync_selection(arm->edbo);  // XXX why is this needed?
+    ED_armature_edit_sync_selection(arm->edbo); /* XXX why is this needed? */
 
     preEditBoneDuplicate(arm->edbo);
 
@@ -1152,7 +1147,7 @@ static int armature_symmetrize_exec(bContext *C, wmOperator *op)
               }
 
               if (axis_delta == 0.0f) {
-                /* both mirrored bones exist and point to eachother and overlap exactly.
+                /* Both mirrored bones exist and point to each other and overlap exactly.
                  *
                  * in this case there's no well defined solution, so de-select both and skip.
                  */
@@ -1189,7 +1184,7 @@ static int armature_symmetrize_exec(bContext *C, wmOperator *op)
            * is synchronized. */
           bPoseChannel *pchan;
           /* Make sure we clean up the old data before overwriting it */
-          pchan = BKE_pose_channel_verify(obedit->pose, ebone_iter->temp.ebone->name);
+          pchan = BKE_pose_channel_ensure(obedit->pose, ebone_iter->temp.ebone->name);
           BKE_pose_channel_free(pchan);
           /* Sync pchan data */
           copy_pchan(ebone_iter, ebone_iter->temp.ebone, obedit, obedit);
@@ -1261,6 +1256,10 @@ static int armature_symmetrize_exec(bContext *C, wmOperator *op)
         ebone->bbone_prev_type = ebone_iter->bbone_prev_type;
         ebone->bbone_next_type = ebone_iter->bbone_next_type;
 
+        ebone->bbone_flag = ebone_iter->bbone_flag;
+        ebone->bbone_prev_flag = ebone_iter->bbone_prev_flag;
+        ebone->bbone_next_flag = ebone_iter->bbone_next_flag;
+
         /* Lets try to fix any constraint subtargets that might
          * have been duplicated
          */
@@ -1312,9 +1311,10 @@ static int armature_symmetrize_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-/* following conventions from #MESH_OT_symmetrize */
 void ARMATURE_OT_symmetrize(wmOperatorType *ot)
 {
+  /* NOTE: following conventions from #MESH_OT_symmetrize */
+
   /* subset of 'rna_enum_symmetrize_direction_items' */
   static const EnumPropertyItem arm_symmetrize_direction_items[] = {
       {-1, "NEGATIVE_X", 0, "-X to +X", ""},
@@ -1401,7 +1401,7 @@ static int armature_extrude_exec(bContext *C, wmOperator *op)
           if (arm->flag & ARM_MIRROR_EDIT) {
             flipbone = ED_armature_ebone_get_mirrored(arm->edbo, ebone);
             if (flipbone) {
-              forked_iter = 0;  // we extrude 2 different bones
+              forked_iter = 0; /* we extrude 2 different bones */
               if (flipbone->flag & (BONE_TIPSEL | BONE_ROOTSEL | BONE_SELECTED)) {
                 /* don't want this bone to be selected... */
                 flipbone->flag &= ~(BONE_TIPSEL | BONE_SELECTED | BONE_ROOTSEL);
@@ -1417,9 +1417,7 @@ static int armature_extrude_exec(bContext *C, wmOperator *op)
               if (flipbone == NULL) {
                 break;
               }
-              else {
-                SWAP(EditBone *, flipbone, ebone);
-              }
+              SWAP(EditBone *, flipbone, ebone);
             }
 
             totbone++;
@@ -1453,7 +1451,7 @@ static int armature_extrude_exec(bContext *C, wmOperator *op)
             newbone->dist = ebone->dist;
             newbone->xwidth = ebone->xwidth;
             newbone->zwidth = ebone->zwidth;
-            newbone->rad_head = ebone->rad_tail;  // don't copy entire bone...
+            newbone->rad_head = ebone->rad_tail; /* don't copy entire bone. */
             newbone->rad_tail = ebone->rad_tail;
             newbone->segments = 1;
             newbone->layer = ebone->layer;
@@ -1462,19 +1460,18 @@ static int armature_extrude_exec(bContext *C, wmOperator *op)
             newbone->roll1 = ebone->roll1;
             newbone->roll2 = ebone->roll2;
             newbone->curve_in_x = ebone->curve_in_x;
-            newbone->curve_in_y = ebone->curve_in_y;
+            newbone->curve_in_z = ebone->curve_in_z;
             newbone->curve_out_x = ebone->curve_out_x;
-            newbone->curve_out_y = ebone->curve_out_y;
+            newbone->curve_out_z = ebone->curve_out_z;
             newbone->ease1 = ebone->ease1;
             newbone->ease2 = ebone->ease2;
-            newbone->scale_in_x = ebone->scale_in_x;
-            newbone->scale_in_y = ebone->scale_in_y;
-            newbone->scale_out_x = ebone->scale_out_x;
-            newbone->scale_out_y = ebone->scale_out_y;
+
+            copy_v3_v3(newbone->scale_in, ebone->scale_in);
+            copy_v3_v3(newbone->scale_out, ebone->scale_out);
 
             BLI_strncpy(newbone->name, ebone->name, sizeof(newbone->name));
 
-            if (flipbone && forked_iter) {  // only set if mirror edit
+            if (flipbone && forked_iter) { /* only set if mirror edit */
               if (strlen(newbone->name) < (MAXBONENAME - 2)) {
                 if (a == 0) {
                   strcat(newbone->name, "_L");
@@ -1554,7 +1551,7 @@ void ARMATURE_OT_extrude(wmOperatorType *ot)
 
 /* ********************** Bone Add *************************************/
 
-/*op makes a new bone and returns it with its tip selected */
+/* Op makes a new bone and returns it with its tip selected. */
 
 static int armature_bone_primitive_add_exec(bContext *C, wmOperator *op)
 {
@@ -1591,15 +1588,15 @@ static int armature_bone_primitive_add_exec(bContext *C, wmOperator *op)
   copy_v3_v3(bone->head, curs);
 
   if (rv3d && (U.flag & USER_ADD_VIEWALIGNED)) {
-    add_v3_v3v3(bone->tail, bone->head, imat[1]);  // bone with unit length 1
+    add_v3_v3v3(bone->tail, bone->head, imat[1]); /* bone with unit length 1 */
   }
   else {
-    add_v3_v3v3(bone->tail, bone->head, imat[2]);  // bone with unit length 1, pointing up Z
+    add_v3_v3v3(bone->tail, bone->head, imat[2]); /* bone with unit length 1, pointing up Z */
   }
 
   ED_armature_edit_refresh_layer_used(obedit->data);
 
-  /* note, notifier might evolve */
+  /* NOTE: notifier might evolve. */
   WM_event_add_notifier(C, NC_OBJECT | ND_BONE_SELECT, obedit);
   DEG_id_tag_update(&obedit->id, ID_RECALC_SELECT);
   ED_outliner_select_sync_from_edit_bone_tag(C);
@@ -1612,7 +1609,7 @@ void ARMATURE_OT_bone_primitive_add(wmOperatorType *ot)
   /* identifiers */
   ot->name = "Add Bone";
   ot->idname = "ARMATURE_OT_bone_primitive_add";
-  ot->description = "Add a new bone located at the 3D-Cursor";
+  ot->description = "Add a new bone located at the 3D cursor";
 
   /* api callbacks */
   ot->exec = armature_bone_primitive_add_exec;
@@ -1642,7 +1639,7 @@ static int armature_subdivide_exec(bContext *C, wmOperator *op)
   cuts = RNA_int_get(op->ptr, "number_cuts");
 
   /* loop over all editable bones */
-  // XXX the old code did this in reverse order though!
+  /* XXX the old code did this in reverse order though! */
   CTX_DATA_BEGIN_WITH_ID (C, EditBone *, ebone, selected_editable_bones, bArmature *, arm) {
     for (i = cuts + 1; i > 1; i--) {
       /* compute cut ratio first */
@@ -1690,7 +1687,7 @@ static int armature_subdivide_exec(bContext *C, wmOperator *op)
   }
   CTX_DATA_END;
 
-  /* note, notifier might evolve */
+  /* NOTE: notifier might evolve. */
   WM_event_add_notifier(C, NC_OBJECT | ND_BONE_SELECT, obedit);
   DEG_id_tag_update(&obedit->id, ID_RECALC_SELECT);
   ED_outliner_select_sync_from_edit_bone_tag(C);

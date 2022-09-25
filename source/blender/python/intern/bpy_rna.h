@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
  */
 
-#ifndef __BPY_RNA_H__
-#define __BPY_RNA_H__
+#pragma once
 
 /* --- bpy build options --- */
 #ifdef WITH_PYTHON_SAFETY
@@ -67,6 +52,10 @@
 
 struct ID;
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 extern PyTypeObject pyrna_struct_meta_idprop_Type;
 extern PyTypeObject pyrna_struct_Type;
 extern PyTypeObject pyrna_prop_Type;
@@ -107,17 +96,17 @@ extern PyTypeObject pyrna_func_Type;
 /* 'in_weakreflist' MUST be aligned */
 
 typedef struct {
-  PyObject_HEAD /* required python macro   */
+  PyObject_HEAD /* Required Python macro. */
 #ifdef USE_WEAKREFS
-      PyObject *in_weakreflist;
+  PyObject *in_weakreflist;
 #endif
   PointerRNA ptr;
 } BPy_DummyPointerRNA;
 
 typedef struct {
-  PyObject_HEAD /* required python macro   */
+  PyObject_HEAD /* Required Python macro. */
 #ifdef USE_WEAKREFS
-      PyObject *in_weakreflist;
+  PyObject *in_weakreflist;
 #endif
   PointerRNA ptr;
 #ifdef USE_PYRNA_STRUCT_REFERENCE
@@ -132,18 +121,18 @@ typedef struct {
 } BPy_StructRNA;
 
 typedef struct {
-  PyObject_HEAD /* required python macro   */
+  PyObject_HEAD /* Required Python macro. */
 #ifdef USE_WEAKREFS
-      PyObject *in_weakreflist;
+  PyObject *in_weakreflist;
 #endif
   PointerRNA ptr;
   PropertyRNA *prop;
 } BPy_PropertyRNA;
 
 typedef struct {
-  PyObject_HEAD /* required python macro   */
+  PyObject_HEAD /* Required Python macro. */
 #ifdef USE_WEAKREFS
-      PyObject *in_weakreflist;
+  PyObject *in_weakreflist;
 #endif
   PointerRNA ptr;
   PropertyRNA *prop;
@@ -156,9 +145,9 @@ typedef struct {
 } BPy_PropertyArrayRNA;
 
 typedef struct {
-  PyObject_HEAD /* required python macro   */
+  PyObject_HEAD /* Required Python macro. */
 #ifdef USE_WEAKREFS
-      PyObject *in_weakreflist;
+  PyObject *in_weakreflist;
 #endif
 
   /* collection iterator specific parts */
@@ -166,24 +155,22 @@ typedef struct {
 } BPy_PropertyCollectionIterRNA;
 
 typedef struct {
-  PyObject_HEAD /* required python macro   */
+  PyObject_HEAD /* Required Python macro. */
 #ifdef USE_WEAKREFS
-      PyObject *in_weakreflist;
+  PyObject *in_weakreflist;
 #endif
   PointerRNA ptr;
   FunctionRNA *func;
 } BPy_FunctionRNA;
 
-/* cheap trick */
-#define BPy_BaseTypeRNA BPy_PropertyRNA
-
 StructRNA *srna_from_self(PyObject *self, const char *error_prefix);
-StructRNA *pyrna_struct_as_srna(PyObject *self, const bool parent, const char *error_prefix);
+StructRNA *pyrna_struct_as_srna(PyObject *self, bool parent, const char *error_prefix);
 
 void BPY_rna_init(void);
+void BPY_rna_exit(void);
 PyObject *BPY_rna_module(void);
 void BPY_update_rna_module(void);
-/*PyObject *BPY_rna_doc(void);*/
+// PyObject *BPY_rna_doc(void);
 PyObject *BPY_rna_types(void);
 
 PyObject *pyrna_struct_CreatePyObject(PointerRNA *ptr);
@@ -195,30 +182,37 @@ bool pyrna_id_FromPyObject(PyObject *obj, struct ID **id);
 bool pyrna_id_CheckPyObject(PyObject *obj);
 
 /* operators also need this to set args */
-int pyrna_pydict_to_props(PointerRNA *ptr,
-                          PyObject *kw,
-                          const bool all_args,
-                          const char *error_prefix);
+int pyrna_pydict_to_props(PointerRNA *ptr, PyObject *kw, bool all_args, const char *error_prefix);
 PyObject *pyrna_prop_to_py(PointerRNA *ptr, PropertyRNA *prop);
 
-uint *pyrna_set_to_enum_bitmap(const struct EnumPropertyItem *items,
-                               PyObject *value,
-                               int type_size,
-                               bool type_convert_sign,
-                               int bitmap_size,
-                               const char *error_prefix);
-PyObject *pyrna_enum_bitfield_to_py(const struct EnumPropertyItem *items, int value);
-int pyrna_set_to_enum_bitfield(const struct EnumPropertyItem *items,
-                               PyObject *value,
-                               int *r_value,
-                               const char *error_prefix);
-
-int pyrna_enum_value_from_id(const EnumPropertyItem *item,
-                             const char *identifier,
-                             int *value,
-                             const char *error_prefix);
-
 int pyrna_deferred_register_class(struct StructRNA *srna, PyTypeObject *py_class);
+
+const PointerRNA *pyrna_struct_as_ptr(PyObject *py_obj, const StructRNA *srna);
+const PointerRNA *pyrna_struct_as_ptr_or_null(PyObject *py_obj, const StructRNA *srna);
+
+/**
+ * Struct used for RNA argument parsing functions:
+ * - #pyrna_struct_as_ptr_parse
+ * - #pyrna_struct_as_ptr_or_null_parse
+ */
+struct BPy_StructRNA_Parse {
+  /** The struct RNA must match this type. */
+  StructRNA *type;
+  /** Result, may be `PointerRNA_NULL` if #pyrna_struct_as_ptr_or_null_parse is used. */
+  const PointerRNA *ptr;
+};
+
+/**
+ * Sets #BPy_StructRNA_Parse.ptr to the value in the #BPy_StructRNA.ptr (from `o`)
+ * or raise an error if the type isn't a #BPy_StructRNA.
+ *
+ * Use with #PyArg_ParseTuple's `O&` formatting.
+ */
+int pyrna_struct_as_ptr_parse(PyObject *o, void *p);
+/**
+ * A version of #pyrna_struct_as_ptr_parse that maps Python's `None` to #PointerRNA_NULL.
+ */
+int pyrna_struct_as_ptr_or_null_parse(PyObject *o, void *p);
 
 void pyrna_struct_type_extend_capi(struct StructRNA *srna,
                                    struct PyMethodDef *py_method,
@@ -265,4 +259,6 @@ extern PyMethodDef meth_bpy_owner_id_get;
 
 extern BPy_StructRNA *bpy_context_module;
 
+#ifdef __cplusplus
+}
 #endif

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spclip
@@ -61,18 +45,17 @@ static int create_plane_track_tracks_exec(bContext *C, wmOperator *op)
     BKE_report(op->reports, RPT_ERROR, "Need at least 4 selected point tracks to create a plane");
     return OPERATOR_CANCELLED;
   }
-  else {
-    BKE_tracking_tracks_deselect_all(tracks_base);
 
-    plane_track->flag |= SELECT;
-    clip->tracking.act_track = NULL;
-    clip->tracking.act_plane_track = plane_track;
+  BKE_tracking_tracks_deselect_all(tracks_base);
 
-    /* Compute homoraphies and apply them on marker's corner, so we've got
-     * quite nice motion from the very beginning.
-     */
-    BKE_tracking_track_plane_from_existing_motion(plane_track, framenr);
-  }
+  plane_track->flag |= SELECT;
+  clip->tracking.act_track = NULL;
+  clip->tracking.act_plane_track = plane_track;
+
+  /* Compute homoraphies and apply them on marker's corner, so we've got
+   * quite nice motion from the very beginning.
+   */
+  BKE_tracking_track_plane_from_existing_motion(plane_track, framenr);
 
   DEG_id_tag_update(&clip->id, ID_RECALC_COPY_ON_WRITE);
   WM_event_add_notifier(C, NC_MOVIECLIP | NA_EDITED, clip);

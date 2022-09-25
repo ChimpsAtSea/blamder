@@ -1,21 +1,14 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup blenloader
+ *
+ * This file handles updating the `startup.blend`, this is used when reading old files.
+ *
+ * Unlike regular versioning this makes changes that ensure the startup file
+ * has brushes and other presets setup to take advantage of newer features.
+ *
+ * To update preference defaults see `userdef_default.c`.
  */
 
 #include "MEM_guardedalloc.h"
@@ -30,6 +23,8 @@
 #include "DNA_curveprofile_types.h"
 #include "DNA_gpencil_types.h"
 #include "DNA_light_types.h"
+#include "DNA_mask_types.h"
+#include "DNA_material_types.h"
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
@@ -44,56 +39,36 @@
 #include "BKE_brush.h"
 #include "BKE_colortools.h"
 #include "BKE_curveprofile.h"
+#include "BKE_customdata.h"
 #include "BKE_gpencil.h"
+#include "BKE_idprop.h"
 #include "BKE_layer.h"
 #include "BKE_lib_id.h"
 #include "BKE_main.h"
+#include "BKE_main_namemap.h"
 #include "BKE_material.h"
 #include "BKE_mesh.h"
 #include "BKE_node.h"
+#include "BKE_node_tree_update.h"
 #include "BKE_paint.h"
 #include "BKE_screen.h"
 #include "BKE_workspace.h"
 
 #include "BLO_readfile.h"
 
+#include "BLT_translation.h"
+
+#include "versioning_common.h"
+
 /* Make preferences read-only, use versioning_userdef.c. */
 #define U (*((const UserDef *)&U))
-
-/**
- * Rename if the ID doesn't exist.
- */
-static ID *rename_id_for_versioning(Main *bmain,
-                                    const short id_type,
-                                    const char *name_src,
-                                    const char *name_dst)
-{
-  /* We can ignore libraries */
-  ListBase *lb = which_libbase(bmain, id_type);
-  ID *id = NULL;
-  LISTBASE_FOREACH (ID *, idtest, lb) {
-    if (idtest->lib == NULL) {
-      if (STREQ(idtest->name + 2, name_src)) {
-        id = idtest;
-      }
-      if (STREQ(idtest->name + 2, name_dst)) {
-        return NULL;
-      }
-    }
-  }
-  if (id != NULL) {
-    BLI_strncpy(id->name + 2, name_dst, sizeof(id->name) - 2);
-    /* We know it's unique, this just sorts. */
-    BLI_libblock_ensure_unique_name(bmain, id->name);
-  }
-  return id;
-}
 
 static bool blo_is_builtin_template(const char *app_template)
 {
   /* For all builtin templates shipped with Blender. */
-  return (!app_template ||
-          STR_ELEM(app_template, "2D_Animation", "Sculpting", "VFX", "Video_Editing"));
+  return (
+      !app_template ||
+      STR_ELEM(app_template, N_("2D_Animation"), N_("Sculpting"), N_("VFX"), N_("Video_Editing")));
 }
 
 static void blo_update_defaults_screen(bScreen *screen,
@@ -106,7 +81,7 @@ static void blo_update_defaults_screen(bScreen *screen,
       /* Some toolbars have been saved as initialized,
        * we don't want them to have odd zoom-level or scrolling set, see: T47047 */
       if (ELEM(region->regiontype, RGN_TYPE_UI, RGN_TYPE_TOOLS, RGN_TYPE_TOOL_PROPS)) {
-        region->v2d.flag &= ~V2D_IS_INITIALISED;
+        region->v2d.flag &= ~V2D_IS_INIT;
       }
     }
 
@@ -163,6 +138,14 @@ static void blo_update_defaults_screen(bScreen *screen,
           }
         }
       }
+      else {
+        /* Open properties panel by default. */
+        LISTBASE_FOREACH (ARegion *, region, &area->regionbase) {
+          if (region->regiontype == RGN_TYPE_UI) {
+            region->flag &= ~RGN_FLAG_HIDDEN;
+          }
+        }
+      }
     }
     else if (area->spacetype == SPACE_GRAPH) {
       SpaceGraph *sipo = area->spacedata.first;
@@ -174,7 +157,12 @@ static void blo_update_defaults_screen(bScreen *screen,
     }
     else if (area->spacetype == SPACE_SEQ) {
       SpaceSeq *seq = area->spacedata.first;
-      seq->flag |= SEQ_SHOW_MARKERS | SEQ_SHOW_FCURVES;
+      seq->flag |= SEQ_SHOW_MARKERS | SEQ_ZOOM_TO_FIT | SEQ_USE_PROXIES | SEQ_SHOW_OVERLAY;
+      seq->render_size = SEQ_RENDER_SIZE_PROXY_100;
+      seq->timeline_overlay.flag |= SEQ_TIMELINE_SHOW_STRIP_SOURCE | SEQ_TIMELINE_SHOW_STRIP_NAME |
+                                    SEQ_TIMELINE_SHOW_STRIP_DURATION | SEQ_TIMELINE_SHOW_GRID |
+                                    SEQ_TIMELINE_SHOW_STRIP_COLOR_TAG;
+      seq->preview_overlay.flag |= SEQ_PREVIEW_SHOW_OUTLINE_SELECTED;
     }
     else if (area->spacetype == SPACE_TEXT) {
       /* Show syntax and line numbers in Script workspace text editor. */
@@ -204,10 +192,13 @@ static void blo_update_defaults_screen(bScreen *screen,
       }
       /* Disable Curve Normals. */
       v3d->overlay.edit_flag &= ~V3D_OVERLAY_EDIT_CU_NORMALS;
+      v3d->overlay.normals_constant_screen_size = 7.0f;
     }
     else if (area->spacetype == SPACE_CLIP) {
       SpaceClip *sclip = area->spacedata.first;
       sclip->around = V3D_AROUND_CENTER_MEDIAN;
+      sclip->mask_info.blend_factor = 0.7f;
+      sclip->mask_info.draw_flag = MASK_DRAWFLAG_SPLINE;
     }
   }
 
@@ -219,7 +210,8 @@ static void blo_update_defaults_screen(bScreen *screen,
 
       LISTBASE_FOREACH (ARegion *, region, regionbase) {
         if (region->regiontype == RGN_TYPE_TOOL_HEADER) {
-          if ((sl->spacetype == SPACE_IMAGE) && hide_image_tool_header) {
+          if (((sl->spacetype == SPACE_IMAGE) && hide_image_tool_header) ||
+              sl->spacetype == SPACE_SEQ) {
             region->flag |= RGN_FLAG_HIDDEN;
           }
           else {
@@ -304,7 +296,12 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
   }
 
   /* Rename render layers. */
-  BKE_view_layer_rename(bmain, scene, scene->view_layers.first, "View Layer");
+  BKE_view_layer_rename(bmain, scene, scene->view_layers.first, "ViewLayer");
+
+  /* Disable Z pass by default. */
+  LISTBASE_FOREACH (ViewLayer *, view_layer, &scene->view_layers) {
+    view_layer->passflag &= ~SCE_PASS_Z;
+  }
 
   /* New EEVEE defaults. */
   scene->eevee.bloom_intensity = 0.05f;
@@ -315,18 +312,18 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
   copy_v2_fl2(scene->safe_areas.title, 0.1f, 0.05f);
   copy_v2_fl2(scene->safe_areas.action, 0.035f, 0.035f);
 
-  /* Change default cubemap quality. */
+  /* Change default cube-map quality. */
   scene->eevee.gi_filter_quality = 3.0f;
 
   /* Enable Soft Shadows by default. */
   scene->eevee.flag |= SCE_EEVEE_SHADOW_SOFT;
 
-  /* Be sure curfalloff and primitive are initializated */
+  /* Be sure `curfalloff` and primitive are initialized. */
   ToolSettings *ts = scene->toolsettings;
   if (ts->gp_sculpt.cur_falloff == NULL) {
     ts->gp_sculpt.cur_falloff = BKE_curvemapping_add(1, 0.0f, 0.0f, 1.0f, 1.0f);
     CurveMapping *gp_falloff_curve = ts->gp_sculpt.cur_falloff;
-    BKE_curvemapping_initialize(gp_falloff_curve);
+    BKE_curvemapping_init(gp_falloff_curve);
     BKE_curvemap_reset(gp_falloff_curve->cm,
                        &gp_falloff_curve->clipr,
                        CURVE_PRESET_GAUSS,
@@ -335,7 +332,7 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
   if (ts->gp_sculpt.cur_primitive == NULL) {
     ts->gp_sculpt.cur_primitive = BKE_curvemapping_add(1, 0.0f, 0.0f, 1.0f, 1.0f);
     CurveMapping *gp_primitive_curve = ts->gp_sculpt.cur_primitive;
-    BKE_curvemapping_initialize(gp_primitive_curve);
+    BKE_curvemapping_init(gp_primitive_curve);
     BKE_curvemap_reset(gp_primitive_curve->cm,
                        &gp_primitive_curve->clipr,
                        CURVE_PRESET_BELL,
@@ -364,17 +361,14 @@ static void blo_update_defaults_scene(Main *bmain, Scene *scene)
   if (ts->custom_bevel_profile_preset == NULL) {
     ts->custom_bevel_profile_preset = BKE_curveprofile_add(PROF_PRESET_LINE);
   }
+
+  /* Clear ID properties so Cycles gets defaults. */
+  IDProperty *idprop = IDP_GetProperties(&scene->id, false);
+  if (idprop) {
+    IDP_ClearProperty(idprop);
+  }
 }
 
-/**
- * Update defaults in startup.blend, without having to save and embed the file.
- * This function can be emptied each time the startup.blend is updated.
- *
- * \note Screen data may be cleared at this point, this will happen in the case
- * an app-template's data needs to be versioned when read-file is called with "Load UI" disabled.
- * Versioning the screen data can be safely skipped without "Load UI" since the screen data
- * will have been versioned when it was first loaded.
- */
 void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
 {
   /* For all app templates. */
@@ -388,28 +382,28 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
     Brush *brush;
 
     /* Pencil brush. */
-    rename_id_for_versioning(bmain, ID_BR, "Draw Pencil", "Pencil");
+    do_versions_rename_id(bmain, ID_BR, "Draw Pencil", "Pencil");
 
     /* Pen brush. */
-    rename_id_for_versioning(bmain, ID_BR, "Draw Pen", "Pen");
+    do_versions_rename_id(bmain, ID_BR, "Draw Pen", "Pen");
 
     /* Pen Soft brush. */
-    brush = (Brush *)rename_id_for_versioning(bmain, ID_BR, "Draw Soft", "Pencil Soft");
+    brush = (Brush *)do_versions_rename_id(bmain, ID_BR, "Draw Soft", "Pencil Soft");
     if (brush) {
       brush->gpencil_settings->icon_id = GP_BRUSH_ICON_PEN;
     }
 
     /* Ink Pen brush. */
-    rename_id_for_versioning(bmain, ID_BR, "Draw Ink", "Ink Pen");
+    do_versions_rename_id(bmain, ID_BR, "Draw Ink", "Ink Pen");
 
     /* Ink Pen Rough brush. */
-    rename_id_for_versioning(bmain, ID_BR, "Draw Noise", "Ink Pen Rough");
+    do_versions_rename_id(bmain, ID_BR, "Draw Noise", "Ink Pen Rough");
 
     /* Marker Bold brush. */
-    rename_id_for_versioning(bmain, ID_BR, "Draw Marker", "Marker Bold");
+    do_versions_rename_id(bmain, ID_BR, "Draw Marker", "Marker Bold");
 
     /* Marker Chisel brush. */
-    rename_id_for_versioning(bmain, ID_BR, "Draw Block", "Marker Chisel");
+    do_versions_rename_id(bmain, ID_BR, "Draw Block", "Marker Chisel");
 
     /* Remove useless Fill Area.001 brush. */
     brush = BLI_findstring(&bmain->brushes, "Fill Area.001", offsetof(ID, name) + 2);
@@ -420,10 +414,10 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
     /* Rename and fix materials and enable default object lights on. */
     if (app_template && STREQ(app_template, "2D_Animation")) {
       Material *ma = NULL;
-      rename_id_for_versioning(bmain, ID_MA, "Black", "Solid Stroke");
-      rename_id_for_versioning(bmain, ID_MA, "Red", "Squares Stroke");
-      rename_id_for_versioning(bmain, ID_MA, "Grey", "Solid Fill");
-      rename_id_for_versioning(bmain, ID_MA, "Black Dots", "Dots Stroke");
+      do_versions_rename_id(bmain, ID_MA, "Black", "Solid Stroke");
+      do_versions_rename_id(bmain, ID_MA, "Red", "Squares Stroke");
+      do_versions_rename_id(bmain, ID_MA, "Grey", "Solid Fill");
+      do_versions_rename_id(bmain, ID_MA, "Black Dots", "Dots Stroke");
 
       /* Dots Stroke. */
       ma = BLI_findstring(&bmain->materials, "Dots Stroke", offsetof(ID, name) + 2);
@@ -497,8 +491,11 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
         /* Default only has one window. */
         if (layout->screen) {
           bScreen *screen = layout->screen;
-          BLI_strncpy(screen->id.name + 2, workspace->id.name + 2, sizeof(screen->id.name) - 2);
-          BLI_libblock_ensure_unique_name(bmain, screen->id.name);
+          if (!STREQ(screen->id.name + 2, workspace->id.name + 2)) {
+            BKE_main_namemap_remove_name(bmain, &screen->id, screen->id.name + 2);
+            BLI_strncpy(screen->id.name + 2, workspace->id.name + 2, sizeof(screen->id.name) - 2);
+            BLI_libblock_ensure_unique_name(bmain, screen->id.name);
+          }
         }
 
         /* For some reason we have unused screens, needed until re-saving.
@@ -535,8 +532,8 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
   }
 
   /* Objects */
-  rename_id_for_versioning(bmain, ID_OB, "Lamp", "Light");
-  rename_id_for_versioning(bmain, ID_LA, "Lamp", "Light");
+  do_versions_rename_id(bmain, ID_OB, "Lamp", "Light");
+  do_versions_rename_id(bmain, ID_LA, "Lamp", "Light");
 
   if (app_template && STREQ(app_template, "2D_Animation")) {
     for (Object *object = bmain->objects.first; object; object = object->id.next) {
@@ -553,12 +550,19 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
   for (Mesh *mesh = bmain->meshes.first; mesh; mesh = mesh->id.next) {
     /* Match default for new meshes. */
     mesh->smoothresh = DEG2RADF(30);
+    /* Match voxel remesher options for all existing meshes in templates. */
+    mesh->flag |= ME_REMESH_REPROJECT_VOLUME | ME_REMESH_REPROJECT_PAINT_MASK |
+                  ME_REMESH_REPROJECT_SCULPT_FACE_SETS | ME_REMESH_REPROJECT_VERTEX_COLORS;
 
     /* For Sculpting template. */
     if (app_template && STREQ(app_template, "Sculpting")) {
       mesh->remesh_voxel_size = 0.035f;
-      mesh->flag |= ME_REMESH_FIX_POLES | ME_REMESH_REPROJECT_VOLUME;
       BKE_mesh_smooth_flag_set(mesh, false);
+    }
+    else {
+      /* Remove sculpt-mask data in default mesh objects for all non-sculpt templates. */
+      CustomData_free_layers(&mesh->vdata, CD_PAINT_MASK, mesh->totvert);
+      CustomData_free_layers(&mesh->ldata, CD_GRID_PAINT_MASK, mesh->totloop);
     }
   }
 
@@ -577,14 +581,20 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
   /* Materials */
   for (Material *ma = bmain->materials.first; ma; ma = ma->id.next) {
     /* Update default material to be a bit more rough. */
-    ma->roughness = 0.4f;
+    ma->roughness = 0.5f;
 
     if (ma->nodetree) {
       LISTBASE_FOREACH (bNode *, node, &ma->nodetree->nodes) {
         if (node->type == SH_NODE_BSDF_PRINCIPLED) {
           bNodeSocket *roughness_socket = nodeFindSocket(node, SOCK_IN, "Roughness");
           bNodeSocketValueFloat *roughness_data = roughness_socket->default_value;
-          roughness_data->value = 0.4f;
+          roughness_data->value = 0.5f;
+          node->custom2 = SHD_SUBSURFACE_RANDOM_WALK;
+          BKE_ntree_update_tag_node_property(ma->nodetree, node);
+        }
+        else if (node->type == SH_NODE_SUBSURFACE_SCATTERING) {
+          node->custom1 = SHD_SUBSURFACE_RANDOM_WALK;
+          BKE_ntree_update_tag_node_property(ma->nodetree, node);
         }
       }
     }
@@ -608,7 +618,7 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
      * when painting we want to use full color/weight always.
      *
      * Note that sculpt is an exception,
-     * it's values are overwritten by #BKE_brush_sculpt_reset below. */
+     * its values are overwritten by #BKE_brush_sculpt_reset below. */
     brush->alpha = 1.0;
 
     /* Enable antialiasing by default */
@@ -682,6 +692,30 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
       brush->sculpt_tool = SCULPT_TOOL_SLIDE_RELAX;
     }
 
+    brush_name = "Paint";
+    brush = BLI_findstring(&bmain->brushes, brush_name, offsetof(ID, name) + 2);
+    if (!brush) {
+      brush = BKE_brush_add(bmain, brush_name, OB_MODE_SCULPT);
+      id_us_min(&brush->id);
+      brush->sculpt_tool = SCULPT_TOOL_PAINT;
+    }
+
+    brush_name = "Smear";
+    brush = BLI_findstring(&bmain->brushes, brush_name, offsetof(ID, name) + 2);
+    if (!brush) {
+      brush = BKE_brush_add(bmain, brush_name, OB_MODE_SCULPT);
+      id_us_min(&brush->id);
+      brush->sculpt_tool = SCULPT_TOOL_SMEAR;
+    }
+
+    brush_name = "Boundary";
+    brush = BLI_findstring(&bmain->brushes, brush_name, offsetof(ID, name) + 2);
+    if (!brush) {
+      brush = BKE_brush_add(bmain, brush_name, OB_MODE_SCULPT);
+      id_us_min(&brush->id);
+      brush->sculpt_tool = SCULPT_TOOL_BOUNDARY;
+    }
+
     brush_name = "Simplify";
     brush = BLI_findstring(&bmain->brushes, brush_name, offsetof(ID, name) + 2);
     if (!brush) {
@@ -696,6 +730,22 @@ void BLO_update_defaults_startup_blend(Main *bmain, const char *app_template)
       brush = BKE_brush_add(bmain, brush_name, OB_MODE_SCULPT);
       id_us_min(&brush->id);
       brush->sculpt_tool = SCULPT_TOOL_DRAW_FACE_SETS;
+    }
+
+    brush_name = "Multires Displacement Eraser";
+    brush = BLI_findstring(&bmain->brushes, brush_name, offsetof(ID, name) + 2);
+    if (!brush) {
+      brush = BKE_brush_add(bmain, brush_name, OB_MODE_SCULPT);
+      id_us_min(&brush->id);
+      brush->sculpt_tool = SCULPT_TOOL_DISPLACEMENT_ERASER;
+    }
+
+    brush_name = "Multires Displacement Smear";
+    brush = BLI_findstring(&bmain->brushes, brush_name, offsetof(ID, name) + 2);
+    if (!brush) {
+      brush = BKE_brush_add(bmain, brush_name, OB_MODE_SCULPT);
+      id_us_min(&brush->id);
+      brush->sculpt_tool = SCULPT_TOOL_DISPLACEMENT_SMEAR;
     }
 
     /* Use the same tool icon color in the brush cursor */

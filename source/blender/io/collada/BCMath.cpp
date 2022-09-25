@@ -1,21 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
+
+#include "BLI_utildefines.h"
 
 #include "BCMath.h"
 #include "BlenderContext.h"
@@ -63,34 +49,35 @@ BCMatrix::BCMatrix(BC_global_forward_axis global_forward_axis, BC_global_up_axis
   float mrot[3][3];
   float mat[4][4];
   mat3_from_axis_conversion(
-      BC_DEFAULT_FORWARD, BC_DEFAULT_UP, global_forward_axis, global_up_axis, mrot);
-
-  transpose_m3(mrot);  // TODO: Verify that mat3_from_axis_conversion() returns a transposed matrix
+      global_forward_axis, global_up_axis, BC_DEFAULT_FORWARD, BC_DEFAULT_UP, mrot);
   copy_m4_m3(mat, mrot);
   set_transform(mat);
 }
 
-void BCMatrix::add_transform(const Matrix &mat, bool inverse)
+void BCMatrix::add_transform(const Matrix &mat, bool inverted)
 {
-  add_transform(this->matrix, mat, this->matrix, inverse);
+  add_transform(this->matrix, mat, this->matrix, inverted);
 }
 
-void BCMatrix::add_transform(const BCMatrix &mat, bool inverse)
+void BCMatrix::add_transform(const BCMatrix &mat, bool inverted)
 {
-  add_transform(this->matrix, mat.matrix, this->matrix, inverse);
+  add_transform(this->matrix, mat.matrix, this->matrix, inverted);
 }
 
-void BCMatrix::apply_transform(const BCMatrix &mat, bool inverse)
+void BCMatrix::apply_transform(const BCMatrix &mat, bool inverted)
 {
-  apply_transform(this->matrix, mat.matrix, this->matrix, inverse);
+  apply_transform(this->matrix, mat.matrix, this->matrix, inverted);
 }
 
-void BCMatrix::add_transform(Matrix &to, const Matrix &transform, const Matrix &from, bool inverse)
+void BCMatrix::add_transform(Matrix &to,
+                             const Matrix &transform,
+                             const Matrix &from,
+                             bool inverted)
 {
-  if (inverse) {
+  if (inverted) {
     Matrix globinv;
     invert_m4_m4(globinv, transform);
-    add_transform(to, globinv, from, /*inverse=*/false);
+    add_transform(to, globinv, from, /*inverted=*/false);
   }
   else {
     mul_m4_m4m4(to, transform, from);
@@ -105,7 +92,7 @@ void BCMatrix::apply_transform(Matrix &to,
   Matrix globinv;
   invert_m4_m4(globinv, transform);
   if (inverse) {
-    add_transform(to, globinv, from, /*inverse=*/false);
+    add_transform(to, globinv, from, /*inverted=*/false);
   }
   else {
     mul_m4_m4m4(to, transform, from);
@@ -138,10 +125,10 @@ void BCMatrix::set_transform(Matrix &mat)
   quat_to_eul(this->rot, this->q);
 }
 
-void BCMatrix::copy(Matrix &out, Matrix &in)
+void BCMatrix::copy(Matrix &r, Matrix &a)
 {
   /* destination comes first: */
-  memcpy(out, in, sizeof(Matrix));
+  memcpy(r, a, sizeof(Matrix));
 }
 
 void BCMatrix::transpose(Matrix &mat)
@@ -151,20 +138,20 @@ void BCMatrix::transpose(Matrix &mat)
 
 void BCMatrix::sanitize(Matrix &mat, int precision)
 {
-  for (int i = 0; i < 4; i++) {
-    for (int j = 0; j < 4; j++) {
-      double val = (double)mat[i][j];
+  for (auto &row : mat) {
+    for (float &cell : row) {
+      double val = (double)cell;
       val = double_round(val, precision);
-      mat[i][j] = (float)val;
+      cell = (float)val;
     }
   }
 }
 
 void BCMatrix::sanitize(DMatrix &mat, int precision)
 {
-  for (int i = 0; i < 4; i++) {
-    for (int j = 0; j < 4; j++) {
-      mat[i][j] = double_round(mat[i][j], precision);
+  for (auto &row : mat) {
+    for (double &cell : row) {
+      cell = double_round(cell, precision);
     }
   }
 }
@@ -176,8 +163,6 @@ void BCMatrix::unit()
   quat_to_eul(this->rot, this->q);
 }
 
-/* We need double here because the OpenCollada API needs it.
- * precision = -1 indicates to not limit the precision. */
 void BCMatrix::get_matrix(DMatrix &mat, const bool transposed, const int precision) const
 {
   for (int i = 0; i < 4; i++) {
@@ -211,7 +196,7 @@ void BCMatrix::get_matrix(Matrix &mat,
   }
 }
 
-const bool BCMatrix::in_range(const BCMatrix &other, float distance) const
+bool BCMatrix::in_range(const BCMatrix &other, float distance) const
 {
   for (int i = 0; i < 4; i++) {
     for (int j = 0; j < 4; j++) {

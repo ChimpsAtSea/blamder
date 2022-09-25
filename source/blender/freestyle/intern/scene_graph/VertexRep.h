@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_VERTEX_REP_H__
-#define __FREESTYLE_VERTEX_REP_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -48,17 +33,17 @@ class VertexRep : public Rep {
   {
   }
 
-  /*! Accept the corresponding visitor */
+  /** Accept the corresponding visitor */
   virtual void accept(SceneVisitor &v)
   {
     Rep::accept(v);
     v.visitVertexRep(*this);
   }
 
-  /*! Computes the rep bounding box. */
+  /** Computes the rep bounding box. */
   virtual void ComputeBBox();
 
-  /*! accessors */
+  /** accessors */
   inline const int vid() const
   {
     return _vid;
@@ -89,7 +74,7 @@ class VertexRep : public Rep {
     return _PointSize;
   }
 
-  /*! modifiers */
+  /** modifiers */
   inline void setVid(int id)
   {
     _vid = id;
@@ -129,5 +114,3 @@ class VertexRep : public Rep {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_VERTEX_REP_H__

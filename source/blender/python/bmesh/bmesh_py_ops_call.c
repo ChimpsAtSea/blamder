@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2012 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2012 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup pybmesh
@@ -44,10 +28,10 @@ BLI_STATIC_ASSERT(sizeof(PyC_FlagSet) == sizeof(BMO_FlagSet), "size mismatch");
 
 static int bpy_bm_op_as_py_error(BMesh *bm)
 {
-  if (BMO_error_occurred(bm)) {
-    /* note: we could have multiple errors */
+  if (BMO_error_occurred_at_level(bm, BMO_ERROR_FATAL)) {
+    /* NOTE: we could have multiple errors. */
     const char *errmsg;
-    if (BMO_error_get(bm, &errmsg, NULL)) {
+    if (BMO_error_get(bm, &errmsg, NULL, NULL)) {
       PyErr_Format(PyExc_RuntimeError, "bmesh operator: %.200s", errmsg);
       BMO_error_clear(bm);
       return -1;
@@ -82,7 +66,7 @@ static int bpy_slot_from_py_elem_check(BPy_BMElem *value,
                  Py_TYPE(value)->tp_name);
     return -1;
   }
-  else if (value->bm == NULL) {
+  if (value->bm == NULL) {
     PyErr_Format(PyExc_TypeError,
                  "%.200s: keyword \"%.200s\" %.200s invalidated element",
                  opname,
@@ -90,7 +74,7 @@ static int bpy_slot_from_py_elem_check(BPy_BMElem *value,
                  descr);
     return -1;
   }
-  else if (value->bm != bm) { /* we may want to make this check optional by setting 'bm' to NULL */
+  if (value->bm != bm) { /* we may want to make this check optional by setting 'bm' to NULL */
     PyErr_Format(PyExc_TypeError,
                  "%.200s: keyword \"%.200s\" %.200s invalidated element",
                  opname,
@@ -127,7 +111,7 @@ static int bpy_slot_from_py_elemseq_check(BPy_BMGeneric *value,
                  descr);
     return -1;
   }
-  else if (value->bm != bm) { /* we may want to make this check optional by setting 'bm' to NULL */
+  if (value->bm != bm) { /* we may want to make this check optional by setting 'bm' to NULL */
     PyErr_Format(PyExc_TypeError,
                  "%.200s: keyword \"%.200s\" %.200s, invalidated sequence",
                  opname,
@@ -135,7 +119,7 @@ static int bpy_slot_from_py_elemseq_check(BPy_BMGeneric *value,
                  descr);
     return -1;
   }
-  else if ((htype_py & htype_bmo) == 0) {
+  if ((htype_py & htype_bmo) == 0) {
     char str_bmo[32];
     char str_py[32];
     PyErr_Format(PyExc_TypeError,
@@ -175,9 +159,8 @@ static int bpy_slot_from_py(BMesh *bm,
                      Py_TYPE(value)->tp_name);
         return -1;
       }
-      else {
-        BMO_SLOT_AS_BOOL(slot) = param;
-      }
+
+      BMO_SLOT_AS_BOOL(slot) = param;
 
       break;
     }
@@ -185,7 +168,7 @@ static int bpy_slot_from_py(BMesh *bm,
       if (slot->slot_subtype.intg == BMO_OP_SLOT_SUBTYPE_INT_ENUM) {
         int enum_val = -1;
         PyC_FlagSet *items = (PyC_FlagSet *)slot->data.enum_data.flags;
-        const char *enum_str = _PyUnicode_AsString(value);
+        const char *enum_str = PyUnicode_AsUTF8(value);
 
         if (enum_str == NULL) {
           PyErr_Format(PyExc_TypeError,
@@ -223,14 +206,13 @@ static int bpy_slot_from_py(BMesh *bm,
                        Py_TYPE(value)->tp_name);
           return -1;
         }
-        else {
-          BMO_SLOT_AS_INT(slot) = param;
-        }
+
+        BMO_SLOT_AS_INT(slot) = param;
       }
       break;
     }
     case BMO_OP_SLOT_FLT: {
-      float param = PyFloat_AsDouble(value);
+      const float param = PyFloat_AsDouble(value);
       if (param == -1 && PyErr_Occurred()) {
         PyErr_Format(PyExc_TypeError,
                      "%.200s: keyword \"%.200s\" expected a float, not %.200s",
@@ -239,22 +221,22 @@ static int bpy_slot_from_py(BMesh *bm,
                      Py_TYPE(value)->tp_name);
         return -1;
       }
-      else {
-        BMO_SLOT_AS_FLOAT(slot) = param;
-      }
+
+      BMO_SLOT_AS_FLOAT(slot) = param;
+
       break;
     }
     case BMO_OP_SLOT_MAT: {
-      /* XXX - BMesh operator design is crappy here, operator slot should define matrix size,
+      /* XXX: BMesh operator design is crappy here, operator slot should define matrix size,
        * not the caller! */
       MatrixObject *pymat;
       if (!Matrix_ParseAny(value, &pymat)) {
         return -1;
       }
-      const ushort size = pymat->num_col;
-      if ((size != pymat->num_row) || (!ELEM(size, 3, 4))) {
+      const ushort size = pymat->col_num;
+      if ((size != pymat->row_num) || (!ELEM(size, 3, 4))) {
         PyErr_Format(PyExc_TypeError,
-                     "%.200s: keyword \"%.200s\" expected a 3x3 or 4x4 matrix Matrix",
+                     "%.200s: keyword \"%.200s\" expected a 3x3 or 4x4 matrix",
                      opname,
                      slot_name);
         return -1;
@@ -585,7 +567,7 @@ static int bpy_slot_from_py(BMesh *bm,
       break;
     }
     default:
-      /* TODO --- many others */
+      /* TODO: many others. */
       PyErr_Format(PyExc_NotImplementedError,
                    "%.200s: keyword \"%.200s\" type %d not working yet!",
                    opname,
@@ -610,7 +592,7 @@ static PyObject *bpy_slot_to_py(BMesh *bm, BMOpSlot *slot)
   /* keep switch in same order as above */
   switch (slot->slot_type) {
     case BMO_OP_SLOT_BOOL:
-      item = PyBool_FromLong((BMO_SLOT_AS_BOOL(slot)));
+      item = PyBool_FromLong(BMO_SLOT_AS_BOOL(slot));
       break;
     case BMO_OP_SLOT_INT:
       item = PyLong_FromLong(BMO_SLOT_AS_INT(slot));
@@ -747,9 +729,6 @@ static PyObject *bpy_slot_to_py(BMesh *bm, BMOpSlot *slot)
   return item;
 }
 
-/**
- * This is the __call__ for bmesh.ops.xxx()
- */
 PyObject *BPy_BMO_call(BPy_BMeshOpFunc *self, PyObject *args, PyObject *kw)
 {
   PyObject *ret;
@@ -778,8 +757,8 @@ PyObject *BPy_BMO_call(BPy_BMeshOpFunc *self, PyObject *args, PyObject *kw)
     return NULL;
   }
 
-  /* TODO - error check this!, though we do the error check on attribute access */
-  /* TODO - make flags optional */
+  /* TODO: error check this!, though we do the error check on attribute access. */
+  /* TODO: make flags optional. */
   BMO_op_init(bm, &bmop, BMO_FLAG_DEFAULTS, self->opname);
 
   if (kw && PyDict_Size(kw) > 0) {
@@ -789,7 +768,7 @@ PyObject *BPy_BMO_call(BPy_BMeshOpFunc *self, PyObject *args, PyObject *kw)
     PyObject *key, *value;
     Py_ssize_t pos = 0;
     while (PyDict_Next(kw, &pos, &key, &value)) {
-      const char *slot_name = _PyUnicode_AsString(key);
+      const char *slot_name = PyUnicode_AsUTF8(key);
       BMOpSlot *slot;
 
       if (!BMO_slot_exists(bmop.slots_in, slot_name)) {
@@ -842,7 +821,7 @@ PyObject *BPy_BMO_call(BPy_BMeshOpFunc *self, PyObject *args, PyObject *kw)
       {
         char slot_name_strip[MAX_SLOTNAME];
         const char *ch = strchr(slot->slot_name, '.'); /* can't fail! */
-        int tot = ch - slot->slot_name;
+        const int tot = ch - slot->slot_name;
         BLI_assert(ch != NULL);
         memcpy(slot_name_strip, slot->slot_name, tot);
         slot_name_strip[tot] = '\0';

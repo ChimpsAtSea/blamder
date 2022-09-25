@@ -1,24 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- * Video mode switching
- * Copyright (C) 1997-2001 Id Software, Inc.
- * Ported from Quake 2 by Alex Fraser <alex@phatcore.com>
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved.
+ *           1997-2001 Id Software, Inc. Video mode switching.
+ *                     Ported from Quake 2 by Alex Fraser <alex@phatcore.com>. */
 
 /** \file
  * \ingroup GHOST
@@ -40,14 +23,14 @@ GHOST_DisplayManagerX11::GHOST_DisplayManagerX11(GHOST_SystemX11 *system)
   /* nothing to do. */
 }
 
-GHOST_TSuccess GHOST_DisplayManagerX11::getNumDisplays(GHOST_TUns8 &numDisplays) const
+GHOST_TSuccess GHOST_DisplayManagerX11::getNumDisplays(uint8_t &numDisplays) const
 {
   numDisplays = m_system->getNumDisplays();
   return GHOST_kSuccess;
 }
 
-GHOST_TSuccess GHOST_DisplayManagerX11::getNumDisplaySettings(GHOST_TUns8 display,
-                                                              GHOST_TInt32 &numSettings) const
+GHOST_TSuccess GHOST_DisplayManagerX11::getNumDisplaySettings(uint8_t display,
+                                                              int32_t &numSettings) const
 {
 #ifdef WITH_X11_XF86VMODE
   int majorVersion, minorVersion;
@@ -56,8 +39,9 @@ GHOST_TSuccess GHOST_DisplayManagerX11::getNumDisplaySettings(GHOST_TUns8 displa
 
   GHOST_ASSERT(display < 1, "Only single display systems are currently supported.\n");
 
-  if (dpy == NULL)
+  if (dpy == nullptr) {
     return GHOST_kFailure;
+  }
 
   majorVersion = minorVersion = 0;
   if (!XF86VidModeQueryVersion(dpy, &majorVersion, &minorVersion)) {
@@ -88,14 +72,15 @@ static int calculate_rate(XF86VidModeModeInfo *info)
 }
 #endif
 
-GHOST_TSuccess GHOST_DisplayManagerX11::getDisplaySetting(GHOST_TUns8 display,
-                                                          GHOST_TInt32 index,
+GHOST_TSuccess GHOST_DisplayManagerX11::getDisplaySetting(uint8_t display,
+                                                          int32_t index,
                                                           GHOST_DisplaySetting &setting) const
 {
   Display *dpy = m_system->getXDisplay();
 
-  if (dpy == NULL)
+  if (dpy == nullptr) {
     return GHOST_kFailure;
+  }
 
   (void)display;
 
@@ -140,7 +125,7 @@ GHOST_TSuccess GHOST_DisplayManagerX11::getDisplaySetting(GHOST_TUns8 display,
 }
 
 GHOST_TSuccess GHOST_DisplayManagerX11::getCurrentDisplaySetting(
-    GHOST_TUns8 display, GHOST_DisplaySetting &setting) const
+    uint8_t display, GHOST_DisplaySetting &setting) const
 {
   /* According to the xf86vidmodegetallmodelines man page,
    * "The first element of the array corresponds to the current video mode."
@@ -149,7 +134,7 @@ GHOST_TSuccess GHOST_DisplayManagerX11::getCurrentDisplaySetting(
 }
 
 GHOST_TSuccess GHOST_DisplayManagerX11::setCurrentDisplaySetting(
-    GHOST_TUns8 /*display*/, const GHOST_DisplaySetting &setting)
+    uint8_t /*display*/, const GHOST_DisplaySetting &setting)
 {
 #ifdef WITH_X11_XF86VMODE
   /* Mode switching code ported from SDL:
@@ -160,8 +145,9 @@ GHOST_TSuccess GHOST_DisplayManagerX11::setCurrentDisplaySetting(
   Display *dpy = m_system->getXDisplay();
   int scrnum, num_vidmodes;
 
-  if (dpy == NULL)
+  if (dpy == nullptr) {
     return GHOST_kFailure;
+  }
 
   scrnum = DefaultScreen(dpy);
 

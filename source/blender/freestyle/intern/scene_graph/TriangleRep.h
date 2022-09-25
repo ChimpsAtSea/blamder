@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_TRIANGLE_REP_H__
-#define __FREESTYLE_TRIANGLE_REP_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -27,10 +12,10 @@
 
 namespace Freestyle {
 
-/*! Base class for all lines objects */
+/** Base class for all lines objects */
 class TriangleRep : public Rep {
  public:
-  /*! Line description style */
+  /** Line description style */
   enum TRIANGLE_STYLE {
     FILL,
     LINES,
@@ -47,7 +32,7 @@ class TriangleRep : public Rep {
     _Style = FILL;
   }
 
-  /*! Builds a triangle from 3 vertices
+  /** Builds a triangle from 3 vertices
    *  v0
    *    first vertex
    *  v1
@@ -84,7 +69,7 @@ class TriangleRep : public Rep {
   {
   }
 
-  /*! accessors */
+  /** accessors */
   inline const TRIANGLE_STYLE style() const
   {
     return _Style;
@@ -100,7 +85,7 @@ class TriangleRep : public Rep {
     return _colors[index];
   }
 
-  /*! modifiers */
+  /** modifiers */
   inline void setStyle(const TRIANGLE_STYLE iStyle)
   {
     _Style = iStyle;
@@ -130,17 +115,15 @@ class TriangleRep : public Rep {
     _colors[2] = c2;
   }
 
-  /*! Accept the corresponding visitor */
+  /** Accept the corresponding visitor */
   virtual void accept(SceneVisitor &v)
   {
     Rep::accept(v);
     v.visitTriangleRep(*this);
   }
 
-  /*! Computes the triangle bounding box.*/
+  /** Computes the triangle bounding box. */
   virtual void ComputeBBox();
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_TRIANGLE_REP_H__

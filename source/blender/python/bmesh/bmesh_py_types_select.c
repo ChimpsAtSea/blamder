@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2012 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2012 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup pybmesh
@@ -51,9 +35,8 @@ static PyObject *bpy_bmeditselseq_active_get(BPy_BMEditSelSeq *self, void *UNUSE
   if ((ese = self->bm->selected.last)) {
     return BPy_BMElem_CreatePyObject(self->bm, &ese->ele->head);
   }
-  else {
-    Py_RETURN_NONE;
-  }
+
+  Py_RETURN_NONE;
 }
 
 static PyGetSetDef bpy_bmeditselseq_getseters[] = {
@@ -196,10 +179,9 @@ static PyObject *bpy_bmeditselseq_subscript_int(BPy_BMEditSelSeq *self, int keyn
   if (ese) {
     return BPy_BMElem_CreatePyObject(self->bm, &ese->ele->head);
   }
-  else {
-    PyErr_Format(PyExc_IndexError, "BMElemSeq[index]: index %d out of range", keynum);
-    return NULL;
-  }
+
+  PyErr_Format(PyExc_IndexError, "BMElemSeq[index]: index %d out of range", keynum);
+  return NULL;
 }
 
 static PyObject *bpy_bmeditselseq_subscript_slice(BPy_BMEditSelSeq *self,
@@ -207,7 +189,6 @@ static PyObject *bpy_bmeditselseq_subscript_slice(BPy_BMEditSelSeq *self,
                                                   Py_ssize_t stop)
 {
   int count = 0;
-  bool ok;
 
   PyObject *list;
   BMEditSelection *ese;
@@ -216,30 +197,22 @@ static PyObject *bpy_bmeditselseq_subscript_slice(BPy_BMEditSelSeq *self,
 
   list = PyList_New(0);
 
-  ese = self->bm->selected.first;
-
-  ok = (ese != NULL);
-
-  if (UNLIKELY(ok == false)) {
-    return list;
-  }
-
-  /* first loop up-until the start */
-  for (ok = true; ok; ok = ((ese = ese->next) != NULL)) {
+  /* First loop up-until the start. */
+  for (ese = self->bm->selected.first; ese; ese = ese->next) {
     if (count == start) {
       break;
     }
     count++;
   }
 
-  /* add items until stop */
-  do {
+  /* Add items until stop. */
+  for (; ese; ese = ese->next) {
     PyList_APPEND(list, BPy_BMElem_CreatePyObject(self->bm, &ese->ele->head));
     count++;
     if (count == stop) {
       break;
     }
-  } while ((ese = ese->next));
+  }
 
   return list;
 }
@@ -248,60 +221,59 @@ static PyObject *bpy_bmeditselseq_subscript(BPy_BMEditSelSeq *self, PyObject *ke
 {
   /* don't need error check here */
   if (PyIndex_Check(key)) {
-    Py_ssize_t i = PyNumber_AsSsize_t(key, PyExc_IndexError);
+    const Py_ssize_t i = PyNumber_AsSsize_t(key, PyExc_IndexError);
     if (i == -1 && PyErr_Occurred()) {
       return NULL;
     }
     return bpy_bmeditselseq_subscript_int(self, i);
   }
-  else if (PySlice_Check(key)) {
+  if (PySlice_Check(key)) {
     PySliceObject *key_slice = (PySliceObject *)key;
     Py_ssize_t step = 1;
 
     if (key_slice->step != Py_None && !_PyEval_SliceIndex(key, &step)) {
       return NULL;
     }
-    else if (step != 1) {
+    if (step != 1) {
       PyErr_SetString(PyExc_TypeError, "BMElemSeq[slice]: slice steps not supported");
       return NULL;
     }
-    else if (key_slice->start == Py_None && key_slice->stop == Py_None) {
+    if (key_slice->start == Py_None && key_slice->stop == Py_None) {
       return bpy_bmeditselseq_subscript_slice(self, 0, PY_SSIZE_T_MAX);
     }
-    else {
-      Py_ssize_t start = 0, stop = PY_SSIZE_T_MAX;
 
-      /* avoid PySlice_GetIndicesEx because it needs to know the length ahead of time. */
-      if (key_slice->start != Py_None && !_PyEval_SliceIndex(key_slice->start, &start)) {
-        return NULL;
-      }
-      if (key_slice->stop != Py_None && !_PyEval_SliceIndex(key_slice->stop, &stop)) {
-        return NULL;
-      }
+    Py_ssize_t start = 0, stop = PY_SSIZE_T_MAX;
 
-      if (start < 0 || stop < 0) {
-        /* only get the length for negative values */
-        Py_ssize_t len = bpy_bmeditselseq_length(self);
-        if (start < 0) {
-          start += len;
-        }
-        if (stop < 0) {
-          stop += len;
-        }
-      }
+    /* avoid PySlice_GetIndicesEx because it needs to know the length ahead of time. */
+    if (key_slice->start != Py_None && !_PyEval_SliceIndex(key_slice->start, &start)) {
+      return NULL;
+    }
+    if (key_slice->stop != Py_None && !_PyEval_SliceIndex(key_slice->stop, &stop)) {
+      return NULL;
+    }
 
-      if (stop - start <= 0) {
-        return PyList_New(0);
+    if (start < 0 || stop < 0) {
+      /* only get the length for negative values */
+      const Py_ssize_t len = bpy_bmeditselseq_length(self);
+      if (start < 0) {
+        start += len;
+        CLAMP_MIN(start, 0);
       }
-      else {
-        return bpy_bmeditselseq_subscript_slice(self, start, stop);
+      if (stop < 0) {
+        stop += len;
+        CLAMP_MIN(stop, 0);
       }
     }
+
+    if (stop - start <= 0) {
+      return PyList_New(0);
+    }
+
+    return bpy_bmeditselseq_subscript_slice(self, start, stop);
   }
-  else {
-    PyErr_SetString(PyExc_AttributeError, "BMElemSeq[key]: invalid key, key must be an int");
-    return NULL;
-  }
+
+  PyErr_SetString(PyExc_AttributeError, "BMElemSeq[key]: invalid key, key must be an int");
+  return NULL;
 }
 
 static int bpy_bmeditselseq_contains(BPy_BMEditSelSeq *self, PyObject *value)
@@ -358,10 +330,9 @@ static PyObject *bpy_bmeditseliter_next(BPy_BMEditSelIter *self)
     PyErr_SetNone(PyExc_StopIteration);
     return NULL;
   }
-  else {
-    self->ese = ese->next;
-    return (PyObject *)BPy_BMElem_CreatePyObject(self->bm, &ese->ele->head);
-  }
+
+  self->ese = ese->next;
+  return (PyObject *)BPy_BMElem_CreatePyObject(self->bm, &ese->ele->head);
 }
 
 PyTypeObject BPy_BMEditSelSeq_Type;
@@ -424,9 +395,6 @@ void BPy_BM_init_types_select(void)
 
 /* utility function */
 
-/**
- * \note doesn't actually check selection.
- */
 int BPy_BMEditSel_Assign(BPy_BMesh *self, PyObject *value)
 {
   BMesh *bm;

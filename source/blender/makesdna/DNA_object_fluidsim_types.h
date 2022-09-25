@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2004-2005 by Blender Foundation
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2004-2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_OBJECT_FLUIDSIM_TYPES_H__
-#define __DNA_OBJECT_FLUIDSIM_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
 #include "DNA_defs.h"
@@ -45,7 +28,7 @@ typedef struct FluidsimSettings {
   char _pad1[4];
   /* domain, fluid or obstacle */
   short type;
-  /* display advanced options in fluid sim tab (on=1, off=0)*/
+  /* Display advanced options in fluid sim tab (on=1, off=0). */
   short show_advancedoptions;
 
   /* domain object settings */
@@ -179,5 +162,3 @@ typedef struct FluidsimSettings {
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __DNA_OBJECT_FLUIDSIM_TYPES_H__ */

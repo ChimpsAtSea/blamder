@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
@@ -126,7 +112,7 @@ static int validate_array_type(PyObject *seq,
         ok = 0;
       }
       else if ((item_seq_size = PySequence_Size(item)) == -1) {
-        /* BLI_snprintf(error_str, error_str_size, "expected a sequence of %s", item_type_str); */
+        // BLI_snprintf(error_str, error_str_size, "expected a sequence of %s", item_type_str);
         PyErr_Format(PyExc_TypeError,
                      "%s expected a sequence of %s, not %s",
                      error_prefix,
@@ -180,7 +166,7 @@ static int validate_array_type(PyObject *seq,
                    Py_TYPE(seq)->tp_name);
       return -1;
     }
-    else if ((seq_size != dimsize[dim]) && (is_dynamic == false)) {
+    if ((seq_size != dimsize[dim]) && (is_dynamic == false)) {
       PyErr_Format(PyExc_ValueError,
                    "%s sequences of dimension %d should contain %d items, not %d",
                    error_prefix,
@@ -201,7 +187,7 @@ static int validate_array_type(PyObject *seq,
                      i);
         return -1;
       }
-      else if (!check_item_type(item)) {
+      if (!check_item_type(item)) {
         Py_DECREF(item);
 
 #if 0
@@ -279,7 +265,7 @@ static int validate_array_length(PyObject *rvalue,
                  RNA_property_identifier(prop));
     return -1;
   }
-  else if ((RNA_property_flag(prop) & PROP_DYNAMIC) && lvalue_dim == 0) {
+  if ((RNA_property_flag(prop) & PROP_DYNAMIC) && lvalue_dim == 0) {
     if (RNA_property_array_length(ptr, prop) != tot) {
 #if 0
       /* length is flexible */
@@ -334,7 +320,7 @@ static int validate_array_length(PyObject *rvalue,
     }
 
     if (tot != len) {
-      /* BLI_snprintf(error_str, error_str_size, "sequence must have length of %d", len); */
+      // BLI_snprintf(error_str, error_str_size, "sequence must have length of %d", len);
       PyErr_Format(PyExc_ValueError,
                    "%s %.200s.%.200s, sequence must have %d items total, not %d",
                    error_prefix,
@@ -361,7 +347,7 @@ static int validate_array(PyObject *rvalue,
                           const char *error_prefix)
 {
   int dimsize[MAX_ARRAY_DIMENSION];
-  int totdim = RNA_property_array_dimension(ptr, prop, dimsize);
+  const int totdim = RNA_property_array_dimension(ptr, prop, dimsize);
 
   /* validate type first because length validation may modify property array length */
 
@@ -382,7 +368,7 @@ static int validate_array(PyObject *rvalue,
                      RNA_property_identifier(prop));
         return -1;
       }
-      else if (totdim != 2) {
+      if (totdim != 2) {
         PyErr_Format(PyExc_ValueError,
                      "%s %.200s.%.200s, matrix assign array with %d dimensions",
                      error_prefix,
@@ -391,23 +377,22 @@ static int validate_array(PyObject *rvalue,
                      totdim);
         return -1;
       }
-      else if (pymat->num_col != dimsize[0] || pymat->num_row != dimsize[1]) {
+      if (pymat->col_num != dimsize[0] || pymat->row_num != dimsize[1]) {
         PyErr_Format(PyExc_ValueError,
                      "%s %.200s.%.200s, matrix assign dimension size mismatch, "
                      "is %dx%d, expected be %dx%d",
                      error_prefix,
                      RNA_struct_identifier(ptr->type),
                      RNA_property_identifier(prop),
-                     pymat->num_col,
-                     pymat->num_row,
+                     pymat->col_num,
+                     pymat->row_num,
                      dimsize[0],
                      dimsize[1]);
         return -1;
       }
-      else {
-        *r_totitem = dimsize[0] * dimsize[1];
-        return 0;
-      }
+
+      *r_totitem = dimsize[0] * dimsize[1];
+      return 0;
     }
   }
 #endif /* USE_MATHUTILS */
@@ -467,7 +452,7 @@ static char *copy_values(PyObject *seq,
                          const ItemConvert_FuncArg *convert_item,
                          RNA_SetIndexFunc rna_set_index)
 {
-  int totdim = RNA_property_array_dimension(ptr, prop, NULL);
+  const int totdim = RNA_property_array_dimension(ptr, prop, NULL);
   const Py_ssize_t seq_size = PySequence_Size(seq);
   Py_ssize_t i;
 
@@ -488,7 +473,7 @@ static char *copy_values(PyObject *seq,
   if (dim == 0) {
     if (MatrixObject_Check(seq)) {
       MatrixObject *pymat = (MatrixObject *)seq;
-      size_t allocsize = pymat->num_col * pymat->num_row * sizeof(float);
+      const size_t allocsize = pymat->col_num * pymat->row_num * sizeof(float);
 
       /* read callback already done by validate */
       /* since this is the first iteration we can assume data is allocated */
@@ -537,11 +522,11 @@ static int py_to_array(PyObject *seq,
                        RNA_SetArrayFunc rna_set_array,
                        const char *error_prefix)
 {
-  /*int totdim, dim_size[MAX_ARRAY_DIMENSION];*/
+  // int totdim, dim_size[MAX_ARRAY_DIMENSION];
   int totitem;
   char *data = NULL;
 
-  /*totdim = RNA_property_array_dimension(ptr, prop, dim_size);*/ /*UNUSED*/
+  // totdim = RNA_property_array_dimension(ptr, prop, dim_size); /* UNUSED */
 
   if (validate_array(seq, ptr, prop, 0, check_item_type, item_type_str, &totitem, error_prefix) ==
       -1) {
@@ -549,7 +534,7 @@ static int py_to_array(PyObject *seq,
   }
 
   if (totitem) {
-    /* note: this code is confusing */
+    /* NOTE: this code is confusing. */
     if (param_data && RNA_property_flag(prop) & PROP_DYNAMIC) {
       /* not freeing allocated mem, RNA_parameter_list_free() will do this */
       ParameterDynAlloc *param_alloc = (ParameterDynAlloc *)param_data;
@@ -991,10 +976,11 @@ PyObject *pyrna_py_from_array(PointerRNA *ptr, PropertyRNA *prop)
   return pyrna_prop_CreatePyObject(ptr, prop);
 }
 
-/* TODO, multi-dimensional arrays */
 int pyrna_array_contains_py(PointerRNA *ptr, PropertyRNA *prop, PyObject *value)
 {
-  int len = RNA_property_array_length(ptr, prop);
+  /* TODO: multi-dimensional arrays. */
+
+  const int len = RNA_property_array_length(ptr, prop);
   int type;
   int i;
 
@@ -1012,102 +998,102 @@ int pyrna_array_contains_py(PointerRNA *ptr, PropertyRNA *prop, PyObject *value)
 
   switch (type) {
     case PROP_FLOAT: {
-      float value_f = PyFloat_AsDouble(value);
+      const float value_f = PyFloat_AsDouble(value);
       if (value_f == -1 && PyErr_Occurred()) {
         PyErr_Clear();
         return 0;
       }
-      else {
-        float tmp[32];
-        float *tmp_arr;
 
-        if (len * sizeof(float) > sizeof(tmp)) {
-          tmp_arr = PyMem_MALLOC(len * sizeof(float));
-        }
-        else {
-          tmp_arr = tmp;
-        }
+      float tmp[32];
+      float *tmp_arr;
 
-        RNA_property_float_get_array(ptr, prop, tmp_arr);
-
-        for (i = 0; i < len; i++) {
-          if (tmp_arr[i] == value_f) {
-            break;
-          }
-        }
-
-        if (tmp_arr != tmp) {
-          PyMem_FREE(tmp_arr);
-        }
-
-        return i < len ? 1 : 0;
+      if (len * sizeof(float) > sizeof(tmp)) {
+        tmp_arr = PyMem_MALLOC(len * sizeof(float));
       }
+      else {
+        tmp_arr = tmp;
+      }
+
+      RNA_property_float_get_array(ptr, prop, tmp_arr);
+
+      for (i = 0; i < len; i++) {
+        if (tmp_arr[i] == value_f) {
+          break;
+        }
+      }
+
+      if (tmp_arr != tmp) {
+        PyMem_FREE(tmp_arr);
+      }
+
+      return i < len ? 1 : 0;
+
       break;
     }
     case PROP_INT: {
-      int value_i = PyC_Long_AsI32(value);
+      const int value_i = PyC_Long_AsI32(value);
       if (value_i == -1 && PyErr_Occurred()) {
         PyErr_Clear();
         return 0;
       }
-      else {
-        int tmp[32];
-        int *tmp_arr;
 
-        if (len * sizeof(int) > sizeof(tmp)) {
-          tmp_arr = PyMem_MALLOC(len * sizeof(int));
-        }
-        else {
-          tmp_arr = tmp;
-        }
+      int tmp[32];
+      int *tmp_arr;
 
-        RNA_property_int_get_array(ptr, prop, tmp_arr);
-
-        for (i = 0; i < len; i++) {
-          if (tmp_arr[i] == value_i) {
-            break;
-          }
-        }
-
-        if (tmp_arr != tmp) {
-          PyMem_FREE(tmp_arr);
-        }
-
-        return i < len ? 1 : 0;
+      if (len * sizeof(int) > sizeof(tmp)) {
+        tmp_arr = PyMem_MALLOC(len * sizeof(int));
       }
+      else {
+        tmp_arr = tmp;
+      }
+
+      RNA_property_int_get_array(ptr, prop, tmp_arr);
+
+      for (i = 0; i < len; i++) {
+        if (tmp_arr[i] == value_i) {
+          break;
+        }
+      }
+
+      if (tmp_arr != tmp) {
+        PyMem_FREE(tmp_arr);
+      }
+
+      return i < len ? 1 : 0;
+
       break;
     }
     case PROP_BOOLEAN: {
-      int value_i = PyC_Long_AsBool(value);
+      const int value_i = PyC_Long_AsBool(value);
       if (value_i == -1 && PyErr_Occurred()) {
         PyErr_Clear();
         return 0;
       }
-      else {
-        bool tmp[32];
-        bool *tmp_arr;
 
-        if (len * sizeof(bool) > sizeof(tmp)) {
-          tmp_arr = PyMem_MALLOC(len * sizeof(bool));
-        }
-        else {
-          tmp_arr = tmp;
-        }
+      bool tmp[32];
+      bool *tmp_arr;
 
-        RNA_property_boolean_get_array(ptr, prop, tmp_arr);
-
-        for (i = 0; i < len; i++) {
-          if (tmp_arr[i] == value_i) {
-            break;
-          }
-        }
-
-        if (tmp_arr != tmp) {
-          PyMem_FREE(tmp_arr);
-        }
-
-        return i < len ? 1 : 0;
+      if (len * sizeof(bool) > sizeof(tmp)) {
+        tmp_arr = PyMem_MALLOC(len * sizeof(bool));
       }
+      else {
+        tmp_arr = tmp;
+      }
+
+      RNA_property_boolean_get_array(ptr, prop, tmp_arr);
+
+      for (i = 0; i < len; i++) {
+        if (tmp_arr[i] == value_i) {
+          break;
+        }
+      }
+
+      if (tmp_arr != tmp) {
+        PyMem_FREE(tmp_arr);
+      }
+
+      return i < len ? 1 : 0;
+
       break;
     }
   }

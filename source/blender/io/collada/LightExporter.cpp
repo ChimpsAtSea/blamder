@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
@@ -76,7 +62,7 @@ void LightsExporter::operator()(Object *ob)
     quadatt = 1.0f / (d * d);
   }
 
-  // sun
+  /* sun */
   if (la->type == LA_SUN) {
     COLLADASW::DirectionalLight cla(mSW, la_id, la_name);
     cla.setColor(col, false, "color");
@@ -85,7 +71,7 @@ void LightsExporter::operator()(Object *ob)
     addLight(cla);
   }
 
-  // spot
+  /* spot */
   else if (la->type == LA_SPOT) {
     COLLADASW::SpotLight cla(mSW, la_id, la_name);
     cla.setColor(col, false, "color");
@@ -97,7 +83,7 @@ void LightsExporter::operator()(Object *ob)
     exportBlenderProfile(cla, la);
     addLight(cla);
   }
-  // lamp
+  /* lamp */
   else if (la->type == LA_LOCAL) {
     COLLADASW::PointLight cla(mSW, la_id, la_name);
     cla.setColor(col, false, "color");
@@ -107,8 +93,8 @@ void LightsExporter::operator()(Object *ob)
     exportBlenderProfile(cla, la);
     addLight(cla);
   }
-  // area light is not supported
-  // it will be exported as a local lamp
+  /* area light is not supported
+   * it will be exported as a local lamp */
   else {
     COLLADASW::PointLight cla(mSW, la_id, la_name);
     cla.setColor(col, false, "color");
@@ -138,7 +124,7 @@ bool LightsExporter::exportBlenderProfile(COLLADASW::Light &cla, Light *la)
   cla.addExtraTechniqueParameter("blender", "spotblend", la->spotblend);
   cla.addExtraTechniqueParameter("blender", "att1", la->att1);
   cla.addExtraTechniqueParameter("blender", "att2", la->att2);
-  // \todo figure out how we can have falloff curve supported here
+  /* \todo figure out how we can have falloff curve supported here */
   cla.addExtraTechniqueParameter("blender", "falloff_type", la->falloff_type);
   cla.addExtraTechniqueParameter("blender", "clipsta", la->clipsta);
   cla.addExtraTechniqueParameter("blender", "clipend", la->clipend);

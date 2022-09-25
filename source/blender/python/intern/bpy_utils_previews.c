@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
@@ -29,6 +15,7 @@
 #include "BLI_utildefines.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 #include "RNA_types.h"
 
 #include "BPY_extern.h"
@@ -49,15 +36,19 @@
 
 #define STR_SOURCE_TYPES "'IMAGE', 'MOVIE', 'BLEND', 'FONT'"
 
-PyDoc_STRVAR(bpy_utils_previews_new_doc,
-             ".. method:: new(name)\n"
-             "\n"
-             "   Generate a new empty preview, or return existing one matching ``name``.\n"
-             "\n"
-             "   :arg name: The name (unique id) identifying the preview.\n"
-             "   :type name: string\n"
-             "   :return: The Preview matching given name, or a new empty one.\n"
-             "   :rtype: :class:`bpy.types.ImagePreview`\n");
+PyDoc_STRVAR(
+    bpy_utils_previews_new_doc,
+    ".. method:: new(name)\n"
+    "\n"
+    "   Generate a new empty preview.\n"
+    "\n"
+    "   :arg name: The name (unique id) identifying the preview.\n"
+    "   :type name: string\n"
+    "   :return: The Preview matching given name, or a new empty one.\n"
+    "   :rtype: :class:`bpy.types.ImagePreview`\n"
+    /* This is only true when accessed via 'bpy.utils.previews.ImagePreviewCollection.load',
+     * however this is the public API, allow this minor difference to the internal version here. */
+    "   :raises KeyError: if ``name`` already exists.");
 static PyObject *bpy_utils_previews_new(PyObject *UNUSED(self), PyObject *args)
 {
   char *name;
@@ -78,7 +69,7 @@ PyDoc_STRVAR(
     bpy_utils_previews_load_doc,
     ".. method:: load(name, filepath, filetype, force_reload=False)\n"
     "\n"
-    "   Generate a new preview from given file path, or return existing one matching ``name``.\n"
+    "   Generate a new preview from given file path.\n"
     "\n"
     "   :arg name: The name (unique id) identifying the preview.\n"
     "   :type name: string\n"
@@ -91,7 +82,10 @@ PyDoc_STRVAR(
     "exists in cache.\n"
     "   :type force_reload: bool\n"
     "   :return: The Preview matching given name, or a new empty one.\n"
-    "   :rtype: :class:`bpy.types.ImagePreview`\n");
+    "   :rtype: :class:`bpy.types.ImagePreview`\n"
+    /* This is only true when accessed via 'bpy.utils.previews.ImagePreviewCollection.load',
+     * however this is the public API, allow this minor difference to the internal version here. */
+    "   :raises KeyError: if ``name`` already exists.");
 static PyObject *bpy_utils_previews_load(PyObject *UNUSED(self), PyObject *args)
 {
   char *name, *path, *path_type_s;

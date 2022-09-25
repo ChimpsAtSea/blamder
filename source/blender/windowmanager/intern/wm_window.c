@@ -1,22 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2007 Blender Foundation but based
- * on ghostwinlay.c (C) 2001-2002 by NaN Holding BV
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. 2007 Blender Foundation. */
 
 /** \file
  * \ingroup wm
@@ -40,6 +23,7 @@
 
 #include "BLI_blenlib.h"
 #include "BLI_math.h"
+#include "BLI_system.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.h"
@@ -49,6 +33,7 @@
 #include "BKE_icons.h"
 #include "BKE_layer.h"
 #include "BKE_main.h"
+#include "BKE_report.h"
 #include "BKE_screen.h"
 #include "BKE_workspace.h"
 
@@ -89,6 +74,7 @@
 #include "GPU_init_exit.h"
 #include "GPU_platform.h"
 #include "GPU_state.h"
+#include "GPU_texture.h"
 
 #include "UI_resources.h"
 
@@ -132,10 +118,8 @@ static struct WMInitStruct {
  * \{ */
 
 static void wm_window_set_drawable(wmWindowManager *wm, wmWindow *win, bool activate);
-static int wm_window_timer(const bContext *C);
+static bool wm_window_timer(const bContext *C);
 
-/* XXX this one should correctly check for apple top header...
- * done for Cocoa : returns window contents (and not frame) max size*/
 void wm_get_screensize(int *r_width, int *r_height)
 {
   unsigned int uiwidth;
@@ -146,7 +130,6 @@ void wm_get_screensize(int *r_width, int *r_height)
   *r_height = uiheight;
 }
 
-/* size of all screens (desktop), useful since the mouse is bound by this */
 void wm_get_desktopsize(int *r_width, int *r_height)
 {
   unsigned int uiwidth;
@@ -157,46 +140,24 @@ void wm_get_desktopsize(int *r_width, int *r_height)
   *r_height = uiheight;
 }
 
-/* keeps offset and size within monitor bounds */
-/* XXX solve dual screen... */
-static void wm_window_check_position(rcti *rect)
+/* keeps size within monitor bounds */
+static void wm_window_check_size(rcti *rect)
 {
-  int width, height, d;
-
+  int width, height;
   wm_get_screensize(&width, &height);
-
-  if (rect->xmin < 0) {
-    rect->xmax -= rect->xmin;
-    rect->xmin = 0;
+  if (BLI_rcti_size_x(rect) > width) {
+    BLI_rcti_resize_x(rect, width);
   }
-  if (rect->ymin < 0) {
-    rect->ymax -= rect->ymin;
-    rect->ymin = 0;
-  }
-  if (rect->xmax > width) {
-    d = rect->xmax - width;
-    rect->xmax -= d;
-    rect->xmin -= d;
-  }
-  if (rect->ymax > height) {
-    d = rect->ymax - height;
-    rect->ymax -= d;
-    rect->ymin -= d;
-  }
-
-  if (rect->xmin < 0) {
-    rect->xmin = 0;
-  }
-  if (rect->ymin < 0) {
-    rect->ymin = 0;
+  if (BLI_rcti_size_y(rect) > height) {
+    BLI_rcti_resize_y(rect, height);
   }
 }
 
 static void wm_ghostwindow_destroy(wmWindowManager *wm, wmWindow *win)
 {
   if (win->ghostwin) {
-    /* Prevents non-drawable state of main windows (bugs #22967,
-     * #25071 and possibly #22477 too). Always clear it even if
+    /* Prevents non-drawable state of main windows (bugs T22967,
+     * T25071 and possibly T22477 too). Always clear it even if
      * this window was not the drawable one, because we mess with
      * drawing context to discard the GW context. */
     wm_window_clear_drawable(wm);
@@ -209,7 +170,7 @@ static void wm_ghostwindow_destroy(wmWindowManager *wm, wmWindow *win)
     GHOST_ActivateWindowDrawingContext(win->ghostwin);
     GPU_context_active_set(win->gpuctx);
 
-    /* Delete local gpu context.  */
+    /* Delete local GPU context. */
     GPU_context_discard(win->gpuctx);
 
     GHOST_DisposeWindow(g_system, win->ghostwin);
@@ -218,12 +179,8 @@ static void wm_ghostwindow_destroy(wmWindowManager *wm, wmWindow *win)
   }
 }
 
-/* including window itself, C can be NULL.
- * ED_screen_exit should have been called */
 void wm_window_free(bContext *C, wmWindowManager *wm, wmWindow *win)
 {
-  wmTimer *wt, *wtnext;
-
   /* update context */
   if (C) {
     WM_event_remove_handlers(C, &win->handlers);
@@ -237,16 +194,14 @@ void wm_window_free(bContext *C, wmWindowManager *wm, wmWindow *win)
   BKE_screen_area_map_free(&win->global_areas);
 
   /* end running jobs, a job end also removes its timer */
-  for (wt = wm->timers.first; wt; wt = wtnext) {
-    wtnext = wt->next;
+  LISTBASE_FOREACH_MUTABLE (wmTimer *, wt, &wm->timers) {
     if (wt->win == win && wt->event_type == TIMERJOBS) {
-      wm_jobs_timer_ended(wm, wt);
+      wm_jobs_timer_end(wm, wt);
     }
   }
 
   /* timer removing, need to call this api function */
-  for (wt = wm->timers.first; wt; wt = wtnext) {
-    wtnext = wt->next;
+  LISTBASE_FOREACH_MUTABLE (wmTimer *, wt, &wm->timers) {
     if (wt->win == win) {
       WM_event_remove_timer(wm, win, wt);
     }
@@ -254,6 +209,9 @@ void wm_window_free(bContext *C, wmWindowManager *wm, wmWindow *win)
 
   if (win->eventstate) {
     MEM_freeN(win->eventstate);
+  }
+  if (win->event_last_handled) {
+    MEM_freeN(win->event_last_handled);
   }
 
   if (win->cursor_keymap_status) {
@@ -274,10 +232,9 @@ void wm_window_free(bContext *C, wmWindowManager *wm, wmWindow *win)
 
 static int find_free_winid(wmWindowManager *wm)
 {
-  wmWindow *win;
   int id = 1;
 
-  for (win = wm->windows.first; win; win = win->next) {
+  LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
     if (id <= win->winid) {
       id = win->winid + 1;
     }
@@ -285,7 +242,6 @@ static int find_free_winid(wmWindowManager *wm)
   return id;
 }
 
-/* don't change context itself */
 wmWindow *wm_window_new(const Main *bmain, wmWindowManager *wm, wmWindow *parent, bool dialog)
 {
   wmWindow *win = MEM_callocN(sizeof(wmWindow), "window");
@@ -296,12 +252,11 @@ wmWindow *wm_window_new(const Main *bmain, wmWindowManager *wm, wmWindow *parent
   /* Dialogs may have a child window as parent. Otherwise, a child must not be a parent too. */
   win->parent = (!dialog && parent && parent->parent) ? parent->parent : parent;
   win->stereo3d_format = MEM_callocN(sizeof(Stereo3dFormat), "Stereo 3D Format (window)");
-  win->workspace_hook = BKE_workspace_instance_hook_create(bmain);
+  win->workspace_hook = BKE_workspace_instance_hook_create(bmain, win->winid);
 
   return win;
 }
 
-/* part of wm_window.c api */
 wmWindow *wm_window_copy(Main *bmain,
                          wmWindowManager *wm,
                          wmWindow *win_src,
@@ -313,7 +268,6 @@ wmWindow *wm_window_copy(Main *bmain,
   wmWindow *win_dst = wm_window_new(bmain, wm, win_parent, is_dialog);
   WorkSpace *workspace = WM_window_get_active_workspace(win_src);
   WorkSpaceLayout *layout_old = WM_window_get_active_layout(win_src);
-  WorkSpaceLayout *layout_new;
 
   win_dst->posx = win_src->posx + 10;
   win_dst->posy = win_src->posy;
@@ -323,20 +277,16 @@ wmWindow *wm_window_copy(Main *bmain,
   win_dst->scene = win_src->scene;
   STRNCPY(win_dst->view_layer_name, win_src->view_layer_name);
   BKE_workspace_active_set(win_dst->workspace_hook, workspace);
-  layout_new = duplicate_layout ?
-                   ED_workspace_layout_duplicate(bmain, workspace, layout_old, win_dst) :
-                   layout_old;
-  BKE_workspace_active_layout_set(win_dst->workspace_hook, workspace, layout_new);
+  WorkSpaceLayout *layout_new = duplicate_layout ? ED_workspace_layout_duplicate(
+                                                       bmain, workspace, layout_old, win_dst) :
+                                                   layout_old;
+  BKE_workspace_active_layout_set(win_dst->workspace_hook, win_dst->winid, workspace, layout_new);
 
   *win_dst->stereo3d_format = *win_src->stereo3d_format;
 
   return win_dst;
 }
 
-/**
- * A higher level version of copy that tests the new window can be added.
- * (called from the operator directly)
- */
 wmWindow *wm_window_copy_test(bContext *C,
                               wmWindow *win_src,
                               const bool duplicate_layout,
@@ -344,9 +294,8 @@ wmWindow *wm_window_copy_test(bContext *C,
 {
   Main *bmain = CTX_data_main(C);
   wmWindowManager *wm = CTX_wm_manager(C);
-  wmWindow *win_dst;
 
-  win_dst = wm_window_copy(bmain, wm, win_src, duplicate_layout, child);
+  wmWindow *win_dst = wm_window_copy(bmain, wm, win_src, duplicate_layout, child);
 
   WM_check(C);
 
@@ -354,10 +303,8 @@ wmWindow *wm_window_copy_test(bContext *C,
     WM_event_add_notifier_ex(wm, CTX_wm_window(C), NC_WINDOW | NA_ADDED, NULL);
     return win_dst;
   }
-  else {
-    wm_window_close(C, wm, win_dst);
-    return NULL;
-  }
+  wm_window_close(C, wm, win_dst);
+  return NULL;
 }
 
 /** \} */
@@ -382,13 +329,6 @@ static void wm_confirm_quit(bContext *C)
   wm_close_file_dialog(C, action);
 }
 
-/**
- * Call the quit confirmation prompt or exit directly if needed. The use can
- * still cancel via the confirmation popup. Also, this may not quit Blender
- * immediately, but rather schedule the closing.
- *
- * \param win: The window to show the confirmation popup/window in.
- */
 void wm_quit_with_optional_confirmation_prompt(bContext *C, wmWindow *win)
 {
   wmWindow *win_ctx = CTX_wm_window(C);
@@ -398,7 +338,8 @@ void wm_quit_with_optional_confirmation_prompt(bContext *C, wmWindow *win)
   CTX_wm_window_set(C, win);
 
   if (U.uiflag & USER_SAVE_PROMPT) {
-    if (wm_file_or_image_is_modified(CTX_data_main(C), CTX_wm_manager(C)) && !G.background) {
+    if (wm_file_or_session_data_has_unsaved_changes(CTX_data_main(C), CTX_wm_manager(C)) &&
+        !G.background) {
       wm_window_raise(win);
       wm_confirm_quit(C);
     }
@@ -415,7 +356,6 @@ void wm_quit_with_optional_confirmation_prompt(bContext *C, wmWindow *win)
 
 /** \} */
 
-/* this is event from ghost, or exit-blender op */
 void wm_window_close(bContext *C, wmWindowManager *wm, wmWindow *win)
 {
   wmWindow *win_other;
@@ -463,24 +403,26 @@ void wm_window_close(bContext *C, wmWindowManager *wm, wmWindow *win)
 
     BLI_assert(BKE_workspace_layout_screen_get(layout) == screen);
     BKE_workspace_layout_remove(bmain, workspace, layout);
+    WM_event_add_notifier(C, NC_SCREEN | ND_LAYOUTDELETE, NULL);
   }
 }
 
 void wm_window_title(wmWindowManager *wm, wmWindow *win)
 {
   if (WM_window_is_temp_screen(win)) {
-    /* nothing to do for 'temp' windows,
-     * because WM_window_open_temp always sets window title  */
+    /* Nothing to do for 'temp' windows,
+     * because #WM_window_open always sets window title. */
   }
   else if (win->ghostwin) {
     /* this is set to 1 if you don't have startup.blend open */
-    if (G.save_over && BKE_main_blendfile_path_from_global()[0]) {
-      char str[sizeof(((Main *)NULL)->name) + 24];
+    const char *blendfile_path = BKE_main_blendfile_path_from_global();
+    if (blendfile_path[0] != '\0') {
+      char str[sizeof(((Main *)NULL)->filepath) + 24];
       BLI_snprintf(str,
                    sizeof(str),
                    "Blender%s [%s%s]",
                    wm->file_saved ? "" : "*",
-                   BKE_main_blendfile_path_from_global(),
+                   blendfile_path,
                    G_MAIN->recovered ? " (Recovered)" : "");
       GHOST_SetTitle(win->ghostwin, str);
     }
@@ -491,7 +433,7 @@ void wm_window_title(wmWindowManager *wm, wmWindow *win)
     /* Informs GHOST of unsaved changes, to set window modified visual indicator (macOS)
      * and to give hint of unsaved changes for a user warning mechanism in case of OS application
      * terminate request (e.g. OS Shortcut Alt+F4, Command+Q, (...), or session end). */
-    GHOST_SetWindowModifiedState(win->ghostwin, (GHOST_TUns8)!wm->file_saved);
+    GHOST_SetWindowModifiedState(win->ghostwin, (bool)!wm->file_saved);
   }
 }
 
@@ -549,7 +491,7 @@ void WM_window_set_dpi(const wmWindow *win)
 static void wm_window_update_eventstate(wmWindow *win)
 {
   /* Update mouse position when a window is activated. */
-  wm_get_cursor_position(win, &win->eventstate->x, &win->eventstate->y);
+  wm_cursor_position_get(win, &win->eventstate->xy[0], &win->eventstate->xy[1]);
 }
 
 static void wm_window_ensure_eventstate(wmWindow *win)
@@ -568,11 +510,8 @@ static void wm_window_ghostwindow_add(wmWindowManager *wm,
                                       wmWindow *win,
                                       bool is_dialog)
 {
-  GHOST_WindowHandle ghostwin;
+  /* A new window is created when page-flip mode is required for a window. */
   GHOST_GLSettings glSettings = {0};
-  int scr_w, scr_h, posy;
-
-  /* a new window is created when pageflip mode is required for a window */
   if (win->stereo3d_format->display_mode == S3D_DISPLAY_PAGEFLIP) {
     glSettings.flags |= GHOST_glStereoVisual;
   }
@@ -581,42 +520,28 @@ static void wm_window_ghostwindow_add(wmWindowManager *wm,
     glSettings.flags |= GHOST_glDebugContext;
   }
 
-  wm_get_screensize(&scr_w, &scr_h);
-  posy = (scr_h - win->posy - win->sizey);
+  int scr_w, scr_h;
+  wm_get_desktopsize(&scr_w, &scr_h);
+  int posy = (scr_h - win->posy - win->sizey);
 
   /* Clear drawable so we can set the new window. */
   wmWindow *prev_windrawable = wm->windrawable;
   wm_window_clear_drawable(wm);
 
-  if (is_dialog && win->parent) {
-    ghostwin = GHOST_CreateDialogWindow(g_system,
-                                        win->parent->ghostwin,
-                                        title,
-                                        win->posx,
-                                        posy,
-                                        win->sizex,
-                                        win->sizey,
-                                        (GHOST_TWindowState)win->windowstate,
-                                        GHOST_kDrawingContextTypeOpenGL,
-                                        glSettings);
-  }
-  else {
-    ghostwin = GHOST_CreateWindow(g_system,
-                                  title,
-                                  win->posx,
-                                  posy,
-                                  win->sizex,
-                                  win->sizey,
-                                  (GHOST_TWindowState)win->windowstate,
-                                  GHOST_kDrawingContextTypeOpenGL,
-                                  glSettings);
-  }
+  GHOST_WindowHandle ghostwin = GHOST_CreateWindow(g_system,
+                                                   (win->parent) ? win->parent->ghostwin : NULL,
+                                                   title,
+                                                   win->posx,
+                                                   posy,
+                                                   win->sizex,
+                                                   win->sizey,
+                                                   (GHOST_TWindowState)win->windowstate,
+                                                   is_dialog,
+                                                   GHOST_kDrawingContextTypeOpenGL,
+                                                   glSettings);
 
   if (ghostwin) {
-    GHOST_RectangleHandle bounds;
-
-    GLuint default_fb = GHOST_GetDefaultOpenGLFramebuffer(ghostwin);
-    win->gpuctx = GPU_context_create(default_fb);
+    win->gpuctx = GPU_context_create(ghostwin);
 
     /* needed so we can detect the graphics card below */
     GPU_init();
@@ -631,7 +556,7 @@ static void wm_window_ghostwindow_add(wmWindowManager *wm,
     wm_window_ensure_eventstate(win);
 
     /* store actual window size in blender window */
-    bounds = GHOST_GetClientBounds(win->ghostwin);
+    GHOST_RectangleHandle bounds = GHOST_GetClientBounds(win->ghostwin);
 
     /* win32: gives undefined window size when minimized */
     if (GHOST_GetWindowState(win->ghostwin) != GHOST_kWindowStateMinimized) {
@@ -647,21 +572,17 @@ static void wm_window_ghostwindow_add(wmWindowManager *wm,
     }
 #endif
     /* until screens get drawn, make it nice gray */
-    glClearColor(0.55, 0.55, 0.55, 0.0);
-    /* Crash on OSS ATI: bugs.launchpad.net/ubuntu/+source/mesa/+bug/656100 */
-    if (!GPU_type_matches(GPU_DEVICE_ATI, GPU_OS_UNIX, GPU_DRIVER_OPENSOURCE)) {
-      glClear(GL_COLOR_BUFFER_BIT);
-    }
+    GPU_clear_color(0.55f, 0.55f, 0.55f, 1.0f);
 
     /* needed here, because it's used before it reads userdef */
     WM_window_set_dpi(win);
 
     wm_window_swap_buffers(win);
 
-    // GHOST_SetWindowState(ghostwin, GHOST_kWindowStateModified);
+    /* Clear double buffer to avoids flickering of new windows on certain drivers. (See T97600) */
+    GPU_clear_color(0.55f, 0.55f, 0.55f, 1.0f);
 
-    /* standard state vars for window */
-    GPU_state_init();
+    // GHOST_SetWindowState(ghostwin, GHOST_kWindowStateModified);
   }
   else {
     wm_window_set_drawable(wm, prev_windrawable, false);
@@ -670,8 +591,6 @@ static void wm_window_ghostwindow_add(wmWindowManager *wm,
 
 static void wm_window_ghostwindow_ensure(wmWindowManager *wm, wmWindow *win, bool is_dialog)
 {
-  wmKeyMap *keymap;
-
   if (win->ghostwin == NULL) {
     if ((win->sizex == 0) || (wm_init_state.override_flag & WIN_OVERRIDE_GEOM)) {
       win->posx = wm_init_state.start_x;
@@ -702,17 +621,17 @@ static void wm_window_ghostwindow_ensure(wmWindowManager *wm, wmWindow *win, boo
   }
 
   if (win->ghostwin != NULL) {
-    /* If we have no ghostwin this is a buggy window that should be removed.
+    /* If we have no `ghostwin` this is a buggy window that should be removed.
      * However we still need to initialize it correctly so the screen doesn't hang. */
 
-    /* happens after fileread */
+    /* Happens after file-read. */
     wm_window_ensure_eventstate(win);
 
     WM_window_set_dpi(win);
   }
 
   /* add keymap handlers (1 handler for all keys in map!) */
-  keymap = WM_keymap_ensure(wm->defaultconf, "Window", 0, 0);
+  wmKeyMap *keymap = WM_keymap_ensure(wm->defaultconf, "Window", 0, 0);
   WM_event_add_keymap_handler(&win->handlers, keymap);
 
   keymap = WM_keymap_ensure(wm->defaultconf, "Screen", 0, 0);
@@ -732,19 +651,6 @@ static void wm_window_ghostwindow_ensure(wmWindowManager *wm, wmWindow *win, boo
   ED_screen_global_areas_refresh(win);
 }
 
-/**
- * Initialize #wmWindow without ghostwin, open these and clear.
- *
- * window size is read from window, if 0 it uses prefsize
- * called in #WM_check, also inits stuff after file read.
- *
- * \warning
- * After running, 'win->ghostwin' can be NULL in rare cases
- * (where OpenGL driver fails to create a context for eg).
- * We could remove them with #wm_window_ghostwindows_remove_invalid
- * but better not since caller may continue to use.
- * Instead, caller needs to handle the error case and cleanup.
- */
 void wm_window_ghostwindows_ensure(wmWindowManager *wm)
 {
   BLI_assert(G.background == false);
@@ -756,8 +662,8 @@ void wm_window_ghostwindows_ensure(wmWindowManager *wm)
   if (wm_init_state.size_x == 0) {
     wm_get_screensize(&wm_init_state.size_x, &wm_init_state.size_y);
 
-    /* note!, this isnt quite correct, active screen maybe offset 1000s if PX,
-     * we'd need a wm_get_screensize like function that gives offset,
+    /* NOTE: this isn't quite correct, active screen maybe offset 1000s if PX,
+     * we'd need a #wm_get_screensize like function that gives offset,
      * in practice the window manager will likely move to the correct monitor */
     wm_init_state.start_x = 0;
     wm_init_state.start_y = 0;
@@ -768,18 +674,11 @@ void wm_window_ghostwindows_ensure(wmWindowManager *wm)
   }
 }
 
-/**
- * Call after #wm_window_ghostwindows_ensure or #WM_check
- * (after loading a new file) in the unlikely event a window couldn't be created.
- */
 void wm_window_ghostwindows_remove_invalid(bContext *C, wmWindowManager *wm)
 {
-  wmWindow *win, *win_next;
-
   BLI_assert(G.background == false);
 
-  for (win = wm->windows.first; win; win = win_next) {
-    win_next = win->next;
+  LISTBASE_FOREACH_MUTABLE (wmWindow *, win, &wm->windows) {
     if (win->ghostwin == NULL) {
       wm_window_close(C, wm, win);
     }
@@ -789,20 +688,18 @@ void wm_window_ghostwindows_remove_invalid(bContext *C, wmWindowManager *wm)
 /* Update window size and position based on data from GHOST window. */
 static bool wm_window_update_size_position(wmWindow *win)
 {
-  GHOST_RectangleHandle client_rect;
-  int l, t, r, b, scr_w, scr_h;
-  int sizex, sizey, posx, posy;
-
-  client_rect = GHOST_GetClientBounds(win->ghostwin);
+  GHOST_RectangleHandle client_rect = GHOST_GetClientBounds(win->ghostwin);
+  int l, t, r, b;
   GHOST_GetRectangle(client_rect, &l, &t, &r, &b);
 
   GHOST_DisposeRectangle(client_rect);
 
+  int scr_w, scr_h;
   wm_get_desktopsize(&scr_w, &scr_h);
-  sizex = r - l;
-  sizey = b - t;
-  posx = l;
-  posy = scr_h - t - win->sizey;
+  int sizex = r - l;
+  int sizey = b - t;
+  int posx = l;
+  int posy = scr_h - t - win->sizey;
 
   if (win->sizex != sizex || win->sizey != sizey || win->posx != posx || win->posy != posy) {
     win->sizex = sizex;
@@ -811,102 +708,81 @@ static bool wm_window_update_size_position(wmWindow *win)
     win->posy = posy;
     return true;
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
-/**
- * new window, no screen yet, but we open ghostwindow for it,
- * also gets the window level handlers
- * \note area-rip calls this.
- * \return the window or NULL.
- */
-wmWindow *WM_window_open(bContext *C, const rcti *rect)
-{
-  wmWindowManager *wm = CTX_wm_manager(C);
-  wmWindow *win_prev = CTX_wm_window(C);
-  wmWindow *win = wm_window_new(CTX_data_main(C), wm, win_prev, false);
-
-  win->posx = rect->xmin;
-  win->posy = rect->ymin;
-  win->sizex = BLI_rcti_size_x(rect);
-  win->sizey = BLI_rcti_size_y(rect);
-
-  WM_check(C);
-
-  if (win->ghostwin) {
-    return win;
-  }
-  else {
-    wm_window_close(C, wm, win);
-    CTX_wm_window_set(C, win_prev);
-    return NULL;
-  }
-}
-
-/**
- * Uses `screen->temp` tag to define what to do, currently it limits
- * to only one "temp" window for render out, preferences, filewindow, etc...
- *
- * \param space_type: SPACE_VIEW3D, SPACE_INFO, ... (eSpace_Type)
- * \return the window or NULL in case of failure.
- */
-wmWindow *WM_window_open_temp(bContext *C,
-                              const char *title,
-                              int x,
-                              int y,
-                              int sizex,
-                              int sizey,
-                              int space_type,
-                              bool dialog)
+wmWindow *WM_window_open(bContext *C,
+                         const char *title,
+                         int x,
+                         int y,
+                         int sizex,
+                         int sizey,
+                         int space_type,
+                         bool toplevel,
+                         bool dialog,
+                         bool temp,
+                         eWindowAlignment alignment)
 {
   Main *bmain = CTX_data_main(C);
   wmWindowManager *wm = CTX_wm_manager(C);
   wmWindow *win_prev = CTX_wm_window(C);
-  wmWindow *win;
-  bScreen *screen;
-  ScrArea *area;
   Scene *scene = CTX_data_scene(C);
   ViewLayer *view_layer = CTX_data_view_layer(C);
+  rcti rect;
 
-  /* convert to native OS window coordinates */
   const float native_pixel_size = GHOST_GetNativePixelSize(win_prev->ghostwin);
-  x /= native_pixel_size;
-  y /= native_pixel_size;
+  /* convert to native OS window coordinates */
+  rect.xmin = win_prev->posx + (x / native_pixel_size);
+  rect.ymin = win_prev->posy + (y / native_pixel_size);
   sizex /= native_pixel_size;
   sizey /= native_pixel_size;
 
-  /* calculate position */
-  rcti rect;
-  rect.xmin = x + win_prev->posx - sizex / 2;
-  rect.ymin = y + win_prev->posy - sizey / 2;
+  if (alignment == WIN_ALIGN_LOCATION_CENTER) {
+    /* Window centered around x,y location. */
+    rect.xmin -= sizex / 2;
+    rect.ymin -= sizey / 2;
+  }
+  else if (alignment == WIN_ALIGN_PARENT_CENTER) {
+    /* Centered within parent. X,Y as offsets from there. */
+    rect.xmin += (win_prev->sizex - sizex) / 2;
+    rect.ymin += (win_prev->sizey - sizey) / 2;
+  }
+  else {
+    /* Positioned absolutely within parent bounds. */
+  }
+
   rect.xmax = rect.xmin + sizex;
   rect.ymax = rect.ymin + sizey;
 
   /* changes rect to fit within desktop */
-  wm_window_check_position(&rect);
+  wm_window_check_size(&rect);
 
-  /* Reuse temporary or dialog window if one is open (but don't use a dialog for a regular
-   * temporary window, or vice versa). */
-  for (win = wm->windows.first; win; win = win->next) {
-    if (WM_window_is_temp_screen(win) && (dialog == GHOST_IsDialogWindow(win->ghostwin))) {
-      break;
+  /* Reuse temporary windows when they share the same single area. */
+  wmWindow *win = NULL;
+  if (temp) {
+    LISTBASE_FOREACH (wmWindow *, win_iter, &wm->windows) {
+      const bScreen *screen = WM_window_get_active_screen(win_iter);
+      if (screen && screen->temp && BLI_listbase_is_single(&screen->areabase)) {
+        ScrArea *area = screen->areabase.first;
+        if (space_type == (area->butspacetype ? area->butspacetype : area->spacetype)) {
+          win = win_iter;
+          break;
+        }
+      }
     }
   }
 
   /* add new window? */
   if (win == NULL) {
-    win = wm_window_new(bmain, wm, win_prev, dialog);
-
+    win = wm_window_new(bmain, wm, toplevel ? NULL : win_prev, dialog);
     win->posx = rect.xmin;
     win->posy = rect.ymin;
+    win->sizex = BLI_rcti_size_x(&rect);
+    win->sizey = BLI_rcti_size_y(&rect);
+    *win->stereo3d_format = *win_prev->stereo3d_format;
   }
 
-  screen = WM_window_get_active_screen(win);
-
-  win->sizex = BLI_rcti_size_x(&rect);
-  win->sizey = BLI_rcti_size_y(&rect);
+  bScreen *screen = WM_window_get_active_screen(win);
 
   if (WM_window_get_active_workspace(win) == NULL) {
     WorkSpace *workspace = WM_window_get_active_workspace(win_prev);
@@ -925,10 +801,11 @@ wmWindow *WM_window_open_temp(bContext *C,
   /* Set scene and view layer to match original window. */
   STRNCPY(win->view_layer_name, view_layer->name);
   if (WM_window_get_active_scene(win) != scene) {
-    ED_screen_scene_change(C, win, scene);
+    /* No need to refresh the tool-system as the window has not yet finished being setup. */
+    ED_screen_scene_change(C, win, scene, false);
   }
 
-  screen->temp = 1;
+  screen->temp = temp;
 
   /* make window active, and validate/resize */
   CTX_wm_window_set(C, win);
@@ -945,10 +822,11 @@ wmWindow *WM_window_open_temp(bContext *C,
    */
 
   /* ensure it shows the right spacetype editor */
-  area = screen->areabase.first;
-  CTX_wm_area_set(C, area);
-
-  ED_area_newspace(C, area, space_type, false);
+  if (space_type != SPACE_EMPTY) {
+    ScrArea *area = screen->areabase.first;
+    CTX_wm_area_set(C, area);
+    ED_area_newspace(C, area, space_type, false);
+  }
 
   ED_screen_change(C, screen);
 
@@ -967,13 +845,12 @@ wmWindow *WM_window_open_temp(bContext *C,
     GHOST_SetTitle(win->ghostwin, title);
     return win;
   }
-  else {
-    /* very unlikely! but opening a new window can fail */
-    wm_window_close(C, wm, win);
-    CTX_wm_window_set(C, win_prev);
 
-    return NULL;
-  }
+  /* very unlikely! but opening a new window can fail */
+  wm_window_close(C, wm, win);
+  CTX_wm_window_set(C, win_prev);
+
+  return NULL;
 }
 
 /* ****************** Operators ****************** */
@@ -986,37 +863,51 @@ int wm_window_close_exec(bContext *C, wmOperator *UNUSED(op))
   return OPERATOR_FINISHED;
 }
 
-int wm_window_new_exec(bContext *C, wmOperator *UNUSED(op))
+int wm_window_new_exec(bContext *C, wmOperator *op)
 {
   wmWindow *win_src = CTX_wm_window(C);
-  bool ok;
+  ScrArea *area = BKE_screen_find_big_area(CTX_wm_screen(C), SPACE_TYPE_ANY, 0);
 
-  ok = (wm_window_copy_test(C, win_src, true, true) != NULL);
+  bool ok = (WM_window_open(C,
+                            IFACE_("Blender"),
+                            0,
+                            0,
+                            win_src->sizex * 0.95f,
+                            win_src->sizey * 0.9f,
+                            area->spacetype,
+                            false,
+                            false,
+                            false,
+                            WIN_ALIGN_PARENT_CENTER) != NULL);
 
-  return ok ? OPERATOR_FINISHED : OPERATOR_CANCELLED;
+  if (!ok) {
+    BKE_report(op->reports, RPT_ERROR, "Failed to create window");
+    return OPERATOR_CANCELLED;
+  }
+  return OPERATOR_FINISHED;
 }
 
-int wm_window_new_main_exec(bContext *C, wmOperator *UNUSED(op))
+int wm_window_new_main_exec(bContext *C, wmOperator *op)
 {
   wmWindow *win_src = CTX_wm_window(C);
-  bool ok;
 
-  ok = (wm_window_copy_test(C, win_src, true, false) != NULL);
-
-  return ok ? OPERATOR_FINISHED : OPERATOR_CANCELLED;
+  bool ok = (wm_window_copy_test(C, win_src, true, false) != NULL);
+  if (!ok) {
+    BKE_report(op->reports, RPT_ERROR, "Failed to create window");
+    return OPERATOR_CANCELLED;
+  }
+  return OPERATOR_FINISHED;
 }
 
-/* fullscreen operator callback */
 int wm_window_fullscreen_toggle_exec(bContext *C, wmOperator *UNUSED(op))
 {
   wmWindow *window = CTX_wm_window(C);
-  GHOST_TWindowState state;
 
   if (G.background) {
     return OPERATOR_CANCELLED;
   }
 
-  state = GHOST_GetWindowState(window->ghostwin);
+  GHOST_TWindowState state = GHOST_GetWindowState(window->ghostwin);
   if (state != GHOST_kWindowStateFullScreen) {
     GHOST_SetWindowState(window->ghostwin, GHOST_kWindowStateFullScreen);
   }
@@ -1029,37 +920,45 @@ int wm_window_fullscreen_toggle_exec(bContext *C, wmOperator *UNUSED(op))
 
 /* ************ events *************** */
 
-void wm_cursor_position_from_ghost(wmWindow *win, int *x, int *y)
+void wm_cursor_position_from_ghost_client_coords(wmWindow *win, int *x, int *y)
 {
   float fac = GHOST_GetNativePixelSize(win->ghostwin);
-
-  GHOST_ScreenToClient(win->ghostwin, *x, *y, x, y);
   *x *= fac;
 
   *y = (win->sizey - 1) - *y;
   *y *= fac;
 }
 
-void wm_cursor_position_to_ghost(wmWindow *win, int *x, int *y)
+void wm_cursor_position_to_ghost_client_coords(wmWindow *win, int *x, int *y)
 {
   float fac = GHOST_GetNativePixelSize(win->ghostwin);
 
   *x /= fac;
   *y /= fac;
   *y = win->sizey - *y - 1;
+}
 
+void wm_cursor_position_from_ghost_screen_coords(wmWindow *win, int *x, int *y)
+{
+  GHOST_ScreenToClient(win->ghostwin, *x, *y, x, y);
+  wm_cursor_position_from_ghost_client_coords(win, x, y);
+}
+
+void wm_cursor_position_to_ghost_screen_coords(wmWindow *win, int *x, int *y)
+{
+  wm_cursor_position_to_ghost_client_coords(win, x, y);
   GHOST_ClientToScreen(win->ghostwin, *x, *y, x, y);
 }
 
-void wm_get_cursor_position(wmWindow *win, int *x, int *y)
+void wm_cursor_position_get(wmWindow *win, int *r_x, int *r_y)
 {
   if (UNLIKELY(G.f & G_FLAG_EVENT_SIMULATE)) {
-    *x = win->eventstate->x;
-    *y = win->eventstate->y;
+    *r_x = win->eventstate->xy[0];
+    *r_y = win->eventstate->xy[1];
     return;
   }
-  GHOST_GetCursorPosition(g_system, x, y);
-  wm_cursor_position_from_ghost(win, x, y);
+  GHOST_GetCursorPosition(g_system, win->ghostwin, r_x, r_y);
+  wm_cursor_position_from_ghost_client_coords(win, r_x, r_y);
 }
 
 typedef enum {
@@ -1072,9 +971,7 @@ typedef enum {
 /* check if specified modifier key type is pressed */
 static int query_qual(modifierKeyType qual)
 {
-  GHOST_TModifierKeyMask left, right;
-  int val = 0;
-
+  GHOST_TModifierKey left, right;
   switch (qual) {
     case SHIFT:
       left = GHOST_kModifierKeyLeftShift;
@@ -1094,6 +991,7 @@ static int query_qual(modifierKeyType qual)
       break;
   }
 
+  bool val = false;
   GHOST_GetModifierKeyState(g_system, left, &val);
   if (!val) {
     GHOST_GetModifierKeyState(g_system, right, &val);
@@ -1111,25 +1009,21 @@ static void wm_window_set_drawable(wmWindowManager *wm, wmWindow *win, bool acti
     GHOST_ActivateWindowDrawingContext(win->ghostwin);
   }
   GPU_context_active_set(win->gpuctx);
-  immActivate();
 }
 
 void wm_window_clear_drawable(wmWindowManager *wm)
 {
   if (wm->windrawable) {
-    BLF_batch_reset();
-    gpu_batch_presets_reset();
-    immDeactivate();
     wm->windrawable = NULL;
   }
 }
 
 void wm_window_make_drawable(wmWindowManager *wm, wmWindow *win)
 {
-  BLI_assert(GPU_framebuffer_active_get() == NULL);
+  BLI_assert(GPU_framebuffer_active_get() == GPU_framebuffer_back_get());
 
   if (win != wm->windrawable && win->ghostwin) {
-    //      win->lmbut = 0; /* keeps hanging when mousepressed while other window opened */
+    // win->lmbut = 0; /* Keeps hanging when mouse-pressed while other window opened. */
     wm_window_clear_drawable(wm);
 
     if (G.debug & G_DEBUG_EVENTS) {
@@ -1137,17 +1031,18 @@ void wm_window_make_drawable(wmWindowManager *wm, wmWindow *win)
     }
 
     wm_window_set_drawable(wm, win, true);
+  }
 
+  if (win->ghostwin) {
     /* this can change per window */
     WM_window_set_dpi(win);
   }
 }
 
-/* Reset active the current window opengl drawing context. */
 void wm_window_reset_drawable(void)
 {
   BLI_assert(BLI_thread_is_main());
-  BLI_assert(GPU_framebuffer_active_get() == NULL);
+  BLI_assert(GPU_framebuffer_active_get() == GPU_framebuffer_back_get());
   wmWindowManager *wm = G_MAIN->wm.first;
 
   if (wm == NULL) {
@@ -1166,7 +1061,7 @@ void wm_window_reset_drawable(void)
  *
  * Mouse coordinate conversion happens here.
  */
-static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr)
+static bool ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr)
 {
   bContext *C = C_void_ptr;
   wmWindowManager *wm = CTX_wm_manager(C);
@@ -1179,8 +1074,8 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
   if (type == GHOST_kEventQuitRequest) {
     /* Find an active window to display quit dialog in. */
     GHOST_WindowHandle ghostwin = GHOST_GetEventWindow(evt);
-    wmWindow *win;
 
+    wmWindow *win;
     if (ghostwin && GHOST_ValidWindow(g_system, ghostwin)) {
       win = GHOST_GetWindowUserData(ghostwin);
     }
@@ -1199,29 +1094,24 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
   else {
     GHOST_WindowHandle ghostwin = GHOST_GetEventWindow(evt);
     GHOST_TEventDataPtr data = GHOST_GetEventData(evt);
-    wmWindow *win;
 
     /* Ghost now can call this function for life resizes,
      * but it should return if WM didn't initialize yet.
      * Can happen on file read (especially full size window). */
-    if ((wm->initialized & WM_WINDOW_IS_INITIALIZED) == 0) {
-      return 1;
+    if ((wm->initialized & WM_WINDOW_IS_INIT) == 0) {
+      return true;
     }
     if (!ghostwin) {
-      /* XXX - should be checked, why are we getting an event here, and */
-      /* what is it? */
+      /* XXX: should be checked, why are we getting an event here, and what is it? */
       puts("<!> event has no window");
-      return 1;
+      return true;
     }
-    else if (!GHOST_ValidWindow(g_system, ghostwin)) {
-      /* XXX - should be checked, why are we getting an event here, and */
-      /* what is it? */
+    if (!GHOST_ValidWindow(g_system, ghostwin)) {
+      /* XXX: should be checked, why are we getting an event here, and what is it? */
       puts("<!> event has invalid window");
-      return 1;
+      return true;
     }
-    else {
-      win = GHOST_GetWindowUserData(ghostwin);
-    }
+    wmWindow *win = GHOST_GetWindowUserData(ghostwin);
 
     switch (type) {
       case GHOST_kEventWindowDeactivate:
@@ -1229,16 +1119,11 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
         win->active = 0; /* XXX */
 
         /* clear modifiers for inactive windows */
-        win->eventstate->alt = 0;
-        win->eventstate->ctrl = 0;
-        win->eventstate->shift = 0;
-        win->eventstate->oskey = 0;
+        win->eventstate->modifier = 0;
         win->eventstate->keymodifier = 0;
 
         break;
       case GHOST_kEventWindowActivate: {
-        GHOST_TEventKeyData kdata;
-        wmEvent event;
         const int keymodifier = ((query_qual(SHIFT) ? KM_SHIFT : 0) |
                                  (query_qual(CONTROL) ? KM_CTRL : 0) |
                                  (query_qual(ALT) ? KM_ALT : 0) | (query_qual(OS) ? KM_OSKEY : 0));
@@ -1257,14 +1142,16 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
         /* bad ghost support for modifier keys... so on activate we set the modifiers again */
 
         /* TODO: This is not correct since a modifier may be held when a window is activated...
-         * better solve this at ghost level. attempted fix r54450 but it caused bug [#34255]
+         * better solve this at ghost level. attempted fix r54450 but it caused bug T34255.
          *
          * For now don't send GHOST_kEventKeyDown events, just set the 'eventstate'.
          */
-        kdata.ascii = '\0';
-        kdata.utf8_buf[0] = '\0';
-
-        if (win->eventstate->shift) {
+        GHOST_TEventKeyData kdata = {
+            .key = GHOST_kKeyUnknown,
+            .utf8_buf = {'\0'},
+            .is_repeat = false,
+        };
+        if (win->eventstate->modifier & KM_SHIFT) {
           if ((keymodifier & KM_SHIFT) == 0) {
             kdata.key = GHOST_kKeyLeftShift;
             wm_event_add_ghostevent(wm, win, GHOST_kEventKeyUp, &kdata);
@@ -1273,11 +1160,11 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
 #ifdef USE_WIN_ACTIVATE
         else {
           if (keymodifier & KM_SHIFT) {
-            win->eventstate->shift = KM_MOD_FIRST;
+            win->eventstate->modifier |= KM_SHIFT;
           }
         }
 #endif
-        if (win->eventstate->ctrl) {
+        if (win->eventstate->modifier & KM_CTRL) {
           if ((keymodifier & KM_CTRL) == 0) {
             kdata.key = GHOST_kKeyLeftControl;
             wm_event_add_ghostevent(wm, win, GHOST_kEventKeyUp, &kdata);
@@ -1286,11 +1173,11 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
 #ifdef USE_WIN_ACTIVATE
         else {
           if (keymodifier & KM_CTRL) {
-            win->eventstate->ctrl = KM_MOD_FIRST;
+            win->eventstate->modifier |= KM_CTRL;
           }
         }
 #endif
-        if (win->eventstate->alt) {
+        if (win->eventstate->modifier & KM_ALT) {
           if ((keymodifier & KM_ALT) == 0) {
             kdata.key = GHOST_kKeyLeftAlt;
             wm_event_add_ghostevent(wm, win, GHOST_kEventKeyUp, &kdata);
@@ -1299,11 +1186,11 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
 #ifdef USE_WIN_ACTIVATE
         else {
           if (keymodifier & KM_ALT) {
-            win->eventstate->alt = KM_MOD_FIRST;
+            win->eventstate->modifier |= KM_ALT;
           }
         }
 #endif
-        if (win->eventstate->oskey) {
+        if (win->eventstate->modifier & KM_OSKEY) {
           if ((keymodifier & KM_OSKEY) == 0) {
             kdata.key = GHOST_kKeyOS;
             wm_event_add_ghostevent(wm, win, GHOST_kEventKeyUp, &kdata);
@@ -1312,7 +1199,7 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
 #ifdef USE_WIN_ACTIVATE
         else {
           if (keymodifier & KM_OSKEY) {
-            win->eventstate->oskey = KM_MOD_FIRST;
+            win->eventstate->modifier |= KM_OSKEY;
           }
         }
 #endif
@@ -1334,14 +1221,16 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
          * click could have been done on a button and depending on window manager settings
          * click would be passed to blender or not, but in any case button under cursor
          * should be activated, so at max next click on button without moving mouse
-         * would trigger it's handle function
+         * would trigger its handle function
          * currently it seems to be common practice to generate new event for, but probably
          * we'll need utility function for this? (sergey)
          */
+        wmEvent event;
         wm_event_init_from_window(win, &event);
         event.type = MOUSEMOVE;
-        event.prevx = event.x;
-        event.prevy = event.y;
+        event.val = KM_NOTHING;
+        copy_v2_v2_int(event.prev_xy, event.xy);
+        event.flag = 0;
 
         wm_event_add(win, &event);
 
@@ -1363,8 +1252,7 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
       }
       case GHOST_kEventWindowSize:
       case GHOST_kEventWindowMove: {
-        GHOST_TWindowState state;
-        state = GHOST_GetWindowState(win->ghostwin);
+        GHOST_TWindowState state = GHOST_GetWindowState(win->ghostwin);
         win->windowstate = state;
 
         WM_window_set_dpi(win);
@@ -1442,7 +1330,6 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
       }
 
       case GHOST_kEventOpenMainFile: {
-        PointerRNA props_ptr;
         const char *path = GHOST_GetEventData(evt);
 
         if (path) {
@@ -1451,10 +1338,11 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
            * it is correctly set */
           CTX_wm_window_set(C, win);
 
+          PointerRNA props_ptr;
           WM_operator_properties_create_ptr(&props_ptr, ot);
           RNA_string_set(&props_ptr, "filepath", path);
           RNA_boolean_set(&props_ptr, "display_file_selector", false);
-          WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, &props_ptr);
+          WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, &props_ptr, NULL);
           WM_operator_properties_free(&props_ptr);
 
           CTX_wm_window_set(C, NULL);
@@ -1462,18 +1350,24 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
         break;
       }
       case GHOST_kEventDraggingDropDone: {
-        wmEvent event;
         GHOST_TEventDragnDropData *ddd = GHOST_GetEventData(evt);
 
         /* entering window, update mouse pos */
         wm_window_update_eventstate(win);
 
+        wmEvent event;
         wm_event_init_from_window(win, &event); /* copy last state, like mouse coords */
 
         /* activate region */
         event.type = MOUSEMOVE;
-        event.prevx = event.x;
-        event.prevy = event.y;
+        event.val = KM_NOTHING;
+        copy_v2_v2_int(event.prev_xy, event.xy);
+
+        wm_cursor_position_from_ghost_screen_coords(win, &ddd->x, &ddd->y);
+        event.xy[0] = ddd->x;
+        event.xy[1] = ddd->y;
+
+        event.flag = 0;
 
         /* No context change! C->wm->windrawable is drawable, or for area queues. */
         wm->winactive = win;
@@ -1487,22 +1381,21 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
         event.val = KM_RELEASE;
         event.custom = EVT_DATA_DRAGDROP;
         event.customdata = &wm->drags;
-        event.customdatafree = 1;
+        event.customdata_free = true;
 
         wm_event_add(win, &event);
 
-        /* printf("Drop detected\n"); */
+        // printf("Drop detected\n");
 
         /* add drag data to wm for paths: */
 
         if (ddd->dataType == GHOST_kDragnDropTypeFilenames) {
           GHOST_TStringArray *stra = ddd->data;
-          int a, icon;
 
-          for (a = 0; a < stra->count; a++) {
+          for (int a = 0; a < stra->count; a++) {
             printf("drop file %s\n", stra->strings[a]);
             /* try to get icon type from extension */
-            icon = ED_file_extension_icon((char *)stra->strings[a]);
+            int icon = ED_file_extension_icon((char *)stra->strings[a]);
 
             WM_event_start_drag(C, icon, WM_DRAG_PATH, stra->strings[a], 0.0, WM_DRAG_NOP);
             /* void poin should point to string, it makes a copy */
@@ -1513,15 +1406,15 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
         break;
       }
       case GHOST_kEventNativeResolutionChange: {
-        // only update if the actual pixel size changes
+        /* Only update if the actual pixel size changes. */
         float prev_pixelsize = U.pixelsize;
         WM_window_set_dpi(win);
 
         if (U.pixelsize != prev_pixelsize) {
           BKE_icon_changed(WM_window_get_active_screen(win)->id.icon_id);
 
-          // close all popups since they are positioned with the pixel
-          // size baked in and it's difficult to correct them
+          /* Close all popups since they are positioned with the pixel
+           * size baked in and it's difficult to correct them. */
           CTX_wm_window_set(C, win);
           UI_popup_handlers_remove_all(C, &win->modalhandlers);
           CTX_wm_window_set(C, NULL);
@@ -1537,14 +1430,14 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
       case GHOST_kEventTrackpad: {
         GHOST_TEventTrackpadData *pd = data;
 
-        wm_cursor_position_from_ghost(win, &pd->x, &pd->y);
+        wm_cursor_position_from_ghost_screen_coords(win, &pd->x, &pd->y);
         wm_event_add_ghostevent(wm, win, type, data);
         break;
       }
       case GHOST_kEventCursorMove: {
         GHOST_TEventCursorData *cd = data;
 
-        wm_cursor_position_from_ghost(win, &cd->x, &cd->y);
+        wm_cursor_position_from_ghost_screen_coords(win, &cd->x, &cd->y);
         wm_event_add_ghostevent(wm, win, type, data);
         break;
       }
@@ -1565,7 +1458,7 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
       }
     }
   }
-  return 1;
+  return true;
 }
 
 /**
@@ -1574,74 +1467,80 @@ static int ghost_event_proc(GHOST_EventHandle evt, GHOST_TUserDataPtr C_void_ptr
  * Timer handlers should check for delta to decide if they just update, or follow real time.
  * Timer handlers can also set duration to match frames passed
  */
-static int wm_window_timer(const bContext *C)
+static bool wm_window_timer(const bContext *C)
 {
   Main *bmain = CTX_data_main(C);
   wmWindowManager *wm = CTX_wm_manager(C);
-  wmTimer *wt, *wtnext;
-  wmWindow *win;
   double time = PIL_check_seconds_timer();
-  int retval = 0;
+  bool has_event = false;
 
-  for (wt = wm->timers.first; wt; wt = wtnext) {
-    wtnext = wt->next; /* in case timer gets removed */
-    win = wt->win;
+  /* Mutable in case the timer gets removed. */
+  LISTBASE_FOREACH_MUTABLE (wmTimer *, wt, &wm->timers) {
+    wmWindow *win = wt->win;
 
-    if (wt->sleep == 0) {
-      if (time > wt->ntime) {
-        wt->delta = time - wt->ltime;
-        wt->duration += wt->delta;
-        wt->ltime = time;
-        wt->ntime = wt->stime + wt->timestep * ceil(wt->duration / wt->timestep);
+    if (wt->sleep != 0) {
+      continue;
+    }
 
-        if (wt->event_type == TIMERJOBS) {
-          wm_jobs_timer(wm, wt);
-        }
-        else if (wt->event_type == TIMERAUTOSAVE) {
-          wm_autosave_timer(bmain, wm, wt);
-        }
-        else if (wt->event_type == TIMERNOTIFIER) {
-          WM_main_add_notifier(POINTER_AS_UINT(wt->customdata), NULL);
-        }
-        else if (win) {
-          wmEvent event;
-          wm_event_init_from_window(win, &event);
+    if (time > wt->ntime) {
+      wt->delta = time - wt->ltime;
+      wt->duration += wt->delta;
+      wt->ltime = time;
 
-          event.type = wt->event_type;
-          event.val = KM_NOTHING;
-          event.keymodifier = 0;
-          event.custom = EVT_DATA_TIMER;
-          event.customdata = wt;
-          wm_event_add(win, &event);
+      wt->ntime = wt->stime;
+      if (wt->timestep != 0.0f) {
+        wt->ntime += wt->timestep * ceil(wt->duration / wt->timestep);
+      }
 
-          retval = 1;
-        }
+      if (wt->event_type == TIMERJOBS) {
+        wm_jobs_timer(wm, wt);
+      }
+      else if (wt->event_type == TIMERAUTOSAVE) {
+        wm_autosave_timer(bmain, wm, wt);
+      }
+      else if (wt->event_type == TIMERNOTIFIER) {
+        WM_main_add_notifier(POINTER_AS_UINT(wt->customdata), NULL);
+      }
+      else if (win) {
+        wmEvent event;
+        wm_event_init_from_window(win, &event);
+
+        event.type = wt->event_type;
+        event.val = KM_NOTHING;
+        event.keymodifier = 0;
+        event.flag = 0;
+        event.custom = EVT_DATA_TIMER;
+        event.customdata = wt;
+        wm_event_add(win, &event);
+
+        has_event = true;
       }
     }
   }
-  return retval;
+  return has_event;
 }
 
 void wm_window_process_events(const bContext *C)
 {
-  int hasevent;
-
   BLI_assert(BLI_thread_is_main());
 
-  hasevent = GHOST_ProcessEvents(g_system, 0); /* 0 is no wait */
+  bool has_event = GHOST_ProcessEvents(g_system, false); /* `false` is no wait. */
 
-  if (hasevent) {
+  if (has_event) {
     GHOST_DispatchEvents(g_system);
   }
-  hasevent |= wm_window_timer(C);
+  has_event |= wm_window_timer(C);
 #ifdef WITH_XR_OPENXR
   /* XR events don't use the regular window queues. So here we don't only trigger
    * processing/dispatching but also handling. */
-  hasevent |= wm_xr_events_handle(CTX_wm_manager(C));
+  has_event |= wm_xr_events_handle(CTX_wm_manager(C));
 #endif
 
-  /* no event, we sleep 5 milliseconds */
-  if (hasevent == 0) {
+  /* When there is no event, sleep 5 milliseconds not to use too much CPU when idle.
+   *
+   * Skip sleeping when simulating events so tests don't idle unnecessarily as simulated
+   * events are typically generated from a timer that runs in the main loop. */
+  if ((has_event == false) && !(G.f & G_FLAG_EVENT_SIMULATE)) {
     PIL_sleep_ms(5);
   }
 }
@@ -1650,10 +1549,6 @@ void wm_window_process_events(const bContext *C)
 /** \name Ghost Init/Exit
  * \{ */
 
-/**
- * \note #bContext can be null in background mode because we don't
- * need to event handling.
- */
 void wm_ghost_init(bContext *C)
 {
   if (!g_system) {
@@ -1663,8 +1558,18 @@ void wm_ghost_init(bContext *C)
       consumer = GHOST_CreateEventConsumer(ghost_event_proc, C);
     }
 
+    GHOST_SetBacktraceHandler((GHOST_TBacktraceFn)BLI_system_backtrace);
+
     g_system = GHOST_CreateSystem();
-    GHOST_SystemInitDebug(g_system, G.debug & G_DEBUG_GHOST);
+
+    GHOST_Debug debug = {0};
+    if (G.debug & G_DEBUG_GHOST) {
+      debug.flags |= GHOST_kDebugDefault;
+    }
+    if (G.debug & G_DEBUG_WINTAB) {
+      debug.flags |= GHOST_kDebugWintab;
+    }
+    GHOST_SystemInitDebug(g_system, debug);
 
     if (C != NULL) {
       GHOST_AddEventConsumer(g_system, consumer);
@@ -1692,28 +1597,23 @@ void wm_ghost_exit(void)
 /** \name Event Timer
  * \{ */
 
-/* to (de)activate running timers temporary */
 void WM_event_timer_sleep(wmWindowManager *wm,
                           wmWindow *UNUSED(win),
                           wmTimer *timer,
                           bool do_sleep)
 {
-  wmTimer *wt;
-
-  for (wt = wm->timers.first; wt; wt = wt->next) {
+  LISTBASE_FOREACH (wmTimer *, wt, &wm->timers) {
     if (wt == timer) {
+      wt->sleep = do_sleep;
       break;
     }
-  }
-
-  if (wt) {
-    wt->sleep = do_sleep;
   }
 }
 
 wmTimer *WM_event_add_timer(wmWindowManager *wm, wmWindow *win, int event_type, double timestep)
 {
   wmTimer *wt = MEM_callocN(sizeof(wmTimer), "window timer");
+  BLI_assert(timestep >= 0.0f);
 
   wt->event_type = event_type;
   wt->ltime = PIL_check_seconds_timer();
@@ -1733,6 +1633,7 @@ wmTimer *WM_event_add_timer_notifier(wmWindowManager *wm,
                                      double timestep)
 {
   wmTimer *wt = MEM_callocN(sizeof(wmTimer), "window timer");
+  BLI_assert(timestep >= 0.0f);
 
   wt->event_type = TIMERNOTIFIER;
   wt->ltime = PIL_check_seconds_timer();
@@ -1750,35 +1651,33 @@ wmTimer *WM_event_add_timer_notifier(wmWindowManager *wm,
 
 void WM_event_remove_timer(wmWindowManager *wm, wmWindow *UNUSED(win), wmTimer *timer)
 {
-  wmTimer *wt;
-
   /* extra security check */
-  for (wt = wm->timers.first; wt; wt = wt->next) {
-    if (wt == timer) {
-      break;
+  wmTimer *wt = NULL;
+  LISTBASE_FOREACH (wmTimer *, timer_iter, &wm->timers) {
+    if (timer_iter == timer) {
+      wt = timer_iter;
     }
   }
-  if (wt) {
-    wmWindow *win;
+  if (wt == NULL) {
+    return;
+  }
 
-    if (wm->reports.reporttimer == wt) {
-      wm->reports.reporttimer = NULL;
-    }
+  if (wm->reports.reporttimer == wt) {
+    wm->reports.reporttimer = NULL;
+  }
 
-    BLI_remlink(&wm->timers, wt);
-    if (wt->customdata != NULL && (wt->flags & WM_TIMER_NO_FREE_CUSTOM_DATA) == 0) {
-      MEM_freeN(wt->customdata);
-    }
-    MEM_freeN(wt);
+  BLI_remlink(&wm->timers, wt);
+  if (wt->customdata != NULL && (wt->flags & WM_TIMER_NO_FREE_CUSTOM_DATA) == 0) {
+    MEM_freeN(wt->customdata);
+  }
+  MEM_freeN(wt);
 
-    /* there might be events in queue with this timer as customdata */
-    for (win = wm->windows.first; win; win = win->next) {
-      wmEvent *event;
-      for (event = win->queue.first; event; event = event->next) {
-        if (event->customdata == wt) {
-          event->customdata = NULL;
-          event->type = EVENT_NONE; /* timer users customdata, dont want NULL == NULL */
-        }
+  /* there might be events in queue with this timer as customdata */
+  LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+    LISTBASE_FOREACH (wmEvent *, event, &win->event_queue) {
+      if (event->customdata == wt) {
+        event->customdata = NULL;
+        event->type = EVENT_NONE; /* Timer users customdata, don't want `NULL == NULL`. */
       }
     }
   }
@@ -1798,26 +1697,25 @@ void WM_event_remove_timer_notifier(wmWindowManager *wm, wmWindow *win, wmTimer 
 
 static char *wm_clipboard_text_get_ex(bool selection, int *r_len, bool firstline)
 {
-  char *p, *p2, *buf, *newbuf;
-
   if (G.background) {
     *r_len = 0;
     return NULL;
   }
 
-  buf = (char *)GHOST_getClipboard(selection);
+  char *buf = GHOST_getClipboard(selection);
   if (!buf) {
     *r_len = 0;
     return NULL;
   }
 
   /* always convert from \r\n to \n */
-  p2 = newbuf = MEM_mallocN(strlen(buf) + 1, __func__);
+  char *newbuf = MEM_mallocN(strlen(buf) + 1, __func__);
+  char *p2 = newbuf;
 
   if (firstline) {
     /* will return an over-alloc'ed value in the case there are newlines */
-    for (p = buf; *p; p++) {
-      if ((*p != '\n') && (*p != '\r')) {
+    for (char *p = buf; *p; p++) {
+      if (!ELEM(*p, '\n', '\r')) {
         *(p2++) = *p;
       }
       else {
@@ -1826,7 +1724,7 @@ static char *wm_clipboard_text_get_ex(bool selection, int *r_len, bool firstline
     }
   }
   else {
-    for (p = buf; *p; p++) {
+    for (char *p = buf; *p; p++) {
       if (*p != '\r') {
         *(p2++) = *p;
       }
@@ -1842,19 +1740,11 @@ static char *wm_clipboard_text_get_ex(bool selection, int *r_len, bool firstline
   return newbuf;
 }
 
-/**
- * Return text from the clipboard.
- *
- * \note Caller needs to check for valid utf8 if this is a requirement.
- */
 char *WM_clipboard_text_get(bool selection, int *r_len)
 {
   return wm_clipboard_text_get_ex(selection, r_len, false);
 }
 
-/**
- * Convenience function for pasting to areas of Blender which don't support newlines.
- */
 char *WM_clipboard_text_get_firstline(bool selection, int *r_len)
 {
   return wm_clipboard_text_get_ex(selection, r_len, true);
@@ -1891,10 +1781,10 @@ void WM_clipboard_text_set(const char *buf, bool selection)
     }
     *p2 = '\0';
 
-    GHOST_putClipboard((GHOST_TInt8 *)newbuf, selection);
+    GHOST_putClipboard(newbuf, selection);
     MEM_freeN(newbuf);
 #else
-    GHOST_putClipboard((GHOST_TInt8 *)buf, selection);
+    GHOST_putClipboard(buf, selection);
 #endif
   }
 }
@@ -1963,9 +1853,6 @@ void wm_window_raise(wmWindow *win)
 /** \name Window Buffers
  * \{ */
 
-/**
- * \brief Push rendered buffer to the screen.
- */
 void wm_window_swap_buffers(wmWindow *win)
 {
   GHOST_SwapWindowBuffers(win->ghostwin);
@@ -1985,60 +1872,24 @@ bool wm_window_get_swap_interval(wmWindow *win, int *intervalOut)
 
 /* -------------------------------------------------------------------- */
 /** \name Find Window Utility
- *
  * \{ */
-static void wm_window_desktop_pos_get(const wmWindow *win,
-                                      const int screen_pos[2],
-                                      int r_desk_pos[2])
+
+wmWindow *WM_window_find_under_cursor(wmWindow *win, const int mval[2], int r_mval[2])
 {
-  /* To desktop space. */
-  r_desk_pos[0] = screen_pos[0] + (int)(U.pixelsize * win->posx);
-  r_desk_pos[1] = screen_pos[1] + (int)(U.pixelsize * win->posy);
-}
+  int tmp[2];
+  copy_v2_v2_int(tmp, mval);
+  wm_cursor_position_to_ghost_screen_coords(win, &tmp[0], &tmp[1]);
 
-static void wm_window_screen_pos_get(const wmWindow *win,
-                                     const int desktop_pos[2],
-                                     int r_scr_pos[2])
-{
-  /* To window space. */
-  r_scr_pos[0] = desktop_pos[0] - (int)(U.pixelsize * win->posx);
-  r_scr_pos[1] = desktop_pos[1] - (int)(U.pixelsize * win->posy);
-}
+  GHOST_WindowHandle ghostwin = GHOST_GetWindowUnderCursor(g_system, tmp[0], tmp[1]);
 
-bool WM_window_find_under_cursor(const wmWindowManager *wm,
-                                 const wmWindow *win_ignore,
-                                 const wmWindow *win,
-                                 const int mval[2],
-                                 wmWindow **r_win,
-                                 int r_mval[2])
-{
-  int desk_pos[2];
-  wm_window_desktop_pos_get(win, mval, desk_pos);
-
-  /* TODO: This should follow the order of the activated windows.
-   * The current solution is imperfect but usable in most cases. */
-  LISTBASE_FOREACH (wmWindow *, win_iter, &wm->windows) {
-    if (win_iter == win_ignore) {
-      continue;
-    }
-
-    if (win_iter->windowstate == GHOST_kWindowStateMinimized) {
-      continue;
-    }
-
-    int scr_pos[2];
-    wm_window_screen_pos_get(win_iter, desk_pos, scr_pos);
-
-    if (scr_pos[0] >= 0 && win_iter->posy >= 0 && scr_pos[0] <= WM_window_pixels_x(win_iter) &&
-        scr_pos[1] <= WM_window_pixels_y(win_iter)) {
-
-      *r_win = win_iter;
-      copy_v2_v2_int(r_mval, scr_pos);
-      return true;
-    }
+  if (!ghostwin) {
+    return NULL;
   }
 
-  return false;
+  wmWindow *win_other = GHOST_GetWindowUserData(ghostwin);
+  wm_cursor_position_from_ghost_screen_coords(win_other, &tmp[0], &tmp[1]);
+  copy_v2_v2_int(r_mval, tmp);
+  return win_other;
 }
 
 void WM_window_pixel_sample_read(const wmWindowManager *wm,
@@ -2053,9 +1904,7 @@ void WM_window_pixel_sample_read(const wmWindowManager *wm,
     GPU_context_active_set(win->gpuctx);
   }
 
-  glReadBuffer(GL_FRONT);
-  glReadPixels(pos[0], pos[1], 1, 1, GL_RGB, GL_FLOAT, r_col);
-  glReadBuffer(GL_BACK);
+  GPU_frontbuffer_read_pixels(pos[0], pos[1], 1, 1, 3, GPU_DATA_FLOAT, r_col);
 
   if (setup_context) {
     if (wm->windrawable) {
@@ -2088,10 +1937,7 @@ uint *WM_window_pixels_read(wmWindowManager *wm, wmWindow *win, int r_size[2])
   const uint rect_len = r_size[0] * r_size[1];
   uint *rect = MEM_mallocN(sizeof(*rect) * rect_len, __func__);
 
-  glReadBuffer(GL_FRONT);
-  glReadPixels(0, 0, r_size[0], r_size[1], GL_RGBA, GL_UNSIGNED_BYTE, rect);
-  glFinish();
-  glReadBuffer(GL_BACK);
+  GPU_frontbuffer_read_pixels(0, 0, r_size[0], r_size[1], 4, GPU_DATA_UBYTE, rect);
 
   if (setup_context) {
     if (wm->windrawable) {
@@ -2115,7 +1961,6 @@ uint *WM_window_pixels_read(wmWindowManager *wm, wmWindow *win, int r_size[2])
 /** \name Initial Window State API
  * \{ */
 
-/* called whem no ghost system was initialized */
 void WM_init_state_size_set(int stax, int stay, int sizx, int sizy)
 {
   wm_init_state.start_x = stax; /* left hand pos */
@@ -2125,7 +1970,6 @@ void WM_init_state_size_set(int stax, int stay, int sizx, int sizy)
   wm_init_state.override_flag |= WIN_OVERRIDE_GEOM;
 }
 
-/* for borderless and border windows set from command-line */
 void WM_init_state_fullscreen_set(void)
 {
   wm_init_state.windowstate = GHOST_kWindowStateFullScreen;
@@ -2165,7 +2009,7 @@ void WM_init_tablet_api(void)
   if (g_system) {
     switch (U.tablet_api) {
       case USER_TABLET_NATIVE:
-        GHOST_SetTabletAPI(g_system, GHOST_kTabletNative);
+        GHOST_SetTabletAPI(g_system, GHOST_kTabletWinPointer);
         break;
       case USER_TABLET_WINTAB:
         GHOST_SetTabletAPI(g_system, GHOST_kTabletWintab);
@@ -2178,32 +2022,19 @@ void WM_init_tablet_api(void)
   }
 }
 
-/* This function requires access to the GHOST_SystemHandle (g_system) */
 void WM_cursor_warp(wmWindow *win, int x, int y)
 {
   if (win && win->ghostwin) {
     int oldx = x, oldy = y;
 
-    wm_cursor_position_to_ghost(win, &x, &y);
-    GHOST_SetCursorPosition(g_system, x, y);
+    wm_cursor_position_to_ghost_client_coords(win, &x, &y);
+    GHOST_SetCursorPosition(g_system, win->ghostwin, x, y);
 
-    win->eventstate->prevx = oldx;
-    win->eventstate->prevy = oldy;
+    win->eventstate->prev_xy[0] = oldx;
+    win->eventstate->prev_xy[1] = oldy;
 
-    win->eventstate->x = oldx;
-    win->eventstate->y = oldy;
-  }
-}
-
-/**
- * Set x, y to values we can actually position the cursor to.
- */
-void WM_cursor_compatible_xy(wmWindow *win, int *x, int *y)
-{
-  float f = GHOST_GetNativePixelSize(win->ghostwin);
-  if (f != 1.0f) {
-    *x = (int)(*x / f) * f;
-    *y = (int)(*y / f) * f;
+    win->eventstate->xy[0] = oldx;
+    win->eventstate->xy[1] = oldy;
   }
 }
 
@@ -2213,11 +2044,6 @@ void WM_cursor_compatible_xy(wmWindow *win, int *x, int *y)
 /** \name Window Size (public)
  * \{ */
 
-/**
- * Support for native pixel size
- *
- * \note macOS retina opens window in size X, but it has up to 2 x more pixels.
- */
 int WM_window_pixels_x(const wmWindow *win)
 {
   float f = GHOST_GetNativePixelSize(win->ghostwin);
@@ -2231,17 +2057,10 @@ int WM_window_pixels_y(const wmWindow *win)
   return (int)(f * (float)win->sizey);
 }
 
-/**
- * Get boundaries usable by all window contents, including global areas.
- */
 void WM_window_rect_calc(const wmWindow *win, rcti *r_rect)
 {
   BLI_rcti_init(r_rect, 0, WM_window_pixels_x(win), 0, WM_window_pixels_y(win));
 }
-/**
- * Get boundaries usable by screen-layouts, excluding global areas.
- * \note Depends on U.dpi_fac. Should that be outdated, call #WM_window_set_dpi first.
- */
 void WM_window_screen_rect_calc(const wmWindow *win, rcti *r_rect)
 {
   rcti window_rect, screen_rect;
@@ -2265,7 +2084,7 @@ void WM_window_screen_rect_calc(const wmWindow *win, rcti *r_rect)
         screen_rect.ymin += height;
         break;
       default:
-        BLI_assert(0);
+        BLI_assert_unreachable();
         break;
     }
   }
@@ -2291,11 +2110,6 @@ bool WM_window_is_maximized(const wmWindow *win)
 /** \name Window Screen/Scene/WorkSpaceViewLayer API
  * \{ */
 
-/**
- * Some editor data may need to be synced with scene data (3D View camera and layers).
- * This function ensures data is synced for editors
- * in visible workspaces and their visible layouts.
- */
 void WM_windows_scene_data_sync(const ListBase *win_lb, Scene *scene)
 {
   LISTBASE_FOREACH (wmWindow *, win, win_lb) {
@@ -2310,6 +2124,17 @@ Scene *WM_windows_scene_get_from_screen(const wmWindowManager *wm, const bScreen
   LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
     if (WM_window_get_active_screen(win) == screen) {
       return WM_window_get_active_scene(win);
+    }
+  }
+
+  return NULL;
+}
+
+ViewLayer *WM_windows_view_layer_get_from_screen(const wmWindowManager *wm, const bScreen *screen)
+{
+  LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+    if (WM_window_get_active_screen(win) == screen) {
+      return WM_window_get_active_view_layer(win);
     }
   }
 
@@ -2331,9 +2156,6 @@ Scene *WM_window_get_active_scene(const wmWindow *win)
   return win->scene;
 }
 
-/**
- * \warning Only call outside of area/region loops
- */
 void WM_window_set_active_scene(Main *bmain, bContext *C, wmWindow *win, Scene *scene)
 {
   wmWindowManager *wm = CTX_wm_manager(C);
@@ -2342,13 +2164,13 @@ void WM_window_set_active_scene(Main *bmain, bContext *C, wmWindow *win, Scene *
 
   /* Set scene in parent and its child windows. */
   if (win_parent->scene != scene) {
-    ED_screen_scene_change(C, win_parent, scene);
+    ED_screen_scene_change(C, win_parent, scene, true);
     changed = true;
   }
 
   LISTBASE_FOREACH (wmWindow *, win_child, &wm->windows) {
     if (win_child->parent == win_parent && win_child->scene != scene) {
-      ED_screen_scene_change(C, win_child, scene);
+      ED_screen_scene_change(C, win_child, scene, true);
       changed = true;
     }
   }
@@ -2443,12 +2265,9 @@ WorkSpaceLayout *WM_window_get_active_layout(const wmWindow *win)
 }
 void WM_window_set_active_layout(wmWindow *win, WorkSpace *workspace, WorkSpaceLayout *layout)
 {
-  BKE_workspace_active_layout_set(win->workspace_hook, workspace, layout);
+  BKE_workspace_active_layout_set(win->workspace_hook, win->winid, workspace, layout);
 }
 
-/**
- * Get the active screen of the active workspace in \a win.
- */
 bScreen *WM_window_get_active_screen(const wmWindow *win)
 {
   const WorkSpace *workspace = WM_window_get_active_workspace(win);
@@ -2457,7 +2276,7 @@ bScreen *WM_window_get_active_screen(const wmWindow *win)
 }
 void WM_window_set_active_screen(wmWindow *win, WorkSpace *workspace, bScreen *screen)
 {
-  BKE_workspace_active_screen_set(win->workspace_hook, workspace, screen);
+  BKE_workspace_active_screen_set(win->workspace_hook, win->winid, workspace, screen);
 }
 
 bool WM_window_is_temp_screen(const wmWindow *win)
@@ -2480,6 +2299,10 @@ void wm_window_IME_begin(wmWindow *win, int x, int y, int w, int h, bool complet
 {
   BLI_assert(win);
 
+  /* Convert to native OS window coordinates. */
+  float fac = GHOST_GetNativePixelSize(win->ghostwin);
+  x /= fac;
+  y /= fac;
   GHOST_BeginIME(win->ghostwin, x, win->sizey - y, w, h, complete);
 }
 
@@ -2500,30 +2323,40 @@ void wm_window_IME_end(wmWindow *win)
 
 void *WM_opengl_context_create(void)
 {
-  /* On Windows there is a problem creating contexts that share lists
-   * from one context that is current in another thread.
-   * So we should call this function only on the main thread.
-   */
+  /* On Windows there is a problem creating contexts that share resources (almost any object,
+   * including legacy display lists, but also textures) with a context which is current in another
+   * thread. This is a documented and behavior of both `::wglCreateContextAttribsARB()` and
+   * `::wglShareLists()`.
+   *
+   * Other platforms might successfully share resources from context which is active somewhere
+   * else, but to keep our code behave the same on all platform we expect contexts to only be
+   * created from the main thread. */
+
   BLI_assert(BLI_thread_is_main());
-  BLI_assert(GPU_framebuffer_active_get() == NULL);
-  return GHOST_CreateOpenGLContext(g_system);
+  BLI_assert(GPU_framebuffer_active_get() == GPU_framebuffer_back_get());
+
+  GHOST_GLSettings glSettings = {0};
+  if (G.debug & G_DEBUG_GPU) {
+    glSettings.flags |= GHOST_glDebugContext;
+  }
+  return GHOST_CreateOpenGLContext(g_system, glSettings);
 }
 
 void WM_opengl_context_dispose(void *context)
 {
-  BLI_assert(GPU_framebuffer_active_get() == NULL);
+  BLI_assert(GPU_framebuffer_active_get() == GPU_framebuffer_back_get());
   GHOST_DisposeOpenGLContext(g_system, (GHOST_ContextHandle)context);
 }
 
 void WM_opengl_context_activate(void *context)
 {
-  BLI_assert(GPU_framebuffer_active_get() == NULL);
+  BLI_assert(GPU_framebuffer_active_get() == GPU_framebuffer_back_get());
   GHOST_ActivateOpenGLContext((GHOST_ContextHandle)context);
 }
 
 void WM_opengl_context_release(void *context)
 {
-  BLI_assert(GPU_framebuffer_active_get() == NULL);
+  BLI_assert(GPU_framebuffer_active_get() == GPU_framebuffer_back_get());
   GHOST_ReleaseOpenGLContext((GHOST_ContextHandle)context);
 }
 
@@ -2537,4 +2370,5 @@ void WM_ghost_show_message_box(const char *title,
   BLI_assert(g_system);
   GHOST_ShowMessageBox(g_system, title, message, help_label, continue_label, link, dialog_options);
 }
+
 /** \} */

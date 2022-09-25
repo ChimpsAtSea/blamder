@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 Blender Foundation, Joshua Leung
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation, Joshua Leung. All rights reserved. */
 
 /** \file
  * \ingroup spnla
@@ -49,7 +33,7 @@
 #include "UI_interface.h"
 #include "UI_view2d.h"
 
-#include "nla_intern.h"  // own include
+#include "nla_intern.h" /* own include */
 
 /* ******************** Utilities ***************************************** */
 
@@ -100,8 +84,8 @@ static void deselect_nla_strips(bAnimContext *ac, short test, short sel)
   short smode;
 
   /* determine type-based settings */
-  // FIXME: double check whether ANIMFILTER_LIST_VISIBLE is needed!
-  filter = (ANIMFILTER_DATA_VISIBLE);
+  /* FIXME: double check whether ANIMFILTER_LIST_VISIBLE is needed! */
+  filter = (ANIMFILTER_DATA_VISIBLE | ANIMFILTER_FCURVESONLY);
 
   /* filter data */
   ANIM_animdata_filter(ac, &anim_data, filter, ac->data, ac->datatype);
@@ -239,7 +223,8 @@ static void box_select_nla_strips(bAnimContext *ac, rcti rect, short mode, short
   UI_view2d_region_to_view(v2d, rect.xmax, rect.ymax - 2, &rectf.xmax, &rectf.ymax);
 
   /* filter data */
-  filter = (ANIMFILTER_DATA_VISIBLE | ANIMFILTER_LIST_VISIBLE | ANIMFILTER_LIST_CHANNELS);
+  filter = (ANIMFILTER_DATA_VISIBLE | ANIMFILTER_LIST_VISIBLE | ANIMFILTER_LIST_CHANNELS |
+            ANIMFILTER_FCURVESONLY);
   ANIM_animdata_filter(ac, &anim_data, filter, ac->data, ac->datatype);
 
   /* convert selection modes to selection modes */
@@ -294,7 +279,8 @@ static void nlaedit_strip_at_region_position(
       0, NLACHANNEL_STEP(snla), 0, NLACHANNEL_FIRST_TOP(ac), view_x, view_y, NULL, &channel_index);
 
   ListBase anim_data = {NULL, NULL};
-  int filter = (ANIMFILTER_DATA_VISIBLE | ANIMFILTER_LIST_VISIBLE | ANIMFILTER_LIST_CHANNELS);
+  int filter = (ANIMFILTER_DATA_VISIBLE | ANIMFILTER_LIST_VISIBLE | ANIMFILTER_LIST_CHANNELS |
+                ANIMFILTER_FCURVESONLY);
   ANIM_animdata_filter(ac, &anim_data, filter, ac->data, ac->datatype);
 
   /* x-range to check is +/- 7 (in screen/region-space) on either side of mouse click
@@ -421,7 +407,7 @@ void NLA_OT_select_box(wmOperatorType *ot)
   RNA_def_boolean(ot->srna, "axis_range", 0, "Axis Range", "");
 
   PropertyRNA *prop = RNA_def_boolean(
-      ot->srna, "tweak", 0, "Tweak", "Operator has been activated using a tweak event");
+      ot->srna, "tweak", 0, "Tweak", "Operator has been activated using a click-drag event");
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
 
   WM_operator_properties_gesture_box(ot);
@@ -434,8 +420,8 @@ void NLA_OT_select_box(wmOperatorType *ot)
 /* defines for left-right select tool */
 static const EnumPropertyItem prop_nlaedit_leftright_select_types[] = {
     {NLAEDIT_LRSEL_TEST, "CHECK", 0, "Check if Select Left or Right", ""},
-    {NLAEDIT_LRSEL_LEFT, "LEFT", 0, "Before current frame", ""},
-    {NLAEDIT_LRSEL_RIGHT, "RIGHT", 0, "After current frame", ""},
+    {NLAEDIT_LRSEL_LEFT, "LEFT", 0, "Before Current Frame", ""},
+    {NLAEDIT_LRSEL_RIGHT, "RIGHT", 0, "After Current Frame", ""},
     {0, NULL, 0, NULL, NULL},
 };
 
@@ -453,9 +439,9 @@ static void nlaedit_select_leftright(bContext *C,
   Scene *scene = ac->scene;
   float xmin, xmax;
 
-  /* if currently in tweakmode, exit tweakmode first */
+  /* if currently in tweak-mode, exit tweak-mode first */
   if (scene->flag & SCE_NLA_EDIT_ON) {
-    WM_operator_name_call(C, "NLA_OT_tweakmode_exit", WM_OP_EXEC_DEFAULT, NULL);
+    WM_operator_name_call(C, "NLA_OT_tweakmode_exit", WM_OP_EXEC_DEFAULT, NULL, NULL);
   }
 
   /* if select mode is replace, deselect all keyframes (and channels) first */
@@ -471,17 +457,17 @@ static void nlaedit_select_leftright(bContext *C,
   /* get range, and get the right flag-setting mode */
   if (leftright == NLAEDIT_LRSEL_LEFT) {
     xmin = MINAFRAMEF;
-    xmax = (float)(CFRA + 0.1f);
+    xmax = (float)(scene->r.cfra + 0.1f);
   }
   else {
-    xmin = (float)(CFRA - 0.1f);
+    xmin = (float)(scene->r.cfra - 0.1f);
     xmax = MAXFRAMEF;
   }
 
   select_mode = selmodes_to_flagmodes(select_mode);
 
   /* filter data */
-  filter = (ANIMFILTER_DATA_VISIBLE | ANIMFILTER_LIST_VISIBLE);
+  filter = (ANIMFILTER_DATA_VISIBLE | ANIMFILTER_LIST_VISIBLE | ANIMFILTER_FCURVESONLY);
   ANIM_animdata_filter(ac, &anim_data, filter, ac->data, ac->datatype);
 
   /* select strips on the side where most data occurs */
@@ -556,7 +542,7 @@ static int nlaedit_select_leftright_invoke(bContext *C, wmOperator *op, const wm
 
     /* determine which side of the current frame mouse is on */
     x = UI_view2d_region_to_view_x(v2d, event->mval[0]);
-    if (x < CFRA) {
+    if (x < scene->r.cfra) {
       RNA_enum_set(op->ptr, "mode", NLAEDIT_LRSEL_LEFT);
     }
     else {
@@ -577,7 +563,7 @@ void NLA_OT_select_leftright(wmOperatorType *ot)
   ot->idname = "NLA_OT_select_leftright";
   ot->description = "Select strips to the left or the right of the current frame";
 
-  /* api callbacks  */
+  /* api callbacks */
   ot->invoke = nlaedit_select_leftright_invoke;
   ot->exec = nlaedit_select_leftright_exec;
   ot->poll = ED_operator_nla_active;
@@ -612,11 +598,11 @@ static int mouse_nla_strips(bContext *C,
 
   nlaedit_strip_at_region_position(ac, mval[0], mval[1], &ale, &strip);
 
-  /* if currently in tweakmode, exit tweakmode before changing selection states
+  /* if currently in tweak-mode, exit tweak-mode before changing selection states
    * now that we've found our target...
    */
   if (scene->flag & SCE_NLA_EDIT_ON) {
-    WM_operator_name_call(C, "NLA_OT_tweakmode_exit", WM_OP_EXEC_DEFAULT, NULL);
+    WM_operator_name_call(C, "NLA_OT_tweakmode_exit", WM_OP_EXEC_DEFAULT, NULL, NULL);
   }
 
   if (select_mode != SELECT_REPLACE) {
@@ -638,7 +624,7 @@ static int mouse_nla_strips(bContext *C,
       deselect_nla_strips(ac, 0, SELECT_SUBTRACT);
 
       /* deselect all other channels first */
-      ANIM_deselect_anim_channels(ac, ac->data, ac->datatype, 0, ACHANNEL_SETFLAG_CLEAR);
+      ANIM_anim_channels_select_set(ac, ACHANNEL_SETFLAG_CLEAR);
     }
   }
 
@@ -728,7 +714,7 @@ void NLA_OT_click_select(wmOperatorType *ot)
 
   /* properties */
   WM_operator_properties_generic_select(ot);
-  prop = RNA_def_boolean(ot->srna, "extend", 0, "Extend Select", "");  // SHIFTKEY
+  prop = RNA_def_boolean(ot->srna, "extend", 0, "Extend Select", ""); /* SHIFTKEY */
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
 
   prop = RNA_def_boolean(ot->srna,

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -27,6 +11,7 @@
 
 #include "BLI_math.h"
 #include "BLI_string.h"
+#include "BLI_task.h"
 
 #include "BKE_context.h"
 #include "BKE_unit.h"
@@ -40,13 +25,86 @@
 #include "BLT_translation.h"
 
 #include "transform.h"
-#include "transform_mode.h"
+#include "transform_convert.h"
 #include "transform_snap.h"
 
-/* -------------------------------------------------------------------- */
-/* Transform (Shear) */
+#include "transform_mode.h"
 
-/** \name Transform Shear
+/* -------------------------------------------------------------------- */
+/** \name Transform (Shear) Element
+ * \{ */
+
+/**
+ * \note Small arrays / data-structures should be stored copied for faster memory access.
+ */
+struct TransDataArgs_Shear {
+  const TransInfo *t;
+  const TransDataContainer *tc;
+  float mat_final[3][3];
+  bool is_local_center;
+};
+
+static void transdata_elem_shear(const TransInfo *t,
+                                 const TransDataContainer *tc,
+                                 TransData *td,
+                                 const float mat_final[3][3],
+                                 const bool is_local_center)
+{
+  float tmat[3][3];
+  const float *center;
+  if (t->flag & T_EDIT) {
+    mul_m3_series(tmat, td->smtx, mat_final, td->mtx);
+  }
+  else {
+    copy_m3_m3(tmat, mat_final);
+  }
+
+  if (is_local_center) {
+    center = td->center;
+  }
+  else {
+    center = tc->center_local;
+  }
+
+  float vec[3];
+  sub_v3_v3v3(vec, td->iloc, center);
+  mul_m3_v3(tmat, vec);
+  add_v3_v3(vec, center);
+  sub_v3_v3(vec, td->iloc);
+
+  if (t->options & CTX_GPENCIL_STROKES) {
+    /* Grease pencil multi-frame falloff. */
+    bGPDstroke *gps = (bGPDstroke *)td->extra;
+    if (gps != NULL) {
+      mul_v3_fl(vec, td->factor * gps->runtime.multi_frame_falloff);
+    }
+    else {
+      mul_v3_fl(vec, td->factor);
+    }
+  }
+  else {
+    mul_v3_fl(vec, td->factor);
+  }
+
+  add_v3_v3v3(td->loc, td->iloc, vec);
+}
+
+static void transdata_elem_shear_fn(void *__restrict iter_data_v,
+                                    const int iter,
+                                    const TaskParallelTLS *__restrict UNUSED(tls))
+{
+  struct TransDataArgs_Shear *data = iter_data_v;
+  TransData *td = &data->tc->data[iter];
+  if (td->flag & TD_SKIP) {
+    return;
+  }
+  transdata_elem_shear(data->t, data->tc, td, data->mat_final, data->is_local_center);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Transform (Shear)
  * \{ */
 
 static void initShear_mouseInputMode(TransInfo *t)
@@ -119,16 +177,15 @@ static eRedrawFlag handleEventShear(TransInfo *t, const wmEvent *event)
 
 static void applyShear(TransInfo *t, const int UNUSED(mval[2]))
 {
-  float vec[3];
-  float smat[3][3], tmat[3][3], totmat[3][3], axismat[3][3], axismat_inv[3][3];
+  float smat[3][3], axismat[3][3], axismat_inv[3][3], mat_final[3][3];
   float value;
   int i;
   char str[UI_MAX_DRAW_STR];
   const bool is_local_center = transdata_check_local_center(t, t->around);
 
-  value = t->values[0];
+  value = t->values[0] + t->values_modal_offset[0];
 
-  snapGridIncrement(t, &value);
+  transform_snap_increment(t, &value);
 
   applyNumInput(&t->num, &value);
 
@@ -159,54 +216,29 @@ static void applyShear(TransInfo *t, const int UNUSED(mval[2]))
   cross_v3_v3v3(axismat_inv[1], axismat_inv[0], axismat_inv[2]);
   invert_m3_m3(axismat, axismat_inv);
 
-  mul_m3_series(totmat, axismat_inv, smat, axismat);
+  mul_m3_series(mat_final, axismat_inv, smat, axismat);
 
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
-    TransData *td = tc->data;
-    for (i = 0; i < tc->data_len; i++, td++) {
-      const float *center, *co;
-      if (td->flag & TD_SKIP) {
-        continue;
-      }
-
-      if (t->flag & T_EDIT) {
-        mul_m3_series(tmat, td->smtx, totmat, td->mtx);
-      }
-      else {
-        copy_m3_m3(tmat, totmat);
-      }
-
-      if (is_local_center) {
-        center = td->center;
-        co = td->loc;
-      }
-      else {
-        center = tc->center_local;
-        co = td->center;
-      }
-
-      sub_v3_v3v3(vec, co, center);
-
-      mul_m3_v3(tmat, vec);
-
-      add_v3_v3(vec, center);
-      sub_v3_v3(vec, co);
-
-      if (t->options & CTX_GPENCIL_STROKES) {
-        /* grease pencil multiframe falloff */
-        bGPDstroke *gps = (bGPDstroke *)td->extra;
-        if (gps != NULL) {
-          mul_v3_fl(vec, td->factor * gps->runtime.multi_frame_falloff);
+    if (tc->data_len < TRANSDATA_THREAD_LIMIT) {
+      TransData *td = tc->data;
+      for (i = 0; i < tc->data_len; i++, td++) {
+        if (td->flag & TD_SKIP) {
+          continue;
         }
-        else {
-          mul_v3_fl(vec, td->factor);
-        }
+        transdata_elem_shear(t, tc, td, mat_final, is_local_center);
       }
-      else {
-        mul_v3_fl(vec, td->factor);
-      }
+    }
+    else {
+      struct TransDataArgs_Shear data = {
+          .t = t,
+          .tc = tc,
+          .is_local_center = is_local_center,
+      };
+      copy_m3_m3(data.mat_final, mat_final);
 
-      add_v3_v3v3(td->loc, td->iloc, vec);
+      TaskParallelSettings settings;
+      BLI_parallel_range_settings_defaults(&settings);
+      BLI_task_parallel_range(0, tc->data_len, &data, transdata_elem_shear_fn, &settings);
     }
   }
 
@@ -230,14 +262,16 @@ void initShear(TransInfo *t)
 
   t->idx_max = 0;
   t->num.idx_max = 0;
-  t->snap[0] = 0.0f;
-  t->snap[1] = 0.1f;
-  t->snap[2] = t->snap[1] * 0.1f;
+  t->snap[0] = 0.1f;
+  t->snap[1] = t->snap[0] * 0.1f;
 
-  copy_v3_fl(t->num.val_inc, t->snap[1]);
+  copy_v3_fl(t->num.val_inc, t->snap[0]);
   t->num.unit_sys = t->scene->unit.system;
   t->num.unit_type[0] = B_UNIT_NONE; /* Don't think we have any unit here? */
 
   t->flag |= T_NO_CONSTRAINT;
+
+  transform_mode_default_modal_orientation_set(t, V3D_ORIENT_VIEW);
 }
+
 /** \} */

@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -24,6 +9,7 @@
 
 #include "MEM_guardedalloc.h"
 
+#include "BLI_array_utils.h"
 #include "BLI_bitmap.h"
 #include "BLI_bitmap_draw_2d.h"
 #include "BLI_rect.h"
@@ -46,7 +32,6 @@
 /** \name Buffer of select ID's
  * \{ */
 
-/* Main function to read a block of pixels from the select frame buffer. */
 uint *DRW_select_buffer_read(struct Depsgraph *depsgraph,
                              struct ARegion *region,
                              struct View3D *v3d,
@@ -84,14 +69,15 @@ uint *DRW_select_buffer_read(struct Depsgraph *depsgraph,
 
       GPUFrameBuffer *select_id_fb = DRW_engine_select_framebuffer_get();
       GPU_framebuffer_bind(select_id_fb);
-      glReadBuffer(GL_COLOR_ATTACHMENT0);
-      glReadPixels(rect_clamp.xmin,
-                   rect_clamp.ymin,
-                   BLI_rcti_size_x(&rect_clamp),
-                   BLI_rcti_size_y(&rect_clamp),
-                   GL_RED_INTEGER,
-                   GL_UNSIGNED_INT,
-                   r_buf);
+      GPU_framebuffer_read_color(select_id_fb,
+                                 rect_clamp.xmin,
+                                 rect_clamp.ymin,
+                                 BLI_rcti_size_x(&rect_clamp),
+                                 BLI_rcti_size_y(&rect_clamp),
+                                 1,
+                                 0,
+                                 GPU_DATA_UINT,
+                                 r_buf);
 
       if (!BLI_rcti_compare(rect, &rect_clamp)) {
         /* The rect has been clamped so you need to realign the buffer and fill in the blanks */
@@ -120,11 +106,6 @@ uint *DRW_select_buffer_read(struct Depsgraph *depsgraph,
  *
  * \{ */
 
-/**
- * \param rect: The rectangle to sample indices from (min/max inclusive).
- * \param mask: Specifies the rect pixels (optional).
- * \returns a #BLI_bitmap the length of \a bitmap_len or NULL on failure.
- */
 uint *DRW_select_buffer_bitmap_from_rect(struct Depsgraph *depsgraph,
                                          struct ARegion *region,
                                          struct View3D *v3d,
@@ -164,12 +145,6 @@ uint *DRW_select_buffer_bitmap_from_rect(struct Depsgraph *depsgraph,
   return bitmap_buf;
 }
 
-/**
- * \param bitmap_len: Number of indices in the selection id buffer.
- * \param center: Circle center.
- * \param radius: Circle radius.
- * \returns a #BLI_bitmap the length of \a bitmap_len or NULL on failure.
- */
 uint *DRW_select_buffer_bitmap_from_circle(struct Depsgraph *depsgraph,
                                            struct ARegion *region,
                                            struct View3D *v3d,
@@ -234,12 +209,6 @@ static void drw_select_mask_px_cb(int x, int x_end, int y, void *user_data)
   } while (++x != x_end);
 }
 
-/**
- * \param poly: The polygon coordinates.
- * \param poly_len: Length of the polygon.
- * \param rect: Polygon boundaries.
- * \returns a #BLI_bitmap.
- */
 uint *DRW_select_buffer_bitmap_from_poly(struct Depsgraph *depsgraph,
                                          struct ARegion *region,
                                          struct View3D *v3d,
@@ -308,9 +277,6 @@ uint *DRW_select_buffer_bitmap_from_poly(struct Depsgraph *depsgraph,
  *
  * \{ */
 
-/**
- * Samples a single pixel.
- */
 uint DRW_select_buffer_sample_point(struct Depsgraph *depsgraph,
                                     struct ARegion *region,
                                     struct View3D *v3d,
@@ -336,11 +302,26 @@ uint DRW_select_buffer_sample_point(struct Depsgraph *depsgraph,
   return ret;
 }
 
-/**
- * Find the selection id closest to \a center.
- * \param dist[in,out]: Use to initialize the distance,
- * when found, this value is set to the distance of the selection that's returned.
- */
+struct SelectReadData {
+  const void *val_ptr;
+  uint id_min;
+  uint id_max;
+  uint r_index;
+};
+
+static bool select_buffer_test_fn(const void *__restrict value, void *__restrict userdata)
+{
+  struct SelectReadData *data = userdata;
+  uint hit_id = *(uint *)value;
+  if (hit_id && hit_id >= data->id_min && hit_id < data->id_max) {
+    /* Start at 1 to confirm. */
+    data->val_ptr = value;
+    data->r_index = (hit_id - data->id_min) + 1;
+    return true;
+  }
+  return false;
+}
+
 uint DRW_select_buffer_find_nearest_to_point(struct Depsgraph *depsgraph,
                                              struct ARegion *region,
                                              struct View3D *v3d,
@@ -349,13 +330,8 @@ uint DRW_select_buffer_find_nearest_to_point(struct Depsgraph *depsgraph,
                                              const uint id_max,
                                              uint *dist)
 {
-  /* Smart function to sample a rect spiraling outside, nice for selection ID. */
-
   /* Create region around center (typically the mouse cursor).
-   * This must be square and have an odd width,
-   * the spiraling algorithm does not work with arbitrary rectangles. */
-
-  uint index = 0;
+   * This must be square and have an odd width. */
 
   rcti rect;
   BLI_rcti_init_pt_radius(&rect, center, *dist);
@@ -364,7 +340,6 @@ uint DRW_select_buffer_find_nearest_to_point(struct Depsgraph *depsgraph,
 
   int width = BLI_rcti_size_x(&rect);
   int height = width;
-  BLI_assert(width == height);
 
   /* Read from selection framebuffer. */
 
@@ -372,64 +347,23 @@ uint DRW_select_buffer_find_nearest_to_point(struct Depsgraph *depsgraph,
   const uint *buf = DRW_select_buffer_read(depsgraph, region, v3d, &rect, &buf_len);
 
   if (buf == NULL) {
-    return index;
+    return 0;
   }
 
-  BLI_assert(width * height == buf_len);
+  const int shape[2] = {height, width};
+  const int center_yx[2] = {(height - 1) / 2, (width - 1) / 2};
+  struct SelectReadData data = {NULL, id_min, id_max, 0};
+  BLI_array_iter_spiral_square(buf, shape, center_yx, select_buffer_test_fn, &data);
 
-  /* Spiral, starting from center of buffer. */
-  int spiral_offset = height * (int)(width / 2) + (height / 2);
-  int spiral_direction = 0;
-
-  for (int nr = 1; nr <= height; nr++) {
-    for (int a = 0; a < 2; a++) {
-      for (int b = 0; b < nr; b++) {
-        /* Find hit within the specified range. */
-        uint hit_id = buf[spiral_offset];
-
-        if (hit_id && hit_id >= id_min && hit_id < id_max) {
-          /* Get x/y from spiral offset. */
-          int hit_x = spiral_offset % width;
-          int hit_y = spiral_offset / width;
-
-          int center_x = width / 2;
-          int center_y = height / 2;
-
-          /* Manhatten distance in keeping with other screen-based selection. */
-          *dist = (uint)(abs(hit_x - center_x) + abs(hit_y - center_y));
-
-          /* Indices start at 1 here. */
-          index = (hit_id - id_min) + 1;
-          goto exit;
-        }
-
-        /* Next spiral step. */
-        if (spiral_direction == 0) {
-          spiral_offset += 1; /* right */
-        }
-        else if (spiral_direction == 1) {
-          spiral_offset -= width; /* down */
-        }
-        else if (spiral_direction == 2) {
-          spiral_offset -= 1; /* left */
-        }
-        else {
-          spiral_offset += width; /* up */
-        }
-
-        /* Stop if we are outside the buffer. */
-        if (spiral_offset < 0 || spiral_offset >= buf_len) {
-          goto exit;
-        }
-      }
-
-      spiral_direction = (spiral_direction + 1) % 4;
-    }
+  if (data.val_ptr) {
+    size_t offset = ((size_t)data.val_ptr - (size_t)buf) / sizeof(*buf);
+    int hit_x = offset % width;
+    int hit_y = offset / width;
+    *dist = (uint)(abs(hit_y - center_yx[0]) + abs(hit_x - center_yx[1]));
   }
 
-exit:
   MEM_freeN((void *)buf);
-  return index;
+  return data.r_index;
 }
 
 /** \} */
@@ -548,4 +482,5 @@ void DRW_select_buffer_context_create(Base **bases, const uint bases_len, short 
   select_ctx->select_mode = select_mode;
   memset(select_ctx->persmat, 0, sizeof(select_ctx->persmat));
 }
+
 /** \} */

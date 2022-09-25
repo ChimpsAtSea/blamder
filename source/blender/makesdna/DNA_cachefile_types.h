@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2016 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_CACHEFILE_TYPES_H__
-#define __DNA_CACHEFILE_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
 
@@ -31,6 +14,13 @@ extern "C" {
 #endif
 
 struct GSet;
+
+/* CacheFile::type */
+typedef enum {
+  CACHEFILE_TYPE_ALEMBIC = 1,
+  CACHEFILE_TYPE_USD = 2,
+  CACHE_FILE_TYPE_INVALID = 0,
+} eCacheFileType;
 
 /* CacheFile::flag */
 enum {
@@ -45,20 +35,41 @@ enum {
 };
 #endif
 
-/* Representation of an object's path inside the Alembic file.
+/* Representation of an object's path inside the archive.
  * Note that this is not a file path. */
-typedef struct AlembicObjectPath {
-  struct AlembicObjectPath *next, *prev;
+typedef struct CacheObjectPath {
+  struct CacheObjectPath *next, *prev;
 
   char path[4096];
-} AlembicObjectPath;
+} CacheObjectPath;
+
+/* CacheFileLayer::flag */
+enum { CACHEFILE_LAYER_HIDDEN = (1 << 0) };
+
+typedef struct CacheFileLayer {
+  struct CacheFileLayer *next, *prev;
+
+  /** 1024 = FILE_MAX. */
+  char filepath[1024];
+  int flag;
+  int _pad;
+} CacheFileLayer;
+
+/* CacheFile::velocity_unit
+ * Determines what temporal unit is used to interpret velocity vectors for motion blur effects. */
+enum {
+  CACHEFILE_VELOCITY_UNIT_FRAME,
+  CACHEFILE_VELOCITY_UNIT_SECOND,
+};
 
 typedef struct CacheFile {
   ID id;
   struct AnimData *adt;
 
-  /** Paths of the objects inside of the Alembic archive referenced by this CacheFile. */
+  /** Paths of the objects inside of the archive referenced by this CacheFile. */
   ListBase object_paths;
+
+  ListBase layers;
 
   /** 1024 = FILE_MAX. */
   char filepath[1024];
@@ -74,14 +85,39 @@ typedef struct CacheFile {
   /** The frame offset to subtract. */
   float frame_offset;
 
-  /** Animation flag. */
-  short flag;
-  short draw_flag; /* UNUSED */
-
   char _pad[4];
 
+  /** Animation flag. */
+  short flag;
+
+  /* eCacheFileType enum. */
+  char type;
+
+  /** Do not load data from the cache file and display objects in the scene as boxes, Cycles will
+   * load objects directly from the CacheFile. Other render engines which can load Alembic data
+   * directly can take care of rendering it themselves.
+   */
+  char use_render_procedural;
+
+  char _pad1[3];
+
+  /** Enable data prefetching when using the Cycles Procedural. */
+  char use_prefetch;
+
+  /** Size in megabytes for the prefetch cache used by the Cycles Procedural. */
+  int prefetch_cache_size;
+
+  /** Index of the currently selected layer in the UI, starts at 1. */
+  int active_layer;
+
+  char _pad2[3];
+
+  char velocity_unit;
+  /* Name of the velocity property in the archive. */
+  char velocity_name[64];
+
   /* Runtime */
-  struct AbcArchiveHandle *handle;
+  struct CacheArchiveHandle *handle;
   char handle_filepath[1024];
   struct GSet *handle_readers;
 } CacheFile;
@@ -89,5 +125,3 @@ typedef struct CacheFile {
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __DNA_CACHEFILE_TYPES_H__ */

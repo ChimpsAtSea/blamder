@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spclip
@@ -44,7 +28,7 @@
 
 #include "UI_view2d.h"
 
-#include "clip_intern.h"  // own include
+#include "clip_intern.h" /* own include */
 
 /******************** common graph-editing utilities ********************/
 
@@ -114,7 +98,7 @@ static void find_nearest_tracking_segment_cb(void *userdata,
                                              float val)
 {
   MouseSelectUserData *data = userdata;
-  float co[2] = {scene_framenr, val};
+  const float co[2] = {scene_framenr, val};
 
   if (!clip_graph_value_visible(data->sc, value_source)) {
     return;
@@ -151,7 +135,7 @@ static void find_nearest_tracking_knot_cb(void *userdata,
                                           float val)
 {
   MouseSelectUserData *data = userdata;
-  float mdiff[2] = {scene_framenr - data->mouse_co[0], val - data->mouse_co[1]};
+  const float mdiff[2] = {scene_framenr - data->mouse_co[0], val - data->mouse_co[1]};
   float dist_sq = len_squared_v2(mdiff);
 
   if (!clip_graph_value_visible(data->sc, value_source)) {
@@ -159,7 +143,7 @@ static void find_nearest_tracking_knot_cb(void *userdata,
   }
 
   if (data->marker == NULL || dist_sq < data->min_dist_sq) {
-    float co[2] = {scene_framenr, val};
+    const float co[2] = {scene_framenr, val};
 
     data->track = track;
     data->marker = marker;
@@ -178,7 +162,7 @@ static void mouse_select_init_data(bContext *C, MouseSelectUserData *userdata, c
   copy_v2_v2(userdata->mouse_co, co);
 }
 
-static bool mouse_select_knot(bContext *C, float co[2], bool extend)
+static bool mouse_select_knot(bContext *C, const float co[2], bool extend)
 {
   SpaceClip *sc = CTX_wm_space_clip(C);
   MovieClip *clip = ED_space_clip_get_clip(sc);
@@ -236,7 +220,7 @@ static bool mouse_select_knot(bContext *C, float co[2], bool extend)
   return false;
 }
 
-static bool mouse_select_curve(bContext *C, float co[2], bool extend)
+static bool mouse_select_curve(bContext *C, const float co[2], bool extend)
 {
   SpaceClip *sc = CTX_wm_space_clip(C);
   MovieClip *clip = ED_space_clip_get_clip(sc);
@@ -327,6 +311,8 @@ static int select_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 
 void CLIP_OT_graph_select(wmOperatorType *ot)
 {
+  PropertyRNA *prop;
+
   /* identifiers */
   ot->name = "Select";
   ot->description = "Select graph curves";
@@ -351,11 +337,12 @@ void CLIP_OT_graph_select(wmOperatorType *ot)
                        "Mouse location to select nearest entity",
                        -100.0f,
                        100.0f);
-  RNA_def_boolean(ot->srna,
-                  "extend",
-                  0,
-                  "Extend",
-                  "Extend selection rather than clearing the existing selection");
+  prop = RNA_def_boolean(ot->srna,
+                         "extend",
+                         0,
+                         "Extend",
+                         "Extend selection rather than clearing the existing selection");
+  RNA_def_property_flag(prop, PROP_SKIP_SAVE);
 }
 
 /********************** box select operator *********************/
@@ -642,8 +629,8 @@ static int view_all_exec(bContext *C, wmOperator *UNUSED(op))
                                      NULL);
 
   /* set extents of view to start/end frames */
-  v2d->cur.xmin = (float)SFRA;
-  v2d->cur.xmax = (float)EFRA;
+  v2d->cur.xmin = (float)scene->r.sfra;
+  v2d->cur.xmax = (float)scene->r.efra;
 
   if (userdata.min < userdata.max) {
     v2d->cur.ymin = userdata.min;
@@ -688,8 +675,8 @@ void ED_clip_graph_center_current_frame(Scene *scene, ARegion *region)
   float extra = BLI_rctf_size_x(&v2d->cur) / 2.0f;
 
   /* set extents of view to start/end frames */
-  v2d->cur.xmin = (float)CFRA - extra;
-  v2d->cur.xmax = (float)CFRA + extra;
+  v2d->cur.xmin = (float)scene->r.cfra - extra;
+  v2d->cur.xmax = (float)scene->r.cfra + extra;
 }
 
 static int center_current_frame_exec(bContext *C, wmOperator *UNUSED(op))

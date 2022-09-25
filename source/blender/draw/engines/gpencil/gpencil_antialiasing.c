@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup draw
@@ -36,7 +21,7 @@ void GPENCIL_antialiasing_init(struct GPENCIL_Data *vedata)
 
   const float *size = DRW_viewport_size_get();
   const float *sizeinv = DRW_viewport_invert_size_get();
-  float metrics[4] = {sizeinv[0], sizeinv[1], size[0], size[1]};
+  const float metrics[4] = {sizeinv[0], sizeinv[1], size[0], size[1]};
 
   if (pd->simplify_antialias) {
     /* No AA fallback. */
@@ -56,27 +41,13 @@ void GPENCIL_antialiasing_init(struct GPENCIL_Data *vedata)
   }
 
   if (txl->smaa_search_tx == NULL) {
-    txl->smaa_search_tx = GPU_texture_create_nD(SEARCHTEX_WIDTH,
-                                                SEARCHTEX_HEIGHT,
-                                                0,
-                                                2,
-                                                searchTexBytes,
-                                                GPU_R8,
-                                                GPU_DATA_UNSIGNED_BYTE,
-                                                0,
-                                                false,
-                                                NULL);
+    txl->smaa_search_tx = GPU_texture_create_2d(
+        "smaa_search", SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT, 1, GPU_R8, NULL);
+    GPU_texture_update(txl->smaa_search_tx, GPU_DATA_UBYTE, searchTexBytes);
 
-    txl->smaa_area_tx = GPU_texture_create_nD(AREATEX_WIDTH,
-                                              AREATEX_HEIGHT,
-                                              0,
-                                              2,
-                                              areaTexBytes,
-                                              GPU_RG8,
-                                              GPU_DATA_UNSIGNED_BYTE,
-                                              0,
-                                              false,
-                                              NULL);
+    txl->smaa_area_tx = GPU_texture_create_2d(
+        "smaa_area", AREATEX_WIDTH, AREATEX_HEIGHT, 1, GPU_RG8, NULL);
+    GPU_texture_update(txl->smaa_area_tx, GPU_DATA_UBYTE, areaTexBytes);
 
     GPU_texture_filter_mode(txl->smaa_search_tx, true);
     GPU_texture_filter_mode(txl->smaa_area_tx, true);

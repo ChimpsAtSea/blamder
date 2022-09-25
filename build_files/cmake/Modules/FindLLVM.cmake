@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2015 Blender Foundation.
+
 # - Find LLVM library
 # Find the native LLVM includes and library
 # This module defines
@@ -9,17 +12,6 @@
 #
 # also defined, but not for general use are
 #  LLVM_LIBRARY, where to find the LLVM library.
-
-#=============================================================================
-# Copyright 2015 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
 
 if(LLVM_ROOT_DIR)
   if(DEFINED LLVM_VERSION)
@@ -37,6 +29,10 @@ else()
     find_program(LLVM_CONFIG llvm-config)
   endif()
 endif()
+
+execute_process(COMMAND ${LLVM_CONFIG} --includedir
+      OUTPUT_VARIABLE LLVM_INCLUDE_DIRS
+      OUTPUT_STRIP_TRAILING_WHITESPACE)
 
 if(NOT DEFINED LLVM_VERSION)
   execute_process(COMMAND ${LLVM_CONFIG} --version
@@ -84,7 +80,7 @@ if(LLVM_LIBRARY AND LLVM_ROOT_DIR AND LLVM_LIBPATH)
 endif()
 
 
-# handle the QUIETLY and REQUIRED arguments and set SDL2_FOUND to TRUE if
+# handle the QUIETLY and REQUIRED arguments and set LLVM_FOUND to TRUE if
 # all listed variables are TRUE
 INCLUDE(FindPackageHandleStandardArgs)
 FIND_PACKAGE_HANDLE_STANDARD_ARGS(LLVM DEFAULT_MSG

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup blenloader
@@ -24,13 +10,11 @@
 
 #include "BLI_listbase.h"
 #include "BLI_math.h"
+#include "BLI_string.h"
 #include "BLI_utildefines.h"
 
-#ifdef WITH_INTERNATIONAL
-#  include "BLT_translation.h"
-#endif
-
 #include "DNA_anim_types.h"
+#include "DNA_collection_types.h"
 #include "DNA_curve_types.h"
 #include "DNA_scene_types.h"
 #include "DNA_space_types.h"
@@ -38,189 +22,76 @@
 #include "DNA_windowmanager_types.h"
 
 #include "BKE_addon.h"
+#include "BKE_blender_version.h"
 #include "BKE_colorband.h"
 #include "BKE_idprop.h"
 #include "BKE_keyconfig.h"
 #include "BKE_main.h"
+#include "BKE_preferences.h"
 
-#include "BLO_readfile.h" /* Own include. */
+#include "BLO_readfile.h"
 
+#include "readfile.h" /* Own include. */
+
+#include "WM_types.h"
 #include "wm_event_types.h"
 
-/* Disallow access to global userdef. */
-#define U (_error_)
+/* Don't use translation strings in versioning!
+ * These depend on the preferences already being read.
+ * If this is important we can set the translations as part of versioning preferences,
+ * however that should only be done if there are important use-cases. */
+#if 0
+#  include "BLT_translation.h"
+#else
+#  define N_(msgid) msgid
+#endif
+
+/* For versioning we only ever want to manipulate preferences passed in. */
+#define U BLI_STATIC_ASSERT(false, "Global 'U' not allowed, only use arguments passed in!")
 
 static void do_versions_theme(const UserDef *userdef, bTheme *btheme)
 {
 
 #define USER_VERSION_ATLEAST(ver, subver) MAIN_VERSION_ATLEAST(userdef, ver, subver)
-  if (!USER_VERSION_ATLEAST(280, 20)) {
+#define FROM_DEFAULT_V4_UCHAR(member) copy_v4_v4_uchar(btheme->member, U_theme_default.member)
+
+  if (!USER_VERSION_ATLEAST(300, 41)) {
     memcpy(btheme, &U_theme_default, sizeof(*btheme));
   }
 
-#define FROM_DEFAULT_V4_UCHAR(member) copy_v4_v4_uchar(btheme->member, U_theme_default.member)
-
-  if (!USER_VERSION_ATLEAST(280, 25)) {
-    copy_v4_v4_uchar(btheme->space_action.anim_preview_range, btheme->space_action.anim_active);
-    copy_v4_v4_uchar(btheme->space_nla.anim_preview_range, btheme->space_nla.anim_active);
-    copy_v4_v4_uchar(btheme->space_graph.anim_preview_range, btheme->space_action.anim_active);
+  /* Again reset the theme, but only if stored with an early 3.1 alpha version. Some changes were
+   * done in the release branch and then merged into the 3.1 branch (master). So the previous reset
+   * wouldn't work for people who saved their preferences with a 3.1 build meanwhile. But we still
+   * don't want to reset theme changes stored in the eventual 3.0 release once opened in a 3.1
+   * build. */
+  if (userdef->versionfile > 300 && !USER_VERSION_ATLEAST(301, 1)) {
+    memcpy(btheme, &U_theme_default, sizeof(*btheme));
   }
 
-  if (!USER_VERSION_ATLEAST(280, 26)) {
-    FROM_DEFAULT_V4_UCHAR(tui.icon_collection);
-    FROM_DEFAULT_V4_UCHAR(tui.icon_object);
-    FROM_DEFAULT_V4_UCHAR(tui.icon_object_data);
-    FROM_DEFAULT_V4_UCHAR(tui.icon_modifier);
-    FROM_DEFAULT_V4_UCHAR(tui.icon_shading);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 27)) {
-    FROM_DEFAULT_V4_UCHAR(space_action.shade2);
-    FROM_DEFAULT_V4_UCHAR(space_action.hilite);
-    FROM_DEFAULT_V4_UCHAR(space_action.group);
-    FROM_DEFAULT_V4_UCHAR(space_action.group_active);
-    FROM_DEFAULT_V4_UCHAR(space_action.strip_select);
-    FROM_DEFAULT_V4_UCHAR(space_action.ds_channel);
-    FROM_DEFAULT_V4_UCHAR(space_action.ds_subchannel);
-    FROM_DEFAULT_V4_UCHAR(space_action.keytype_movehold);
-    FROM_DEFAULT_V4_UCHAR(space_action.keytype_movehold_select);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 28)) {
-    FROM_DEFAULT_V4_UCHAR(space_action.ds_ipoline);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 29)) {
-    FROM_DEFAULT_V4_UCHAR(space_properties.navigation_bar);
-  }
-  if (!USER_VERSION_ATLEAST(280, 31)) {
-    FROM_DEFAULT_V4_UCHAR(space_clip.list_text);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 36)) {
-    FROM_DEFAULT_V4_UCHAR(tui.wcol_state.inner_changed);
-    FROM_DEFAULT_V4_UCHAR(tui.wcol_state.inner_changed_sel);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 39)) {
-    FROM_DEFAULT_V4_UCHAR(space_clip.metadatabg);
-    FROM_DEFAULT_V4_UCHAR(space_clip.metadatatext);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 40)) {
-    FROM_DEFAULT_V4_UCHAR(space_preferences.navigation_bar);
-    copy_v4_v4_uchar(btheme->space_preferences.execution_buts,
-                     btheme->space_preferences.navigation_bar);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 41)) {
-    FROM_DEFAULT_V4_UCHAR(space_view3d.back);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 52)) {
-    FROM_DEFAULT_V4_UCHAR(space_info.info_info);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 64)) {
-    FROM_DEFAULT_V4_UCHAR(tui.icon_scene);
-
-    if (btheme->space_view3d.obcenter_dia == 0) {
-      btheme->space_view3d.obcenter_dia = U_theme_default.space_view3d.obcenter_dia;
-    }
-
-    FROM_DEFAULT_V4_UCHAR(space_graph.text);
-    FROM_DEFAULT_V4_UCHAR(space_action.text);
-    FROM_DEFAULT_V4_UCHAR(space_nla.text);
-    FROM_DEFAULT_V4_UCHAR(space_sequencer.text);
-    FROM_DEFAULT_V4_UCHAR(space_clip.text);
-
-    FROM_DEFAULT_V4_UCHAR(space_graph.time_scrub_background);
-    FROM_DEFAULT_V4_UCHAR(space_action.time_scrub_background);
-    FROM_DEFAULT_V4_UCHAR(space_nla.time_scrub_background);
-    FROM_DEFAULT_V4_UCHAR(space_sequencer.time_scrub_background);
-    FROM_DEFAULT_V4_UCHAR(space_clip.time_scrub_background);
-  }
-
-  if (!USER_VERSION_ATLEAST(280, 67)) {
-    FROM_DEFAULT_V4_UCHAR(space_outliner.selected_object);
-    FROM_DEFAULT_V4_UCHAR(space_outliner.active_object);
-    FROM_DEFAULT_V4_UCHAR(space_outliner.edited_object);
-    FROM_DEFAULT_V4_UCHAR(space_outliner.row_alternate);
-  }
-
-  if (!USER_VERSION_ATLEAST(281, 3)) {
-    FROM_DEFAULT_V4_UCHAR(space_outliner.selected_highlight);
-    FROM_DEFAULT_V4_UCHAR(space_outliner.active);
-  }
-
-  if (!USER_VERSION_ATLEAST(281, 14)) {
-    FROM_DEFAULT_V4_UCHAR(space_file.execution_buts);
-    FROM_DEFAULT_V4_UCHAR(tui.icon_folder);
-    FROM_DEFAULT_V4_UCHAR(space_clip.path_keyframe_before);
-    FROM_DEFAULT_V4_UCHAR(space_clip.path_keyframe_after);
-    copy_v4_v4_uchar(btheme->space_nla.nla_track, btheme->space_nla.header);
-  }
-
-  if (!USER_VERSION_ATLEAST(282, 5)) {
-    FROM_DEFAULT_V4_UCHAR(space_sequencer.anim_preview_range);
-    FROM_DEFAULT_V4_UCHAR(space_text.line_numbers);
-    FROM_DEFAULT_V4_UCHAR(tui.widget_text_cursor);
-    FROM_DEFAULT_V4_UCHAR(space_view3d.face_back);
-    FROM_DEFAULT_V4_UCHAR(space_view3d.face_front);
-  }
-
-  if (!USER_VERSION_ATLEAST(283, 1)) {
-    FROM_DEFAULT_V4_UCHAR(space_view3d.bone_locked_weight);
-  }
-
-  if (!USER_VERSION_ATLEAST(283, 2)) {
-    FROM_DEFAULT_V4_UCHAR(space_info.info_property);
-    FROM_DEFAULT_V4_UCHAR(space_info.info_property_text);
-    FROM_DEFAULT_V4_UCHAR(space_info.info_operator);
-    FROM_DEFAULT_V4_UCHAR(space_info.info_operator_text);
-  }
-
-  if (!USER_VERSION_ATLEAST(283, 5)) {
-    FROM_DEFAULT_V4_UCHAR(space_graph.time_marker_line);
-    FROM_DEFAULT_V4_UCHAR(space_action.time_marker_line);
-    FROM_DEFAULT_V4_UCHAR(space_nla.time_marker_line);
-    FROM_DEFAULT_V4_UCHAR(space_sequencer.time_marker_line);
-    FROM_DEFAULT_V4_UCHAR(space_clip.time_marker_line);
-    FROM_DEFAULT_V4_UCHAR(space_graph.time_marker_line_selected);
-    FROM_DEFAULT_V4_UCHAR(space_action.time_marker_line_selected);
-    FROM_DEFAULT_V4_UCHAR(space_nla.time_marker_line_selected);
-    FROM_DEFAULT_V4_UCHAR(space_sequencer.time_marker_line_selected);
-    FROM_DEFAULT_V4_UCHAR(space_clip.time_marker_line_selected);
-  }
-
-  if (!USER_VERSION_ATLEAST(283, 6)) {
-    btheme->space_node.grid_levels = U_theme_default.space_node.grid_levels;
-  }
-
-  if (!USER_VERSION_ATLEAST(283, 9)) {
-    FROM_DEFAULT_V4_UCHAR(space_info.info_warning);
-  }
-
-  if (!USER_VERSION_ATLEAST(283, 10)) {
-    FROM_DEFAULT_V4_UCHAR(tui.gizmo_view_align);
-
-    FROM_DEFAULT_V4_UCHAR(space_sequencer.active_strip);
-    FROM_DEFAULT_V4_UCHAR(space_sequencer.selected_strip);
-    FROM_DEFAULT_V4_UCHAR(space_sequencer.color_strip);
+  if (!USER_VERSION_ATLEAST(301, 2)) {
     FROM_DEFAULT_V4_UCHAR(space_sequencer.mask);
   }
 
-  if (!USER_VERSION_ATLEAST(283, 11)) {
-    FROM_DEFAULT_V4_UCHAR(tui.transparent_checker_primary);
-    FROM_DEFAULT_V4_UCHAR(tui.transparent_checker_secondary);
-    btheme->tui.transparent_checker_size = U_theme_default.tui.transparent_checker_size;
+  if (!USER_VERSION_ATLEAST(302, 8)) {
+    btheme->space_node.grid_levels = U_theme_default.space_node.grid_levels;
+  }
+
+  if (!USER_VERSION_ATLEAST(302, 9)) {
+    FROM_DEFAULT_V4_UCHAR(space_sequencer.list);
+    FROM_DEFAULT_V4_UCHAR(space_sequencer.list_title);
+    FROM_DEFAULT_V4_UCHAR(space_sequencer.list_text);
+    FROM_DEFAULT_V4_UCHAR(space_sequencer.list_text_hi);
+  }
+
+  if (!USER_VERSION_ATLEAST(303, 6)) {
+    btheme->tui.wcol_view_item = U_theme_default.tui.wcol_view_item;
   }
 
   /**
    * Versioning code until next subversion bump goes here.
    *
    * \note Be sure to check when bumping the version:
-   * - #BLO_version_defaults_userpref_blend in this file.
+   * - #blo_do_versions_userdef in this file.
    * - "versioning_{BLENDER_VERSION}.c"
    *
    * \note Keep this message at the bottom of the function.
@@ -234,7 +105,7 @@ static void do_versions_theme(const UserDef *userdef, bTheme *btheme)
 #undef USER_VERSION_ATLEAST
 }
 
-/* UserDef.flag */
+/** #UserDef.flag */
 #define USER_LMOUSESELECT (1 << 14) /* deprecated */
 
 static void do_version_select_mouse(UserDef *userdef, wmKeyMapItem *kmi)
@@ -256,10 +127,12 @@ static void do_version_select_mouse(UserDef *userdef, wmKeyMapItem *kmi)
       kmi->type = (left) ? RIGHTMOUSE : LEFTMOUSE;
       break;
     case EVT_TWEAK_S:
-      kmi->type = (left) ? EVT_TWEAK_L : EVT_TWEAK_R;
+      kmi->type = (left) ? LEFTMOUSE : RIGHTMOUSE;
+      kmi->val = KM_CLICK_DRAG;
       break;
     case EVT_TWEAK_A:
-      kmi->type = (left) ? EVT_TWEAK_R : EVT_TWEAK_L;
+      kmi->type = (left) ? RIGHTMOUSE : LEFTMOUSE;
+      kmi->val = KM_CLICK_DRAG;
       break;
     default:
       break;
@@ -278,16 +151,46 @@ static bool keymap_item_has_invalid_wm_context_data_path(wmKeyMapItem *kmi,
   return false;
 }
 
-/* patching UserDef struct and Themes */
-void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
+/** Tweak event types have been removed, replace with click-drag. */
+static bool keymap_item_update_tweak_event(wmKeyMapItem *kmi, void *UNUSED(user_data))
 {
+  /* Tweak events for L M R mouse-buttons. */
+  enum {
+    EVT_TWEAK_L = 0x5002,
+    EVT_TWEAK_M = 0x5003,
+    EVT_TWEAK_R = 0x5004,
+  };
+  switch (kmi->type) {
+    case EVT_TWEAK_L:
+      kmi->type = LEFTMOUSE;
+      break;
+    case EVT_TWEAK_M:
+      kmi->type = MIDDLEMOUSE;
+      break;
+    case EVT_TWEAK_R:
+      kmi->type = RIGHTMOUSE;
+      break;
+    default:
+      kmi->direction = KM_ANY;
+      return false;
+  }
 
-#define USER_VERSION_ATLEAST(ver, subver) MAIN_VERSION_ATLEAST(bmain, ver, subver)
+  if (kmi->val >= KM_DIRECTION_N && kmi->val <= KM_DIRECTION_NW) {
+    kmi->direction = kmi->val;
+  }
+  else {
+    kmi->direction = KM_ANY;
+  }
+  kmi->val = KM_CLICK_DRAG;
+  return false;
+}
+
+void blo_do_versions_userdef(UserDef *userdef)
+{
+  /* #UserDef & #Main happen to have the same struct member. */
+#define USER_VERSION_ATLEAST(ver, subver) MAIN_VERSION_ATLEAST(userdef, ver, subver)
 
   /* the UserDef struct is not corrected with do_versions() .... ugh! */
-  if (userdef->wheellinescroll == 0) {
-    userdef->wheellinescroll = 3;
-  }
   if (userdef->menuthreshold1 == 0) {
     userdef->menuthreshold1 = 5;
     userdef->menuthreshold2 = 2;
@@ -366,7 +269,7 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
   }
   if (!USER_VERSION_ATLEAST(250, 0)) {
     /* adjust grease-pencil distances */
-    userdef->gp_manhattendist = 1;
+    userdef->gp_manhattandist = 1;
     userdef->gp_euclideandist = 2;
 
     /* adjust default interpolation for new IPO-curves */
@@ -452,8 +355,8 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
   }
 
   if (!USER_VERSION_ATLEAST(257, 0)) {
-    /* clear "AUTOKEY_FLAG_ONLYKEYINGSET" flag from userprefs,
-     * so that it doesn't linger around from old configs like a ghost */
+    /* Clear #AUTOKEY_FLAG_ONLYKEYINGSET flag from user-preferences,
+     * so that it doesn't linger around from old configurations like a ghost. */
     userdef->autokey_flag &= ~AUTOKEY_FLAG_ONLYKEYINGSET;
   }
 
@@ -504,9 +407,14 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
     }
   }
 
-  /* NOTE!! from now on use userdef->versionfile and userdef->subversionfile */
-#undef USER_VERSION_ATLEAST
-#define USER_VERSION_ATLEAST(ver, subver) MAIN_VERSION_ATLEAST(userdef, ver, subver)
+  if (!USER_VERSION_ATLEAST(269, 4)) {
+    userdef->walk_navigation.mouse_speed = 1.0f;
+    userdef->walk_navigation.walk_speed = 2.5f; /* m/s */
+    userdef->walk_navigation.walk_speed_factor = 5.0f;
+    userdef->walk_navigation.view_height = 1.6f;   /* m */
+    userdef->walk_navigation.jump_height = 0.4f;   /* m */
+    userdef->walk_navigation.teleport_time = 0.2f; /* s */
+  }
 
   if (!USER_VERSION_ATLEAST(271, 5)) {
     userdef->pie_menu_radius = 100;
@@ -575,6 +483,8 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
   if (!USER_VERSION_ATLEAST(280, 33)) {
     /* Enable GLTF addon by default. */
     BKE_addon_ensure(&userdef->addons, "io_scene_gltf2");
+
+    userdef->pressure_threshold_max = 1.0f;
   }
 
   if (!USER_VERSION_ATLEAST(280, 35)) {
@@ -587,8 +497,6 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
   }
 
   if (!USER_VERSION_ATLEAST(280, 38)) {
-
-    /* (keep this block even if it becomes empty). */
     copy_v4_fl4(userdef->light_param[0].vec, -0.580952, 0.228571, 0.781185, 0.0);
     copy_v4_fl4(userdef->light_param[0].col, 0.900000, 0.900000, 0.900000, 1.000000);
     copy_v4_fl4(userdef->light_param[0].spec, 0.318547, 0.318547, 0.318547, 1.000000);
@@ -621,8 +529,6 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
   }
 
   if (!USER_VERSION_ATLEAST(280, 41)) {
-    /* (keep this block even if it becomes empty). */
-
     if (userdef->pie_tap_timeout == 0) {
       userdef->pie_tap_timeout = 20;
     }
@@ -649,7 +555,7 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
     }
   }
 
-  /* patch to set Dupli Lightprobes and Grease Pencil */
+  /* Patch to set dupli light-probes and grease-pencil. */
   if (!USER_VERSION_ATLEAST(280, 58)) {
     userdef->dupflag |= USER_DUP_LIGHTPROBE;
     userdef->dupflag |= USER_DUP_GPENCIL;
@@ -679,7 +585,6 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
   }
 
   if (!USER_VERSION_ATLEAST(280, 62)) {
-    /* (keep this block even if it becomes empty). */
     if (userdef->vbotimeout == 0) {
       userdef->vbocollectrate = 60;
       userdef->vbotimeout = 120;
@@ -753,6 +658,114 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
     userdef->transopts &= ~USER_DOTRANSLATE_DEPRECATED;
   }
 
+  if (!USER_VERSION_ATLEAST(290, 7)) {
+    userdef->statusbar_flag = STATUSBAR_SHOW_VERSION;
+  }
+
+  if (!USER_VERSION_ATLEAST(291, 1)) {
+    if (userdef->collection_instance_empty_size == 0) {
+      userdef->collection_instance_empty_size = 1.0f;
+    }
+  }
+
+  if (!USER_VERSION_ATLEAST(292, 3)) {
+    if (userdef->pixelsize == 0.0f) {
+      userdef->pixelsize = 1.0f;
+    }
+    /* Clear old userdef flag for "Camera Parent Lock". */
+    userdef->uiflag &= ~USER_UIFLAG_UNUSED_3;
+  }
+
+  if (!USER_VERSION_ATLEAST(292, 9)) {
+    if (BLI_listbase_is_empty(&userdef->asset_libraries)) {
+      BKE_preferences_asset_library_default_add(userdef);
+    }
+  }
+
+  if (!USER_VERSION_ATLEAST(293, 1)) {
+    /* This rename was made after 2.93.0, harmless to run when it's not needed. */
+    const char *replace_table[][2] = {
+        {"blender", "Blender"},
+        {"blender_27x", "Blender_27x"},
+        {"industry_compatible", "Industry_Compatible"},
+    };
+    const int replace_table_len = ARRAY_SIZE(replace_table);
+
+    BLI_str_replace_table_exact(
+        userdef->keyconfigstr, sizeof(userdef->keyconfigstr), replace_table, replace_table_len);
+    LISTBASE_FOREACH (wmKeyConfigPref *, kpt, &userdef->user_keyconfig_prefs) {
+      BLI_str_replace_table_exact(
+          kpt->idname, sizeof(kpt->idname), replace_table, replace_table_len);
+    }
+  }
+
+  if (!USER_VERSION_ATLEAST(293, 12)) {
+    if (userdef->gizmo_size_navigate_v3d == 0) {
+      userdef->gizmo_size_navigate_v3d = 80;
+    }
+
+    userdef->sequencer_proxy_setup = USER_SEQ_PROXY_SETUP_AUTOMATIC;
+  }
+
+  if (!USER_VERSION_ATLEAST(293, 13)) {
+    BKE_addon_ensure(&userdef->addons, "pose_library");
+  }
+
+  if (!USER_VERSION_ATLEAST(300, 21)) {
+    /* Deprecated userdef->flag USER_SAVE_PREVIEWS */
+    userdef->file_preview_type = (userdef->flag & USER_FLAG_UNUSED_5) ? USER_FILE_PREVIEW_AUTO :
+                                                                        USER_FILE_PREVIEW_NONE;
+    /* Clear for reuse. */
+    userdef->flag &= ~USER_FLAG_UNUSED_5;
+  }
+
+  if (!USER_VERSION_ATLEAST(300, 38)) {
+    /* Patch to set Dupli Lattice/Camera/Speaker. */
+    userdef->dupflag |= USER_DUP_LATTICE;
+    userdef->dupflag |= USER_DUP_CAMERA;
+    userdef->dupflag |= USER_DUP_SPEAKER;
+  }
+
+  if (!USER_VERSION_ATLEAST(300, 40)) {
+    /* Rename the default asset library from "Default" to "User Library". This isn't bullet proof
+     * since it doesn't handle translations and ignores user changes. But this was an alpha build
+     * (experimental) feature and the name is just for display in the UI anyway. So it doesn't have
+     * to work perfectly at all. */
+    LISTBASE_FOREACH (bUserAssetLibrary *, asset_library, &userdef->asset_libraries) {
+      /* Ignores translations, since that would depend on the current preferences (global `U`). */
+      if (STREQ(asset_library->name, "Default")) {
+        BKE_preferences_asset_library_name_set(
+            userdef, asset_library, BKE_PREFS_ASSET_LIBRARY_DEFAULT_NAME);
+      }
+    }
+  }
+
+  if (!USER_VERSION_ATLEAST(300, 40)) {
+    LISTBASE_FOREACH (uiStyle *, style, &userdef->uistyles) {
+      const int default_title_points = 11; /* UI_DEFAULT_TITLE_POINTS */
+      style->paneltitle.points = default_title_points;
+      style->grouplabel.points = default_title_points;
+    }
+  }
+
+  if (!USER_VERSION_ATLEAST(300, 43)) {
+    userdef->ndof_flag |= NDOF_CAMERA_PAN_ZOOM;
+  }
+
+  if (!USER_VERSION_ATLEAST(302, 5)) {
+    BKE_keyconfig_pref_filter_items(userdef,
+                                    &((struct wmKeyConfigFilterItemParams){
+                                        .check_item = true,
+                                        .check_diff_item_add = true,
+                                    }),
+                                    keymap_item_update_tweak_event,
+                                    NULL);
+  }
+
+  if (!USER_VERSION_ATLEAST(302, 11)) {
+    userdef->dupflag |= USER_DUP_CURVES | USER_DUP_POINTCLOUD;
+  }
+
   /**
    * Versioning code until next subversion bump goes here.
    *
@@ -764,20 +777,30 @@ void BLO_version_defaults_userpref_blend(Main *bmain, UserDef *userdef)
    */
   {
     /* Keep this block, even when empty. */
-
-    if (userdef->collection_instance_empty_size == 0) {
-      userdef->collection_instance_empty_size = 1.0f;
-    }
-  }
-
-  if (userdef->pixelsize == 0.0f) {
-    userdef->pixelsize = 1.0f;
   }
 
   LISTBASE_FOREACH (bTheme *, btheme, &userdef->themes) {
     do_versions_theme(userdef, btheme);
   }
 #undef USER_VERSION_ATLEAST
+}
+
+void BLO_sanitize_experimental_features_userpref_blend(UserDef *userdef)
+{
+  /* User preference experimental settings are only supported in alpha builds.
+   * This prevents users corrupting data and relying on API that may change.
+   *
+   * If user preferences are saved this will be stored in disk as expected.
+   * This only starts to take effect when there is a release branch (on beta).
+   *
+   * At that time master already has its version bumped so its user preferences
+   * are not touched by these settings. */
+
+  if (BKE_blender_version_is_alpha()) {
+    return;
+  }
+
+  MEMSET_STRUCT_AFTER(&userdef->experimental, 0, SANITIZE_AFTER_HERE);
 }
 
 #undef USER_LMOUSESELECT

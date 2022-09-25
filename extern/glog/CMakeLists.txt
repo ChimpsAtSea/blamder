@@ -1,22 +1,5 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# The Original Code is Copyright (C) 2016, Blender Foundation
-# All rights reserved.
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2016 Blender Foundation. All rights reserved.
 
 set(INC
   src
@@ -27,11 +10,16 @@ set(INC_SYS
 )
 
 set(SRC
+  src/demangle.cc
   src/logging.cc
   src/raw_logging.cc
+  src/signalhandler.cc
+  src/symbolize.cc
   src/utilities.cc
   src/vlog_is_on.cc
 
+  src/demangle.h
+  src/symbolize.h
   src/utilities.h
 
   src/config.h
@@ -51,6 +39,7 @@ set(SRC
   src/stacktrace_powerpc-inl.h
   src/stacktrace_x86_64-inl.h
   src/stacktrace_x86-inl.h
+  src/stacktrace_windows-inl.h
 )
 
 set(LIB
@@ -87,13 +76,6 @@ else()
     include
   )
   list(APPEND SRC
-    src/demangle.cc
-    src/signalhandler.cc
-    src/symbolize.cc
-
-    src/demangle.h
-    src/symbolize.h
-
     include/glog/logging.h
     include/glog/log_severity.h
     include/glog/raw_logging.h

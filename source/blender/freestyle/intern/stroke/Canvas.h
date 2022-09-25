@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_CANVAS_H__
-#define __FREESTYLE_CANVAS_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -61,12 +46,12 @@ class ImagePyramid;
 class SteerableViewMap;
 class StyleModule;
 
-/*! Class to define the canvas on which strokes are drawn.
+/** Class to define the canvas on which strokes are drawn.
  *  It's used to store state information about the drawing.
  */
 class Canvas {
  public:
-  /*! Returns a pointer on the Canvas instance */
+  /** Returns a pointer on the Canvas instance */
   static Canvas *getInstance()
   {
     return _pInstance;
@@ -137,7 +122,7 @@ class Canvas {
   }
 
   /* Maps management */
-  /*! Loads an image map. The map will be scaled
+  /** Loads an image map. The map will be scaled
    *  (without preserving the ratio in order to fit the actual canvas size.).
    *  The image must be a gray values image...
    *  \param iFileName:
@@ -153,7 +138,7 @@ class Canvas {
                unsigned iNbLevels = 4,
                float iSigma = 1.0f);
 
-  /*! Reads a pixel value in a map.
+  /** Reads a pixel value in a map.
    *  Returns a value between 0 and 1.
    *  \param iMapName:
    *    The name of the map
@@ -168,19 +153,19 @@ class Canvas {
    */
   float readMapPixel(const char *iMapName, int level, int x, int y);
 
-  /*! Sets the steerable viewmap */
+  /** Sets the steerable viewmap */
   void loadSteerableViewMap(SteerableViewMap *iSVM)
   {
     _steerableViewMap = iSVM;
   }
 
-  /*! Returns the steerable VM */
+  /** Returns the steerable VM */
   SteerableViewMap *getSteerableViewMap()
   {
     return _steerableViewMap;
   }
 
-  /*! accessors */
+  /** accessors */
   inline const FEdge *selectedFEdge() const
   {
     return _SelectedFEdge;
@@ -216,13 +201,13 @@ class Canvas {
     return stroke_count;
   }
 
-  /*! modifiers */
+  /** modifiers */
   inline void setSelectedFEdge(FEdge *iFEdge)
   {
     _SelectedFEdge = iFEdge;
   }
 
-  /*! inserts a shader at pos index+1 */
+  /** inserts a shader at pos index+1 */
   void PushBackStyleModule(StyleModule *iStyleModule);
   void InsertStyleModule(unsigned index, StyleModule *iStyleModule);
   void RemoveStyleModule(unsigned index);
@@ -244,7 +229,7 @@ class Canvas {
 
   void resetModified(bool iMod = false);
   void causalStyleModules(std::vector<unsigned> &vec, unsigned index = 0);
-  void setModified(unsigned index, bool b);
+  void setModified(unsigned index, bool iMod);
 
 #ifdef WITH_CXX_GUARDEDALLOC
   MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:Canvas")
@@ -252,5 +237,3 @@ class Canvas {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_CANVAS_H__

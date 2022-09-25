@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2019 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -32,7 +16,7 @@
 
 #include "intern/depsgraph.h"
 
-namespace DEG {
+namespace blender::deg {
 
 namespace {
 
@@ -59,32 +43,24 @@ void animated_property_store_cb(ID *id, FCurve *fcurve, void *data_v)
 
   /* Resolve path to the property. */
   PathResolvedRNA resolved_rna;
-  if (!BKE_animsys_store_rna_setting(
+  if (!BKE_animsys_rna_path_resolve(
           &data->id_pointer_rna, fcurve->rna_path, fcurve->array_index, &resolved_rna)) {
     return;
   }
 
   /* Read property value. */
   float value;
-  if (!BKE_animsys_read_rna_setting(&resolved_rna, &value)) {
+  if (!BKE_animsys_read_from_rna_path(&resolved_rna, &value)) {
     return;
   }
 
-  data->backup->values_backup.emplace_back(fcurve->rna_path, fcurve->array_index, value);
+  data->backup->values_backup.append({fcurve->rna_path, fcurve->array_index, value});
 }
 
 }  // namespace
 
-AnimationValueBackup::AnimationValueBackup()
-{
-}
-
 AnimationValueBackup::AnimationValueBackup(const string &rna_path, int array_index, float value)
     : rna_path(rna_path), array_index(array_index), value(value)
-{
-}
-
-AnimationValueBackup::~AnimationValueBackup()
 {
 }
 
@@ -127,18 +103,18 @@ void AnimationBackup::restore_to_id(ID *id)
      * NOTE: Do it again (after storing), since the sub-data pointers might be
      * changed after copy-on-write. */
     PathResolvedRNA resolved_rna;
-    if (!BKE_animsys_store_rna_setting(&id_pointer_rna,
-                                       value_backup.rna_path.c_str(),
-                                       value_backup.array_index,
-                                       &resolved_rna)) {
+    if (!BKE_animsys_rna_path_resolve(&id_pointer_rna,
+                                      value_backup.rna_path.c_str(),
+                                      value_backup.array_index,
+                                      &resolved_rna)) {
       return;
     }
 
     /* Write property value. */
-    if (!BKE_animsys_write_rna_setting(&resolved_rna, value_backup.value)) {
+    if (!BKE_animsys_write_to_rna_path(&resolved_rna, value_backup.value)) {
       return;
     }
   }
 }
 
-}  // namespace DEG
+}  // namespace blender::deg

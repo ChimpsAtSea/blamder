@@ -1,21 +1,18 @@
-void node_hair_info(out float is_strand,
+#pragma BLENDER_REQUIRE(gpu_shader_common_hash.glsl)
+
+void node_hair_info(float hair_length,
+                    out float is_strand,
                     out float intercept,
+                    out float out_length,
                     out float thickness,
-                    out vec3 tangent,
+                    out vec3 normal,
                     out float random)
 {
-#ifdef HAIR_SHADER
-  is_strand = 1.0;
-  intercept = hairTime;
-  thickness = hairThickness;
-  tangent = normalize(worldNormal);
-  random = wang_hash_noise(
-      uint(hairStrandID)); /* TODO: could be precomputed per strand instead. */
-#else
-  is_strand = 0.0;
-  intercept = 0.0;
-  thickness = 0.0;
-  tangent = vec3(1.0);
-  random = 0.0;
-#endif
+  is_strand = float(g_data.is_strand);
+  intercept = g_data.hair_time;
+  thickness = g_data.hair_thickness;
+  out_length = hair_length;
+  normal = g_data.curve_N;
+  /* TODO: could be precomputed per strand instead. */
+  random = wang_hash_noise(uint(g_data.hair_strand_id));
 }

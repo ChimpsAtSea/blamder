@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bli
@@ -58,7 +44,7 @@ typedef intptr_t offset_t;
  * typically we rely on the 'count' to avoid iterating past the end. */
 // #define USE_TERMINATE_PARANOID
 
-/* Currently totalloc isnt used. */
+/* Currently totalloc isn't used. */
 // #define USE_TOTALLOC
 
 /* pad must be power of two */
@@ -73,7 +59,7 @@ typedef struct BLI_memiter_chunk {
   struct BLI_memiter_chunk *next;
   /**
    * internal format is:
-   * ``[next_pointer, size:data, size:data, ..., negative_offset]``
+   * `[next_pointer, size:data, size:data, ..., negative_offset]`
    *
    * Where negative offset rewinds to the start.
    */
@@ -125,15 +111,6 @@ static void memiter_init(BLI_memiter *mi)
 /** \name Public API's
  * \{ */
 
-/**
- * \param chunk_size_min: Should be a power of two and
- * significantly larger than the average element size used.
- *
- * While allocations of any size are supported, they won't be efficient
- * (effectively becoming a single-linked list).
- *
- * Its intended that many elements can be stored per chunk.
- */
 BLI_memiter *BLI_memiter_create(uint chunk_size_min)
 {
   BLI_memiter *mi = MEM_mallocN(sizeof(BLI_memiter), "BLI_memiter");
@@ -261,7 +238,6 @@ uint BLI_memiter_count(const BLI_memiter *mi)
 /** \name Helper API's
  * \{ */
 
-/* Support direct lookup for first. */
 void *BLI_memiter_elem_first(BLI_memiter *mi)
 {
   if (mi->head != NULL) {
@@ -269,9 +245,7 @@ void *BLI_memiter_elem_first(BLI_memiter *mi)
     BLI_memiter_elem *elem = (BLI_memiter_elem *)chunk->data;
     return elem->data;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
 void *BLI_memiter_elem_first_size(BLI_memiter *mi, uint *r_size)
@@ -282,9 +256,7 @@ void *BLI_memiter_elem_first_size(BLI_memiter *mi, uint *r_size)
     *r_size = (uint)elem->size;
     return elem->data;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
 /** \} */
@@ -334,9 +306,7 @@ void *BLI_memiter_iter_step_size(BLI_memiter_handle *iter, uint *r_size)
     iter->elem = (BLI_memiter_elem *)&data[data_offset_from_size(size)];
     return (void *)data;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
 void *BLI_memiter_iter_step(BLI_memiter_handle *iter)
@@ -352,9 +322,7 @@ void *BLI_memiter_iter_step(BLI_memiter_handle *iter)
     iter->elem = (BLI_memiter_elem *)&data[data_offset_from_size(size)];
     return (void *)data;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
 /** \} */

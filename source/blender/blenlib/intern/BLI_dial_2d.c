@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bli
@@ -45,7 +31,7 @@ struct Dial {
   bool initialized;
 };
 
-Dial *BLI_dial_initialize(const float start_position[2], float threshold)
+Dial *BLI_dial_init(const float start_position[2], float threshold)
 {
   Dial *dial = MEM_callocN(sizeof(Dial), "dial");
 
@@ -78,7 +64,7 @@ float BLI_dial_angle(Dial *dial, const float current_position[2])
     cosval = dot_v2v2(current_direction, dial->initial_direction);
     sinval = cross_v2v2(current_direction, dial->initial_direction);
 
-    /* clamp to avoid nans in acos */
+    /* Clamp to avoid NAN's in #acos */
     angle = atan2f(sinval, cosval);
 
     /* change of sign, we passed the 180 degree threshold. This means we need to add a turn.

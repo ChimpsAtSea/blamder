@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup spstatusbar
@@ -34,15 +20,14 @@
 #include "RNA_access.h"
 
 #include "UI_interface.h"
-#include "UI_view2d.h"
 
 #include "WM_api.h"
 #include "WM_message.h"
 #include "WM_types.h"
 
-/* ******************** default callbacks for statusbar space ********************  */
+/* ******************** default callbacks for statusbar space ******************** */
 
-static SpaceLink *statusbar_new(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
+static SpaceLink *statusbar_create(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
 {
   ARegion *region;
   SpaceStatusBar *sstatusbar;
@@ -95,12 +80,11 @@ static void statusbar_keymap(struct wmKeyConfig *UNUSED(keyconf))
 {
 }
 
-static void statusbar_header_region_listener(wmWindow *UNUSED(win),
-                                             ScrArea *UNUSED(area),
-                                             ARegion *region,
-                                             wmNotifier *wmn,
-                                             const Scene *UNUSED(scene))
+static void statusbar_header_region_listener(const wmRegionListenerParams *params)
 {
+  ARegion *region = params->region;
+  wmNotifier *wmn = params->notifier;
+
   /* context changes */
   switch (wmn->category) {
     case NC_SCREEN:
@@ -131,14 +115,11 @@ static void statusbar_header_region_listener(wmWindow *UNUSED(win),
   }
 }
 
-static void statusbar_header_region_message_subscribe(const bContext *UNUSED(C),
-                                                      WorkSpace *UNUSED(workspace),
-                                                      Scene *UNUSED(scene),
-                                                      bScreen *UNUSED(screen),
-                                                      ScrArea *UNUSED(area),
-                                                      ARegion *region,
-                                                      struct wmMsgBus *mbus)
+static void statusbar_header_region_message_subscribe(const wmRegionMessageSubscribeParams *params)
 {
+  struct wmMsgBus *mbus = params->message_bus;
+  ARegion *region = params->region;
+
   wmMsgSubscribeValue msg_sub_value_region_tag_redraw = {
       .owner = region,
       .user_data = region,
@@ -149,7 +130,6 @@ static void statusbar_header_region_message_subscribe(const bContext *UNUSED(C),
   WM_msg_subscribe_rna_anon_prop(mbus, ViewLayer, name, &msg_sub_value_region_tag_redraw);
 }
 
-/* only called once, from space/spacetypes.c */
 void ED_spacetype_statusbar(void)
 {
   SpaceType *st = MEM_callocN(sizeof(*st), "spacetype statusbar");
@@ -158,7 +138,7 @@ void ED_spacetype_statusbar(void)
   st->spaceid = SPACE_STATUSBAR;
   strncpy(st->name, "Status Bar", BKE_ST_MAXNAME);
 
-  st->new = statusbar_new;
+  st->create = statusbar_create;
   st->free = statusbar_free;
   st->init = statusbar_init;
   st->duplicate = statusbar_duplicate;

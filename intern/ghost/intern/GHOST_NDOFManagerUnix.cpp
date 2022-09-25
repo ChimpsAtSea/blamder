@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 #include "GHOST_NDOFManagerUnix.h"
 #include "GHOST_System.h"
@@ -46,10 +32,11 @@ GHOST_NDOFManagerUnix::GHOST_NDOFManagerUnix(GHOST_System &sys)
       char line[MAX_LINE_LENGTH] = {0};
       while (fgets(line, MAX_LINE_LENGTH, command_output)) {
         unsigned short vendor_id = 0, product_id = 0;
-        if (sscanf(line, "Bus %*d Device %*d: ID %hx:%hx", &vendor_id, &product_id) == 2)
+        if (sscanf(line, "Bus %*d Device %*d: ID %hx:%hx", &vendor_id, &product_id) == 2) {
           if (setDevice(vendor_id, product_id)) {
             break; /* stop looking once the first 3D mouse is found */
           }
+        }
       }
       pclose(command_output);
     }
@@ -58,8 +45,9 @@ GHOST_NDOFManagerUnix::GHOST_NDOFManagerUnix(GHOST_System &sys)
 
 GHOST_NDOFManagerUnix::~GHOST_NDOFManagerUnix()
 {
-  if (m_available)
+  if (m_available) {
     spnav_close();
+  }
 }
 
 bool GHOST_NDOFManagerUnix::available()
@@ -97,7 +85,7 @@ bool GHOST_NDOFManagerUnix::processEvents()
       switch (e.type) {
         case SPNAV_EVENT_MOTION: {
           /* convert to blender view coords */
-          GHOST_TUns64 now = m_system.getMilliSeconds();
+          uint64_t now = m_system.getMilliSeconds();
           const int t[3] = {(int)e.motion.x, (int)e.motion.y, (int)-e.motion.z};
           const int r[3] = {(int)-e.motion.rx, (int)-e.motion.ry, (int)e.motion.rz};
 
@@ -109,7 +97,7 @@ bool GHOST_NDOFManagerUnix::processEvents()
           break;
         }
         case SPNAV_EVENT_BUTTON:
-          GHOST_TUns64 now = m_system.getMilliSeconds();
+          uint64_t now = m_system.getMilliSeconds();
           updateButton(e.button.bnum, e.button.press, now);
           break;
       }
@@ -118,7 +106,7 @@ bool GHOST_NDOFManagerUnix::processEvents()
 
 #ifdef USE_FINISH_GLITCH_WORKAROUND
     if (motion_test_prev == true && motion_test == false) {
-      GHOST_TUns64 now = m_system.getMilliSeconds();
+      uint64_t now = m_system.getMilliSeconds();
       const int v[3] = {0, 0, 0};
 
       updateTranslation(v, now);

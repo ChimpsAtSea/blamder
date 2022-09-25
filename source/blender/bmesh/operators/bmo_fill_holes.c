@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -35,7 +21,7 @@ void bmo_holes_fill_exec(BMesh *bm, BMOperator *op)
   BM_mesh_elem_hflag_disable_all(bm, BM_EDGE | BM_FACE, BM_ELEM_TAG, false);
   BMO_slot_buffer_hflag_enable(bm, op->slots_in, "edges", BM_EDGE, BM_ELEM_TAG, false);
 
-  BM_mesh_edgenet(bm, true, true);  // TODO, sides
+  BM_mesh_edgenet(bm, true, true);  // TODO: sides
 
   /* bad - remove faces after as a workaround */
   if (sides != 0) {
@@ -66,7 +52,7 @@ void bmo_holes_fill_exec(BMesh *bm, BMOperator *op)
   BMO_op_exec(bm, &op_attr);
 
   /* check if some faces couldn't be touched */
-  if (BMO_slot_buffer_count(op_attr.slots_out, "faces_fail.out")) {
+  if (BMO_slot_buffer_len(op_attr.slots_out, "faces_fail.out")) {
     BMOIter siter;
     BMFace *f;
 

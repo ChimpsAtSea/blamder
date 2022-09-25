@@ -1,22 +1,4 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENSE BLOCK *****
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 __all__ = (
     "build_info",
@@ -25,8 +7,8 @@ __all__ = (
 
 
 import sys
-if not sys.version.startswith("3"):
-    print("\nPython3.x needed, found %s.\nAborting!\n" %
+if sys.version_info.major < 3:
+    print("\nPython3.x or newer needed, found %s.\nAborting!\n" %
           sys.version.partition(" ")[0])
     sys.exit(1)
 
@@ -34,30 +16,45 @@ if not sys.version.startswith("3"):
 import os
 from os.path import join, dirname, normpath, abspath
 
+import subprocess
+
+from typing import (
+    Any,
+    Callable,
+    Generator,
+    List,
+    Optional,
+    Sequence,
+    Tuple,
+    Union,
+    cast,
+)
+
+
 SOURCE_DIR = join(dirname(__file__), "..", "..")
 SOURCE_DIR = normpath(SOURCE_DIR)
 SOURCE_DIR = abspath(SOURCE_DIR)
 
 
-def is_c_header(filename):
+def is_c_header(filename: str) -> bool:
     ext = os.path.splitext(filename)[1]
     return (ext in {".h", ".hpp", ".hxx", ".hh"})
 
 
-def is_c(filename):
+def is_c(filename: str) -> bool:
     ext = os.path.splitext(filename)[1]
     return (ext in {".c", ".cpp", ".cxx", ".m", ".mm", ".rc", ".cc", ".inl", ".osl"})
 
 
-def is_c_any(filename):
-    return os.path.s_c(filename) or is_c_header(filename)
+def is_c_any(filename: str) -> bool:
+    return is_c(filename) or is_c_header(filename)
 
 
 # copied from project_info.py
 CMAKE_DIR = "."
 
 
-def cmake_cache_var_iter():
+def cmake_cache_var_iter() -> Generator[Tuple[str, str, str], None, None]:
     import re
     re_cache = re.compile(r'([A-Za-z0-9_\-]+)?:?([A-Za-z0-9_\-]+)?=(.*)$')
     with open(join(CMAKE_DIR, "CMakeCache.txt"), 'r', encoding='utf-8') as cache_file:
@@ -68,14 +65,22 @@ def cmake_cache_var_iter():
                 yield (var, type_ or "", val)
 
 
-def cmake_cache_var(var):
+def cmake_cache_var(var: str) -> Optional[str]:
     for var_iter, type_iter, value_iter in cmake_cache_var_iter():
         if var == var_iter:
             return value_iter
     return None
 
 
-def do_ignore(filepath, ignore_prefix_list):
+def cmake_cache_var_or_exit(var: str) -> str:
+    value = cmake_cache_var(var)
+    if value is None:
+        print("Unable to find %r exiting!" % value)
+        sys.exit(1)
+    return value
+
+
+def do_ignore(filepath: str, ignore_prefix_list: Optional[Sequence[str]]) -> bool:
     if ignore_prefix_list is None:
         return False
 
@@ -83,12 +88,13 @@ def do_ignore(filepath, ignore_prefix_list):
     return any([relpath.startswith(prefix) for prefix in ignore_prefix_list])
 
 
-def makefile_log():
+def makefile_log() -> List[str]:
     import subprocess
     import time
 
     # support both make and ninja
-    make_exe = cmake_cache_var("CMAKE_MAKE_PROGRAM")
+    make_exe = cmake_cache_var_or_exit("CMAKE_MAKE_PROGRAM")
+
     make_exe_basename = os.path.basename(make_exe)
 
     if make_exe_basename.startswith(("make", "gmake")):
@@ -102,26 +108,36 @@ def makefile_log():
                                    stdout=subprocess.PIPE,
                                    )
 
+    if process is None:
+        print("Can't execute process")
+        sys.exit(1)
+
     while process.poll():
         time.sleep(1)
 
-    out = process.stdout.read()
-    process.stdout.close()
+    # We know this is always true based on the input arguments to `Popen`.
+    stdout: IO[bytes] = process.stdout  # type: ignore
+
+    out = stdout.read()
+    stdout.close()
     print("done!", len(out), "bytes")
-    return out.decode("utf-8", errors="ignore").split("\n")
+    return cast(List[str], out.decode("utf-8", errors="ignore").split("\n"))
 
 
-def build_info(use_c=True, use_cxx=True, ignore_prefix_list=None):
-
+def build_info(
+        use_c: bool = True,
+        use_cxx: bool = True,
+        ignore_prefix_list: Optional[List[str]] = None,
+) -> List[Tuple[str, List[str], List[str]]]:
     makelog = makefile_log()
 
     source = []
 
     compilers = []
     if use_c:
-        compilers.append(cmake_cache_var("CMAKE_C_COMPILER"))
+        compilers.append(cmake_cache_var_or_exit("CMAKE_C_COMPILER"))
     if use_cxx:
-        compilers.append(cmake_cache_var("CMAKE_CXX_COMPILER"))
+        compilers.append(cmake_cache_var_or_exit("CMAKE_CXX_COMPILER"))
 
     print("compilers:", " ".join(compilers))
 
@@ -131,7 +147,7 @@ def build_info(use_c=True, use_cxx=True, ignore_prefix_list=None):
 
     for line in makelog:
 
-        args = line.split()
+        args: Union[str, List[str]] = line.split()
 
         if not any([(c in args) for c in compilers]):
             continue
@@ -176,29 +192,42 @@ def build_info(use_c=True, use_cxx=True, ignore_prefix_list=None):
     return source
 
 
-def build_defines_as_source():
+def build_defines_as_source() -> str:
     """
     Returns a string formatted as an include:
         '#defines A=B\n#define....'
     """
     import subprocess
     # works for both gcc and clang
-    cmd = (cmake_cache_var("CMAKE_C_COMPILER"), "-dM", "-E", "-")
-    return subprocess.Popen(cmd,
-                            stdout=subprocess.PIPE,
-                            stdin=subprocess.DEVNULL,
-                            ).stdout.read().strip().decode('ascii')
+    cmd = (cmake_cache_var_or_exit("CMAKE_C_COMPILER"), "-dM", "-E", "-")
+    process = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stdin=subprocess.DEVNULL,
+    )
+
+    # We know this is always true based on the input arguments to `Popen`.
+    stdout: IO[bytes] = process.stdout  # type: ignore
+
+    return cast(str, stdout.read().strip().decode('ascii'))
 
 
-def build_defines_as_args():
-    return [("-D" + "=".join(l.split(maxsplit=2)[1:]))
-            for l in build_defines_as_source().split("\n")
-            if l.startswith('#define')]
+def build_defines_as_args() -> List[str]:
+    return [
+        ("-D" + "=".join(l.split(maxsplit=2)[1:]))
+        for l in build_defines_as_source().split("\n")
+        if l.startswith('#define')
+    ]
 
 
 # could be moved elsewhere!, this just happens to be used by scripts that also
 # use this module.
-def queue_processes(process_funcs, job_total=-1):
+def queue_processes(
+        process_funcs: Sequence[Tuple[Callable[..., subprocess.Popen[Any]], Tuple[Any, ...]]],
+        *,
+        job_total: int = -1,
+        sleep: float = 0.1,
+) -> None:
     """ Takes a list of function arg pairs, each function must return a process
     """
 
@@ -217,7 +246,7 @@ def queue_processes(process_funcs, job_total=-1):
     else:
         import time
 
-        processes = []
+        processes: List[subprocess.Popen[Any]] = []
         for func, args in process_funcs:
             # wait until a thread is free
             while 1:
@@ -225,22 +254,29 @@ def queue_processes(process_funcs, job_total=-1):
 
                 if len(processes) <= job_total:
                     break
-                else:
-                    time.sleep(0.1)
+                time.sleep(sleep)
 
             sys.stdout.flush()
             sys.stderr.flush()
 
             processes.append(func(*args))
 
+        # Don't return until all jobs have finished.
+        while 1:
+            processes[:] = [p for p in processes if p.poll() is None]
+            if not processes:
+                break
+            time.sleep(sleep)
 
-def main():
+
+def main() -> None:
     if not os.path.exists(join(CMAKE_DIR, "CMakeCache.txt")):
         print("This script must run from the cmake build dir")
         return
 
     for s in build_info():
         print(s)
+
 
 if __name__ == "__main__":
     main()

@@ -1,32 +1,15 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_MOVIECLIP_TYPES_H__
-#define __DNA_MOVIECLIP_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
-#include "DNA_color_types.h" /* for color management */
-#include "DNA_tracking_types.h"
+#include "DNA_color_types.h"    /* for color management */
+#include "DNA_tracking_types.h" /* for #MovieTracking */
 
 #ifdef __cplusplus
 extern "C" {
@@ -64,8 +47,8 @@ typedef struct MovieClipProxy {
 typedef struct MovieClip_RuntimeGPUTexture {
   void *next, *prev;
   MovieClipUser user;
-  /** Not written in file 4 = TEXTARGET_COUNT. */
-  struct GPUTexture *gputexture[4];
+  /** Not written in file 3 = TEXTARGET_COUNT. */
+  struct GPUTexture *gputexture[3];
 } MovieClip_RuntimeGPUTexture;
 
 typedef struct MovieClip_Runtime {
@@ -78,7 +61,7 @@ typedef struct MovieClip {
   struct AnimData *adt;
 
   /** File path, 1024 = FILE_MAX. */
-  char name[1024];
+  char filepath[1024];
 
   /** Sequence or movie. */
   int source;
@@ -145,23 +128,23 @@ typedef struct MovieClipScopes {
   struct ImBuf *track_search;
   /** #ImBuf displayed in track preview. */
   struct ImBuf *track_preview;
-  /** Sub-pizel position of marker in track ImBuf. */
+  /** Sub-pixel position of marker in track ImBuf. */
   float track_pos[2];
   /** Active track is disabled, special notifier should be drawn. */
   short track_disabled;
   /** Active track is locked, no transformation should be allowed. */
   short track_locked;
-  /** Frame number scopes are created for. */
-  int framenr;
+  /** Frame number scopes are created for (measured in scene frames). */
+  int scene_framenr;
   /** Track scopes are created for. */
   struct MovieTrackingTrack *track;
   /** Marker scopes are created for. */
   struct MovieTrackingMarker *marker;
-  /** Scale used for sliding from previewe area. */
+  /** Scale used for sliding from preview area. */
   float slide_scale[2];
 } MovieClipScopes;
 
-/* MovieClipProxy->build_size_flag */
+/** #MovieClipProxy.build_size_flag */
 enum {
   MCLIP_PROXY_SIZE_25 = (1 << 0),
   MCLIP_PROXY_SIZE_50 = (1 << 1),
@@ -173,13 +156,13 @@ enum {
   MCLIP_PROXY_UNDISTORTED_SIZE_100 = (1 << 7),
 };
 
-/* MovieClip->source */
+/** #MovieClip.source */
 enum {
   MCLIP_SRC_SEQUENCE = 1,
   MCLIP_SRC_MOVIE = 2,
 };
 
-/* MovieClip->flag */
+/** #MovieClip.flag */
 enum {
   MCLIP_USE_PROXY = (1 << 0),
   MCLIP_USE_PROXY_CUSTOM_DIR = (1 << 1),
@@ -189,7 +172,7 @@ enum {
   MCLIP_TIMECODE_FLAGS = (MCLIP_USE_PROXY | MCLIP_USE_PROXY_CUSTOM_DIR),
 };
 
-/* MovieClip->render_size */
+/** #MovieClip.render_size */
 enum {
   MCLIP_PROXY_RENDER_SIZE_FULL = 0,
   MCLIP_PROXY_RENDER_SIZE_25 = 1,
@@ -198,7 +181,7 @@ enum {
   MCLIP_PROXY_RENDER_SIZE_100 = 4,
 };
 
-/* MovieClip->render_flag */
+/** #MovieClip.render_flag */
 enum {
   MCLIP_PROXY_RENDER_UNDISTORT = 1,
   /** Use original, if proxy is not found. */
@@ -207,6 +190,4 @@ enum {
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

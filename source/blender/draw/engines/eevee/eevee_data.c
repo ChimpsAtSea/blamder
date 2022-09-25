@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2016, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -24,10 +9,184 @@
 
 #include "DRW_render.h"
 
+#include "BLI_ghash.h"
 #include "BLI_memblock.h"
+
+#include "BKE_duplilist.h"
+#include "BKE_modifier.h"
+#include "BKE_object.h"
+
+#include "DEG_depsgraph_query.h"
+
+#include "GPU_vertex_buffer.h"
 
 #include "eevee_lightcache.h"
 #include "eevee_private.h"
+
+/* Motion Blur data. */
+
+static void eevee_motion_blur_mesh_data_free(void *val)
+{
+  EEVEE_ObjectMotionData *mb_data = (EEVEE_ObjectMotionData *)val;
+  if (mb_data->hair_data != NULL) {
+    MEM_freeN(mb_data->hair_data);
+  }
+  if (mb_data->geometry_data != NULL) {
+    MEM_freeN(mb_data->geometry_data);
+  }
+  MEM_freeN(val);
+}
+
+static uint eevee_object_key_hash(const void *key)
+{
+  EEVEE_ObjectKey *ob_key = (EEVEE_ObjectKey *)key;
+  uint hash = BLI_ghashutil_ptrhash(ob_key->ob);
+  hash = BLI_ghashutil_combine_hash(hash, BLI_ghashutil_ptrhash(ob_key->parent));
+  for (int i = 0; i < MAX_DUPLI_RECUR; i++) {
+    if (ob_key->id[i] != 0) {
+      hash = BLI_ghashutil_combine_hash(hash, BLI_ghashutil_inthash(ob_key->id[i]));
+    }
+    else {
+      break;
+    }
+  }
+  return hash;
+}
+
+/* Return false if equal. */
+static bool eevee_object_key_cmp(const void *a, const void *b)
+{
+  EEVEE_ObjectKey *key_a = (EEVEE_ObjectKey *)a;
+  EEVEE_ObjectKey *key_b = (EEVEE_ObjectKey *)b;
+
+  if (key_a->ob != key_b->ob) {
+    return true;
+  }
+  if (key_a->parent != key_b->parent) {
+    return true;
+  }
+  if (memcmp(key_a->id, key_b->id, sizeof(key_a->id)) != 0) {
+    return true;
+  }
+  return false;
+}
+
+void EEVEE_motion_hair_step_free(EEVEE_HairMotionStepData *step_data)
+{
+  GPU_vertbuf_discard(step_data->hair_pos);
+  DRW_texture_free(step_data->hair_pos_tx);
+  MEM_freeN(step_data);
+}
+
+void EEVEE_motion_blur_data_init(EEVEE_MotionBlurData *mb)
+{
+  if (mb->object == NULL) {
+    mb->object = BLI_ghash_new(eevee_object_key_hash, eevee_object_key_cmp, "EEVEE Object Motion");
+  }
+  for (int i = 0; i < 2; i++) {
+    if (mb->position_vbo_cache[i] == NULL) {
+      mb->position_vbo_cache[i] = BLI_ghash_new(
+          BLI_ghashutil_ptrhash, BLI_ghashutil_ptrcmp, "EEVEE duplicate vbo cache");
+    }
+    if (mb->hair_motion_step_cache[i] == NULL) {
+      mb->hair_motion_step_cache[i] = BLI_ghash_new(
+          BLI_ghashutil_ptrhash, BLI_ghashutil_ptrcmp, "EEVEE hair motion step cache");
+    }
+  }
+}
+
+void EEVEE_motion_blur_data_free(EEVEE_MotionBlurData *mb)
+{
+  if (mb->object) {
+    BLI_ghash_free(mb->object, MEM_freeN, eevee_motion_blur_mesh_data_free);
+    mb->object = NULL;
+  }
+  for (int i = 0; i < 2; i++) {
+    if (mb->position_vbo_cache[i]) {
+      BLI_ghash_free(mb->position_vbo_cache[i], NULL, (GHashValFreeFP)GPU_vertbuf_discard);
+      mb->position_vbo_cache[i] = NULL;
+    }
+    if (mb->hair_motion_step_cache[i]) {
+      BLI_ghash_free(
+          mb->hair_motion_step_cache[i], NULL, (GHashValFreeFP)EEVEE_motion_hair_step_free);
+      mb->hair_motion_step_cache[i] = NULL;
+    }
+  }
+}
+
+EEVEE_ObjectMotionData *EEVEE_motion_blur_object_data_get(EEVEE_MotionBlurData *mb,
+                                                          Object *ob,
+                                                          bool is_psys)
+{
+  if (mb->object == NULL) {
+    return NULL;
+  }
+
+  EEVEE_ObjectKey key, *key_p;
+  /* Assumes that all instances have the same object pointer. This is currently the case because
+   * instance objects are temporary objects on the stack. */
+  /* WORKAROUND: Duplicate object key for particle system (hairs) to be able to store dupli offset
+   * matrix along with the emitter obmat. (see T97380) */
+  key.ob = (void *)((char *)ob + is_psys);
+  DupliObject *dup = DRW_object_get_dupli(ob);
+  if (dup) {
+    key.parent = DRW_object_get_dupli_parent(ob);
+    memcpy(key.id, dup->persistent_id, sizeof(key.id));
+  }
+  else {
+    key.parent = ob;
+    memset(key.id, 0, sizeof(key.id));
+  }
+
+  EEVEE_ObjectMotionData *ob_step = BLI_ghash_lookup(mb->object, &key);
+  if (ob_step == NULL) {
+    key_p = MEM_mallocN(sizeof(*key_p), __func__);
+    memcpy(key_p, &key, sizeof(*key_p));
+
+    ob_step = MEM_callocN(sizeof(EEVEE_ObjectMotionData), __func__);
+
+    BLI_ghash_insert(mb->object, key_p, ob_step);
+  }
+  return ob_step;
+}
+
+EEVEE_GeometryMotionData *EEVEE_motion_blur_geometry_data_get(EEVEE_ObjectMotionData *mb_data)
+{
+  if (mb_data->geometry_data == NULL) {
+    EEVEE_GeometryMotionData *geom_step = MEM_callocN(sizeof(EEVEE_GeometryMotionData), __func__);
+    geom_step->type = EEVEE_MOTION_DATA_MESH;
+    mb_data->geometry_data = geom_step;
+  }
+  return mb_data->geometry_data;
+}
+
+EEVEE_HairMotionData *EEVEE_motion_blur_hair_data_get(EEVEE_ObjectMotionData *mb_data, Object *ob)
+{
+  if (mb_data->hair_data == NULL) {
+    /* Ugly, we allocate for each modifiers and just fill based on modifier index in the list. */
+    int psys_len = BLI_listbase_count(&ob->modifiers);
+    EEVEE_HairMotionData *hair_step = MEM_callocN(
+        sizeof(EEVEE_HairMotionData) + sizeof(hair_step->psys[0]) * psys_len, __func__);
+    hair_step->psys_len = psys_len;
+    hair_step->type = EEVEE_MOTION_DATA_HAIR;
+    mb_data->hair_data = hair_step;
+  }
+  return mb_data->hair_data;
+}
+
+EEVEE_HairMotionData *EEVEE_motion_blur_curves_data_get(EEVEE_ObjectMotionData *mb_data)
+{
+  if (mb_data->hair_data == NULL) {
+    EEVEE_HairMotionData *hair_step = MEM_callocN(
+        sizeof(EEVEE_HairMotionData) + sizeof(hair_step->psys[0]), __func__);
+    hair_step->psys_len = 1;
+    hair_step->type = EEVEE_MOTION_DATA_HAIR;
+    mb_data->hair_data = hair_step;
+  }
+  return mb_data->hair_data;
+}
+
+/* View Layer data. */
 
 void EEVEE_view_layer_data_free(void *storage)
 {
@@ -63,6 +222,10 @@ void EEVEE_view_layer_data_free(void *storage)
   DRW_UBO_FREE_SAFE(sldata->renderpass_ubo.spec_color);
   DRW_UBO_FREE_SAFE(sldata->renderpass_ubo.spec_light);
   DRW_UBO_FREE_SAFE(sldata->renderpass_ubo.emit);
+  DRW_UBO_FREE_SAFE(sldata->renderpass_ubo.environment);
+  for (int aov_index = 0; aov_index < MAX_AOVS; aov_index++) {
+    DRW_UBO_FREE_SAFE(sldata->renderpass_ubo.aovs[aov_index]);
+  }
 
   if (sldata->material_cache) {
     BLI_memblock_destroy(sldata->material_cache, NULL);
@@ -75,6 +238,11 @@ EEVEE_ViewLayerData *EEVEE_view_layer_data_get(void)
   return (EEVEE_ViewLayerData *)DRW_view_layer_engine_data_get(&draw_engine_eevee_type);
 }
 
+static void eevee_view_layer_init(EEVEE_ViewLayerData *sldata)
+{
+  sldata->common_ubo = GPU_uniformbuf_create(sizeof(sldata->common_data));
+}
+
 EEVEE_ViewLayerData *EEVEE_view_layer_data_ensure_ex(struct ViewLayer *view_layer)
 {
   EEVEE_ViewLayerData **sldata = (EEVEE_ViewLayerData **)DRW_view_layer_engine_data_ensure_ex(
@@ -82,6 +250,7 @@ EEVEE_ViewLayerData *EEVEE_view_layer_data_ensure_ex(struct ViewLayer *view_laye
 
   if (*sldata == NULL) {
     *sldata = MEM_callocN(sizeof(**sldata), "EEVEE_ViewLayerData");
+    eevee_view_layer_init(*sldata);
   }
 
   return *sldata;
@@ -94,6 +263,7 @@ EEVEE_ViewLayerData *EEVEE_view_layer_data_ensure(void)
 
   if (*sldata == NULL) {
     *sldata = MEM_callocN(sizeof(**sldata), "EEVEE_ViewLayerData");
+    eevee_view_layer_init(*sldata);
   }
 
   return *sldata;
@@ -105,6 +275,8 @@ static void eevee_object_data_init(DrawData *dd)
 {
   EEVEE_ObjectEngineData *eevee_data = (EEVEE_ObjectEngineData *)dd;
   eevee_data->shadow_caster_id = -1;
+  eevee_data->need_update = false;
+  eevee_data->geom_update = false;
 }
 
 EEVEE_ObjectEngineData *EEVEE_object_data_get(Object *ob)

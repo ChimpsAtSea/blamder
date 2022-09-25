@@ -1,29 +1,12 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  * Declaration of GHOST_Event class.
  */
 
-#ifndef __GHOST_EVENT_H__
-#define __GHOST_EVENT_H__
+#pragma once
 
 #include "GHOST_IEvent.h"
 
@@ -34,11 +17,11 @@ class GHOST_Event : public GHOST_IEvent {
  public:
   /**
    * Constructor.
-   * \param msec  The time this event was generated.
-   * \param type  The type of this event.
-   * \param window The generating window (or NULL if system event).
+   * \param msec: The time this event was generated.
+   * \param type: The type of this event.
+   * \param window: The generating window (or NULL if system event).
    */
-  GHOST_Event(GHOST_TUns64 msec, GHOST_TEventType type, GHOST_IWindow *window)
+  GHOST_Event(uint64_t msec, GHOST_TEventType type, GHOST_IWindow *window)
       : m_type(type), m_time(msec), m_window(window), m_data(NULL)
   {
   }
@@ -56,7 +39,7 @@ class GHOST_Event : public GHOST_IEvent {
    * Returns the time this event was generated.
    * \return The event generation time.
    */
-  GHOST_TUns64 getTime()
+  uint64_t getTime()
   {
     return m_time;
   }
@@ -84,11 +67,9 @@ class GHOST_Event : public GHOST_IEvent {
   /** Type of this event. */
   GHOST_TEventType m_type;
   /** The time this event was generated. */
-  GHOST_TUns64 m_time;
+  uint64_t m_time;
   /** Pointer to the generating window. */
   GHOST_IWindow *m_window;
   /** Pointer to the event data. */
   GHOST_TEventDataPtr m_data;
 };
-
-#endif  // __GHOST_EVENT_H__

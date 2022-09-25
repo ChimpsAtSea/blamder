@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2014 Blender Foundation.
+
 # - Find PugiXML library
 # Find the native PugiXML includes and library
 # This module defines
@@ -10,17 +13,6 @@
 #
 # also defined, but not for general use are
 #  PUGIXML_LIBRARY, where to find the PugiXML library.
-
-#=============================================================================
-# Copyright 2014 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
 
 # If PUGIXML_ROOT_DIR was defined in the environment, use it.
 IF(NOT PUGIXML_ROOT_DIR AND NOT $ENV{PUGIXML_ROOT_DIR} STREQUAL "")
@@ -53,7 +45,7 @@ FIND_LIBRARY(PUGIXML_LIBRARY
 # handle the QUIETLY and REQUIRED arguments and set PUGIXML_FOUND to TRUE if
 # all listed variables are TRUE
 INCLUDE(FindPackageHandleStandardArgs)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(PUGIXML DEFAULT_MSG
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(PugiXML DEFAULT_MSG
     PUGIXML_LIBRARY PUGIXML_INCLUDE_DIR)
 
 IF(PUGIXML_FOUND)

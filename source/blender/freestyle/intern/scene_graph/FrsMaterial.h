@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_MATERIAL_H__
-#define __FREESTYLE_MATERIAL_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -30,13 +15,13 @@
 
 namespace Freestyle {
 
-/*! Class defining a material */
+/** Class defining a material */
 class FrsMaterial {
  public:
-  /*! Default constructor */
+  /** Default constructor */
   inline FrsMaterial();
 
-  /*! Builds a Material from its line, diffuse, ambient, specular, emissive
+  /** Builds a Material from its line, diffuse, ambient, specular, emissive
    *  colors, a shininess coefficient and line color priority.
    *    \param iLine:
    *      A 4 element float-array containing the line color.
@@ -58,180 +43,180 @@ class FrsMaterial {
                      const float *iAmbiant,
                      const float *iSpecular,
                      const float *iEmission,
-                     const float iShininess,
-                     const int iPriority);
+                     float iShininess,
+                     int iPriority);
 
-  /*! Copy constructor */
+  /** Copy constructor */
   inline FrsMaterial(const FrsMaterial &m);
 
-  /*! Destructor */
+  /** Destructor */
   virtual ~FrsMaterial()
   {
   }
 
-  /*! Returns the line color as a 4 float array */
+  /** Returns the line color as a 4 float array */
   inline const float *line() const
   {
     return Line;
   }
 
-  /*! Returns the red component of the line color */
+  /** Returns the red component of the line color */
   inline const float lineR() const
   {
     return Line[0];
   }
 
-  /*! Returns the green component of the line color */
+  /** Returns the green component of the line color */
   inline const float lineG() const
   {
     return Line[1];
   }
 
-  /*! Returns the blue component of the line color */
+  /** Returns the blue component of the line color */
   inline const float lineB() const
   {
     return Line[2];
   }
 
-  /*! Returns the alpha component of the line color */
+  /** Returns the alpha component of the line color */
   inline const float lineA() const
   {
     return Line[3];
   }
 
-  /*! Returns the diffuse color as a 4 float array */
+  /** Returns the diffuse color as a 4 float array */
   inline const float *diffuse() const
   {
     return Diffuse;
   }
 
-  /*! Returns the red component of the diffuse color */
+  /** Returns the red component of the diffuse color */
   inline const float diffuseR() const
   {
     return Diffuse[0];
   }
 
-  /*! Returns the green component of the diffuse color */
+  /** Returns the green component of the diffuse color */
   inline const float diffuseG() const
   {
     return Diffuse[1];
   }
 
-  /*! Returns the blue component of the diffuse color */
+  /** Returns the blue component of the diffuse color */
   inline const float diffuseB() const
   {
     return Diffuse[2];
   }
 
-  /*! Returns the alpha component of the diffuse color */
+  /** Returns the alpha component of the diffuse color */
   inline const float diffuseA() const
   {
     return Diffuse[3];
   }
 
-  /*! Returns the specular color as a 4 float array */
+  /** Returns the specular color as a 4 float array */
   inline const float *specular() const
   {
     return Specular;
   }
 
-  /*! Returns the red component of the specular color */
+  /** Returns the red component of the specular color */
   inline const float specularR() const
   {
     return Specular[0];
   }
 
-  /*! Returns the green component of the specular color */
+  /** Returns the green component of the specular color */
   inline const float specularG() const
   {
     return Specular[1];
   }
 
-  /*! Returns the blue component of the specular color */
+  /** Returns the blue component of the specular color */
   inline const float specularB() const
   {
     return Specular[2];
   }
 
-  /*! Returns the alpha component of the specular color */
+  /** Returns the alpha component of the specular color */
   inline const float specularA() const
   {
     return Specular[3];
   }
 
-  /*! Returns the ambient color as a 4 float array */
+  /** Returns the ambient color as a 4 float array */
   inline const float *ambient() const
   {
     return Ambient;
   }
 
-  /*! Returns the red component of the ambient color */
+  /** Returns the red component of the ambient color */
   inline const float ambientR() const
   {
     return Ambient[0];
   }
 
-  /*! Returns the green component of the ambient color */
+  /** Returns the green component of the ambient color */
   inline const float ambientG() const
   {
     return Ambient[1];
   }
 
-  /*! Returns the blue component of the ambient color */
+  /** Returns the blue component of the ambient color */
   inline const float ambientB() const
   {
     return Ambient[2];
   }
 
-  /*! Returns the alpha component of the ambient color */
+  /** Returns the alpha component of the ambient color */
   inline const float ambientA() const
   {
     return Ambient[3];
   }
 
-  /*! Returns the emissive color as a 4 float array */
+  /** Returns the emissive color as a 4 float array */
   inline const float *emission() const
   {
     return Emission;
   }
 
-  /*! Returns the red component of the emissive color */
+  /** Returns the red component of the emissive color */
   inline const float emissionR() const
   {
     return Emission[0];
   }
 
-  /*! Returns the green component of the emissive color */
+  /** Returns the green component of the emissive color */
   inline const float emissionG() const
   {
     return Emission[1];
   }
 
-  /*! Returns the blue component of the emissive color */
+  /** Returns the blue component of the emissive color */
   inline const float emissionB() const
   {
     return Emission[2];
   }
 
-  /*! Returns the alpha component of the emissive color */
+  /** Returns the alpha component of the emissive color */
   inline const float emissionA() const
   {
     return Emission[3];
   }
 
-  /*! Returns the shininess coefficient */
+  /** Returns the shininess coefficient */
   inline const float shininess() const
   {
     return Shininess;
   }
 
-  /*! Returns the line color priority */
+  /** Returns the line color priority */
   inline const int priority() const
   {
     return Priority;
   }
 
-  /*! Sets the line color.
+  /** Sets the line color.
    *    \param r:
    *      Red component
    *    \param g:
@@ -241,9 +226,9 @@ class FrsMaterial {
    *    \param a:
    *      Alpha component
    */
-  inline void setLine(const float r, const float g, const float b, const float a);
+  inline void setLine(float r, float g, float b, float a);
 
-  /*! Sets the diffuse color.
+  /** Sets the diffuse color.
    *    \param r:
    *      Red component
    *    \param g:
@@ -253,9 +238,9 @@ class FrsMaterial {
    *    \param a:
    *      Alpha component
    */
-  inline void setDiffuse(const float r, const float g, const float b, const float a);
+  inline void setDiffuse(float r, float g, float b, float a);
 
-  /*! Sets the specular color.
+  /** Sets the specular color.
    *    \param r:
    *      Red component
    *    \param g:
@@ -265,9 +250,9 @@ class FrsMaterial {
    *    \param a:
    *      Alpha component
    */
-  inline void setSpecular(const float r, const float g, const float b, const float a);
+  inline void setSpecular(float r, float g, float b, float a);
 
-  /*! Sets the ambient color.
+  /** Sets the ambient color.
    *    \param r:
    *      Red component
    *    \param g:
@@ -277,9 +262,9 @@ class FrsMaterial {
    *    \param a:
    *      Alpha component
    */
-  inline void setAmbient(const float r, const float g, const float b, const float a);
+  inline void setAmbient(float r, float g, float b, float a);
 
-  /*! Sets the emissive color.
+  /** Sets the emissive color.
    *    \param r:
    *      Red component
    *    \param g:
@@ -289,19 +274,19 @@ class FrsMaterial {
    *    \param a:
    *      Alpha component
    */
-  inline void setEmission(const float r, const float g, const float b, const float a);
+  inline void setEmission(float r, float g, float b, float a);
 
-  /*! Sets the shininess.
+  /** Sets the shininess.
    *    \param s:
    *      Shininess
    */
-  inline void setShininess(const float s);
+  inline void setShininess(float s);
 
-  /*! Sets the line color priority.
+  /** Sets the line color priority.
    *    \param priority:
    *      Priority
    */
-  inline void setPriority(const int priority);
+  inline void setPriority(int priority);
 
   /* operators */
   inline FrsMaterial &operator=(const FrsMaterial &m);
@@ -309,7 +294,7 @@ class FrsMaterial {
   inline bool operator==(const FrsMaterial &m) const;
 
  private:
-  /*! Material properties */
+  /** Material properties */
   float Line[4];
   float Diffuse[4];
   float Specular[4];
@@ -479,5 +464,3 @@ bool FrsMaterial::operator==(const FrsMaterial &m) const
 }
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_MATERIAL_H__

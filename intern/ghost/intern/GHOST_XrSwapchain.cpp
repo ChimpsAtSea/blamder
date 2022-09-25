@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup GHOST
@@ -54,11 +40,10 @@ static OpenXRSwapchainData::ImageVec swapchain_images_create(XrSwapchain swapcha
 GHOST_XrSwapchain::GHOST_XrSwapchain(GHOST_IXrGraphicsBinding &gpu_binding,
                                      const XrSession &session,
                                      const XrViewConfigurationView &view_config)
-    : m_oxr(new OpenXRSwapchainData())
+    : m_oxr(std::make_unique<OpenXRSwapchainData>())
 {
   XrSwapchainCreateInfo create_info = {XR_TYPE_SWAPCHAIN_CREATE_INFO};
   uint32_t format_count = 0;
-  int64_t chosen_format;
 
   CHECK_XR(xrEnumerateSwapchainFormats(session, 0, &format_count, nullptr),
            "Failed to get count of swapchain image formats.");
@@ -68,14 +53,16 @@ GHOST_XrSwapchain::GHOST_XrSwapchain(GHOST_IXrGraphicsBinding &gpu_binding,
            "Failed to get swapchain image formats.");
   assert(swapchain_formats.size() == format_count);
 
-  if (!gpu_binding.chooseSwapchainFormat(swapchain_formats, &chosen_format)) {
+  std::optional chosen_format = gpu_binding.chooseSwapchainFormat(
+      swapchain_formats, m_format, m_is_srgb_buffer);
+  if (!chosen_format) {
     throw GHOST_XrException(
         "Error: No format matching OpenXR runtime supported swapchain formats found.");
   }
 
   create_info.usageFlags = XR_SWAPCHAIN_USAGE_SAMPLED_BIT |
                            XR_SWAPCHAIN_USAGE_COLOR_ATTACHMENT_BIT;
-  create_info.format = chosen_format;
+  create_info.format = *chosen_format;
   create_info.sampleCount = view_config.recommendedSwapchainSampleCount;
   create_info.width = view_config.recommendedImageRectWidth;
   create_info.height = view_config.recommendedImageRectHeight;
@@ -95,7 +82,9 @@ GHOST_XrSwapchain::GHOST_XrSwapchain(GHOST_IXrGraphicsBinding &gpu_binding,
 GHOST_XrSwapchain::GHOST_XrSwapchain(GHOST_XrSwapchain &&other)
     : m_oxr(std::move(other.m_oxr)),
       m_image_width(other.m_image_width),
-      m_image_height(other.m_image_height)
+      m_image_height(other.m_image_height),
+      m_format(other.m_format),
+      m_is_srgb_buffer(other.m_is_srgb_buffer)
 {
   /* Prevent xrDestroySwapchain call for the moved out item. */
   other.m_oxr = nullptr;
@@ -130,6 +119,16 @@ void GHOST_XrSwapchain::updateCompositionLayerProjectViewSubImage(XrSwapchainSub
   r_sub_image.swapchain = m_oxr->swapchain;
   r_sub_image.imageRect.offset = {0, 0};
   r_sub_image.imageRect.extent = {m_image_width, m_image_height};
+}
+
+GHOST_TXrSwapchainFormat GHOST_XrSwapchain::getFormat() const
+{
+  return m_format;
+}
+
+bool GHOST_XrSwapchain::isBufferSRGB() const
+{
+  return m_is_srgb_buffer;
 }
 
 void GHOST_XrSwapchain::releaseImage()

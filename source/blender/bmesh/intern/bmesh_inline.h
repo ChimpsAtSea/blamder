@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -20,8 +6,7 @@
  * BM Inline functions.
  */
 
-#ifndef __BMESH_INLINE_H__
-#define __BMESH_INLINE_H__
+#pragma once
 
 /* stuff for dealing with header flags */
 #define BM_elem_flag_test(ele, hflag) _bm_elem_flag_test(&(ele)->head, hflag)
@@ -96,12 +81,12 @@ BLI_INLINE void _bm_elem_flag_merge_into(BMHeader *head,
 
 /**
  * notes on #BM_elem_index_set(...) usage,
- * Set index is sometimes abused as temp storage, other times we cant be
+ * Set index is sometimes abused as temp storage, other times we can't be
  * sure if the index values are valid because certain operations have modified
  * the mesh structure.
  *
  * To set the elements to valid indices 'BM_mesh_elem_index_ensure' should be used
- * rather then adding inline loops, however there are cases where we still
+ * rather than adding inline loops, however there are cases where we still
  * set the index directly
  *
  * In an attempt to manage this,
@@ -135,5 +120,3 @@ BLI_INLINE int _bm_elem_index_get(const BMHeader *head)
 {
   return head->index;
 }
-
-#endif /* __BMESH_INLINE_H__ */

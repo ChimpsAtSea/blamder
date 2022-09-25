@@ -1,29 +1,21 @@
-/*
- * Copyright 2011-2016 Blender Foundation
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright 2011-2022 Blender Foundation */
+
+#pragma once
 
 CCL_NAMESPACE_BEGIN
 
-ccl_device ShaderClosure *closure_alloc(ShaderData *sd, int size, ClosureType type, float3 weight)
+ccl_device ccl_private ShaderClosure *closure_alloc(ccl_private ShaderData *sd,
+                                                    int size,
+                                                    ClosureType type,
+                                                    float3 weight)
 {
   kernel_assert(size <= sizeof(ShaderClosure));
 
   if (sd->num_closure_left == 0)
     return NULL;
 
-  ShaderClosure *sc = &sd->closure[sd->num_closure];
+  ccl_private ShaderClosure *sc = &sd->closure[sd->num_closure];
 
   sc->type = type;
   sc->weight = weight;
@@ -34,7 +26,7 @@ ccl_device ShaderClosure *closure_alloc(ShaderData *sd, int size, ClosureType ty
   return sc;
 }
 
-ccl_device ccl_addr_space void *closure_alloc_extra(ShaderData *sd, int size)
+ccl_device ccl_private void *closure_alloc_extra(ccl_private ShaderData *sd, int size)
 {
   /* Allocate extra space for closure that need more parameters. We allocate
    * in chunks of sizeof(ShaderClosure) starting from the end of the closure
@@ -52,19 +44,31 @@ ccl_device ccl_addr_space void *closure_alloc_extra(ShaderData *sd, int size)
   }
 
   sd->num_closure_left -= num_extra;
-  return (ccl_addr_space void *)(sd->closure + sd->num_closure + sd->num_closure_left);
+  return (ccl_private void *)(sd->closure + sd->num_closure + sd->num_closure_left);
 }
 
-ccl_device_inline ShaderClosure *bsdf_alloc(ShaderData *sd, int size, float3 weight)
+ccl_device_inline ccl_private ShaderClosure *bsdf_alloc(ccl_private ShaderData *sd,
+                                                        int size,
+                                                        float3 weight)
 {
-  ShaderClosure *sc = closure_alloc(sd, size, CLOSURE_NONE_ID, weight);
+  kernel_assert(isfinite_safe(weight));
 
-  if (sc == NULL)
-    return NULL;
+  const float sample_weight = fabsf(average(weight));
 
-  float sample_weight = fabsf(average(weight));
-  sc->sample_weight = sample_weight;
-  return (sample_weight >= CLOSURE_WEIGHT_CUTOFF) ? sc : NULL;
+  /* Use comparison this way to help dealing with non-finite weight: if the average is not finite
+   * we will not allocate new closure. */
+  if (sample_weight >= CLOSURE_WEIGHT_CUTOFF) {
+    ccl_private ShaderClosure *sc = closure_alloc(sd, size, CLOSURE_NONE_ID, weight);
+    if (sc == NULL) {
+      return NULL;
+    }
+
+    sc->sample_weight = sample_weight;
+
+    return sc;
+  }
+
+  return NULL;
 }
 
 #ifdef __OSL__
@@ -73,17 +77,27 @@ ccl_device_inline ShaderClosure *bsdf_alloc_osl(ShaderData *sd,
                                                 float3 weight,
                                                 void *data)
 {
-  ShaderClosure *sc = closure_alloc(sd, size, CLOSURE_NONE_ID, weight);
+  kernel_assert(isfinite_safe(weight));
 
-  if (!sc)
-    return NULL;
+  const float sample_weight = fabsf(average(weight));
 
-  memcpy((void *)sc, data, size);
+  /* Use comparison this way to help dealing with non-finite weight: if the average is not finite
+   * we will not allocate new closure. */
+  if (sample_weight >= CLOSURE_WEIGHT_CUTOFF) {
+    ShaderClosure *sc = closure_alloc(sd, size, CLOSURE_NONE_ID, weight);
+    if (!sc) {
+      return NULL;
+    }
 
-  float sample_weight = fabsf(average(weight));
-  sc->weight = weight;
-  sc->sample_weight = sample_weight;
-  return (sample_weight >= CLOSURE_WEIGHT_CUTOFF) ? sc : NULL;
+    memcpy((void *)sc, data, size);
+
+    sc->weight = weight;
+    sc->sample_weight = sample_weight;
+
+    return sc;
+  }
+
+  return NULL;
 }
 #endif
 

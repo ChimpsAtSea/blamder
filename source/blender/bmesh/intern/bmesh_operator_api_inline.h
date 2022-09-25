@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -20,18 +6,12 @@
  * BMesh inline operator functions.
  */
 
-#ifndef __BMESH_OPERATOR_API_INLINE_H__
-#define __BMESH_OPERATOR_API_INLINE_H__
+#pragma once
 
-/* tool flag API. never, ever ever should tool code put junk in
- * header flags (element->head.flag), nor should they use
- * element->head.eflag1/eflag2.  instead, use this api to set
- * flags.
- *
- * if you need to store a value per element, use a
- * ghash or a mapping slot to do it. */
+/* Tool Flag API: Tool code must never put junk in header flags (#BMHeader.hflag)
+ * instead, use this API to set flags.
+ * If you need to store a value per element, use a #GHash or a mapping slot to do it. */
 
-/* flags 15 and 16 (1 << 14 and 1 << 15) are reserved for bmesh api use */
 ATTR_WARN_UNUSED_RESULT ATTR_NONNULL(1, 2) BLI_INLINE
     short _bmo_elem_flag_test(BMesh *bm, const BMFlagLayer *oflags, const short oflag)
 {
@@ -236,5 +216,3 @@ ATTR_WARN_UNUSED_RESULT ATTR_NONNULL(1) BLI_INLINE
 
   return NULL;
 }
-
-#endif /* __BMESH_OPERATOR_API_INLINE_H__ */

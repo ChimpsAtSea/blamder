@@ -1,32 +1,9 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
+/* SPDX-License-Identifier: GPL-2.0-or-later
  * The Original Code is:
  *   OGF/Graphite: Geometry and Graphics Programming Library + Utilities
- *   Copyright (C) 2000 Bruno Levy
- *   Contact: Bruno Levy
- *      levy@loria.fr
- *      ISA Project
- *      LORIA, INRIA Lorraine,
- *      Campus Scientifique, BP 239
- *      54506 VANDOEUVRE LES NANCY CEDEX
- *      FRANCE
- */
+ *   Copyright 2000 Bruno Levy <levy@loria.fr> */
 
-#ifndef __MESH_TOOLS_MATH_NORMAL_CYCLE__
-#define __MESH_TOOLS_MATH_NORMAL_CYCLE__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -65,11 +42,10 @@ template<class T> inline void ogf_swap(T &x, T &y)
  */
 class NormalCycle {
  public:
-  NormalCycle();
   void begin();
   void end();
   /**
-   * Note: the specified edge vector needs to be pre-clipped by the neighborhood.
+   * NOTE: the specified edge vector needs to be pre-clipped by the neighborhood.
    */
   void accumulate_dihedral_angle(const Vec3r &edge, real angle, real neigh_area = 1.0);
 
@@ -145,5 +121,3 @@ inline void NormalCycle::accumulate_dihedral_angle(const Vec3r &edge,
 }  // namespace OGF
 
 } /* namespace Freestyle */
-
-#endif  // __MESH_TOOLS_MATH_NORMAL_CYCLE__

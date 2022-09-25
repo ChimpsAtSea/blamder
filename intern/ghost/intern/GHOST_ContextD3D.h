@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup GHOST
  */
 
-#ifndef __GHOST_CONTEXTD3D_H__
-#define __GHOST_CONTEXTD3D_H__
+#pragma once
 
 #ifndef WIN32
 #  error WIN32 only!
@@ -39,19 +24,19 @@ class GHOST_ContextD3D : public GHOST_Context {
 
   /**
    * Swaps front and back buffers of a window.
-   * \return  A boolean success indicator.
+   * \return A boolean success indicator.
    */
   GHOST_TSuccess swapBuffers();
 
   /**
    * Activates the drawing context of this window.
-   * \return  A boolean success indicator.
+   * \return A boolean success indicator.
    */
   GHOST_TSuccess activateDrawingContext();
 
   /**
    * Release the drawing context of the calling thread.
-   * \return  A boolean success indicator.
+   * \return A boolean success indicator.
    */
   GHOST_TSuccess releaseDrawingContext();
 
@@ -78,8 +63,8 @@ class GHOST_ContextD3D : public GHOST_Context {
   GHOST_TSuccess releaseNativeHandles();
 
   /**
-   * Sets the swap interval for swapBuffers.
-   * \param interval The swap interval to use.
+   * Sets the swap interval for #swapBuffers.
+   * \param interval: The swap interval to use.
    * \return A boolean success indicator.
    */
   GHOST_TSuccess setSwapInterval(int /*interval*/)
@@ -88,8 +73,8 @@ class GHOST_ContextD3D : public GHOST_Context {
   }
 
   /**
-   * Gets the current swap interval for swapBuffers.
-   * \param intervalOut Variable to store the swap interval if it can be read.
+   * Gets the current swap interval for #swapBuffers.
+   * \param intervalOut: Variable to store the swap interval if it can be read.
    * \return Whether the swap interval can be read.
    */
   GHOST_TSuccess getSwapInterval(int &)
@@ -98,8 +83,8 @@ class GHOST_ContextD3D : public GHOST_Context {
   }
 
   /**
-   * Gets the OpenGL framebuffer associated with the OpenGL context
-   * \return The ID of an OpenGL framebuffer object.
+   * Gets the OpenGL frame-buffer associated with the OpenGL context
+   * \return The ID of an OpenGL frame-buffer object.
    */
   unsigned int getDefaultFramebuffer()
   {
@@ -107,9 +92,13 @@ class GHOST_ContextD3D : public GHOST_Context {
   }
 
   class GHOST_SharedOpenGLResource *createSharedOpenGLResource(
-      unsigned int width, unsigned int height, ID3D11RenderTargetView *render_target);
+      unsigned int width,
+      unsigned int height,
+      DXGI_FORMAT format,
+      ID3D11RenderTargetView *render_target);
   class GHOST_SharedOpenGLResource *createSharedOpenGLResource(unsigned int width,
-                                                               unsigned int height);
+                                                               unsigned int height,
+                                                               DXGI_FORMAT format);
   void disposeSharedOpenGLResource(class GHOST_SharedOpenGLResource *shared_res);
   GHOST_TSuccess blitFromOpenGLContext(class GHOST_SharedOpenGLResource *shared_res,
                                        unsigned int width,
@@ -132,5 +121,3 @@ class GHOST_ContextD3D : public GHOST_Context {
   ID3D11Device *m_device;
   ID3D11DeviceContext *m_device_ctx;
 };
-
-#endif /* __GHOST_CONTEXTD3D_H__ */

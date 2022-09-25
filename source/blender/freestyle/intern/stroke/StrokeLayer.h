@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_STROKE_LAYER_H__
-#define __FREESTYLE_STROKE_LAYER_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -56,15 +41,15 @@ class StrokeLayer {
 
   virtual ~StrokeLayer();
 
-  /*! Render method */
+  /** Render method */
   void ScaleThickness(float iFactor);
   void Render(const StrokeRenderer *iRenderer);
   void RenderBasic(const StrokeRenderer *iRenderer);
 
-  /*! clears the layer */
+  /** clears the layer */
   void clear();
 
-  /*! accessors */
+  /** accessors */
   inline stroke_container::iterator strokes_begin()
   {
     return _strokes.begin();
@@ -85,7 +70,7 @@ class StrokeLayer {
     return _strokes.empty();
   }
 
-  /*! modifiers */
+  /** modifiers */
   inline void setStrokes(stroke_container &iStrokes)
   {
     _strokes = iStrokes;
@@ -102,5 +87,3 @@ class StrokeLayer {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_STROKE_LAYER_H__

@@ -1,21 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
- * \ingroup bli
+ * \ingroup bke
  */
 
 #include "MEM_guardedalloc.h"
@@ -35,8 +21,6 @@
 
 #include "bmesh.h"
 #include "pbvh_intern.h"
-
-#include <assert.h>
 
 /* Avoid skinny faces */
 #define USE_EDGEQUEUE_EVEN_SUBDIV
@@ -65,6 +49,7 @@
 static void pbvh_bmesh_verify(PBVH *pbvh);
 #endif
 
+/* -------------------------------------------------------------------- */
 /** \name BMesh Utility API
  *
  * Use some local functions which assume triangles.
@@ -181,17 +166,16 @@ static BMVert *bm_vert_hash_lookup_chain(GHash *deleted_verts, BMVert *v)
   while (true) {
     BMVert **v_next_p = (BMVert **)BLI_ghash_lookup_p(deleted_verts, v);
     if (v_next_p == NULL) {
-      /* not remapped*/
+      /* Not remapped. */
       return v;
     }
-    else if (*v_next_p == NULL) {
+    if (*v_next_p == NULL) {
       /* removed and not remapped */
       return NULL;
     }
-    else {
-      /* remapped */
-      v = *v_next_p;
-    }
+
+    /* remapped */
+    v = *v_next_p;
   }
 }
 
@@ -364,8 +348,7 @@ static void pbvh_bmesh_node_split(PBVH *pbvh, const BBC *bbc_array, int node_ind
   n->layer_disp = NULL;
 
   if (n->draw_buffers) {
-    GPU_pbvh_buffers_free(n->draw_buffers);
-    n->draw_buffers = NULL;
+    pbvh_free_draw_buffers(pbvh, n);
   }
   n->flag &= ~PBVH_Leaf;
 
@@ -392,6 +375,9 @@ static bool pbvh_bmesh_node_limit_ensure(PBVH *pbvh, int node_index)
     /* Node limit not exceeded */
     return false;
   }
+
+  /* Trigger draw manager cache invalidation. */
+  pbvh->draw_cache_invalid = true;
 
   /* For each BMFace, store the AABB and AABB centroid */
   BBC *bbc_array = MEM_mallocN(sizeof(BBC) * bm_faces_size, "BBC");
@@ -916,7 +902,7 @@ static void long_edge_queue_edge_add_recursive(
       for (int i = 0; i < ARRAY_SIZE(l_adjacent); i++) {
         float len_sq_other = BM_edge_calc_length_squared(l_adjacent[i]->e);
         if (len_sq_other > max_ff(len_sq_cmp, limit_len_sq)) {
-          //                  edge_queue_insert(eq_ctx, l_adjacent[i]->e, -len_sq_other);
+          // edge_queue_insert(eq_ctx, l_adjacent[i]->e, -len_sq_other);
           long_edge_queue_edge_add_recursive(
               eq_ctx, l_adjacent[i]->radial_next, l_adjacent[i], len_sq_other, limit_len);
         }
@@ -1170,12 +1156,12 @@ static void pbvh_bmesh_split_edge(EdgeQueueContext *eq_ctx,
     }
 
     /**
-     * The 2 new faces created and assigned to ``f_new`` have their
+     * The 2 new faces created and assigned to `f_new` have their
      * verts & edges shuffled around.
      *
      * - faces wind anticlockwise in this example.
-     * - original edge is ``(v1, v2)``
-     * - original face is ``(v1, v2, v3)``
+     * - original edge is `(v1, v2)`
+     * - original face is `(v1, v2, v3)`
      *
      * <pre>
      *         + v3(v_opp)
@@ -1191,8 +1177,8 @@ static void pbvh_bmesh_split_edge(EdgeQueueContext *eq_ctx,
      *  (first) (second)
      * </pre>
      *
-     * - f_new (first):  ``v_tri=(v1, v4, v3), e_tri=(e1, e5, e4)``
-     * - f_new (second): ``v_tri=(v4, v2, v3), e_tri=(e2, e3, e5)``
+     * - f_new (first):  `v_tri=(v1, v4, v3), e_tri=(e1, e5, e4)`
+     * - f_new (second): `v_tri=(v4, v2, v3), e_tri=(e2, e3, e5)`
      */
 
     /* Create two new faces */
@@ -1256,7 +1242,7 @@ static bool pbvh_bmesh_subdivide_long_edges(EdgeQueueContext *eq_ctx,
     EDGE_QUEUE_DISABLE(e);
 #endif
 
-    /* At the moment edges never get shorter (subdiv will make new edges)
+    /* At the moment edges never get shorter (subdivision will make new edges)
      * unlike collapse where edges can become longer. */
 #if 0
     if (len_squared_v3v3(v1->co, v2->co) <= eq_ctx->q->limit_len_squared) {
@@ -1326,7 +1312,7 @@ static void pbvh_bmesh_collapse_edge(PBVH *pbvh,
 
   /* For all remaining faces of v_del, create a new face that is the
    * same except it uses v_conn instead of v_del */
-  /* Note: this could be done with BM_vert_splice(), but that
+  /* NOTE: this could be done with BM_vert_splice(), but that
    * requires handling other issues like duplicate edges, so doesn't
    * really buy anything. */
   BLI_buffer_clear(deleted_faces);
@@ -1738,9 +1724,8 @@ static void pbvh_bmesh_node_limit_ensure_fast(
           candidate = i_iter;
           break;
         }
-        else {
-          num_child2++;
-        }
+
+        num_child2++;
       }
 
       if (candidate != -1) {
@@ -1878,7 +1863,6 @@ static void pbvh_bmesh_create_nodes_fast_recursive(
 
 /***************************** Public API *****************************/
 
-/* Build a PBVH from a BMesh */
 void BKE_pbvh_build_bmesh(PBVH *pbvh,
                           BMesh *bm,
                           bool smooth_shading,
@@ -1956,7 +1940,6 @@ void BKE_pbvh_build_bmesh(PBVH *pbvh,
   MEM_freeN(nodeinfo);
 }
 
-/* Collapse short edges, subdivide long edges */
 bool BKE_pbvh_bmesh_update_topology(PBVH *pbvh,
                                     PBVHTopologyUpdateMode mode,
                                     const float center[3],
@@ -2034,10 +2017,6 @@ bool BKE_pbvh_bmesh_update_topology(PBVH *pbvh,
   return modified;
 }
 
-/* In order to perform operations on the original node coordinates
- * (currently just raycast), store the node's triangles and vertices.
- *
- * Skips triangles that are hidden. */
 void BKE_pbvh_bmesh_node_save_orig(BMesh *bm, PBVHNode *node)
 {
   /* Skip if original coords/triangles are already saved */
@@ -2319,7 +2298,7 @@ static void pbvh_bmesh_verify(PBVH *pbvh)
     vert_count++;
   }
 
-  /* if totvert differs from number of verts inside the hash. hash-totvert is checked above  */
+  /* If totvert differs from number of verts inside the hash. hash-totvert is checked above. */
   BLI_assert(vert_count == pbvh->bm->totvert);
 #  endif
 

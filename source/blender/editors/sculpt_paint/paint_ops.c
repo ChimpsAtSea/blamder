@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edsculpt
@@ -53,24 +39,24 @@
 #include "RNA_access.h"
 #include "RNA_define.h"
 
+#include "curves_sculpt_intern.h"
 #include "paint_intern.h"
 #include "sculpt_intern.h"
 
-#include <string.h>
-//#include <stdio.h>
 #include <stddef.h>
+#include <string.h>
 
 /* Brush operators */
 static int brush_add_exec(bContext *C, wmOperator *UNUSED(op))
 {
-  /*int type = RNA_enum_get(op->ptr, "type");*/
+  // int type = RNA_enum_get(op->ptr, "type");
   Paint *paint = BKE_paint_get_active_from_context(C);
   Brush *br = BKE_paint_brush(paint);
   Main *bmain = CTX_data_main(C);
   ePaintMode mode = BKE_paintmode_get_active_from_context(C);
 
   if (br) {
-    br = BKE_brush_copy(bmain, br);
+    br = (Brush *)BKE_id_copy(bmain, &br->id);
   }
   else {
     br = BKE_brush_add(bmain, "Brush", BKE_paint_object_mode_from_paintmode(mode));
@@ -96,27 +82,156 @@ static void BRUSH_OT_add(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
+static eGPBrush_Presets gpencil_get_brush_preset_from_tool(bToolRef *tool,
+                                                           enum eContextObjectMode mode)
+{
+  switch (mode) {
+    case CTX_MODE_PAINT_GPENCIL: {
+      if (STREQ(tool->runtime->data_block, "DRAW")) {
+        return GP_BRUSH_PRESET_PENCIL;
+      }
+      if (STREQ(tool->runtime->data_block, "FILL")) {
+        return GP_BRUSH_PRESET_FILL_AREA;
+      }
+      if (STREQ(tool->runtime->data_block, "ERASE")) {
+        return GP_BRUSH_PRESET_ERASER_SOFT;
+      }
+      if (STREQ(tool->runtime->data_block, "TINT")) {
+        return GP_BRUSH_PRESET_TINT;
+      }
+      break;
+    }
+    case CTX_MODE_SCULPT_GPENCIL: {
+      if (STREQ(tool->runtime->data_block, "SMOOTH")) {
+        return GP_BRUSH_PRESET_SMOOTH_STROKE;
+      }
+      if (STREQ(tool->runtime->data_block, "STRENGTH")) {
+        return GP_BRUSH_PRESET_STRENGTH_STROKE;
+      }
+      if (STREQ(tool->runtime->data_block, "THICKNESS")) {
+        return GP_BRUSH_PRESET_THICKNESS_STROKE;
+      }
+      if (STREQ(tool->runtime->data_block, "GRAB")) {
+        return GP_BRUSH_PRESET_GRAB_STROKE;
+      }
+      if (STREQ(tool->runtime->data_block, "PUSH")) {
+        return GP_BRUSH_PRESET_PUSH_STROKE;
+      }
+      if (STREQ(tool->runtime->data_block, "TWIST")) {
+        return GP_BRUSH_PRESET_TWIST_STROKE;
+      }
+      if (STREQ(tool->runtime->data_block, "PINCH")) {
+        return GP_BRUSH_PRESET_PINCH_STROKE;
+      }
+      if (STREQ(tool->runtime->data_block, "RANDOMIZE")) {
+        return GP_BRUSH_PRESET_RANDOMIZE_STROKE;
+      }
+      if (STREQ(tool->runtime->data_block, "CLONE")) {
+        return GP_BRUSH_PRESET_CLONE_STROKE;
+      }
+      break;
+    }
+    case CTX_MODE_WEIGHT_GPENCIL: {
+      return GP_BRUSH_PRESET_DRAW_WEIGHT;
+    }
+    case CTX_MODE_VERTEX_GPENCIL: {
+      if (STREQ(tool->runtime->data_block, "DRAW")) {
+        return GP_BRUSH_PRESET_VERTEX_DRAW;
+      }
+      if (STREQ(tool->runtime->data_block, "BLUR")) {
+        return GP_BRUSH_PRESET_VERTEX_BLUR;
+      }
+      if (STREQ(tool->runtime->data_block, "AVERAGE")) {
+        return GP_BRUSH_PRESET_VERTEX_AVERAGE;
+      }
+      if (STREQ(tool->runtime->data_block, "SMEAR")) {
+        return GP_BRUSH_PRESET_VERTEX_SMEAR;
+      }
+      if (STREQ(tool->runtime->data_block, "REPLACE")) {
+        return GP_BRUSH_PRESET_VERTEX_REPLACE;
+      }
+      break;
+    }
+    default:
+      return GP_BRUSH_PRESET_UNKNOWN;
+  }
+  return GP_BRUSH_PRESET_UNKNOWN;
+}
+
 static int brush_add_gpencil_exec(bContext *C, wmOperator *UNUSED(op))
 {
-  /*int type = RNA_enum_get(op->ptr, "type");*/
-  ToolSettings *ts = CTX_data_tool_settings(C);
-  Paint *paint = &ts->gp_paint->paint;
+  Paint *paint = BKE_paint_get_active_from_context(C);
   Brush *br = BKE_paint_brush(paint);
   Main *bmain = CTX_data_main(C);
 
   if (br) {
-    br = BKE_brush_copy(bmain, br);
+    br = (Brush *)BKE_id_copy(bmain, &br->id);
   }
   else {
-    br = BKE_brush_add(bmain, "Brush", OB_MODE_PAINT_GPENCIL);
+    /* Get the active tool to determine what type of brush is active. */
+    bScreen *screen = CTX_wm_screen(C);
+    if (screen == NULL) {
+      return OPERATOR_CANCELLED;
+    }
 
-    /* Init grease pencil specific data. */
-    BKE_brush_init_gpencil_settings(br);
+    bToolRef *tool = NULL;
+    LISTBASE_FOREACH (ScrArea *, area, &screen->areabase) {
+      if (area->spacetype == SPACE_VIEW3D) {
+        /* Check the current tool is a brush. */
+        bToolRef *tref = area->runtime.tool;
+        if (tref && tref->runtime && tref->runtime->data_block[0]) {
+          tool = tref;
+          break;
+        }
+      }
+    }
+
+    if (tool == NULL) {
+      return OPERATOR_CANCELLED;
+    }
+
+    /* Get Brush mode base on context mode. */
+    const enum eContextObjectMode mode = CTX_data_mode_enum(C);
+    eObjectMode obmode = OB_MODE_PAINT_GPENCIL;
+    switch (mode) {
+      case CTX_MODE_PAINT_GPENCIL:
+        obmode = OB_MODE_PAINT_GPENCIL;
+        break;
+      case CTX_MODE_SCULPT_GPENCIL:
+        obmode = OB_MODE_SCULPT_GPENCIL;
+        break;
+      case CTX_MODE_WEIGHT_GPENCIL:
+        obmode = OB_MODE_WEIGHT_GPENCIL;
+        break;
+      case CTX_MODE_VERTEX_GPENCIL:
+        obmode = OB_MODE_VERTEX_GPENCIL;
+        break;
+      default:
+        return OPERATOR_CANCELLED;
+        break;
+    }
+
+    /* Get brush preset using the actual tool. */
+    eGPBrush_Presets preset = gpencil_get_brush_preset_from_tool(tool, mode);
+
+    /* Capitalize Brush name first letter using the tool name. */
+    char name[64];
+    BLI_strncpy(name, tool->runtime->data_block, sizeof(name));
+    BLI_str_tolower_ascii(name, sizeof(name));
+    name[0] = BLI_toupper_ascii(name[0]);
+
+    /* Create the brush and assign default values. */
+    br = BKE_brush_add(bmain, name, obmode);
+    if (br) {
+      BKE_brush_init_gpencil_settings(br);
+      BKE_gpencil_brush_preset_set(bmain, br, preset);
+    }
   }
 
-  id_us_min(&br->id); /* fake user only */
-
-  BKE_paint_brush_set(paint, br);
+  if (br) {
+    id_us_min(&br->id); /* fake user only */
+    BKE_paint_brush_set(paint, br);
+  }
 
   return OPERATOR_FINISHED;
 }
@@ -140,13 +255,14 @@ static int brush_scale_size_exec(bContext *C, wmOperator *op)
   Scene *scene = CTX_data_scene(C);
   Paint *paint = BKE_paint_get_active_from_context(C);
   Brush *brush = BKE_paint_brush(paint);
+  const bool is_gpencil = (brush && brush->gpencil_settings != NULL);
   // Object *ob = CTX_data_active_object(C);
   float scalar = RNA_float_get(op->ptr, "scalar");
 
   if (brush) {
-    // pixel radius
+    /* pixel radius */
     {
-      const int old_size = BKE_brush_size_get(scene, brush);
+      const int old_size = (!is_gpencil) ? BKE_brush_size_get(scene, brush) : brush->size;
       int size = (int)(scalar * old_size);
 
       if (abs(old_size - size) < U.pixelsize) {
@@ -157,15 +273,21 @@ static int brush_scale_size_exec(bContext *C, wmOperator *op)
           size -= U.pixelsize;
         }
       }
+      /* Grease Pencil does not use unified size. */
+      if (is_gpencil) {
+        brush->size = max_ii(size, 1);
+        WM_main_add_notifier(NC_BRUSH | NA_EDITED, brush);
+        return OPERATOR_FINISHED;
+      }
 
       BKE_brush_size_set(scene, brush, size);
     }
 
-    // unprojected radius
+    /* unprojected radius */
     {
       float unprojected_radius = scalar * BKE_brush_unprojected_radius_get(scene, brush);
 
-      if (unprojected_radius < 0.001f) {  // XXX magic number
+      if (unprojected_radius < 0.001f) { /* XXX magic number */
         unprojected_radius = 0.001f;
       }
 
@@ -227,7 +349,8 @@ static bool palette_poll(bContext *C)
 {
   Paint *paint = BKE_paint_get_active_from_context(C);
 
-  if (paint && paint->palette != NULL) {
+  if (paint && paint->palette != NULL && !ID_IS_LINKED(paint->palette) &&
+      !ID_IS_OVERRIDE_LIBRARY(paint->palette)) {
     return true;
   }
 
@@ -238,7 +361,6 @@ static int palette_color_add_exec(bContext *C, wmOperator *UNUSED(op))
 {
   Scene *scene = CTX_data_scene(C);
   Paint *paint = BKE_paint_get_active_from_context(C);
-  Brush *brush = paint->brush;
   ePaintMode mode = BKE_paintmode_get_active_from_context(C);
   Palette *palette = paint->palette;
   PaletteColor *color;
@@ -246,13 +368,20 @@ static int palette_color_add_exec(bContext *C, wmOperator *UNUSED(op))
   color = BKE_palette_color_add(palette);
   palette->active_color = BLI_listbase_count(&palette->colors) - 1;
 
-  if (ELEM(mode, PAINT_MODE_TEXTURE_3D, PAINT_MODE_TEXTURE_2D, PAINT_MODE_VERTEX)) {
-    copy_v3_v3(color->rgb, BKE_brush_color_get(scene, brush));
-    color->value = 0.0;
-  }
-  else if (mode == PAINT_MODE_WEIGHT) {
-    zero_v3(color->rgb);
-    color->value = brush->weight;
+  if (paint->brush) {
+    const Brush *brush = paint->brush;
+    if (ELEM(mode,
+             PAINT_MODE_TEXTURE_3D,
+             PAINT_MODE_TEXTURE_2D,
+             PAINT_MODE_VERTEX,
+             PAINT_MODE_SCULPT)) {
+      copy_v3_v3(color->rgb, BKE_brush_color_get(scene, brush));
+      color->value = 0.0;
+    }
+    else if (mode == PAINT_MODE_WEIGHT) {
+      zero_v3(color->rgb);
+      color->value = brush->weight;
+    }
   }
 
   return OPERATOR_FINISHED;
@@ -304,7 +433,10 @@ static bool palette_extract_img_poll(bContext *C)
 {
   SpaceLink *sl = CTX_wm_space_data(C);
   if ((sl != NULL) && (sl->spacetype == SPACE_IMAGE)) {
-    return true;
+    SpaceImage *sima = CTX_wm_space_image(C);
+    Image *image = sima->image;
+    ImageUser iuser = sima->iuser;
+    return BKE_image_has_ibuf(image, &iuser);
   }
 
   return false;
@@ -326,16 +458,16 @@ static int palette_extract_img_exec(bContext *C, wmOperator *op)
 
   ibuf = BKE_image_acquire_ibuf(image, &iuser, &lock);
 
-  if (ibuf->rect) {
+  if (ibuf && ibuf->rect) {
     /* Extract all colors. */
+    const int range = (int)pow(10.0f, threshold);
     for (int row = 0; row < ibuf->y; row++) {
       for (int col = 0; col < ibuf->x; col++) {
         float color[4];
         IMB_sampleImageAtLocation(ibuf, (float)col, (float)row, false, color);
-        const float range = pow(10.0f, threshold);
-        color[0] = truncf(color[0] * range) / range;
-        color[1] = truncf(color[1] * range) / range;
-        color[2] = truncf(color[2] * range) / range;
+        for (int i = 0; i < 3; i++) {
+          color[i] = truncf(color[i] * range) / range;
+        }
 
         uint key = rgb_to_cpack(color[0], color[1], color[2]);
         if (!BLI_ghash_haskey(color_table, POINTER_FROM_INT(key))) {
@@ -360,6 +492,8 @@ static int palette_extract_img_exec(bContext *C, wmOperator *op)
 
 static void PALETTE_OT_extract_from_image(wmOperatorType *ot)
 {
+  PropertyRNA *prop;
+
   /* identifiers */
   ot->name = "Extract Palette from Image";
   ot->idname = "PALETTE_OT_extract_from_image";
@@ -373,7 +507,8 @@ static void PALETTE_OT_extract_from_image(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
   /* properties */
-  RNA_def_int(ot->srna, "threshold", 1, 1, 4, "Threshold", "", 1, 4);
+  prop = RNA_def_int(ot->srna, "threshold", 1, 1, 1, "Threshold", "", 1, 1);
+  RNA_def_property_flag(prop, PROP_HIDDEN | PROP_SKIP_SAVE);
 }
 
 /* Sort Palette color by Hue and Saturation. */
@@ -689,14 +824,12 @@ static Brush *brush_tool_toggle(Main *bmain, Paint *paint, Brush *brush_orig, co
 
     return br;
   }
-  else if (brush_orig->toggle_brush) {
+  if (brush_orig->toggle_brush) {
     /* if current brush is using the desired tool, try to toggle
      * back to the previously selected brush. */
     return brush_orig->toggle_brush;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
 static bool brush_generic_tool_set(bContext *C,
@@ -745,9 +878,7 @@ static bool brush_generic_tool_set(bContext *C,
 
     return true;
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
 static const ePaintMode brush_select_paint_modes[] = {
@@ -759,6 +890,7 @@ static const ePaintMode brush_select_paint_modes[] = {
     PAINT_MODE_VERTEX_GPENCIL,
     PAINT_MODE_SCULPT_GPENCIL,
     PAINT_MODE_WEIGHT_GPENCIL,
+    PAINT_MODE_SCULPT_CURVES,
 };
 
 static int brush_select_exec(bContext *C, wmOperator *op)
@@ -907,7 +1039,7 @@ static int stencil_control_invoke(bContext *C, wmOperator *op, const wmEvent *ev
 {
   Paint *paint = BKE_paint_get_active_from_context(C);
   Brush *br = BKE_paint_brush(paint);
-  float mvalf[2] = {event->mval[0], event->mval[1]};
+  const float mvalf[2] = {event->mval[0], event->mval[1]};
   ARegion *region = CTX_wm_region(C);
   StencilControlData *scd;
   int mask = RNA_enum_get(op->ptr, "texmode");
@@ -962,7 +1094,7 @@ static void stencil_control_calculate(StencilControlData *scd, const int mval[2]
 #define PIXEL_MARGIN 5
 
   float mdiff[2];
-  float mvalf[2] = {mval[0], mval[1]};
+  const float mvalf[2] = {mval[0], mval[1]};
   switch (scd->mode) {
     case STENCIL_TRANSLATE:
       sub_v2_v2v2(mdiff, mvalf, scd->init_mouse);
@@ -1295,7 +1427,7 @@ void ED_operatortypes_paint(void)
   WM_operatortype_append(BRUSH_OT_stencil_fit_image_aspect);
   WM_operatortype_append(BRUSH_OT_stencil_reset_transform);
 
-  /* note, particle uses a different system, can be added with existing operators in wm.py */
+  /* NOTE: particle uses a different system, can be added with existing operators in `wm.py`. */
   WM_operatortype_append(PAINT_OT_brush_select);
 
   /* image */
@@ -1324,6 +1456,7 @@ void ED_operatortypes_paint(void)
   /* vertex selection */
   WM_operatortype_append(PAINT_OT_vert_select_all);
   WM_operatortype_append(PAINT_OT_vert_select_ungrouped);
+  WM_operatortype_append(PAINT_OT_vert_select_hide);
 
   /* vertex */
   WM_operatortype_append(PAINT_OT_vertex_paint_toggle);
@@ -1342,7 +1475,8 @@ void ED_operatortypes_paint(void)
   WM_operatortype_append(PAINT_OT_face_select_linked_pick);
   WM_operatortype_append(PAINT_OT_face_select_all);
   WM_operatortype_append(PAINT_OT_face_select_hide);
-  WM_operatortype_append(PAINT_OT_face_select_reveal);
+
+  WM_operatortype_append(PAINT_OT_face_vert_reveal);
 
   /* partial visibility */
   WM_operatortype_append(PAINT_OT_hide_show);
@@ -1350,6 +1484,8 @@ void ED_operatortypes_paint(void)
   /* paint masking */
   WM_operatortype_append(PAINT_OT_mask_flood_fill);
   WM_operatortype_append(PAINT_OT_mask_lasso_gesture);
+  WM_operatortype_append(PAINT_OT_mask_box_gesture);
+  WM_operatortype_append(PAINT_OT_mask_line_gesture);
 }
 
 void ED_keymap_paint(wmKeyConfig *keyconf)
@@ -1371,7 +1507,7 @@ void ED_keymap_paint(wmKeyConfig *keyconf)
   keymap = WM_keymap_ensure(keyconf, "Weight Paint", 0, 0);
   keymap->poll = weight_paint_mode_poll;
 
-  /*Weight paint's Vertex Selection Mode */
+  /* Weight paint's Vertex Selection Mode. */
   keymap = WM_keymap_ensure(keyconf, "Paint Vertex Selection (Weight, Vertex)", 0, 0);
   keymap->poll = vert_paint_poll;
 
@@ -1386,4 +1522,11 @@ void ED_keymap_paint(wmKeyConfig *keyconf)
   /* paint stroke */
   keymap = paint_stroke_modal_keymap(keyconf);
   WM_modalkeymap_assign(keymap, "SCULPT_OT_brush_stroke");
+
+  /* Curves Sculpt mode. */
+  keymap = WM_keymap_ensure(keyconf, "Sculpt Curves", 0, 0);
+  keymap->poll = CURVES_SCULPT_mode_poll;
+
+  /* sculpt expand. */
+  sculpt_expand_modal_keymap(keyconf);
 }

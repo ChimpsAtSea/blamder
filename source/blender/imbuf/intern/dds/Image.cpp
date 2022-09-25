@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup imbdds
@@ -25,14 +11,14 @@
  * Original license from NVIDIA follows.
  */
 
-// This code is in the public domain -- castanyo@yahoo.es
+/* This code is in the public domain -- <castanyo@yahoo.es>. */
 
 #include <Color.h>
 #include <Image.h>
 
-#include <stdio.h>  // printf
+#include <cstdio> /* printf */
 
-Image::Image() : m_width(0), m_height(0), m_format(Format_RGB), m_data(NULL)
+Image::Image() : m_width(0), m_height(0), m_format(Format_RGB), m_data(nullptr)
 {
 }
 
@@ -51,10 +37,8 @@ void Image::allocate(uint w, uint h)
 
 void Image::free()
 {
-  if (m_data) {
-    delete[] m_data;
-  }
-  m_data = NULL;
+  delete[] m_data;
+  m_data = nullptr;
 }
 
 uint Image::width() const

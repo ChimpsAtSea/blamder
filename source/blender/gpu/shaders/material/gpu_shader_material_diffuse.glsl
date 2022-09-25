@@ -1,13 +1,11 @@
-#ifndef VOLUMETRICS
-void node_bsdf_diffuse(vec4 color, float roughness, vec3 N, out Closure result)
+
+void node_bsdf_diffuse(vec4 color, float roughness, vec3 N, float weight, out Closure result)
 {
-  N = normalize(N);
-  result = CLOSURE_DEFAULT;
-  eevee_closure_diffuse(N, color.rgb, 1.0, true, result.radiance);
-  result.radiance = render_pass_diffuse_mask(color.rgb, result.radiance * color.rgb);
-  closure_load_ssr_data(vec3(0.0), 0.0, N, viewCameraVec, -1, result);
+  ClosureDiffuse diffuse_data;
+  diffuse_data.weight = weight;
+  diffuse_data.color = color.rgb;
+  diffuse_data.N = N;
+  diffuse_data.sss_id = 0u;
+
+  result = closure_eval(diffuse_data);
 }
-#else
-/* Stub diffuse because it is not compatible with volumetrics. */
-#  define node_bsdf_diffuse
-#endif

@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  */
 
-#ifndef __GHOST_EVENTDRAGNDROP_H__
-#define __GHOST_EVENTDRAGNDROP_H__
+#pragma once
 
 #include "GHOST_Event.h"
 extern "C" {
@@ -65,15 +48,15 @@ class GHOST_EventDragnDrop : public GHOST_Event {
  public:
   /**
    * Constructor.
-   * \param time      The time this event was generated.
-   * \param type      The type of this event.
-   * \param dataType  The type of the drop candidate object
-   * \param window    The window where the event occurred
-   * \param x         The x-coordinate of the location the cursor was at the time of the event.
-   * \param y         The y-coordinate of the location the cursor was at the time of the event.
-   * \param data      The "content" dropped in the window
+   * \param time: The time this event was generated.
+   * \param type: The type of this event.
+   * \param dataType: The type of the drop candidate object.
+   * \param window: The window where the event occurred.
+   * \param x: The x-coordinate of the location the cursor was at the time of the event.
+   * \param y: The y-coordinate of the location the cursor was at the time of the event.
+   * \param data: The "content" dropped in the window.
    */
-  GHOST_EventDragnDrop(GHOST_TUns64 time,
+  GHOST_EventDragnDrop(uint64_t time,
                        GHOST_TEventType type,
                        GHOST_TDragnDropTypes dataType,
                        GHOST_IWindow *window,
@@ -91,7 +74,7 @@ class GHOST_EventDragnDrop : public GHOST_Event {
 
   ~GHOST_EventDragnDrop()
   {
-    // Free the dropped object data
+    /* Free the dropped object data. */
     if (m_dragnDropEventData.data == NULL)
       return;
 
@@ -122,5 +105,3 @@ class GHOST_EventDragnDrop : public GHOST_Event {
   /** The x,y-coordinates of the cursor position. */
   GHOST_TEventDragnDropData m_dragnDropEventData;
 };
-
-#endif  // __GHOST_EVENTDRAGNDROP_H__

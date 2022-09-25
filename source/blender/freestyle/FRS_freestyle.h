@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FRS_FREESTYLE_H__
-#define __FRS_FREESTYLE_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -43,7 +28,7 @@ struct FreestyleGlobals {
 extern struct FreestyleGlobals g_freestyle;
 
 /* Rendering */
-void FRS_initialize(void);
+void FRS_init(void);
 void FRS_set_context(struct bContext *C);
 int FRS_is_freestyle_enabled(struct ViewLayer *view_layer);
 void FRS_init_stroke_renderer(struct Render *re);
@@ -60,6 +45,10 @@ void FRS_exit(void);
 void FRS_copy_active_lineset(struct FreestyleConfig *config);
 void FRS_paste_active_lineset(struct FreestyleConfig *config);
 void FRS_delete_active_lineset(struct FreestyleConfig *config);
+/**
+ * Reinsert the active lineset at an offset \a direction from current position.
+ * \return if position of active lineset has changed.
+ */
 bool FRS_move_active_lineset(struct FreestyleConfig *config, int direction);
 
 /* Testing */
@@ -69,5 +58,3 @@ struct Material *FRS_create_stroke_material(struct Main *bmain,
 #ifdef __cplusplus
 }
 #endif
-
-#endif  // __FRS_FREESTYLE_H__

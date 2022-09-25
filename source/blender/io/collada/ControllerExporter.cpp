@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
@@ -29,6 +15,7 @@
 
 #include "BKE_action.h"
 #include "BKE_armature.h"
+#include "BKE_deform.h"
 #include "BKE_global.h"
 #include "BKE_idprop.h"
 #include "BKE_lib_id.h"
@@ -47,7 +34,7 @@
 
 bool ControllerExporter::is_skinned_mesh(Object *ob)
 {
-  return bc_get_assigned_armature(ob) != NULL;
+  return bc_get_assigned_armature(ob) != nullptr;
 }
 
 void ControllerExporter::write_bone_URLs(COLLADASW::InstanceController &ins,
@@ -160,8 +147,6 @@ std::string ControllerExporter::get_controller_id(Key *key, Object *ob)
   return translate_id(id_name(ob)) + MORPH_CONTROLLER_ID_SUFFIX;
 }
 
-/* ob should be of type OB_MESH
- * both args are required */
 void ControllerExporter::export_skin_controller(Object *ob, Object *ob_arm)
 {
   /* joint names
@@ -175,7 +160,7 @@ void ControllerExporter::export_skin_controller(Object *ob, Object *ob_arm)
   bool use_instantiation = this->export_settings.get_use_object_instantiation();
   Mesh *me;
 
-  if (((Mesh *)ob->data)->dvert == NULL) {
+  if (((Mesh *)ob->data)->dvert == nullptr) {
     return;
   }
 
@@ -194,9 +179,9 @@ void ControllerExporter::export_skin_controller(Object *ob, Object *ob_arm)
 
   add_bind_shape_mat(ob);
 
-  std::string joints_source_id = add_joints_source(ob_arm, &ob->defbase, controller_id);
-  std::string inv_bind_mat_source_id = add_inv_bind_mats_source(
-      ob_arm, &ob->defbase, controller_id);
+  const ListBase *defbase = BKE_object_defgroup_list(ob);
+  std::string joints_source_id = add_joints_source(ob_arm, defbase, controller_id);
+  std::string inv_bind_mat_source_id = add_inv_bind_mats_source(ob_arm, defbase, controller_id);
 
   std::list<int> vcounts;
   std::list<int> joints;
@@ -207,9 +192,9 @@ void ControllerExporter::export_skin_controller(Object *ob, Object *ob_arm)
 
     /* def group index -> joint index */
     std::vector<int> joint_index_by_def_index;
-    bDeformGroup *def;
+    const bDeformGroup *def;
 
-    for (def = (bDeformGroup *)ob->defbase.first, i = 0, j = 0; def; def = def->next, i++) {
+    for (def = (const bDeformGroup *)defbase->first, i = 0, j = 0; def; def = def->next, i++) {
       if (is_bone_defgroup(ob_arm, def)) {
         joint_index_by_def_index.push_back(j++);
       }
@@ -230,7 +215,7 @@ void ControllerExporter::export_skin_controller(Object *ob, Object *ob_arm)
         uint idx = vert->dw[j].def_nr;
         if (idx >= joint_index_by_def_index.size()) {
           /* XXX: Maybe better find out where and
-           *      why the Out Of Bound indexes get created ? */
+           *      why the Out Of Bound indexes get created? */
           oob_counter += 1;
         }
         else {
@@ -245,9 +230,9 @@ void ControllerExporter::export_skin_controller(Object *ob, Object *ob_arm)
       if (sumw > 0.0f) {
         float invsumw = 1.0f / sumw;
         vcounts.push_back(jw.size());
-        for (std::map<int, float>::iterator m = jw.begin(); m != jw.end(); ++m) {
-          joints.push_back((*m).first);
-          weights.push_back(invsumw * (*m).second);
+        for (auto &index_and_weight : jw) {
+          joints.push_back(index_and_weight.first);
+          weights.push_back(invsumw * index_and_weight.second);
         }
       }
       else {
@@ -269,10 +254,10 @@ void ControllerExporter::export_skin_controller(Object *ob, Object *ob_arm)
   }
 
   std::string weights_source_id = add_weights_source(me, controller_id, weights);
-  add_joints_element(&ob->defbase, joints_source_id, inv_bind_mat_source_id);
+  add_joints_element(defbase, joints_source_id, inv_bind_mat_source_id);
   add_vertex_weights_element(weights_source_id, joints_source_id, vcounts, joints);
 
-  BKE_id_free(NULL, me);
+  BKE_id_free(nullptr, me);
 
   closeSkin();
   closeController();
@@ -305,14 +290,14 @@ void ControllerExporter::export_morph_controller(Object *ob, Key *key)
   COLLADASW::InputList &input = targets.getInputList();
 
   input.push_back(COLLADASW::Input(
-      COLLADASW::InputSemantic::MORPH_TARGET,  // constant declared in COLLADASWInputList.h
+      COLLADASW::InputSemantic::MORPH_TARGET, /* constant declared in COLLADASWInputList.h */
       COLLADASW::URI(COLLADABU::Utils::EMPTY_STRING, targets_id)));
   input.push_back(
       COLLADASW::Input(COLLADASW::InputSemantic::MORPH_WEIGHT,
                        COLLADASW::URI(COLLADABU::Utils::EMPTY_STRING, morph_weights_id)));
   targets.add();
 
-  BKE_id_free(NULL, me);
+  BKE_id_free(nullptr, me);
 
   /* support for animations
    * can also try the base element and param alternative */
@@ -376,7 +361,6 @@ std::string ControllerExporter::add_morph_weights(Key *key, Object *ob)
   return source_id;
 }
 
-/* Added to implement support for animations. */
 void ControllerExporter::add_weight_extras(Key *key)
 {
   /* can also try the base element and param alternative */
@@ -392,7 +376,7 @@ void ControllerExporter::add_weight_extras(Key *key)
   }
 }
 
-void ControllerExporter::add_joints_element(ListBase *defbase,
+void ControllerExporter::add_joints_element(const ListBase *defbase,
                                             const std::string &joints_source_id,
                                             const std::string &inv_bind_mat_source_id)
 {
@@ -400,7 +384,7 @@ void ControllerExporter::add_joints_element(ListBase *defbase,
   COLLADASW::InputList &input = joints.getInputList();
 
   input.push_back(COLLADASW::Input(
-      COLLADASW::InputSemantic::JOINT,  // constant declared in COLLADASWInputList.h
+      COLLADASW::InputSemantic::JOINT, /* constant declared in COLLADASWInputList.h */
       COLLADASW::URI(COLLADABU::Utils::EMPTY_STRING, joints_source_id)));
   input.push_back(
       COLLADASW::Input(COLLADASW::InputSemantic::BINDMATRIX,
@@ -415,7 +399,7 @@ void ControllerExporter::add_bind_shape_mat(Object *ob)
   BKE_object_matrix_local_get(ob, f_obmat);
 
   if (export_settings.get_apply_global_orientation()) {
-    // do nothing, rotation is going to be applied to the Data
+    /* do nothing, rotation is going to be applied to the Data */
   }
   else {
     bc_add_global_transform(f_obmat, export_settings.get_global_transform());
@@ -431,7 +415,7 @@ void ControllerExporter::add_bind_shape_mat(Object *ob)
 }
 
 std::string ControllerExporter::add_joints_source(Object *ob_arm,
-                                                  ListBase *defbase,
+                                                  const ListBase *defbase,
                                                   const std::string &controller_id)
 {
   std::string source_id = controller_id + JOINTS_SOURCE_ID_SUFFIX;
@@ -468,7 +452,7 @@ std::string ControllerExporter::add_joints_source(Object *ob_arm,
 }
 
 std::string ControllerExporter::add_inv_bind_mats_source(Object *ob_arm,
-                                                         ListBase *defbase,
+                                                         const ListBase *defbase,
                                                          const std::string &controller_id)
 {
   std::string source_id = controller_id + BIND_POSES_SOURCE_ID_SUFFIX;
@@ -530,7 +514,7 @@ std::string ControllerExporter::add_inv_bind_mats_source(Object *ob_arm,
           float loc[3];
           float rot[3] = {0, 0, 0};
           float scale[3];
-          bc_decompose(bind_mat, loc, NULL, NULL, scale);
+          bc_decompose(bind_mat, loc, nullptr, nullptr, scale);
 
           /* Only translations, no rotation vs armature */
           loc_eulO_size_to_mat4(bind_mat, loc, rot, scale, 6);
@@ -568,15 +552,15 @@ std::string ControllerExporter::add_inv_bind_mats_source(Object *ob_arm,
   return source_id;
 }
 
-Bone *ControllerExporter::get_bone_from_defgroup(Object *ob_arm, bDeformGroup *def)
+Bone *ControllerExporter::get_bone_from_defgroup(Object *ob_arm, const bDeformGroup *def)
 {
   bPoseChannel *pchan = BKE_pose_channel_find_name(ob_arm->pose, def->name);
-  return pchan ? pchan->bone : NULL;
+  return pchan ? pchan->bone : nullptr;
 }
 
-bool ControllerExporter::is_bone_defgroup(Object *ob_arm, bDeformGroup *def)
+bool ControllerExporter::is_bone_defgroup(Object *ob_arm, const bDeformGroup *def)
 {
-  return get_bone_from_defgroup(ob_arm, def) != NULL;
+  return get_bone_from_defgroup(ob_arm, def) != nullptr;
 }
 
 std::string ControllerExporter::add_weights_source(Mesh *me,
@@ -596,8 +580,8 @@ std::string ControllerExporter::add_weights_source(Mesh *me,
 
   source.prepareToAppendValues();
 
-  for (std::list<float>::const_iterator i = weights.begin(); i != weights.end(); ++i) {
-    source.appendValues(*i);
+  for (float weight : weights) {
+    source.appendValues(weight);
   }
 
   source.finish();
@@ -615,7 +599,7 @@ void ControllerExporter::add_vertex_weights_element(const std::string &weights_s
 
   int offset = 0;
   input.push_back(COLLADASW::Input(
-      COLLADASW::InputSemantic::JOINT,  // constant declared in COLLADASWInputList.h
+      COLLADASW::InputSemantic::JOINT, /* constant declared in COLLADASWInputList.h */
       COLLADASW::URI(COLLADABU::Utils::EMPTY_STRING, joints_source_id),
       offset++));
   input.push_back(
@@ -638,8 +622,8 @@ void ControllerExporter::add_vertex_weights_element(const std::string &weights_s
 
   /* write deformer index - weight index pairs */
   int weight_index = 0;
-  for (std::list<int>::const_iterator i = joints.begin(); i != joints.end(); ++i) {
-    weightselem.appendValues(*i, weight_index++);
+  for (int joint_index : joints) {
+    weightselem.appendValues(joint_index, weight_index++);
   }
 
   weightselem.finish();

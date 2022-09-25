@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2007 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2007 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup wm
@@ -56,9 +40,9 @@
 #include "BKE_blendfile.h"
 #include "BKE_callbacks.h"
 #include "BKE_context.h"
-#include "BKE_font.h"
 #include "BKE_global.h"
 #include "BKE_icons.h"
+#include "BKE_image.h"
 #include "BKE_keyconfig.h"
 #include "BKE_lib_remap.h"
 #include "BKE_main.h"
@@ -68,22 +52,27 @@
 #include "BKE_scene.h"
 #include "BKE_screen.h"
 #include "BKE_sound.h"
+#include "BKE_vfont.h"
 
 #include "BKE_addon.h"
 #include "BKE_appdir.h"
-#include "BKE_mask.h"      /* free mask clipboard */
-#include "BKE_material.h"  /* BKE_material_copybuf_clear */
-#include "BKE_sequencer.h" /* free seq clipboard */
+#include "BKE_mask.h"     /* free mask clipboard */
+#include "BKE_material.h" /* BKE_material_copybuf_clear */
 #include "BKE_studiolight.h"
+#include "BKE_subdiv.h"
 #include "BKE_tracking.h" /* free tracking clipboard */
 
 #include "RE_engine.h"
 #include "RE_pipeline.h" /* RE_ free stuff */
 
+#include "SEQ_clipboard.h" /* free seq clipboard */
+
 #include "IMB_thumbs.h"
 
 #ifdef WITH_PYTHON
 #  include "BPY_extern.h"
+#  include "BPY_extern_python.h"
+#  include "BPY_extern_run.h"
 #endif
 
 #include "GHOST_C-api.h"
@@ -105,6 +94,7 @@
 
 #include "ED_anim_api.h"
 #include "ED_armature.h"
+#include "ED_asset.h"
 #include "ED_gpencil.h"
 #include "ED_keyframes_edit.h"
 #include "ED_keyframing.h"
@@ -114,18 +104,16 @@
 #include "ED_space_api.h"
 #include "ED_undo.h"
 #include "ED_util.h"
+#include "ED_view3d.h"
 
 #include "BLF_api.h"
 #include "BLT_lang.h"
 #include "UI_interface.h"
 #include "UI_resources.h"
 
-#include "GPU_draw.h"
+#include "GPU_context.h"
 #include "GPU_init_exit.h"
 #include "GPU_material.h"
-
-#include "BKE_sound.h"
-#include "BKE_subdiv.h"
 
 #include "COM_compositor.h"
 
@@ -171,27 +159,26 @@ void WM_init_state_start_with_console_set(bool value)
  */
 static bool opengl_is_init = false;
 
-void WM_init_opengl(Main *bmain)
+void WM_init_opengl(void)
 {
-  /* must be called only once */
+  /* Must be called only once. */
   BLI_assert(opengl_is_init == false);
 
   if (G.background) {
-    /* Ghost is still not init elsewhere in background mode. */
+    /* Ghost is still not initialized elsewhere in background mode. */
     wm_ghost_init(NULL);
   }
 
-  /* Needs to be first to have an ogl context bound. */
+  if (!GPU_backend_supported()) {
+    return;
+  }
+
+  /* Needs to be first to have an OpenGL context bound. */
   DRW_opengl_context_create();
 
   GPU_init();
-  GPU_set_mipmap(bmain, true);
-  GPU_set_linear_mipmap(true);
-  GPU_set_anisotropic(U.anisotropic_filter);
 
   GPU_pass_cache_init();
-
-  BKE_subdiv_init();
 
   opengl_is_init = true;
 }
@@ -205,13 +192,13 @@ static void sound_jack_sync_callback(Main *bmain, int mode, double time)
 
   wmWindowManager *wm = bmain->wm.first;
 
-  for (wmWindow *window = wm->windows.first; window != NULL; window = window->next) {
+  LISTBASE_FOREACH (wmWindow *, window, &wm->windows) {
     Scene *scene = WM_window_get_active_scene(window);
     if ((scene->audio.flag & AUDIO_SYNC) == 0) {
       continue;
     }
     ViewLayer *view_layer = WM_window_get_active_view_layer(window);
-    Depsgraph *depsgraph = BKE_scene_get_depsgraph(bmain, scene, view_layer, false);
+    Depsgraph *depsgraph = BKE_scene_get_depsgraph(scene, view_layer);
     if (depsgraph == NULL) {
       continue;
     }
@@ -222,12 +209,11 @@ static void sound_jack_sync_callback(Main *bmain, int mode, double time)
   }
 }
 
-/* only called once, for startup */
 void WM_init(bContext *C, int argc, const char **argv)
 {
 
   if (!G.background) {
-    wm_ghost_init(C); /* note: it assigns C to ghost! */
+    wm_ghost_init(C); /* NOTE: it assigns C to ghost! */
     wm_init_cursor_data();
     BKE_sound_jack_sync_callback_set(sound_jack_sync_callback);
   }
@@ -248,24 +234,22 @@ void WM_init(bContext *C, int argc, const char **argv)
 
   ED_undosys_type_init();
 
-  BKE_library_callback_free_notifier_reference_set(
-      WM_main_remove_notifier_reference);                    /* lib_id.c */
-  BKE_region_callback_free_gizmomap_set(wm_gizmomap_remove); /* screen.c */
+  BKE_library_callback_free_notifier_reference_set(WM_main_remove_notifier_reference);
+  BKE_region_callback_free_gizmomap_set(wm_gizmomap_remove);
   BKE_region_callback_refresh_tag_gizmomap_set(WM_gizmomap_tag_refresh);
-  BKE_library_callback_remap_editor_id_reference_set(
-      WM_main_remap_editor_id_reference);                     /* lib_id.c */
-  BKE_spacedata_callback_id_remap_set(ED_spacedata_id_remap); /* screen.c */
+  BKE_library_callback_remap_editor_id_reference_set(WM_main_remap_editor_id_reference);
+  BKE_spacedata_callback_id_remap_set(ED_spacedata_id_remap_single);
   DEG_editors_set_update_cb(ED_render_id_flush_update, ED_render_scene_update);
 
-  ED_spacetypes_init(); /* editors/space_api/spacetype.c */
+  ED_spacetypes_init();
 
   ED_node_init_butfuncs();
 
   BLF_init();
 
   BLT_lang_init();
-  /* Must call first before doing any '.blend' file reading,
-   * since versioning code may create new IDs... See T57066. */
+  /* Must call first before doing any `.blend` file reading,
+   * since versioning code may create new IDs. See T57066. */
   BLT_lang_set(NULL);
 
   /* Init icons before reading .blend files for preview icons, which can
@@ -273,16 +257,11 @@ void WM_init(bContext *C, int argc, const char **argv)
    * for scripts that do background processing with preview icons. */
   BKE_icons_init(BIFICONID_LAST);
 
-  /* reports cant be initialized before the wm,
+  /* Reports can't be initialized before the window-manager,
    * but keep before file reading, since that may report errors */
   wm_init_reports(C);
 
   WM_msgbus_types_init();
-
-  /* get the default database, plus a wm */
-  bool is_factory_startup = true;
-  const bool use_data = true;
-  const bool use_userdef = true;
 
   /* Studio-lights needs to be init before we read the home-file,
    * otherwise the versioning cannot find the default studio-light. */
@@ -290,112 +269,98 @@ void WM_init(bContext *C, int argc, const char **argv)
 
   BLI_assert((G.fileflags & G_FILE_NO_UI) == 0);
 
-  wm_homefile_read(C,
-                   NULL,
-                   G.factory_startup,
-                   false,
-                   use_data,
-                   use_userdef,
-                   NULL,
-                   WM_init_state_app_template_get(),
-                   &is_factory_startup);
+  /**
+   * NOTE(@campbellbarton): Startup file and order of initialization.
+   *
+   * Loading #BLENDER_STARTUP_FILE, #BLENDER_USERPREF_FILE, starting Python and other sub-systems,
+   * have inter-dependencies, for example.
+   *
+   * - Some sub-systems depend on the preferences (initializing icons depend on the theme).
+   * - Add-ons depends on the preferences to know what has been enabled.
+   * - Add-ons depends on the window-manger to register their key-maps.
+   * - Evaluating the startup file depends on Python for animation-drivers (see T89046).
+   * - Starting Python depends on the startup file so key-maps can be added in the window-manger.
+   *
+   * Loading preferences early, then application subsystems and finally the startup data would
+   * simplify things if it weren't for key-maps being part of the window-manager
+   * which is blend file data.
+   * Creating a dummy window-manager early, or moving the key-maps into the preferences
+   * would resolve this and may be worth looking into long-term, see: D12184 for details.
+   */
+  struct wmFileReadPost_Params *params_file_read_post = NULL;
+  wm_homefile_read_ex(C,
+                      &(const struct wmHomeFileRead_Params){
+                          .use_data = true,
+                          .use_userdef = true,
+                          .use_factory_settings = G.factory_startup,
+                          .use_empty_data = false,
+                          .filepath_startup_override = NULL,
+                          .app_template_override = WM_init_state_app_template_get(),
+                      },
+                      NULL,
+                      &params_file_read_post);
 
-  /* Call again to set from userpreferences... */
+  /* NOTE: leave `G_MAIN->filepath` set to an empty string since this
+   * matches behavior after loading a new file. */
+  BLI_assert(G_MAIN->filepath[0] == '\0');
+
+  /* Call again to set from preferences. */
   BLT_lang_set(NULL);
 
-  /* For fsMenu. Called here so can include user preference paths if needed. */
+  /* For file-system. Called here so can include user preference paths if needed. */
   ED_file_init();
 
   /* That one is generated on demand, we need to be sure it's clear on init. */
   IMB_thumb_clear_translations();
 
   if (!G.background) {
+    GPU_render_begin();
 
 #ifdef WITH_INPUT_NDOF
-    /* sets 3D mouse deadzone */
+    /* Sets 3D mouse dead-zone. */
     WM_ndof_deadzone_set(U.ndof_deadzone);
 #endif
-    WM_init_opengl(G_MAIN);
+    WM_init_opengl();
 
     if (!WM_platform_support_perform_checks()) {
+      /* No attempt to avoid memory leaks here. */
       exit(-1);
     }
 
+    GPU_context_begin_frame(GPU_context_active_get());
     UI_init();
+    GPU_context_end_frame(GPU_context_active_get());
+    GPU_render_end();
   }
+
+  BKE_subdiv_init();
 
   ED_spacemacros_init();
 
-  /* note: there is a bug where python needs initializing before loading the
-   * startup.blend because it may contain PyDrivers. It also needs to be after
-   * initializing space types and other internal data.
-   *
-   * However cant redo this at the moment. Solution is to load python
-   * before wm_homefile_read() or make py-drivers check if python is running.
-   * Will try fix when the crash can be repeated. - campbell. */
-
 #ifdef WITH_PYTHON
-  BPY_context_set(C); /* necessary evil */
-  BPY_python_start(argc, argv);
-
+  BPY_python_start(C, argc, argv);
   BPY_python_reset(C);
 #else
-  (void)argc; /* unused */
-  (void)argv; /* unused */
+  UNUSED_VARS(argc, argv);
 #endif
 
-  if (!G.background && !wm_start_with_console) {
-    GHOST_toggleConsole(3);
+  if (!G.background) {
+    if (wm_start_with_console) {
+      GHOST_setConsoleWindowState(GHOST_kConsoleWindowStateShow);
+    }
+    else {
+      GHOST_setConsoleWindowState(GHOST_kConsoleWindowStateHideForNonConsoleLaunch);
+    }
   }
 
   BKE_material_copybuf_clear();
   ED_render_clear_mtex_copybuf();
 
-  // glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
-
   wm_history_file_read();
-
-  /* allow a path of "", this is what happens when making a new file */
-#if 0
-  if (BKE_main_blendfile_path_from_global()[0] == '\0') {
-    BLI_join_dirfile(
-        G_MAIN->name, sizeof(G_MAIN->name), BKE_appdir_folder_default(), "untitled.blend");
-  }
-#endif
 
   BLI_strncpy(G.lib, BKE_main_blendfile_path_from_global(), sizeof(G.lib));
 
-#ifdef WITH_COMPOSITOR
-  if (1) {
-    extern void *COM_linker_hack;
-    COM_linker_hack = COM_execute;
-  }
-#endif
-
-  {
-    Main *bmain = CTX_data_main(C);
-    /* note, logic here is from wm_file_read_post,
-     * call functions that depend on Python being initialized. */
-
-    /* normally 'wm_homefile_read' will do this,
-     * however python is not initialized when called from this function.
-     *
-     * unlikely any handlers are set but its possible,
-     * note that recovering the last session does its own callbacks. */
-    CTX_wm_window_set(C, CTX_wm_manager(C)->windows.first);
-
-    BKE_callback_exec_null(bmain, BKE_CB_EVT_VERSION_UPDATE);
-    BKE_callback_exec_null(bmain, BKE_CB_EVT_LOAD_POST);
-    if (is_factory_startup) {
-      BKE_callback_exec_null(bmain, BKE_CB_EVT_LOAD_FACTORY_STARTUP_POST);
-    }
-
-    wm_file_read_report(C, bmain);
-
-    if (!G.background) {
-      CTX_wm_window_set(C, NULL);
-    }
-  }
+  wm_homefile_read_post(C, params_file_read_post);
 }
 
 void WM_init_splash(bContext *C)
@@ -406,7 +371,7 @@ void WM_init_splash(bContext *C)
 
     if (wm->windows.first) {
       CTX_wm_window_set(C, wm->windows.first);
-      WM_operator_name_call(C, "WM_OT_splash", WM_OP_INVOKE_DEFAULT, NULL);
+      WM_operator_name_call(C, "WM_OT_splash", WM_OP_INVOKE_DEFAULT, NULL, NULL);
       CTX_wm_window_set(C, prevwin);
     }
   }
@@ -415,9 +380,7 @@ void WM_init_splash(bContext *C)
 /* free strings of open recent files */
 static void free_openrecent(void)
 {
-  struct RecentFile *recent;
-
-  for (recent = G.recent_files.first; recent; recent = recent->next) {
+  LISTBASE_FOREACH (RecentFile *, recent, &G.recent_files) {
     MEM_freeN(recent->filepath);
   }
 
@@ -425,7 +388,7 @@ static void free_openrecent(void)
 }
 
 #ifdef WIN32
-/* Read console events until there is a key event.  Also returns on any error. */
+/* Read console events until there is a key event. Also returns on any error. */
 static void wait_for_console_key(void)
 {
   HANDLE hConsoleInput = GetStdHandle(STD_INPUT_HANDLE);
@@ -455,10 +418,6 @@ static int wm_exit_handler(bContext *C, const wmEvent *event, void *userdata)
   return WM_UI_HANDLER_BREAK;
 }
 
-/**
- * Cause a delayed #WM_exit()
- * call to avoid leaking memory when trying to exit from within operators.
- */
 void wm_exit_schedule_delayed(const bContext *C)
 {
   /* What we do here is a little bit hacky, but quite simple and doesn't require bigger
@@ -472,19 +431,14 @@ void wm_exit_schedule_delayed(const bContext *C)
   WM_event_add_mousemove(win); /* ensure handler actually gets called */
 }
 
-/**
- * \note doesn't run exit() call #WM_exit() for that.
- */
 void WM_exit_ex(bContext *C, const bool do_python)
 {
   wmWindowManager *wm = C ? CTX_wm_manager(C) : NULL;
 
   /* first wrap up running stuff, we assume only the active WM is running */
   /* modal handlers are on window level freed, others too? */
-  /* note; same code copied in wm_files.c */
+  /* NOTE: same code copied in `wm_files.c`. */
   if (C && wm) {
-    wmWindow *win;
-
     if (!G.background) {
       struct MemFile *undo_memfile = wm->undo_stack ?
                                          ED_undosys_stack_memfile_get_active(wm->undo_stack) :
@@ -492,25 +446,26 @@ void WM_exit_ex(bContext *C, const bool do_python)
       if (undo_memfile != NULL) {
         /* save the undo state as quit.blend */
         Main *bmain = CTX_data_main(C);
-        char filename[FILE_MAX];
+        char filepath[FILE_MAX];
         bool has_edited;
-        int fileflags = G.fileflags & ~(G_FILE_COMPRESS | G_FILE_HISTORY);
+        const int fileflags = G.fileflags & ~G_FILE_COMPRESS;
 
-        BLI_join_dirfile(filename, sizeof(filename), BKE_tempdir_base(), BLENDER_QUIT_FILE);
+        BLI_join_dirfile(filepath, sizeof(filepath), BKE_tempdir_base(), BLENDER_QUIT_FILE);
 
         has_edited = ED_editors_flush_edits(bmain);
 
-        if ((has_edited && BLO_write_file(bmain, filename, fileflags, NULL, NULL)) ||
-            (undo_memfile && BLO_memfile_write_file(undo_memfile, filename))) {
-          printf("Saved session recovery to '%s'\n", filename);
+        if ((has_edited &&
+             BLO_write_file(
+                 bmain, filepath, fileflags, &(const struct BlendFileWriteParams){0}, NULL)) ||
+            (BLO_memfile_write_file(undo_memfile, filepath))) {
+          printf("Saved session recovery to '%s'\n", filepath);
         }
       }
     }
 
     WM_jobs_kill_all(wm);
 
-    for (win = wm->windows.first; win; win = win->next) {
-
+    LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
       CTX_wm_window_set(C, win); /* needed by operator close callbacks */
       WM_event_remove_handlers(C, &win->handlers);
       WM_event_remove_handlers(C, &win->modalhandlers);
@@ -523,8 +478,23 @@ void WM_exit_ex(bContext *C, const bool do_python)
           BKE_blendfile_userdef_write_all(NULL);
         }
       }
+      /* Free the callback data used on file-open
+       * (will be set when a recover operation has run). */
+      wm_test_autorun_revert_action_set(NULL, NULL);
     }
   }
+
+#if defined(WITH_PYTHON) && !defined(WITH_PYTHON_MODULE)
+  /* Without this, we there isn't a good way to manage false-positive resource leaks
+   * where a #PyObject references memory allocated with guarded-alloc, T71362.
+   *
+   * This allows add-ons to free resources when unregistered (which is good practice anyway).
+   *
+   * Don't run this code when built as a Python module as this runs when Python is in the
+   * process of shutting down, where running a snippet like this will crash, see T82675.
+   * Instead use the `atexit` module, installed by #BPY_python_start */
+  BPY_run_string_eval(C, (const char *[]){"addon_utils", NULL}, "addon_utils.disable_all()");
+#endif
 
   BLI_timer_free();
 
@@ -538,7 +508,6 @@ void WM_exit_ex(bContext *C, const bool do_python)
   wm_surfaces_free();
   wm_dropbox_free();
   WM_menutype_free();
-  WM_uilisttype_free();
 
   /* all non-screen and non-space stuff editors did, like editmode */
   if (C) {
@@ -557,13 +526,15 @@ void WM_exit_ex(bContext *C, const bool do_python)
   RE_engines_exit();
 
   ED_preview_free_dbase(); /* frees a Main dbase, before BKE_blender_free! */
+  ED_preview_restart_queue_free();
+  ED_assetlist_storage_exit();
 
   if (wm) {
     /* Before BKE_blender_free! - since the ListBases get freed there. */
     wm_free_reports(wm);
   }
 
-  BKE_sequencer_free_clipboard(); /* sequencer.c */
+  SEQ_clipboard_free(); /* sequencer.c */
   BKE_tracking_clipboard_free();
   BKE_mask_clipboard_free();
   BKE_vfont_clipboard_free();
@@ -576,11 +547,18 @@ void WM_exit_ex(bContext *C, const bool do_python)
   BKE_subdiv_exit();
 
   if (opengl_is_init) {
-    GPU_free_unused_buffers(G_MAIN);
+    BKE_image_free_unused_gpu_textures();
   }
 
   BKE_blender_free(); /* blender.c, does entire library and spacetypes */
                       //  BKE_material_copybuf_free();
+
+  /* Free the GPU subdivision data after the database to ensure that subdivision structs used by
+   * the modifiers were garbage collected. */
+  if (opengl_is_init) {
+    DRW_subdiv_free();
+  }
+
   ANIM_fcurves_copybuf_free();
   ANIM_drivers_copybuf_free();
   ANIM_driver_vars_copybuf_free();
@@ -593,20 +571,12 @@ void WM_exit_ex(bContext *C, const bool do_python)
   wm_gizmomaptypes_free();
   wm_gizmogrouptype_free();
   wm_gizmotype_free();
+  /* Same for UI-list types. */
+  WM_uilisttype_free();
 
   BLF_exit();
 
-  if (opengl_is_init) {
-    DRW_opengl_context_enable_ex(false);
-    GPU_pass_cache_free();
-    GPU_exit();
-    DRW_opengl_context_disable_ex(false);
-    DRW_opengl_context_destroy();
-  }
-
-#ifdef WITH_INTERNATIONAL
   BLT_lang_free();
-#endif
 
   ANIM_keyingset_infos_exit();
 
@@ -615,13 +585,13 @@ void WM_exit_ex(bContext *C, const bool do_python)
 #ifdef WITH_PYTHON
   /* option not to close python so we can use 'atexit' */
   if (do_python && ((C == NULL) || CTX_py_init_get(C))) {
-    /* XXX - old note */
-    /* before BKE_blender_free so py's gc happens while library still exists */
-    /* needed at least for a rare sigsegv that can happen in pydrivers */
-
-    /* Update for blender 2.5, move after BKE_blender_free because Blender now holds references to
-     * PyObject's so decref'ing them after python ends causes bad problems every time
-     * the py-driver bug can be fixed if it happens again we can deal with it then. */
+    /* NOTE: (old note)
+     * before BKE_blender_free so Python's garbage-collection happens while library still exists.
+     * Needed at least for a rare crash that can happen in python-drivers.
+     *
+     * Update for Blender 2.5, move after #BKE_blender_free because Blender now holds references
+     * to #PyObject's so #Py_DECREF'ing them after Python ends causes bad problems every time
+     * the python-driver bug can be fixed if it happens again we can deal with it then. */
     BPY_python_end();
   }
 #else
@@ -630,7 +600,20 @@ void WM_exit_ex(bContext *C, const bool do_python)
 
   ED_file_exit(); /* for fsmenu */
 
-  UI_exit();
+  /* Delete GPU resources and context. The UI also uses GPU resources and so
+   * is also deleted with the context active. */
+  if (opengl_is_init) {
+    DRW_opengl_context_enable_ex(false);
+    UI_exit();
+    GPU_pass_cache_free();
+    GPU_exit();
+    DRW_opengl_context_disable_ex(false);
+    DRW_opengl_context_destroy();
+  }
+  else {
+    UI_exit();
+  }
+
   BKE_blender_userdef_data_free(&U, false);
 
   RNA_exit(); /* should be after BPY_python_end so struct python slots are cleared */
@@ -650,27 +633,16 @@ void WM_exit_ex(bContext *C, const bool do_python)
    * pieces of Blender using sound may exit cleanly, see also T50676. */
   BKE_sound_exit();
 
+  BKE_appdir_exit();
   CLG_exit();
 
   BKE_blender_atexit();
 
-  if (MEM_get_memory_blocks_in_use() != 0) {
-    size_t mem_in_use = MEM_get_memory_in_use() + MEM_get_memory_in_use();
-    printf("Error: Not freed memory blocks: %u, total unfreed memory %f MB\n",
-           MEM_get_memory_blocks_in_use(),
-           (double)mem_in_use / 1024 / 1024);
-    MEM_printmemlist();
-  }
   wm_autosave_delete();
 
   BKE_tempdir_session_purge();
 }
 
-/**
- * \brief Main exit function to close Blender ordinarily.
- * \note Use #wm_exit_schedule_delayed() to close Blender from an operator.
- * Might leak memory otherwise.
- */
 void WM_exit(bContext *C)
 {
   WM_exit_ex(C, true);
@@ -688,10 +660,6 @@ void WM_exit(bContext *C)
   exit(G.is_break == true);
 }
 
-/**
- * Needed for cases when operators are re-registered
- * (when operator type pointers are stored).
- */
 void WM_script_tag_reload(void)
 {
   UI_interface_tag_script_reload();

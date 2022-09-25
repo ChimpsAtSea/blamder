@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edscr
@@ -57,6 +43,7 @@
 
 #include "screen_intern.h"
 
+/* -------------------------------------------------------------------- */
 /** \name Workspace API
  *
  * \brief API for managing workspaces and their data.
@@ -67,17 +54,87 @@ WorkSpace *ED_workspace_add(Main *bmain, const char *name)
   return BKE_workspace_add(bmain, name);
 }
 
+static void workspace_exit(WorkSpace *workspace, wmWindow *win)
+{
+  /* Scene pinning: Store whatever scene was active when leaving the workspace. It's reactivated
+   * when the workspace gets reactivated as well. */
+  if (workspace->flags & WORKSPACE_USE_PIN_SCENE) {
+    workspace->pin_scene = WM_window_get_active_scene(win);
+  }
+  else {
+    /* The active scene may have been changed. So also always update the unpinned scene to the
+     * latest when leaving a workspace that has no scene pinning. */
+    win->unpinned_scene = WM_window_get_active_scene(win);
+  }
+}
+
+/**
+ * State changes (old workspace to new workspace):
+ * 1) unpinned -> pinned
+ *    * Store current scene as the unpinned one (done in #workspace_exit()).
+ *    * Change the current scene to the pinned one.
+ * 2) pinned   -> pinned
+ *    * Change the current scene to the new pinned one.
+ * 3) pinned   -> unpinned
+ *    * Change current scene back to the unpinned one
+ * 4) unpinned -> unpinned
+ *    * Make sure the unpinned scene is active.
+ *
+ * Note that the pin scene must also be updated when leaving a workspace with a pinned scene.
+ * That's done separately via workspace_exit() above.
+ */
+static void workspace_scene_pinning_update(WorkSpace *workspace_new,
+                                           const WorkSpace *workspace_old,
+                                           bContext *C)
+{
+  wmWindow *win = CTX_wm_window(C);
+  Main *bmain = CTX_data_main(C);
+  Scene *active_scene = WM_window_get_active_scene(win);
+
+  const bool is_new_pinned = (workspace_new->flags & WORKSPACE_USE_PIN_SCENE);
+  const bool is_old_pinned = (workspace_old->flags & WORKSPACE_USE_PIN_SCENE);
+
+  /* State changes 1 and 2. */
+  if (is_new_pinned) {
+    if (workspace_new->pin_scene && (workspace_new->pin_scene != active_scene)) {
+      WM_window_set_active_scene(bmain, C, win, workspace_new->pin_scene);
+      workspace_new->pin_scene = NULL;
+    }
+  }
+  /* State change 3 - Changing from workspace with pinned scene to unpinned scene. */
+  else if (is_old_pinned) {
+    if (win->unpinned_scene) {
+      WM_window_set_active_scene(bmain, C, win, win->unpinned_scene);
+    }
+    else {
+      /* When leaving a workspace where the pinning was just enabled, the unpinned scene wasn't set
+       * yet. */
+      win->unpinned_scene = active_scene;
+    }
+  }
+  else {
+    /* When leaving a workspace where the pinning was just disabled, we still want to restore the
+     * unpinned scene. */
+    if (win->unpinned_scene) {
+      WM_window_set_active_scene(bmain, C, win, win->unpinned_scene);
+    }
+  }
+
+  BLI_assert(WM_window_get_active_scene(win));
+}
+
 /**
  * Changes the object mode (if needed) to the one set in \a workspace_new.
  * Object mode is still stored on object level. In future it should all be workspace level instead.
  */
 static void workspace_change_update(WorkSpace *workspace_new,
-                                    const WorkSpace *workspace_old,
+                                    WorkSpace *workspace_old,
                                     bContext *C,
                                     wmWindowManager *wm)
 {
+  workspace_scene_pinning_update(workspace_new, workspace_old, C);
   /* needs to be done before changing mode! (to ensure right context) */
-  UNUSED_VARS(workspace_old, workspace_new, C, wm);
+  UNUSED_VARS(wm);
 #if 0
   Object *ob_act = CTX_data_active_object(C) eObjectMode mode_old = workspace_old->object_mode;
   eObjectMode mode_new = workspace_new->object_mode;
@@ -88,22 +145,15 @@ static void workspace_change_update(WorkSpace *workspace_new,
 #endif
 }
 
-static bool workspace_change_find_new_layout_cb(const WorkSpaceLayout *layout, void *UNUSED(arg))
-{
-  /* return false to stop the iterator if we've found a layout that can be activated */
-  return workspace_layout_set_poll(layout) ? false : true;
-}
-
 static WorkSpaceLayout *workspace_change_get_new_layout(Main *bmain,
                                                         WorkSpace *workspace_new,
                                                         wmWindow *win)
 {
-  /* ED_workspace_duplicate may have stored a layout to activate
-   * once the workspace gets activated. */
   WorkSpaceLayout *layout_old = WM_window_get_active_layout(win);
   WorkSpaceLayout *layout_new;
-  bScreen *screen_new;
 
+  /* ED_workspace_duplicate may have stored a layout to activate
+   * once the workspace gets activated. */
   if (win->workspace_hook->temp_workspace_store) {
     layout_new = win->workspace_hook->temp_layout_store;
   }
@@ -113,31 +163,11 @@ static WorkSpaceLayout *workspace_change_get_new_layout(Main *bmain,
       layout_new = workspace_new->layouts.first;
     }
   }
-  screen_new = BKE_workspace_layout_screen_get(layout_new);
 
-  if (screen_new->winid) {
-    /* screen is already used, try to find a free one */
-    WorkSpaceLayout *layout_temp = BKE_workspace_layout_iter_circular(
-        workspace_new, layout_new, workspace_change_find_new_layout_cb, NULL, false);
-    if (!layout_temp) {
-      /* fallback solution: duplicate layout from old workspace */
-      layout_temp = ED_workspace_layout_duplicate(bmain, workspace_new, layout_old, win);
-    }
-    layout_new = layout_temp;
-  }
-
-  return layout_new;
+  return ED_workspace_screen_change_ensure_unused_layout(
+      bmain, workspace_new, layout_new, layout_old, win);
 }
 
-/**
- * \brief Change the active workspace.
- *
- * Operator call, WM + Window + screen already existed before
- * Pretty similar to #ED_screen_change since changing workspace also changes screen.
- *
- * \warning Do NOT call in area/region queues!
- * \returns if workspace changing was successful.
- */
 bool ED_workspace_change(WorkSpace *workspace_new, bContext *C, wmWindowManager *wm, wmWindow *win)
 {
   Main *bmain = CTX_data_main(C);
@@ -153,16 +183,15 @@ bool ED_workspace_change(WorkSpace *workspace_new, bContext *C, wmWindowManager 
     return false;
   }
 
-  screen_new = screen_change_prepare(screen_old, screen_new, bmain, C, win);
-  if (BKE_workspace_layout_screen_get(layout_new) != screen_new) {
-    layout_new = BKE_workspace_layout_find(workspace_new, screen_new);
-  }
+  workspace_exit(workspace_old, win);
+
+  screen_change_prepare(screen_old, screen_new, bmain, C, win);
 
   if (screen_new == NULL) {
     return false;
   }
 
-  BKE_workspace_active_layout_set(win->workspace_hook, workspace_new, layout_new);
+  BKE_workspace_active_layout_set(win->workspace_hook, win->winid, workspace_new, layout_new);
   BKE_workspace_active_set(win->workspace_hook, workspace_new);
 
   /* update screen *after* changing workspace - which also causes the
@@ -180,16 +209,13 @@ bool ED_workspace_change(WorkSpace *workspace_new, bContext *C, wmWindowManager 
   return true;
 }
 
-/**
- * Duplicate a workspace including its layouts. Does not activate the workspace, but
- * it stores the screen-layout to be activated (BKE_workspace_temp_layout_store)
- */
 WorkSpace *ED_workspace_duplicate(WorkSpace *workspace_old, Main *bmain, wmWindow *win)
 {
   WorkSpaceLayout *layout_active_old = BKE_workspace_active_layout_get(win->workspace_hook);
   WorkSpace *workspace_new = ED_workspace_add(bmain, workspace_old->id.name + 2);
 
   workspace_new->flags = workspace_old->flags;
+  workspace_new->pin_scene = workspace_old->pin_scene;
   workspace_new->object_mode = workspace_old->object_mode;
   workspace_new->order = workspace_old->order;
   BLI_duplicatelist(&workspace_new->owner_ids, &workspace_old->owner_ids);
@@ -207,9 +233,6 @@ WorkSpace *ED_workspace_duplicate(WorkSpace *workspace_old, Main *bmain, wmWindo
   return workspace_new;
 }
 
-/**
- * \return if succeeded.
- */
 bool ED_workspace_delete(WorkSpace *workspace, Main *bmain, bContext *C, wmWindowManager *wm)
 {
   if (BLI_listbase_is_single(&bmain->workspaces)) {
@@ -240,10 +263,6 @@ bool ED_workspace_delete(WorkSpace *workspace, Main *bmain, bContext *C, wmWindo
   return true;
 }
 
-/**
- * Some editor data may need to be synced with scene data (3D View camera and layers).
- * This function ensures data is synced for editors in active layout of \a workspace.
- */
 void ED_workspace_scene_data_sync(WorkSpaceInstanceHook *hook, Scene *scene)
 {
   bScreen *screen = BKE_workspace_active_screen_get(hook);
@@ -252,8 +271,8 @@ void ED_workspace_scene_data_sync(WorkSpaceInstanceHook *hook, Scene *scene)
 
 /** \} Workspace API */
 
+/* -------------------------------------------------------------------- */
 /** \name Workspace Operators
- *
  * \{ */
 
 static WorkSpace *workspace_context_get(bContext *C)
@@ -330,7 +349,14 @@ static int workspace_append_activate_exec(bContext *C, wmOperator *op)
   RNA_string_get(op->ptr, "filepath", filepath);
 
   WorkSpace *appended_workspace = (WorkSpace *)WM_file_append_datablock(
-      bmain, CTX_data_scene(C), CTX_data_view_layer(C), CTX_wm_view3d(C), filepath, ID_WS, idname);
+      bmain,
+      CTX_data_scene(C),
+      CTX_data_view_layer(C),
+      CTX_wm_view3d(C),
+      filepath,
+      ID_WS,
+      idname,
+      BLO_LIBLINK_APPEND_RECURSIVE);
 
   if (appended_workspace) {
     /* Set defaults. */
@@ -406,14 +432,15 @@ static void workspace_append_button(uiLayout *layout,
                                     const Main *from_main)
 {
   const ID *id = (ID *)workspace;
-  PointerRNA opptr;
-  const char *filepath = from_main->name;
+  const char *filepath = from_main->filepath;
 
   if (strlen(filepath) == 0) {
     filepath = BLO_EMBEDDED_STARTUP_BLEND;
   }
 
   BLI_assert(STREQ(ot_append->idname, "WORKSPACE_OT_append_activate"));
+
+  PointerRNA opptr;
   uiItemFullO_ptr(
       layout, ot_append, workspace->id.name + 2, ICON_NONE, NULL, WM_OP_EXEC_DEFAULT, 0, &opptr);
   RNA_string_set(&opptr, "idname", id->name + 2);
@@ -430,8 +457,7 @@ static void workspace_add_menu(bContext *UNUSED(C), uiLayout *layout, void *temp
   WorkspaceConfigFileData *builtin_config = workspace_system_file_read(app_template);
 
   if (startup_config) {
-    for (WorkSpace *workspace = startup_config->workspaces.first; workspace;
-         workspace = workspace->id.next) {
+    LISTBASE_FOREACH (WorkSpace *, workspace, &startup_config->workspaces) {
       uiLayout *row = uiLayoutRow(layout, false);
       workspace_append_button(row, ot_append, workspace, startup_config->main);
       has_startup_items = true;
@@ -441,8 +467,7 @@ static void workspace_add_menu(bContext *UNUSED(C), uiLayout *layout, void *temp
   if (builtin_config) {
     bool has_title = false;
 
-    for (WorkSpace *workspace = builtin_config->workspaces.first; workspace;
-         workspace = workspace->id.next) {
+    LISTBASE_FOREACH (WorkSpace *, workspace, &builtin_config->workspaces) {
       if (startup_config &&
           BLI_findstring(&startup_config->workspaces, workspace->id.name, offsetof(ID, name))) {
         continue;
@@ -529,7 +554,7 @@ static void WORKSPACE_OT_reorder_to_back(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Workspace Reorder to Back";
-  ot->description = "Reorder workspace to be first in the list";
+  ot->description = "Reorder workspace to be last in the list";
   ot->idname = "WORKSPACE_OT_reorder_to_back";
 
   /* api callbacks */
@@ -560,6 +585,35 @@ static void WORKSPACE_OT_reorder_to_front(wmOperatorType *ot)
   ot->exec = workspace_reorder_to_front_exec;
 }
 
+static int workspace_scene_pin_toggle(bContext *C, wmOperator *UNUSED(op))
+{
+  WorkSpace *workspace = workspace_context_get(C);
+
+  /* Trivial. The operator is only needed to display a superimposed extra icon, which
+   * requires an operator. */
+  workspace->flags ^= WORKSPACE_USE_PIN_SCENE;
+
+  WM_event_add_notifier(C, NC_WORKSPACE, NULL);
+
+  return OPERATOR_FINISHED;
+}
+
+static void WORKSPACE_OT_scene_pin_toggle(wmOperatorType *ot)
+{
+  /* identifiers */
+  ot->name = "Pin Scene to Workspace";
+  ot->description =
+      "Remember the last used scene for the current workspace and switch to it whenever this "
+      "workspace is activated again";
+  ot->idname = "WORKSPACE_OT_scene_pin_toggle";
+
+  /* api callbacks */
+  ot->poll = workspace_context_poll;
+  ot->exec = workspace_scene_pin_toggle;
+
+  ot->flag = OPTYPE_INTERNAL;
+}
+
 void ED_operatortypes_workspace(void)
 {
   WM_operatortype_append(WORKSPACE_OT_duplicate);
@@ -568,6 +622,7 @@ void ED_operatortypes_workspace(void)
   WM_operatortype_append(WORKSPACE_OT_append_activate);
   WM_operatortype_append(WORKSPACE_OT_reorder_to_back);
   WM_operatortype_append(WORKSPACE_OT_reorder_to_front);
+  WM_operatortype_append(WORKSPACE_OT_scene_pin_toggle);
 }
 
 /** \} Workspace Operators */

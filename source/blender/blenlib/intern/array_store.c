@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bli
@@ -54,7 +40,7 @@
  *  |       |  Each state is a chunk_list user,
  *  |       |  avoids duplicating lists when there is no change between states.
  *  |       |
- *  |       +- chunk_refs (List of BChunkRef): Each chunk_ref links to a a BChunk.
+ *  |       +- chunk_refs (List of BChunkRef): Each chunk_ref links to a BChunk.
  *  |          Each reference is a chunk user,
  *  |          avoids duplicating smaller chunks of memory found in multiple states.
  *  |
@@ -112,6 +98,7 @@
 /* only for BLI_array_store_is_valid */
 #include "BLI_ghash.h"
 
+/* -------------------------------------------------------------------- */
 /** \name Defines
  *
  * Some of the logic for merging is quite involved,
@@ -189,9 +176,9 @@
  */
 #  define BCHUNK_SIZE_MIN_DIV 8
 
-/* Disallow chunks bigger then the regular chunk size scaled by this value
- * note: must be at least 2!
- * however, this code runs wont run in tests unless its ~1.1 ugh.
+/* Disallow chunks bigger than the regular chunk size scaled by this value
+ * NOTE: must be at least 2!
+ * however, this code runs won't run in tests unless it's ~1.1 ugh.
  * so lower only to check splitting works.
  */
 #  define BCHUNK_SIZE_MAX_MUL 2
@@ -206,6 +193,7 @@
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name Internal Structs
  * \{ */
 
@@ -313,6 +301,7 @@ typedef struct BTableRef {
 
 static size_t bchunk_list_size(const BChunkList *chunk_list);
 
+/* -------------------------------------------------------------------- */
 /** \name Internal BChunk API
  * \{ */
 
@@ -355,13 +344,12 @@ static bool bchunk_data_compare(const BChunk *chunk,
   if (offset + (size_t)chunk->data_len <= data_base_len) {
     return (memcmp(&data_base[offset], chunk->data, chunk->data_len) == 0);
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name Internal BChunkList API
  * \{ */
 
@@ -437,7 +425,7 @@ static void bchunk_list_ensure_min_size_last(const BArrayInfo *info,
       if (data_merge_len <= info->chunk_byte_size_max) {
         /* we have enough space to merge */
 
-        /* remove last from linklist */
+        /* Remove last from the linked-list. */
         BLI_assert(chunk_list->chunk_refs.last != chunk_list->chunk_refs.first);
         cref->prev->next = NULL;
         chunk_list->chunk_refs.last = cref->prev;
@@ -525,13 +513,13 @@ static void bchunk_list_calc_trim_len(const BArrayInfo *info,
 
 #ifdef USE_MERGE_CHUNKS
   /* avoid creating too-small chunks
-   * more efficient then merging after */
+   * more efficient than merging after */
   if (data_len > info->chunk_byte_size) {
     data_last_chunk_len = (data_trim_len % info->chunk_byte_size);
     data_trim_len = data_trim_len - data_last_chunk_len;
     if (data_last_chunk_len) {
       if (data_last_chunk_len < info->chunk_byte_size_min) {
-        /* may be zero and thats OK */
+        /* May be zero and that's OK. */
         data_trim_len -= info->chunk_byte_size;
         data_last_chunk_len += info->chunk_byte_size;
       }
@@ -734,10 +722,11 @@ static void bchunk_list_fill_from_array(const BArrayInfo *info,
 
 /** \} */
 
-/* ---------------------------------------------------------------------------
+/*
  * Internal Table Lookup Functions
  */
 
+/* -------------------------------------------------------------------- */
 /** \name Internal Hashing/De-Duplication API
  *
  * Only used by #bchunk_list_from_data_merge
@@ -893,20 +882,18 @@ static hash_key key_from_chunk_ref(const BArrayInfo *info,
 #  endif
     return key;
   }
-  else {
-    /* corner case - we're too small, calculate the key each time. */
+  /* corner case - we're too small, calculate the key each time. */
 
-    hash_array_from_cref(info, cref, info->accum_read_ahead_bytes, hash_store);
-    hash_accum_single(hash_store, hash_store_len, info->accum_steps);
-    hash_key key = hash_store[0];
+  hash_array_from_cref(info, cref, info->accum_read_ahead_bytes, hash_store);
+  hash_accum_single(hash_store, hash_store_len, info->accum_steps);
+  hash_key key = hash_store[0];
 
 #  ifdef USE_HASH_TABLE_KEY_CACHE
-    if (UNLIKELY(key == HASH_TABLE_KEY_UNSET)) {
-      key = HASH_TABLE_KEY_FALLBACK;
-    }
-#  endif
-    return key;
+  if (UNLIKELY(key == HASH_TABLE_KEY_UNSET)) {
+    key = HASH_TABLE_KEY_FALLBACK;
   }
+#  endif
+  return key;
 }
 
 static const BChunkRef *table_lookup(const BArrayInfo *info,
@@ -979,7 +966,7 @@ static const BChunkRef *table_lookup(const BArrayInfo *info,
                                      const size_t offset,
                                      const hash_key *UNUSED(table_hash_array))
 {
-  const size_t data_hash_len = BCHUNK_HASH_LEN * info->chunk_stride; /* TODO, cache */
+  const size_t data_hash_len = BCHUNK_HASH_LEN * info->chunk_stride; /* TODO: cache. */
 
   size_t size_left = data_len - offset;
   hash_key key = hash_data(&data[offset], MIN2(data_hash_len, size_left));
@@ -1009,8 +996,8 @@ static const BChunkRef *table_lookup(const BArrayInfo *info,
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name Main Data De-Duplication Function
- *
  * \{ */
 
 /**
@@ -1083,9 +1070,7 @@ static BChunkList *bchunk_list_from_data_merge(const BArrayInfo *info,
       if (cref == cref_match_first) {
         break;
       }
-      else {
-        cref = cref->next;
-      }
+      cref = cref->next;
     }
     /* happens when bytes are removed from the end of the array */
     if (chunk_size_step == data_len_original) {
@@ -1156,7 +1141,7 @@ static BChunkList *bchunk_list_from_data_merge(const BArrayInfo *info,
       use_aligned = true;
     }
     else {
-      /* TODO, walk over chunks and check if some arbitrary amount align */
+      /* TODO: walk over chunks and check if some arbitrary amount align. */
     }
   }
 #endif /* USE_ALIGN_CHUNKS_TEST */
@@ -1290,7 +1275,7 @@ static BChunkList *bchunk_list_from_data_merge(const BArrayInfo *info,
 
     BLI_assert(i_prev <= data_len);
     for (size_t i = i_prev; i < data_len;) {
-      /* Assumes exiting chunk isnt a match! */
+      /* Assumes exiting chunk isn't a match! */
 
       const BChunkRef *cref_found = table_lookup(
           info, table, table_len, i_table_start, data, data_len, i, table_hash_array);
@@ -1313,12 +1298,12 @@ static BChunkList *bchunk_list_from_data_merge(const BArrayInfo *info,
         ASSERT_CHUNKLIST_DATA(chunk_list, data);
 
         /* its likely that the next chunk in the list will be a match, so check it! */
-        while ((cref_found->next != NULL) && (cref_found->next != chunk_list_reference_last)) {
+        while (!ELEM(cref_found->next, NULL, chunk_list_reference_last)) {
           cref_found = cref_found->next;
           BChunk *chunk_found = cref_found->link;
 
           if (bchunk_data_compare(chunk_found, data, data_len, i_prev)) {
-            /* may be useful to remove table data, assuming we dont have
+            /* May be useful to remove table data, assuming we don't have
              * repeating memory where it would be useful to re-use chunks. */
             i += chunk_found->data_len;
             bchunk_list_append(info, bs_mem, chunk_list, chunk_found);
@@ -1396,29 +1381,10 @@ static BChunkList *bchunk_list_from_data_merge(const BArrayInfo *info,
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name Main Array Storage API
  * \{ */
 
-/**
- * Create a new array store, which can store any number of arrays
- * as long as their stride matches.
- *
- * \param stride: ``sizeof()`` each element,
- *
- * \note while a stride of ``1`` will always work,
- * its less efficient since duplicate chunks of memory will be searched
- * at positions unaligned with the array data.
- *
- * \param chunk_count: Number of elements to split each chunk into.
- * - A small value increases the ability to de-duplicate chunks,
- *   but adds overhead by increasing the number of chunks to look-up when searching for duplicates,
- *   as well as some overhead constructing the original array again, with more calls to ``memcpy``.
- * - Larger values reduce the *book keeping* overhead,
- *   but increase the chance a small,
- *   isolated change will cause a larger amount of data to be duplicated.
- *
- * \return A new array store, to be freed with #BLI_array_store_destroy.
- */
 BArrayStore *BLI_array_store_create(uint stride, uint chunk_count)
 {
   BArrayStore *bs = MEM_callocN(sizeof(BArrayStore), __func__);
@@ -1436,8 +1402,8 @@ BArrayStore *BLI_array_store_create(uint stride, uint chunk_count)
   bs->info.accum_steps = BCHUNK_HASH_TABLE_ACCUMULATE_STEPS - 1;
   /* Triangle number, identifying now much read-ahead we need:
    * https://en.wikipedia.org/wiki/Triangular_number (+ 1) */
-  bs->info.accum_read_ahead_len = (uint)(
-      (((bs->info.accum_steps * (bs->info.accum_steps + 1))) / 2) + 1);
+  bs->info.accum_read_ahead_len =
+      (uint)((((bs->info.accum_steps * (bs->info.accum_steps + 1))) / 2) + 1);
   bs->info.accum_read_ahead_bytes = bs->info.accum_read_ahead_len * stride;
 #else
   bs->info.accum_read_ahead_bytes = BCHUNK_HASH_LEN * stride;
@@ -1472,9 +1438,6 @@ static void array_store_free_data(BArrayStore *bs)
   }
 }
 
-/**
- * Free the #BArrayStore, including all states and chunks.
- */
 void BLI_array_store_destroy(BArrayStore *bs)
 {
   array_store_free_data(bs);
@@ -1486,9 +1449,6 @@ void BLI_array_store_destroy(BArrayStore *bs)
   MEM_freeN(bs);
 }
 
-/**
- * Clear all contents, allowing reuse of \a bs.
- */
 void BLI_array_store_clear(BArrayStore *bs)
 {
   array_store_free_data(bs);
@@ -1502,12 +1462,10 @@ void BLI_array_store_clear(BArrayStore *bs)
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name BArrayStore Statistics
  * \{ */
 
-/**
- * \return the total amount of memory that would be used by getting the arrays for all states.
- */
 size_t BLI_array_store_calc_size_expanded_get(const BArrayStore *bs)
 {
   size_t size_accum = 0;
@@ -1517,10 +1475,6 @@ size_t BLI_array_store_calc_size_expanded_get(const BArrayStore *bs)
   return size_accum;
 }
 
-/**
- * \return the amount of memory used by all #BChunk.data
- * (duplicate chunks are only counted once).
- */
 size_t BLI_array_store_calc_size_compacted_get(const BArrayStore *bs)
 {
   size_t size_total = 0;
@@ -1536,21 +1490,10 @@ size_t BLI_array_store_calc_size_compacted_get(const BArrayStore *bs)
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name BArrayState Access
  * \{ */
 
-/**
- *
- * \param data: Data used to create
- * \param state_reference: The state to use as a reference when adding the new state,
- * typically this is the previous state,
- * however it can be any previously created state from this \a bs.
- *
- * \return The new state,
- * which is used by the caller as a handle to get back the contents of \a data.
- * This may be removed using #BLI_array_store_state_remove,
- * otherwise it will be removed with #BLI_array_store_destroy.
- */
 BArrayState *BLI_array_store_state_add(BArrayStore *bs,
                                        const void *data,
                                        const size_t data_len,
@@ -1599,11 +1542,6 @@ BArrayState *BLI_array_store_state_add(BArrayStore *bs,
   return state;
 }
 
-/**
- * Remove a state and free any unused #BChunk data.
- *
- * The states can be freed in any order.
- */
 void BLI_array_store_state_remove(BArrayStore *bs, BArrayState *state)
 {
 #ifdef USE_PARANOID_CHECKS
@@ -1616,18 +1554,11 @@ void BLI_array_store_state_remove(BArrayStore *bs, BArrayState *state)
   MEM_freeN(state);
 }
 
-/**
- * \return the expanded size of the array,
- * use this to know how much memory to allocate #BLI_array_store_state_data_get's argument.
- */
 size_t BLI_array_store_state_size_get(BArrayState *state)
 {
   return state->chunk_list->total_size;
 }
 
-/**
- * Fill in existing allocated memory with the contents of \a state.
- */
 void BLI_array_store_state_data_get(BArrayState *state, void *data)
 {
 #ifdef USE_PARANOID_CHECKS
@@ -1646,9 +1577,6 @@ void BLI_array_store_state_data_get(BArrayState *state, void *data)
   }
 }
 
-/**
- * Allocate an array for \a state and return it.
- */
 void *BLI_array_store_state_data_get_alloc(BArrayState *state, size_t *r_data_len)
 {
   void *data = MEM_mallocN(state->chunk_list->total_size, __func__);
@@ -1659,6 +1587,7 @@ void *BLI_array_store_state_data_get_alloc(BArrayState *state, size_t *r_data_le
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name Debugging API (for testing).
  * \{ */
 
@@ -1784,7 +1713,7 @@ bool BLI_array_store_is_valid(BArrayStore *bs)
   }
 
   return ok;
-  /* TODO, dangling pointer checks */
+  /* TODO: dangling pointer checks. */
 }
 
 /** \} */

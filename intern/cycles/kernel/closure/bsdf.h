@@ -1,18 +1,7 @@
-/*
- * Copyright 2011-2013 Blender Foundation
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright 2011-2022 Blender Foundation */
+
+#pragma once
 
 // clang-format off
 #include "kernel/closure/bsdf_ashikhmin_velvet.h"
@@ -39,32 +28,32 @@ CCL_NAMESPACE_BEGIN
 
 /* Returns the square of the roughness of the closure if it has roughness,
  * 0 for singular closures and 1 otherwise. */
-ccl_device_inline float bsdf_get_specular_roughness_squared(const ShaderClosure *sc)
+ccl_device_inline float bsdf_get_specular_roughness_squared(ccl_private const ShaderClosure *sc)
 {
   if (CLOSURE_IS_BSDF_SINGULAR(sc->type)) {
     return 0.0f;
   }
 
   if (CLOSURE_IS_BSDF_MICROFACET(sc->type)) {
-    MicrofacetBsdf *bsdf = (MicrofacetBsdf *)sc;
+    ccl_private MicrofacetBsdf *bsdf = (ccl_private MicrofacetBsdf *)sc;
     return bsdf->alpha_x * bsdf->alpha_y;
   }
 
   return 1.0f;
 }
 
-ccl_device_inline float bsdf_get_roughness_squared(const ShaderClosure *sc)
+ccl_device_inline float bsdf_get_roughness_squared(ccl_private const ShaderClosure *sc)
 {
   /* This version includes diffuse, mainly for baking Principled BSDF
    * where specular and metallic zero otherwise does not bake the
    * specified roughness parameter. */
   if (sc->type == CLOSURE_BSDF_OREN_NAYAR_ID) {
-    OrenNayarBsdf *bsdf = (OrenNayarBsdf *)sc;
+    ccl_private OrenNayarBsdf *bsdf = (ccl_private OrenNayarBsdf *)sc;
     return sqr(sqr(bsdf->roughness));
   }
 
   if (sc->type == CLOSURE_BSDF_PRINCIPLED_DIFFUSE_ID) {
-    PrincipledDiffuseBsdf *bsdf = (PrincipledDiffuseBsdf *)sc;
+    ccl_private PrincipledDiffuseBsdf *bsdf = (ccl_private PrincipledDiffuseBsdf *)sc;
     return sqr(sqr(bsdf->roughness));
   }
 
@@ -97,11 +86,11 @@ ccl_device_inline float bump_shadowing_term(float3 Ng, float3 N, float3 I)
   return -g2 * g + g2 + g;
 }
 
-/* Shadow terminator workaround, taken from Appleseed.
- * Original code is under the MIT License
- * Copyright (c) 2019 Francois Beaune, The appleseedhq Organization */
 ccl_device_inline float shift_cos_in(float cos_in, const float frequency_multiplier)
 {
+  /* Shadow terminator workaround, taken from Appleseed.
+   * SPDX-License-Identifier: MIT
+   * Copyright (c) 2019 Francois Beaune, The appleseedhq Organization */
   cos_in = min(cos_in, 1.0f);
 
   const float angle = fast_acosf(cos_in);
@@ -109,23 +98,25 @@ ccl_device_inline float shift_cos_in(float cos_in, const float frequency_multipl
   return val;
 }
 
-ccl_device_inline int bsdf_sample(KernelGlobals *kg,
-                                  ShaderData *sd,
-                                  const ShaderClosure *sc,
+ccl_device_inline int bsdf_sample(KernelGlobals kg,
+                                  ccl_private ShaderData *sd,
+                                  ccl_private const ShaderClosure *sc,
                                   float randu,
                                   float randv,
-                                  float3 *eval,
-                                  float3 *omega_in,
-                                  differential3 *domega_in,
-                                  float *pdf)
+                                  ccl_private float3 *eval,
+                                  ccl_private float3 *omega_in,
+                                  ccl_private differential3 *domega_in,
+                                  ccl_private float *pdf)
 {
+  /* For curves use the smooth normal, particularly for ribbons the geometric
+   * normal gives too much darkening otherwise. */
   int label;
+  const float3 Ng = (sd->type & PRIMITIVE_CURVE) ? sc->N : sd->Ng;
 
   switch (sc->type) {
     case CLOSURE_BSDF_DIFFUSE_ID:
-    case CLOSURE_BSDF_BSSRDF_ID:
       label = bsdf_diffuse_sample(sc,
-                                  sd->Ng,
+                                  Ng,
                                   sd->I,
                                   sd->dI.dx,
                                   sd->dI.dy,
@@ -140,7 +131,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
 #ifdef __SVM__
     case CLOSURE_BSDF_OREN_NAYAR_ID:
       label = bsdf_oren_nayar_sample(sc,
-                                     sd->Ng,
+                                     Ng,
                                      sd->I,
                                      sd->dI.dx,
                                      sd->dI.dy,
@@ -155,7 +146,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
 #  ifdef __OSL__
     case CLOSURE_BSDF_PHONG_RAMP_ID:
       label = bsdf_phong_ramp_sample(sc,
-                                     sd->Ng,
+                                     Ng,
                                      sd->I,
                                      sd->dI.dx,
                                      sd->dI.dy,
@@ -169,7 +160,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_DIFFUSE_RAMP_ID:
       label = bsdf_diffuse_ramp_sample(sc,
-                                       sd->Ng,
+                                       Ng,
                                        sd->I,
                                        sd->dI.dx,
                                        sd->dI.dy,
@@ -184,7 +175,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
 #  endif
     case CLOSURE_BSDF_TRANSLUCENT_ID:
       label = bsdf_translucent_sample(sc,
-                                      sd->Ng,
+                                      Ng,
                                       sd->I,
                                       sd->dI.dx,
                                       sd->dI.dy,
@@ -198,7 +189,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_REFLECTION_ID:
       label = bsdf_reflection_sample(sc,
-                                     sd->Ng,
+                                     Ng,
                                      sd->I,
                                      sd->dI.dx,
                                      sd->dI.dy,
@@ -212,7 +203,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_REFRACTION_ID:
       label = bsdf_refraction_sample(sc,
-                                     sd->Ng,
+                                     Ng,
                                      sd->I,
                                      sd->dI.dx,
                                      sd->dI.dy,
@@ -226,7 +217,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_TRANSPARENT_ID:
       label = bsdf_transparent_sample(sc,
-                                      sd->Ng,
+                                      Ng,
                                       sd->I,
                                       sd->dI.dx,
                                       sd->dI.dy,
@@ -244,7 +235,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
     case CLOSURE_BSDF_MICROFACET_GGX_REFRACTION_ID:
       label = bsdf_microfacet_ggx_sample(kg,
                                          sc,
-                                         sd->Ng,
+                                         Ng,
                                          sd->I,
                                          sd->dI.dx,
                                          sd->dI.dy,
@@ -260,7 +251,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
     case CLOSURE_BSDF_MICROFACET_MULTI_GGX_FRESNEL_ID:
       label = bsdf_microfacet_multi_ggx_sample(kg,
                                                sc,
-                                               sd->Ng,
+                                               Ng,
                                                sd->I,
                                                sd->dI.dx,
                                                sd->dI.dy,
@@ -277,7 +268,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
     case CLOSURE_BSDF_MICROFACET_MULTI_GGX_GLASS_FRESNEL_ID:
       label = bsdf_microfacet_multi_ggx_glass_sample(kg,
                                                      sc,
-                                                     sd->Ng,
+                                                     Ng,
                                                      sd->I,
                                                      sd->dI.dx,
                                                      sd->dI.dy,
@@ -294,7 +285,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
     case CLOSURE_BSDF_MICROFACET_BECKMANN_REFRACTION_ID:
       label = bsdf_microfacet_beckmann_sample(kg,
                                               sc,
-                                              sd->Ng,
+                                              Ng,
                                               sd->I,
                                               sd->dI.dx,
                                               sd->dI.dy,
@@ -308,7 +299,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_ASHIKHMIN_SHIRLEY_ID:
       label = bsdf_ashikhmin_shirley_sample(sc,
-                                            sd->Ng,
+                                            Ng,
                                             sd->I,
                                             sd->dI.dx,
                                             sd->dI.dy,
@@ -322,7 +313,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_ASHIKHMIN_VELVET_ID:
       label = bsdf_ashikhmin_velvet_sample(sc,
-                                           sd->Ng,
+                                           Ng,
                                            sd->I,
                                            sd->dI.dx,
                                            sd->dI.dy,
@@ -336,7 +327,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_DIFFUSE_TOON_ID:
       label = bsdf_diffuse_toon_sample(sc,
-                                       sd->Ng,
+                                       Ng,
                                        sd->I,
                                        sd->dI.dx,
                                        sd->dI.dy,
@@ -350,7 +341,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_GLOSSY_TOON_ID:
       label = bsdf_glossy_toon_sample(sc,
-                                      sd->Ng,
+                                      Ng,
                                       sd->I,
                                       sd->dI.dx,
                                       sd->dI.dy,
@@ -364,7 +355,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_HAIR_REFLECTION_ID:
       label = bsdf_hair_reflection_sample(sc,
-                                          sd->Ng,
+                                          Ng,
                                           sd->I,
                                           sd->dI.dx,
                                           sd->dI.dy,
@@ -378,7 +369,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_HAIR_TRANSMISSION_ID:
       label = bsdf_hair_transmission_sample(sc,
-                                            sd->Ng,
+                                            Ng,
                                             sd->I,
                                             sd->dI.dx,
                                             sd->dI.dy,
@@ -396,9 +387,8 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
 #  ifdef __PRINCIPLED__
     case CLOSURE_BSDF_PRINCIPLED_DIFFUSE_ID:
-    case CLOSURE_BSDF_BSSRDF_PRINCIPLED_ID:
       label = bsdf_principled_diffuse_sample(sc,
-                                             sd->Ng,
+                                             Ng,
                                              sd->I,
                                              sd->dI.dx,
                                              sd->dI.dy,
@@ -412,7 +402,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
     case CLOSURE_BSDF_PRINCIPLED_SHEEN_ID:
       label = bsdf_principled_sheen_sample(sc,
-                                           sd->Ng,
+                                           Ng,
                                            sd->I,
                                            sd->dI.dx,
                                            sd->dI.dy,
@@ -426,21 +416,6 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
       break;
 #  endif /* __PRINCIPLED__ */
 #endif
-#ifdef __VOLUME__
-    case CLOSURE_VOLUME_HENYEY_GREENSTEIN_ID:
-      label = volume_henyey_greenstein_sample(sc,
-                                              sd->I,
-                                              sd->dI.dx,
-                                              sd->dI.dy,
-                                              randu,
-                                              randv,
-                                              eval,
-                                              omega_in,
-                                              &domega_in->dx,
-                                              &domega_in->dy,
-                                              pdf);
-      break;
-#endif
     default:
       label = LABEL_NONE;
       break;
@@ -450,7 +425,7 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
   if (label & LABEL_TRANSMIT) {
     float threshold_squared = kernel_data.background.transparent_roughness_squared_threshold;
 
-    if (threshold_squared >= 0.0f) {
+    if (threshold_squared >= 0.0f && !(label & LABEL_DIFFUSE)) {
       if (bsdf_get_specular_roughness_squared(sc) <= threshold_squared) {
         label |= LABEL_TRANSMIT_TRANSPARENT;
       }
@@ -459,16 +434,21 @@ ccl_device_inline int bsdf_sample(KernelGlobals *kg,
   else {
     /* Shadow terminator offset. */
     const float frequency_multiplier =
-        kernel_tex_fetch(__objects, sd->object).shadow_terminator_offset;
+        kernel_data_fetch(objects, sd->object).shadow_terminator_shading_offset;
     if (frequency_multiplier > 1.0f) {
       *eval *= shift_cos_in(dot(*omega_in, sc->N), frequency_multiplier);
     }
     if (label & LABEL_DIFFUSE) {
-      if (!isequal_float3(sc->N, sd->N)) {
+      if (!isequal(sc->N, sd->N)) {
         *eval *= bump_shadowing_term((label & LABEL_TRANSMIT) ? -sd->N : sd->N, sc->N, *omega_in);
       }
     }
   }
+
+#ifdef WITH_CYCLES_DEBUG
+  kernel_assert(*pdf >= 0.0f);
+  kernel_assert(eval->x >= 0.0f && eval->y >= 0.0f && eval->z >= 0.0f);
+#endif
 
   return label;
 }
@@ -479,18 +459,18 @@ ccl_device
 ccl_device_inline
 #endif
     float3
-    bsdf_eval(KernelGlobals *kg,
-              ShaderData *sd,
-              const ShaderClosure *sc,
+    bsdf_eval(KernelGlobals kg,
+              ccl_private ShaderData *sd,
+              ccl_private const ShaderClosure *sc,
               const float3 omega_in,
-              float *pdf)
+              const bool is_transmission,
+              ccl_private float *pdf)
 {
-  float3 eval;
+  float3 eval = zero_float3();
 
-  if (dot(sd->Ng, omega_in) >= 0.0f) {
+  if (!is_transmission) {
     switch (sc->type) {
       case CLOSURE_BSDF_DIFFUSE_ID:
-      case CLOSURE_BSDF_BSSRDF_ID:
         eval = bsdf_diffuse_eval_reflect(sc, sd->I, omega_in, pdf);
         break;
 #ifdef __SVM__
@@ -559,7 +539,6 @@ ccl_device_inline
         break;
 #  ifdef __PRINCIPLED__
       case CLOSURE_BSDF_PRINCIPLED_DIFFUSE_ID:
-      case CLOSURE_BSDF_BSSRDF_PRINCIPLED_ID:
         eval = bsdf_principled_diffuse_eval_reflect(sc, sd->I, omega_in, pdf);
         break;
       case CLOSURE_BSDF_PRINCIPLED_SHEEN_ID:
@@ -567,23 +546,17 @@ ccl_device_inline
         break;
 #  endif /* __PRINCIPLED__ */
 #endif
-#ifdef __VOLUME__
-      case CLOSURE_VOLUME_HENYEY_GREENSTEIN_ID:
-        eval = volume_henyey_greenstein_eval_phase(sc, sd->I, omega_in, pdf);
-        break;
-#endif
       default:
-        eval = make_float3(0.0f, 0.0f, 0.0f);
         break;
     }
     if (CLOSURE_IS_BSDF_DIFFUSE(sc->type)) {
-      if (!isequal_float3(sc->N, sd->N)) {
+      if (!isequal(sc->N, sd->N)) {
         eval *= bump_shadowing_term(sd->N, sc->N, omega_in);
       }
     }
     /* Shadow terminator offset. */
     const float frequency_multiplier =
-        kernel_tex_fetch(__objects, sd->object).shadow_terminator_offset;
+        kernel_data_fetch(objects, sd->object).shadow_terminator_shading_offset;
     if (frequency_multiplier > 1.0f) {
       eval *= shift_cos_in(dot(omega_in, sc->N), frequency_multiplier);
     }
@@ -591,7 +564,6 @@ ccl_device_inline
   else {
     switch (sc->type) {
       case CLOSURE_BSDF_DIFFUSE_ID:
-      case CLOSURE_BSDF_BSSRDF_ID:
         eval = bsdf_diffuse_eval_transmit(sc, sd->I, omega_in, pdf);
         break;
 #ifdef __SVM__
@@ -652,7 +624,6 @@ ccl_device_inline
         break;
 #  ifdef __PRINCIPLED__
       case CLOSURE_BSDF_PRINCIPLED_DIFFUSE_ID:
-      case CLOSURE_BSDF_BSSRDF_PRINCIPLED_ID:
         eval = bsdf_principled_diffuse_eval_transmit(sc, sd->I, omega_in, pdf);
         break;
       case CLOSURE_BSDF_PRINCIPLED_SHEEN_ID:
@@ -660,28 +631,25 @@ ccl_device_inline
         break;
 #  endif /* __PRINCIPLED__ */
 #endif
-#ifdef __VOLUME__
-      case CLOSURE_VOLUME_HENYEY_GREENSTEIN_ID:
-        eval = volume_henyey_greenstein_eval_phase(sc, sd->I, omega_in, pdf);
-        break;
-#endif
       default:
-        eval = make_float3(0.0f, 0.0f, 0.0f);
         break;
     }
     if (CLOSURE_IS_BSDF_DIFFUSE(sc->type)) {
-      if (!isequal_float3(sc->N, sd->N)) {
+      if (!isequal(sc->N, sd->N)) {
         eval *= bump_shadowing_term(-sd->N, sc->N, omega_in);
       }
     }
   }
-
+#ifdef WITH_CYCLES_DEBUG
+  kernel_assert(*pdf >= 0.0f);
+  kernel_assert(eval.x >= 0.0f && eval.y >= 0.0f && eval.z >= 0.0f);
+#endif
   return eval;
 }
 
-ccl_device void bsdf_blur(KernelGlobals *kg, ShaderClosure *sc, float roughness)
+ccl_device void bsdf_blur(KernelGlobals kg, ccl_private ShaderClosure *sc, float roughness)
 {
-  /* ToDo: do we want to blur volume closures? */
+  /* TODO: do we want to blur volume closures? */
 #ifdef __SVM__
   switch (sc->type) {
     case CLOSURE_BSDF_MICROFACET_MULTI_GGX_ID:
@@ -709,57 +677,6 @@ ccl_device void bsdf_blur(KernelGlobals *kg, ShaderClosure *sc, float roughness)
     default:
       break;
   }
-#endif
-}
-
-ccl_device bool bsdf_merge(ShaderClosure *a, ShaderClosure *b)
-{
-#ifdef __SVM__
-  switch (a->type) {
-    case CLOSURE_BSDF_TRANSPARENT_ID:
-      return true;
-    case CLOSURE_BSDF_DIFFUSE_ID:
-    case CLOSURE_BSDF_BSSRDF_ID:
-    case CLOSURE_BSDF_TRANSLUCENT_ID:
-      return bsdf_diffuse_merge(a, b);
-    case CLOSURE_BSDF_OREN_NAYAR_ID:
-      return bsdf_oren_nayar_merge(a, b);
-    case CLOSURE_BSDF_REFLECTION_ID:
-    case CLOSURE_BSDF_REFRACTION_ID:
-    case CLOSURE_BSDF_MICROFACET_GGX_ID:
-    case CLOSURE_BSDF_MICROFACET_GGX_FRESNEL_ID:
-    case CLOSURE_BSDF_MICROFACET_GGX_CLEARCOAT_ID:
-    case CLOSURE_BSDF_MICROFACET_GGX_REFRACTION_ID:
-    case CLOSURE_BSDF_MICROFACET_MULTI_GGX_ID:
-    case CLOSURE_BSDF_MICROFACET_MULTI_GGX_FRESNEL_ID:
-    case CLOSURE_BSDF_MICROFACET_MULTI_GGX_GLASS_ID:
-    case CLOSURE_BSDF_MICROFACET_MULTI_GGX_GLASS_FRESNEL_ID:
-    case CLOSURE_BSDF_MICROFACET_BECKMANN_ID:
-    case CLOSURE_BSDF_MICROFACET_BECKMANN_REFRACTION_ID:
-    case CLOSURE_BSDF_ASHIKHMIN_SHIRLEY_ID:
-      return bsdf_microfacet_merge(a, b);
-    case CLOSURE_BSDF_ASHIKHMIN_VELVET_ID:
-      return bsdf_ashikhmin_velvet_merge(a, b);
-    case CLOSURE_BSDF_DIFFUSE_TOON_ID:
-    case CLOSURE_BSDF_GLOSSY_TOON_ID:
-      return bsdf_toon_merge(a, b);
-    case CLOSURE_BSDF_HAIR_REFLECTION_ID:
-    case CLOSURE_BSDF_HAIR_TRANSMISSION_ID:
-      return bsdf_hair_merge(a, b);
-#  ifdef __PRINCIPLED__
-    case CLOSURE_BSDF_PRINCIPLED_DIFFUSE_ID:
-    case CLOSURE_BSDF_BSSRDF_PRINCIPLED_ID:
-      return bsdf_principled_diffuse_merge(a, b);
-#  endif
-#  ifdef __VOLUME__
-    case CLOSURE_VOLUME_HENYEY_GREENSTEIN_ID:
-      return volume_henyey_greenstein_merge(a, b);
-#  endif
-    default:
-      return false;
-  }
-#else
-  return false;
 #endif
 }
 

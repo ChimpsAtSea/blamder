@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  */
 
-#ifndef __GHOST_DROPTARGETWIN32_H__
-#define __GHOST_DROPTARGETWIN32_H__
+#pragma once
 
 #include "GHOST_SystemWin32.h"
 #include "GHOST_WindowWin32.h"
@@ -74,8 +57,8 @@ class GHOST_DropTargetWin32 : public IDropTarget {
    * With the modifier keys, we want to distinguish left and right keys.
    * Sometimes this is not possible (Windows ME for instance). Then, we want
    * events generated for both keys.
-   * \param window    The window to register as drop target.
-   * \param system    The associated system.
+   * \param window: The window to register as drop target.
+   * \param system: The associated system.
    */
   GHOST_DropTargetWin32(GHOST_WindowWin32 *window, GHOST_SystemWin32 *system);
 
@@ -90,14 +73,14 @@ class GHOST_DropTargetWin32 : public IDropTarget {
 
   /**
    * Base the effect on those allowed by the drop-source.
-   * \param dwAllowed Drop sources allowed drop effect.
+   * \param dwAllowed: Drop sources allowed drop effect.
    * \return The allowed drop effect.
    */
   DWORD allowedDropEffect(DWORD dwAllowed);
 
   /**
    * Query DataObject for the data types it supports.
-   * \param pDataObject Pointer to the DataObject.
+   * \param pDataObject: Pointer to the DataObject.
    * \return GHOST data type.
    */
   GHOST_TDragnDropTypes getGhostType(IDataObject *pDataObject);
@@ -105,21 +88,21 @@ class GHOST_DropTargetWin32 : public IDropTarget {
   /**
    * Get data to pass in event.
    * It checks the type and calls specific functions for each type.
-   * \param pDataObject Pointer to the DataObject.
+   * \param pDataObject: Pointer to the DataObject.
    * \return Pointer to data.
    */
   void *getGhostData(IDataObject *pDataObject);
 
   /**
    * Allocate data as file array to pass in event.
-   * \param pDataObject Pointer to the DataObject.
+   * \param pDataObject: Pointer to the DataObject.
    * \return Pointer to data.
    */
   void *getDropDataAsFilenames(IDataObject *pDataObject);
 
   /**
    * Allocate data as string to pass in event.
-   * \param pDataObject Pointer to the DataObject.
+   * \param pDataObject: Pointer to the DataObject.
    * \return Pointer to data.
    */
   void *getDropDataAsString(IDataObject *pDataObject);
@@ -128,8 +111,8 @@ class GHOST_DropTargetWin32 : public IDropTarget {
    * Convert Unicode to ANSI, replacing uncomfortable chars with '?'.
    * The ANSI codepage is the system default codepage,
    * and can change from system to system.
-   * \param in LPCWSTR.
-   * \param out char *. Is set to NULL on failure.
+   * \param in: LPCWSTR.
+   * \param out: char *. Is set to NULL on failure.
    * \return 0 on failure. Else the size of the string including '\0'.
    */
   int WideCharToANSI(LPCWSTR in, char *&out);
@@ -150,5 +133,3 @@ class GHOST_DropTargetWin32 : public IDropTarget {
   MEM_CXX_CLASS_ALLOC_FUNCS("GHOST:GHOST_DropTargetWin32")
 #endif
 };
-
-#endif  // __GHOST_DROPTARGETWIN32_H__

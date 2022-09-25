@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2011 Blender Foundation.
+
 # - Find OpenCOLLADA library
 # Find the native OpenCOLLADA includes and library
 # This module defines
@@ -7,20 +10,6 @@
 #  OPENCOLLADA_ROOT_DIR, The base directory to search for OpenCOLLADA.
 #                    This can also be an environment variable.
 #  OPENCOLLADA_FOUND, If false, do not try to use OpenCOLLADA.
-#
-# also defined, but not for general use are
-#  OPENCOLLADA_LIBRARY, where to find the OpenCOLLADA library.
-
-#=============================================================================
-# Copyright 2011 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
 
 # note about include paths, there are 2 ways includes are set
 #
@@ -53,7 +42,7 @@ SET(_opencollada_FIND_COMPONENTS
 )
 
 # Fedora openCOLLADA package links these statically
-# note that order is important here ot it wont link
+# note that order is important here or it won't link
 SET(_opencollada_FIND_STATIC_COMPONENTS
   buffer
   ftoa
@@ -136,7 +125,7 @@ FIND_PACKAGE_HANDLE_STANDARD_ARGS(OpenCOLLADA  DEFAULT_MSG
 IF(OPENCOLLADA_FOUND)
   SET(OPENCOLLADA_LIBRARIES ${_opencollada_LIBRARIES})
   SET(OPENCOLLADA_INCLUDE_DIRS ${_opencollada_INCLUDES})
-ENDIF(OPENCOLLADA_FOUND)
+ENDIF()
 
 UNSET(COMPONENT)
 UNSET(UPPERCOMPONENT)

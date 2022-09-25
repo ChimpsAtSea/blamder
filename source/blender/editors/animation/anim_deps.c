@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edanimation
@@ -44,19 +28,19 @@
 #include "BKE_gpencil.h"
 #include "BKE_main.h"
 #include "BKE_node.h"
-#include "BKE_sequencer.h"
 
 #include "DEG_depsgraph.h"
 
 #include "RNA_access.h"
+#include "RNA_path.h"
+
+#include "SEQ_sequencer.h"
+#include "SEQ_utils.h"
 
 #include "ED_anim_api.h"
 
 /* **************************** depsgraph tagging ******************************** */
 
-/* tags the given anim list element for refreshes (if applicable)
- * due to Animation Editor editing
- */
 void ANIM_list_elem_update(Main *bmain, Scene *scene, bAnimListElem *ale)
 {
   ID *id;
@@ -91,9 +75,9 @@ void ANIM_list_elem_update(Main *bmain, Scene *scene, bAnimListElem *ale)
   fcu = (ale->datatype == ALE_FCURVE) ? ale->key_data : NULL;
 
   if (fcu && fcu->rna_path) {
-    /* if we have an fcurve, call the update for the property we
+    /* If we have an fcurve, call the update for the property we
      * are editing, this is then expected to do the proper redraws
-     * and depsgraph updates  */
+     * and depsgraph updates. */
     PointerRNA id_ptr, ptr;
     PropertyRNA *prop;
 
@@ -107,21 +91,18 @@ void ANIM_list_elem_update(Main *bmain, Scene *scene, bAnimListElem *ale)
     /* in other case we do standard depsgraph update, ideally
      * we'd be calling property update functions here too ... */
     DEG_id_tag_update(id,
-                      ID_RECALC_TRANSFORM | ID_RECALC_GEOMETRY |
-                          ID_RECALC_ANIMATION);  // XXX or do we want something more restrictive?
+                      /* XXX: or do we want something more restrictive? */
+                      ID_RECALC_TRANSFORM | ID_RECALC_GEOMETRY | ID_RECALC_ANIMATION);
   }
 }
 
-/* tags the given ID block for refreshes (if applicable) due to
- * Animation Editor editing */
 void ANIM_id_update(Main *bmain, ID *id)
 {
   if (id) {
-    DEG_id_tag_update_ex(
-        bmain,
-        id,
-        ID_RECALC_TRANSFORM | ID_RECALC_GEOMETRY |
-            ID_RECALC_ANIMATION);  // XXX or do we want something more restrictive?
+    DEG_id_tag_update_ex(bmain,
+                         id,
+                         /* XXX: or do we want something more restrictive? */
+                         ID_RECALC_TRANSFORM | ID_RECALC_GEOMETRY | ID_RECALC_ANIMATION);
   }
 }
 
@@ -199,10 +180,38 @@ static void animchan_sync_group(bAnimContext *ac, bAnimListElem *ale, bActionGro
   }
 }
 
+static void animchan_sync_fcurve_scene(bAnimListElem *ale)
+{
+  ID *owner_id = ale->id;
+  BLI_assert(GS(owner_id->name) == ID_SCE);
+  Scene *scene = (Scene *)owner_id;
+  FCurve *fcu = (FCurve *)ale->data;
+  Sequence *seq = NULL;
+
+  /* Only affect if F-Curve involves sequence_editor.sequences. */
+  char seq_name[sizeof(seq->name)];
+  if (!BLI_str_quoted_substr(fcu->rna_path, "sequences_all[", seq_name, sizeof(seq_name))) {
+    return;
+  }
+
+  /* Check if this strip is selected. */
+  Editing *ed = SEQ_editing_get(scene);
+  seq = SEQ_get_sequence_by_name(ed->seqbasep, seq_name, false);
+  if (seq == NULL) {
+    return;
+  }
+
+  /* update selection status */
+  if (seq->flag & SELECT) {
+    fcu->flag |= FCURVE_SELECTED;
+  }
+  else {
+    fcu->flag &= ~FCURVE_SELECTED;
+  }
+}
+
 /* perform syncing updates for F-Curves */
-static void animchan_sync_fcurve(bAnimContext *UNUSED(ac),
-                                 bAnimListElem *ale,
-                                 FCurve **active_fcurve)
+static void animchan_sync_fcurve(bAnimListElem *ale)
 {
   FCurve *fcu = (FCurve *)ale->data;
   ID *owner_id = ale->id;
@@ -214,82 +223,17 @@ static void animchan_sync_fcurve(bAnimContext *UNUSED(ac),
     return;
   }
 
-  if (GS(owner_id->name) == ID_SCE) {
-    Scene *scene = (Scene *)owner_id;
-
-    /* only affect if F-Curve involves sequence_editor.sequences */
-    if ((fcu->rna_path) && strstr(fcu->rna_path, "sequences_all")) {
-      Editing *ed = BKE_sequencer_editing_get(scene, false);
-      Sequence *seq;
-      char *seq_name;
-
-      /* get strip name, and check if this strip is selected */
-      seq_name = BLI_str_quoted_substrN(fcu->rna_path, "sequences_all[");
-      seq = BKE_sequence_get_by_name(ed->seqbasep, seq_name, false);
-      if (seq_name) {
-        MEM_freeN(seq_name);
-      }
-
-      /* update selection status */
-      if (seq) {
-        if (seq->flag & SELECT) {
-          fcu->flag |= FCURVE_SELECTED;
-        }
-        else {
-          fcu->flag &= ~FCURVE_SELECTED;
-        }
-      }
-    }
-  }
-  else if (GS(owner_id->name) == ID_NT) {
-    bNodeTree *ntree = (bNodeTree *)owner_id;
-
-    /* check for selected nodes */
-    if ((fcu->rna_path) && strstr(fcu->rna_path, "nodes")) {
-      bNode *node;
-      char *node_name;
-
-      /* get strip name, and check if this strip is selected */
-      node_name = BLI_str_quoted_substrN(fcu->rna_path, "nodes[");
-      node = nodeFindNodebyName(ntree, node_name);
-      if (node_name) {
-        MEM_freeN(node_name);
-      }
-
-      /* update selection/active status */
-      if (node) {
-        /* update selection status */
-        if (node->flag & NODE_SELECT) {
-          fcu->flag |= FCURVE_SELECTED;
-        }
-        else {
-          fcu->flag &= ~FCURVE_SELECTED;
-        }
-
-        /* update active status */
-        /* XXX: this may interfere with setting bones as active if both exist at once;
-         * then again, if that's the case, production setups aren't likely to be animating
-         * nodes while working with bones?
-         */
-        if (node->flag & NODE_ACTIVE) {
-          if (*active_fcurve == NULL) {
-            fcu->flag |= FCURVE_ACTIVE;
-            *active_fcurve = fcu;
-          }
-          else {
-            fcu->flag &= ~FCURVE_ACTIVE;
-          }
-        }
-        else {
-          fcu->flag &= ~FCURVE_ACTIVE;
-        }
-      }
-    }
+  switch (GS(owner_id->name)) {
+    case ID_SCE:
+      animchan_sync_fcurve_scene(ale);
+      break;
+    default:
+      break;
   }
 }
 
 /* perform syncing updates for GPencil Layers */
-static void animchan_sync_gplayer(bAnimContext *UNUSED(ac), bAnimListElem *ale)
+static void animchan_sync_gplayer(bAnimListElem *ale)
 {
   bGPDlayer *gpl = (bGPDlayer *)ale->data;
 
@@ -312,7 +256,6 @@ static void animchan_sync_gplayer(bAnimContext *UNUSED(ac), bAnimListElem *ale)
 
 /* ---------------- */
 
-/* Main call to be exported to animation editors */
 void ANIM_sync_animchannels_to_data(const bContext *C)
 {
   bAnimContext ac;
@@ -321,7 +264,6 @@ void ANIM_sync_animchannels_to_data(const bContext *C)
   int filter;
 
   bActionGroup *active_agrp = NULL;
-  FCurve *active_fcurve = NULL;
 
   /* get animation context info for filtering the channels */
   if (ANIM_animdata_get_context(C, &ac) == 0) {
@@ -345,11 +287,11 @@ void ANIM_sync_animchannels_to_data(const bContext *C)
         break;
 
       case ANIMTYPE_FCURVE:
-        animchan_sync_fcurve(&ac, ale, &active_fcurve);
+        animchan_sync_fcurve(ale);
         break;
 
       case ANIMTYPE_GPLAYER:
-        animchan_sync_gplayer(&ac, ale);
+        animchan_sync_gplayer(ale);
         break;
     }
   }
@@ -415,7 +357,7 @@ void ANIM_animdata_update(bAnimContext *ac, ListBase *anim_data)
       if (ale->update & ANIM_UPDATE_HANDLES) {
         ale->update &= ~ANIM_UPDATE_HANDLES;
         if (fcu) {
-          calchandles_fcurve(fcu);
+          BKE_fcurve_handles_recalc(fcu);
         }
       }
 

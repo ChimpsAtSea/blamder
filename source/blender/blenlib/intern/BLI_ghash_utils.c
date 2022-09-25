@@ -1,27 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bli
  *
  * Helper functions and implementations of standard data types for #GHash
- * (not it's implementation).
+ * (not its implementation).
  */
 
 #include <string.h>
@@ -46,16 +30,17 @@ uint BLI_ghashutil_ptrhash(const void *key)
   return (uint)(intptr_t)key;
 }
 #else
-/* Based Python3.7's pointer hashing function. */
 uint BLI_ghashutil_ptrhash(const void *key)
 {
+  /* Based Python3.7's pointer hashing function. */
+
   size_t y = (size_t)key;
   /* bottom 3 or 4 bits are likely to be 0; rotate y by 4 to avoid
    * excessive hash collisions for dicts and sets */
 
-  /* Note: Unlike Python 'sizeof(uint)' is used instead of 'sizeof(void *)',
+  /* NOTE: Unlike Python 'sizeof(uint)' is used instead of 'sizeof(void *)',
    * Otherwise casting to 'uint' ignores the upper bits on 64bit platforms. */
-  return (uint)(y >> 4) | ((uint)y << (8 * sizeof(uint) - 4));
+  return (uint)(y >> 4) | ((uint)y << (sizeof(uint[8]) - 4));
 }
 #endif
 bool BLI_ghashutil_ptrcmp(const void *a, const void *b)
@@ -78,31 +63,12 @@ uint BLI_ghashutil_uinthash_v4(const uint key[4])
 
 uint BLI_ghashutil_uinthash_v4_murmur(const uint key[4])
 {
-  return BLI_hash_mm2((const unsigned char *)key, sizeof(int) * 4 /* sizeof(key) */, 0);
+  return BLI_hash_mm2((const unsigned char *)key, sizeof(int[4]) /* sizeof(key) */, 0);
 }
 
 bool BLI_ghashutil_uinthash_v4_cmp(const void *a, const void *b)
 {
   return (memcmp(a, b, sizeof(uint[4])) != 0);
-}
-
-uint BLI_ghashutil_uinthash_v2(const uint key[2])
-{
-  uint hash;
-  hash = key[0];
-  hash *= 37;
-  hash += key[1];
-  return hash;
-}
-
-uint BLI_ghashutil_uinthash_v2_murmur(const uint key[2])
-{
-  return BLI_hash_mm2((const unsigned char *)key, sizeof(int) * 2 /* sizeof(key) */, 0);
-}
-
-bool BLI_ghashutil_uinthash_v2_cmp(const void *a, const void *b)
-{
-  return (memcmp(a, b, sizeof(uint[2])) != 0);
 }
 
 uint BLI_ghashutil_uinthash(uint key)
@@ -153,15 +119,6 @@ size_t BLI_ghashutil_combine_hash(size_t hash_a, size_t hash_b)
   return hash_a ^ (hash_b + 0x9e3779b9 + (hash_a << 6) + (hash_a >> 2));
 }
 
-/**
- * This function implements the widely used "djb" hash apparently posted
- * by Daniel Bernstein to comp.lang.c some time ago.  The 32 bit
- * unsigned hash value starts at 5381 and for each byte 'c' in the
- * string, is updated: ``hash = hash * 33 + c``.  This
- * function uses the signed value of each byte.
- *
- * note: this is the same hash method that glib 2.34.0 uses.
- */
 uint BLI_ghashutil_strhash_n(const char *key, size_t n)
 {
   const signed char *p;

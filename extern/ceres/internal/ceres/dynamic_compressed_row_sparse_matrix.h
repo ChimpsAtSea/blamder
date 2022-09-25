@@ -44,11 +44,14 @@
 #include <vector>
 
 #include "ceres/compressed_row_sparse_matrix.h"
+#include "ceres/internal/disable_warnings.h"
+#include "ceres/internal/export.h"
 
 namespace ceres {
 namespace internal {
 
-class DynamicCompressedRowSparseMatrix : public CompressedRowSparseMatrix {
+class CERES_NO_EXPORT DynamicCompressedRowSparseMatrix final
+    : public CompressedRowSparseMatrix {
  public:
   // Set the number of rows and columns for the underlyig
   // `CompressedRowSparseMatrix` and set the initial number of maximum non-zero
@@ -91,11 +94,13 @@ class DynamicCompressedRowSparseMatrix : public CompressedRowSparseMatrix {
   void Finalize(int num_additional_elements);
 
  private:
-  std::vector<std::vector<int> > dynamic_cols_;
-  std::vector<std::vector<double> > dynamic_values_;
+  std::vector<std::vector<int>> dynamic_cols_;
+  std::vector<std::vector<double>> dynamic_values_;
 };
 
 }  // namespace internal
 }  // namespace ceres
+
+#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_DYNAMIC_COMPRESSED_ROW_SPARSE_MATRIX_H_

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 by Blender Foundation
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spseq
@@ -35,12 +19,8 @@
 #include "BKE_global.h"
 #include "BKE_screen.h"
 
-#include "ED_gpencil.h"
 #include "ED_screen.h"
 #include "ED_sequencer.h"
-
-#include "WM_api.h"
-#include "WM_types.h"
 
 #include "IMB_imbuf.h"
 #include "IMB_imbuf_types.h"
@@ -78,17 +58,20 @@ static void metadata_panel_context_draw(const bContext *C, Panel *panel)
   struct Main *bmain = CTX_data_main(C);
   struct Depsgraph *depsgraph = CTX_data_expect_evaluated_depsgraph(C);
   struct Scene *scene = CTX_data_scene(C);
+  ARegion *region = CTX_wm_region(C);
   SpaceSeq *space_sequencer = CTX_wm_space_seq(C);
   /* NOTE: We can only reliably show metadata for the original (current)
    * frame when split view is used. */
-  const bool show_split = (scene->ed && (scene->ed->over_flag & SEQ_EDIT_OVERLAY_SHOW) &&
+  const bool show_split = (scene->ed &&
+                           (scene->ed->overlay_frame_flag & SEQ_EDIT_OVERLAY_FRAME_SHOW) &&
                            (space_sequencer->mainb == SEQ_DRAW_IMG_IMBUF));
-  if (show_split && space_sequencer->overlay_type == SEQ_DRAW_OVERLAY_REFERENCE) {
+  if (show_split && (space_sequencer->overlay_frame_type == SEQ_OVERLAY_FRAME_TYPE_REFERENCE)) {
     return;
   }
   /* NOTE: We disable multiview for drawing, since we don't know what is the
    * from the panel (is kind of all the views?). */
-  ImBuf *ibuf = sequencer_ibuf_get(bmain, depsgraph, scene, space_sequencer, scene->r.cfra, 0, "");
+  ImBuf *ibuf = sequencer_ibuf_get(
+      bmain, region, depsgraph, scene, space_sequencer, scene->r.cfra, 0, "");
   if (ibuf != NULL) {
     ED_region_image_metadata_panel_draw(ibuf, panel->layout);
     IMB_freeImBuf(ibuf);
@@ -113,10 +96,10 @@ void sequencer_buttons_register(ARegionType *art)
   pt = MEM_callocN(sizeof(PanelType), "spacetype sequencer panel metadata");
   strcpy(pt->idname, "SEQUENCER_PT_metadata");
   strcpy(pt->label, N_("Metadata"));
+  strcpy(pt->category, "Metadata");
   strcpy(pt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
   pt->poll = metadata_panel_context_poll;
   pt->draw = metadata_panel_context_draw;
-  pt->flag |= PNL_DEFAULT_CLOSED;
   pt->order = 10;
   BLI_addtail(&art->paneltypes, pt);
 }

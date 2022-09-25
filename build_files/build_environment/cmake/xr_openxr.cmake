@@ -1,20 +1,4 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 
 # Keep flags in sync with install_deps.sh ones in compile_XR_OpenXR_SDK()
@@ -35,9 +19,9 @@ if(UNIX AND NOT APPLE)
 endif()
 
 ExternalProject_Add(external_xr_openxr_sdk
-  URL ${XR_OPENXR_SDK_URI}
+  URL file://${PACKAGE_DIR}/${XR_OPENXR_SDK_FILE}
   DOWNLOAD_DIR ${DOWNLOAD_DIR}
-  URL_HASH MD5=${XR_OPENXR_SDK_HASH}
+  URL_HASH ${XR_OPENXR_SDK_HASH_TYPE}=${XR_OPENXR_SDK_HASH}
   PREFIX ${BUILD_DIR}/xr_openxr_sdk
   CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${LIBDIR}/xr_openxr_sdk ${DEFAULT_CMAKE_FLAGS} ${XR_OPENXR_SDK_EXTRA_ARGS}
   INSTALL_DIR ${LIBDIR}/xr_openxr_sdk
@@ -53,7 +37,7 @@ if(WIN32)
   endif()
   if(BUILD_MODE STREQUAL Debug)
     ExternalProject_Add_Step(external_xr_openxr_sdk after_install
-      COMMAND ${CMAKE_COMMAND} -E copy ${LIBDIR}/xr_openxr_sdk/lib/openxr_loader.lib ${HARVEST_TARGET}/xr_openxr_sdk/lib/openxr_loader_d.lib
+      COMMAND ${CMAKE_COMMAND} -E copy ${LIBDIR}/xr_openxr_sdk/lib/openxr_loaderd.lib ${HARVEST_TARGET}/xr_openxr_sdk/lib/openxr_loaderd.lib
       DEPENDEES install
     )
   endif()

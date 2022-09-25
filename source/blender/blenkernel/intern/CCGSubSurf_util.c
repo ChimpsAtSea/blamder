@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bke
@@ -22,7 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "BLI_sys_types.h"  // for intptr_t support
+#include "BLI_sys_types.h" /* for intptr_t support */
 #include "MEM_guardedalloc.h"
 
 #include "BLI_utildefines.h" /* for BLI_assert */
@@ -304,7 +290,7 @@ void ccgSubSurf__dumpCoords(CCGSubSurf *ss)
         }
         for (x = 0; x < gridSize; x++) {
           float *co = FACE_getIECo(f, subdivLevels, S, x);
-          printf("face index=%d. cornder=%d, ie_index=%d, coord=(%f, %f, %f)\n",
+          printf("face index=%d. corner=%d, ie_index=%d, coord=(%f, %f, %f)\n",
                  index,
                  S,
                  x,

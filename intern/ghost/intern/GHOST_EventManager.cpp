@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
@@ -28,7 +12,6 @@
 #include "GHOST_EventManager.h"
 #include "GHOST_Debug.h"
 #include <algorithm>
-#include <stdio.h>  // [mce] temp debug
 
 GHOST_EventManager::GHOST_EventManager()
 {
@@ -46,14 +29,14 @@ GHOST_EventManager::~GHOST_EventManager()
   }
 }
 
-GHOST_TUns32 GHOST_EventManager::getNumEvents()
+uint32_t GHOST_EventManager::getNumEvents()
 {
-  return (GHOST_TUns32)m_events.size();
+  return (uint32_t)m_events.size();
 }
 
-GHOST_TUns32 GHOST_EventManager::getNumEvents(GHOST_TEventType type)
+uint32_t GHOST_EventManager::getNumEvents(GHOST_TEventType type)
 {
-  GHOST_TUns32 numEvents = 0;
+  uint32_t numEvents = 0;
   TEventStack::iterator p;
   for (p = m_events.begin(); p != m_events.end(); ++p) {
     if ((*p)->getType() == type) {
@@ -109,12 +92,12 @@ GHOST_TSuccess GHOST_EventManager::addConsumer(GHOST_IEventConsumer *consumer)
   GHOST_TSuccess success;
   GHOST_ASSERT(consumer, "invalid consumer");
 
-  // Check to see whether the consumer is already in our list
+  /* Check to see whether the consumer is already in our list. */
   TConsumerVector::const_iterator iter = std::find(
       m_consumers.begin(), m_consumers.end(), consumer);
 
   if (iter == m_consumers.end()) {
-    // Add the consumer
+    /* Add the consumer. */
     m_consumers.push_back(consumer);
     success = GHOST_kSuccess;
   }
@@ -129,11 +112,11 @@ GHOST_TSuccess GHOST_EventManager::removeConsumer(GHOST_IEventConsumer *consumer
   GHOST_TSuccess success;
   GHOST_ASSERT(consumer, "invalid consumer");
 
-  // Check to see whether the consumer is in our list
+  /* Check to see whether the consumer is in our list. */
   TConsumerVector::iterator iter = std::find(m_consumers.begin(), m_consumers.end(), consumer);
 
   if (iter != m_consumers.end()) {
-    // Remove the consumer
+    /* Remove the consumer. */
     m_consumers.erase(iter);
     success = GHOST_kSuccess;
   }

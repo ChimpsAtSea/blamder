@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup texnodes
@@ -282,12 +266,7 @@ static void valuefn(float *out, TexParams *p, bNode *node, bNodeStack **in, shor
     }
 
     case NODE_MATH_PINGPONG: {
-      if (in1 == 0.0f) {
-        *out = 0.0f;
-      }
-      else {
-        *out = fabsf(fractf((in0 - in1) / (in1 * 2.0f)) * in1 * 2.0f - in1);
-      }
+      *out = pingpongf(in0, in1);
       break;
     }
 
@@ -340,10 +319,9 @@ void register_node_type_tex_math(void)
 {
   static bNodeType ntype;
 
-  tex_node_type_base(&ntype, TEX_NODE_MATH, "Math", NODE_CLASS_CONVERTOR, 0);
+  tex_node_type_base(&ntype, TEX_NODE_MATH, "Math", NODE_CLASS_CONVERTER);
   node_type_socket_templates(&ntype, inputs, outputs);
-  node_type_label(&ntype, node_math_label);
-  node_type_storage(&ntype, "", NULL, NULL);
+  ntype.labelfunc = node_math_label;
   node_type_exec(&ntype, NULL, NULL, exec);
   node_type_update(&ntype, node_math_update);
 

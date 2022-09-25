@@ -1,4 +1,4 @@
-# Apache License, Version 2.0
+# SPDX-License-Identifier: Apache-2.0
 
 # Simple utility that prints all WITH_* options in a CMakeLists.txt
 # Called by 'make help_features'
@@ -7,6 +7,7 @@ import re
 import sys
 
 cmakelists_file = sys.argv[-1]
+
 
 def main():
     options = []

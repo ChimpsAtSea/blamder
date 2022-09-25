@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2015 Blender Foundation.
+
 # - Find SDL library
 # Find the native SDL includes and library
 # This module defines
@@ -9,17 +12,6 @@
 #
 # also defined, but not for general use are
 #  SDL2_LIBRARY, where to find the SDL library.
-
-#=============================================================================
-# Copyright 2015 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
 
 # If SDL2_ROOT_DIR was defined in the environment, use it.
 IF(NOT SDL2_ROOT_DIR AND NOT $ENV{SDL2_ROOT_DIR} STREQUAL "")
@@ -57,7 +49,7 @@ FIND_PACKAGE_HANDLE_STANDARD_ARGS(SDL2 DEFAULT_MSG
 IF(SDL2_FOUND)
   SET(SDL2_LIBRARIES ${SDL2_LIBRARY})
   SET(SDL2_INCLUDE_DIRS ${SDL2_INCLUDE_DIR})
-ENDIF(SDL2_FOUND)
+ENDIF()
 
 MARK_AS_ADVANCED(
   SDL2_INCLUDE_DIR

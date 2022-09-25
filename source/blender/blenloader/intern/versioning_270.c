@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup blenloader
@@ -43,6 +29,7 @@
 #include "DNA_object_force_types.h"
 #include "DNA_object_types.h"
 #include "DNA_particle_types.h"
+#include "DNA_pointcache_types.h"
 #include "DNA_rigidbody_types.h"
 #include "DNA_screen_types.h"
 #include "DNA_sdna_types.h"
@@ -62,8 +49,11 @@
 #include "BKE_node.h"
 #include "BKE_scene.h"
 #include "BKE_screen.h"
-#include "BKE_sequencer.h"
 #include "BKE_tracking.h"
+#include "DNA_material_types.h"
+
+#include "SEQ_effects.h"
+#include "SEQ_iterator.h"
 
 #include "BLI_listbase.h"
 #include "BLI_math.h"
@@ -241,15 +231,15 @@ static void do_version_action_editor_properties_region(ListBase *regionbase)
       /* already exists */
       return;
     }
-    else if (region->regiontype == RGN_TYPE_WINDOW) {
+    if (region->regiontype == RGN_TYPE_WINDOW) {
       /* add new region here */
-      ARegion *arnew = MEM_callocN(sizeof(ARegion), "buttons for action");
+      ARegion *region_new = MEM_callocN(sizeof(ARegion), "buttons for action");
 
-      BLI_insertlinkbefore(regionbase, region, arnew);
+      BLI_insertlinkbefore(regionbase, region, region_new);
 
-      arnew->regiontype = RGN_TYPE_UI;
-      arnew->alignment = RGN_ALIGN_RIGHT;
-      arnew->flag = RGN_FLAG_HIDDEN;
+      region_new->regiontype = RGN_TYPE_UI;
+      region_new->alignment = RGN_ALIGN_RIGHT;
+      region_new->flag = RGN_FLAG_HIDDEN;
 
       return;
     }
@@ -259,8 +249,8 @@ static void do_version_action_editor_properties_region(ListBase *regionbase)
 static void do_version_bones_super_bbone(ListBase *lb)
 {
   LISTBASE_FOREACH (Bone *, bone, lb) {
-    bone->scale_in_x = bone->scale_in_y = 1.0f;
-    bone->scale_out_x = bone->scale_out_y = 1.0f;
+    bone->scale_in_x = bone->scale_in_z = 1.0f;
+    bone->scale_out_x = bone->scale_out_z = 1.0f;
 
     do_version_bones_super_bbone(&bone->childbase);
   }
@@ -287,7 +277,7 @@ static void do_version_hue_sat_node(bNodeTree *ntree, bNode *node)
   }
 
   /* Make sure new sockets are properly created. */
-  node_verify_socket_templates(ntree, node);
+  node_verify_sockets(ntree, node, false);
   /* Convert value from old storage to new sockets. */
   NodeHueSat *nhs = node->storage;
   bNodeSocket *hue = nodeFindSocket(node, SOCK_IN, "Hue"),
@@ -299,7 +289,9 @@ static void do_version_hue_sat_node(bNodeTree *ntree, bNode *node)
   /* Take care of possible animation. */
   AnimData *adt = BKE_animdata_from_id(&ntree->id);
   if (adt != NULL && adt->action != NULL) {
-    const char *prefix = BLI_sprintfN("nodes[\"%s\"]", node->name);
+    char node_name_esc[sizeof(node->name) * 2];
+    BLI_str_escape(node_name_esc, node->name, sizeof(node_name_esc));
+    const char *prefix = BLI_sprintfN("nodes[\"%s\"]", node_name_esc);
     for (FCurve *fcu = adt->action->curves.first; fcu != NULL; fcu = fcu->next) {
       if (STRPREFIX(fcu->rna_path, prefix)) {
         anim_change_prop_name(fcu, prefix, "color_hue", "inputs[1].default_value");
@@ -351,7 +343,7 @@ static void do_versions_compositor_render_passes(bNodeTree *ntree)
        */
       do_versions_compositor_render_passes_storage(node);
       /* Make sure new sockets are properly created. */
-      node_verify_socket_templates(ntree, node);
+      node_verify_sockets(ntree, node, false);
       /* Make sure all possibly created sockets have proper storage. */
       do_versions_compositor_render_passes_storage(node);
     }
@@ -376,9 +368,8 @@ static char *replace_bbone_easing_rnapath(char *old_path)
     MEM_freeN(old_path);
     return new_path;
   }
-  else {
-    return old_path;
-  }
+
+  return old_path;
 }
 
 static void do_version_bbone_easing_fcurve_fix(ID *UNUSED(id),
@@ -420,6 +411,46 @@ static void do_version_bbone_easing_fcurve_fix(ID *UNUSED(id),
   }
 }
 
+static bool seq_update_proxy_cb(Sequence *seq, void *UNUSED(user_data))
+{
+  seq->stereo3d_format = MEM_callocN(sizeof(Stereo3dFormat), "Stereo Display 3d Format");
+
+#define SEQ_USE_PROXY_CUSTOM_DIR (1 << 19)
+#define SEQ_USE_PROXY_CUSTOM_FILE (1 << 21)
+  if (seq->strip && seq->strip->proxy && !seq->strip->proxy->storage) {
+    if (seq->flag & SEQ_USE_PROXY_CUSTOM_DIR) {
+      seq->strip->proxy->storage = SEQ_STORAGE_PROXY_CUSTOM_DIR;
+    }
+    if (seq->flag & SEQ_USE_PROXY_CUSTOM_FILE) {
+      seq->strip->proxy->storage = SEQ_STORAGE_PROXY_CUSTOM_FILE;
+    }
+  }
+#undef SEQ_USE_PROXY_CUSTOM_DIR
+#undef SEQ_USE_PROXY_CUSTOM_FILE
+  return true;
+}
+
+static bool seq_update_effectdata_cb(Sequence *seq, void *UNUSED(user_data))
+{
+
+  if (seq->type != SEQ_TYPE_TEXT) {
+    return true;
+  }
+
+  if (seq->effectdata == NULL) {
+    struct SeqEffectHandle effect_handle = SEQ_effect_handle_get(seq);
+    effect_handle.init(seq);
+  }
+
+  TextVars *data = seq->effectdata;
+  if (data->color[3] == 0.0f) {
+    copy_v4_fl(data->color, 1.0f);
+    data->shadow_color[3] = 1.0f;
+  }
+  return true;
+}
+
+/* NOLINTNEXTLINE: readability-function-size */
 void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
 {
   if (!MAIN_VERSION_ATLEAST(bmain, 270, 0)) {
@@ -606,13 +637,6 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
         mat->line_col[3] = mat->alpha;
       }
     }
-
-    if (!DNA_struct_elem_find(fd->filesdna, "RenderData", "int", "preview_start_resolution")) {
-      Scene *scene;
-      for (scene = bmain->scenes.first; scene; scene = scene->id.next) {
-        scene->r.preview_start_resolution = 64;
-      }
-    }
   }
 
   if (!MAIN_VERSION_ATLEAST(bmain, 271, 3)) {
@@ -649,15 +673,6 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
             pmd->psys->clmd->sim_parms->vel_damping = 1.0f;
           }
         }
-      }
-    }
-  }
-
-  if (!MAIN_VERSION_ATLEAST(bmain, 272, 0)) {
-    if (!DNA_struct_elem_find(fd->filesdna, "RenderData", "int", "preview_start_resolution")) {
-      Scene *scene;
-      for (scene = bmain->scenes.first; scene; scene = scene->id.next) {
-        scene->r.preview_start_resolution = 64;
       }
     }
   }
@@ -890,17 +905,6 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
         }
       }
     }
-
-    /* hysteresis set to 10% but not activated */
-    if (!DNA_struct_elem_find(fd->filesdna, "LodLevel", "int", "obhysteresis")) {
-      Object *ob;
-      for (ob = bmain->objects.first; ob; ob = ob->id.next) {
-        LodLevel *level;
-        for (level = ob->lodlevels.first; level; level = level->next) {
-          level->obhysteresis = 10;
-        }
-      }
-    }
   }
 
   if (!MAIN_VERSION_ATLEAST(bmain, 274, 4)) {
@@ -913,8 +917,6 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
     Image *ima;
 
     for (scene = bmain->scenes.first; scene; scene = scene->id.next) {
-      Sequence *seq;
-
       BKE_scene_add_render_view(scene, STEREO_LEFT_NAME);
       srv = scene->r.views.first;
       BLI_strncpy(srv->suffix, STEREO_LEFT_SUFFIX, sizeof(srv->suffix));
@@ -923,23 +925,9 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
       srv = scene->r.views.last;
       BLI_strncpy(srv->suffix, STEREO_RIGHT_SUFFIX, sizeof(srv->suffix));
 
-      SEQ_BEGIN (scene->ed, seq) {
-        seq->stereo3d_format = MEM_callocN(sizeof(Stereo3dFormat), "Stereo Display 3d Format");
-
-#define SEQ_USE_PROXY_CUSTOM_DIR (1 << 19)
-#define SEQ_USE_PROXY_CUSTOM_FILE (1 << 21)
-        if (seq->strip && seq->strip->proxy && !seq->strip->proxy->storage) {
-          if (seq->flag & SEQ_USE_PROXY_CUSTOM_DIR) {
-            seq->strip->proxy->storage = SEQ_STORAGE_PROXY_CUSTOM_DIR;
-          }
-          if (seq->flag & SEQ_USE_PROXY_CUSTOM_FILE) {
-            seq->strip->proxy->storage = SEQ_STORAGE_PROXY_CUSTOM_FILE;
-          }
-        }
-#undef SEQ_USE_PROXY_CUSTOM_DIR
-#undef SEQ_USE_PROXY_CUSTOM_FILE
+      if (scene->ed) {
+        SEQ_for_each_callback(&scene->ed->seqbase, seq_update_proxy_cb, NULL);
       }
-      SEQ_END;
     }
 
     for (screen = bmain->screens.first; screen; screen = screen->id.next) {
@@ -980,7 +968,7 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
         BLI_addtail(&ima->packedfiles, imapf);
 
         imapf->packedfile = ima->packedfile;
-        BLI_strncpy(imapf->filepath, ima->name, FILE_MAX);
+        BLI_strncpy(imapf->filepath, ima->filepath, FILE_MAX);
         ima->packedfile = NULL;
       }
     }
@@ -1107,7 +1095,7 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
       for (scene = bmain->scenes.first; scene != NULL; scene = scene->id.next) {
         CurveMapping *curve_mapping = &scene->r.mblur_shutter_curve;
         BKE_curvemapping_set_defaults(curve_mapping, 1, 0.0f, 0.0f, 1.0f, 1.0f);
-        BKE_curvemapping_initialize(curve_mapping);
+        BKE_curvemapping_init(curve_mapping);
         BKE_curvemap_reset(
             curve_mapping->cm, &curve_mapping->clipr, CURVE_PRESET_MAX, CURVEMAP_SLOPE_POS_NEG);
       }
@@ -1120,8 +1108,6 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
       if (!DNA_struct_elem_find(fd->filesdna, "ToolSettings", "char", "gpencil_v3d_align")) {
         ts->gpencil_v3d_align = GP_PROJECT_VIEWSPACE;
         ts->gpencil_v2d_align = GP_PROJECT_VIEWSPACE;
-        ts->gpencil_seq_align = GP_PROJECT_VIEWSPACE;
-        ts->gpencil_ima_align = GP_PROJECT_VIEWSPACE;
       }
     }
 
@@ -1146,7 +1132,7 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
     }
   }
   if (!MAIN_VERSION_ATLEAST(bmain, 276, 5)) {
-    ListBase *lbarray[MAX_LIBARRAY];
+    ListBase *lbarray[INDEX_ID_MAX];
     int a;
 
     /* Important to clear all non-persistent flags from older versions here,
@@ -1195,7 +1181,7 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
               }
             }
           }
-          /* Remove old deprecated region from filebrowsers */
+          /* Remove old deprecated region from file-browsers. */
           else if (sl->spacetype == SPACE_FILE) {
             LISTBASE_FOREACH (ARegion *, region, regionbase) {
               if (region->regiontype == RGN_TYPE_CHANNELS) {
@@ -1222,25 +1208,9 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
     }
 
     for (Scene *scene = bmain->scenes.first; scene; scene = scene->id.next) {
-      Sequence *seq;
-
-      SEQ_BEGIN (scene->ed, seq) {
-        if (seq->type != SEQ_TYPE_TEXT) {
-          continue;
-        }
-
-        if (seq->effectdata == NULL) {
-          struct SeqEffectHandle effect_handle = BKE_sequence_get_effect(seq);
-          effect_handle.init(seq);
-        }
-
-        TextVars *data = seq->effectdata;
-        if (data->color[3] == 0.0f) {
-          copy_v4_fl(data->color, 1.0f);
-          data->shadow_color[3] = 1.0f;
-        }
+      if (scene->ed) {
+        SEQ_for_each_callback(&scene->ed->seqbase, seq_update_effectdata_cb, NULL);
       }
-      SEQ_END;
     }
 
     /* Adding "Properties" region to DopeSheet */
@@ -1273,8 +1243,8 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
         if (ob->pose) {
           LISTBASE_FOREACH (bPoseChannel *, pchan, &ob->pose->chanbase) {
             /* see do_version_bones_super_bbone()... */
-            pchan->scale_in_x = pchan->scale_in_y = 1.0f;
-            pchan->scale_out_x = pchan->scale_out_y = 1.0f;
+            pchan->scale_in_x = pchan->scale_in_z = 1.0f;
+            pchan->scale_out_x = pchan->scale_out_z = 1.0f;
 
             /* also make sure some legacy (unused for over a decade) flags are unset,
              * so that we can reuse them for stuff that matters now...
@@ -1434,7 +1404,7 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
         }
         if (clip->tracking.stabilization.scale == 0.0f) {
           /* ensure init.
-           * Was previously used for autoscale only,
+           * Was previously used for auto-scale only,
            * now used always (as "target scale") */
           clip->tracking.stabilization.scale = 1.0f;
         }
@@ -1469,11 +1439,11 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
       for (ob = bmain->objects.first; ob; ob = ob->id.next) {
         for (md = ob->modifiers.first; md; md = md->next) {
           if (md->type == eModifierType_Fluid) {
-            FluidModifierData *mmd = (FluidModifierData *)md;
-            if (mmd->domain) {
-              mmd->domain->slice_per_voxel = 5.0f;
-              mmd->domain->slice_depth = 0.5f;
-              mmd->domain->display_thickness = 1.0f;
+            FluidModifierData *fmd = (FluidModifierData *)md;
+            if (fmd->domain) {
+              fmd->domain->slice_per_voxel = 5.0f;
+              fmd->domain->slice_depth = 0.5f;
+              fmd->domain->display_thickness = 1.0f;
             }
           }
         }
@@ -1639,9 +1609,9 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
       for (ob = bmain->objects.first; ob; ob = ob->id.next) {
         for (md = ob->modifiers.first; md; md = md->next) {
           if (md->type == eModifierType_Fluid) {
-            FluidModifierData *mmd = (FluidModifierData *)md;
-            if (mmd->domain) {
-              mmd->domain->clipping = 1e-3f;
+            FluidModifierData *fmd = (FluidModifierData *)md;
+            if (fmd->domain) {
+              fmd->domain->clipping = 1e-3f;
             }
           }
         }
@@ -1662,7 +1632,7 @@ void blo_do_versions_270(FileData *fd, Library *UNUSED(lib), Main *bmain)
     if (!DNA_struct_elem_find(fd->filesdna, "Brush", "float", "falloff_angle")) {
       for (Brush *br = bmain->brushes.first; br; br = br->id.next) {
         br->falloff_angle = DEG2RADF(80);
-        /* These flags are used for new feautres. They are not related to falloff_angle */
+        /* These flags are used for new features. They are not related to `falloff_angle`. */
         br->flag &= ~(BRUSH_INVERT_TO_SCRAPE_FILL | BRUSH_ORIGINAL_PLANE |
                       BRUSH_GRAB_ACTIVE_VERTEX | BRUSH_SCENE_SPACING | BRUSH_FRONTFACE_FALLOFF);
       }

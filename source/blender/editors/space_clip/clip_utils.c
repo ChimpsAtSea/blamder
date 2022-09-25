@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spclip
@@ -27,10 +11,12 @@
 
 #include "BLI_listbase.h"
 #include "BLI_math.h"
+#include "BLI_rect.h"
 #include "BLI_utildefines.h"
 
 #include "BKE_animsys.h"
 #include "BKE_context.h"
+#include "BKE_mask.h"
 #include "BKE_movieclip.h"
 #include "BKE_tracking.h"
 
@@ -44,13 +30,14 @@
 #include "WM_types.h"
 
 #include "ED_clip.h"
+#include "ED_mask.h"
 #include "ED_screen.h"
 
 #include "UI_interface.h"
 #include "UI_resources.h"
 #include "UI_view2d.h"
 
-#include "clip_intern.h"  // own include
+#include "clip_intern.h" /* own include */
 
 bool clip_graph_value_visible(SpaceClip *sc, eClipCurveValueSource value_source)
 {
@@ -297,11 +284,8 @@ void clip_graph_tracking_iterate(SpaceClip *sc,
   MovieClip *clip = ED_space_clip_get_clip(sc);
   MovieTracking *tracking = &clip->tracking;
   ListBase *tracksbase = BKE_tracking_get_active_tracks(tracking);
-  MovieTrackingTrack *track;
 
-  for (track = tracksbase->first; track; track = track->next) {
-    int i;
-
+  LISTBASE_FOREACH (MovieTrackingTrack *, track, tracksbase) {
     if (!include_hidden && (track->flag & TRACK_HIDDEN) != 0) {
       continue;
     }
@@ -310,7 +294,7 @@ void clip_graph_tracking_iterate(SpaceClip *sc,
       continue;
     }
 
-    for (i = 0; i < track->markersnr; i++) {
+    for (int i = 0; i < track->markersnr; i++) {
       MovieTrackingMarker *marker = &track->markers[i];
 
       if (marker->flag & MARKER_DISABLED) {
@@ -398,16 +382,228 @@ void clip_delete_plane_track(bContext *C, MovieClip *clip, MovieTrackingPlaneTra
   DEG_id_tag_update(&clip->id, 0);
 }
 
-void clip_view_center_to_point(SpaceClip *sc, float x, float y)
+void clip_view_offset_for_center_to_point(
+    SpaceClip *sc, const float x, const float y, float *r_offset_x, float *r_offset_y)
 {
   int width, height;
-  float aspx, aspy;
-
   ED_space_clip_get_size(sc, &width, &height);
+
+  float aspx, aspy;
   ED_space_clip_get_aspect(sc, &aspx, &aspy);
 
-  sc->xof = (x - 0.5f) * width * aspx;
-  sc->yof = (y - 0.5f) * height * aspy;
+  *r_offset_x = (x - 0.5f) * width * aspx;
+  *r_offset_y = (y - 0.5f) * height * aspy;
+}
+
+void clip_view_center_to_point(SpaceClip *sc, float x, float y)
+{
+  clip_view_offset_for_center_to_point(sc, x, y, &sc->xof, &sc->yof);
+}
+
+static bool selected_tracking_boundbox(SpaceClip *sc, float min[2], float max[2])
+{
+  MovieClip *clip = ED_space_clip_get_clip(sc);
+  MovieTrackingTrack *track;
+  int width, height;
+  bool ok = false;
+  ListBase *tracksbase = BKE_tracking_get_active_tracks(&clip->tracking);
+  int framenr = ED_space_clip_get_clip_frame_number(sc);
+
+  INIT_MINMAX2(min, max);
+
+  ED_space_clip_get_size(sc, &width, &height);
+
+  track = tracksbase->first;
+  while (track) {
+    if (TRACK_VIEW_SELECTED(sc, track)) {
+      MovieTrackingMarker *marker = BKE_tracking_marker_get(track, framenr);
+
+      if (marker) {
+        float pos[3];
+
+        pos[0] = marker->pos[0] + track->offset[0];
+        pos[1] = marker->pos[1] + track->offset[1];
+        pos[2] = 0.0f;
+
+        /* undistortion happens for normalized coords */
+        if (sc->user.render_flag & MCLIP_PROXY_RENDER_UNDISTORT) {
+          /* undistortion happens for normalized coords */
+          ED_clip_point_undistorted_pos(sc, pos, pos);
+        }
+
+        pos[0] *= width;
+        pos[1] *= height;
+
+        mul_v3_m4v3(pos, sc->stabmat, pos);
+
+        minmax_v2v2_v2(min, max, pos);
+
+        ok = true;
+      }
+    }
+
+    track = track->next;
+  }
+
+  return ok;
+}
+
+static bool tracking_has_selection(SpaceClip *space_clip)
+{
+  MovieClip *clip = ED_space_clip_get_clip(space_clip);
+  ListBase *tracksbase = BKE_tracking_get_active_tracks(&clip->tracking);
+  const int framenr = ED_space_clip_get_clip_frame_number(space_clip);
+
+  LISTBASE_FOREACH (MovieTrackingTrack *, track, tracksbase) {
+    if (!TRACK_VIEW_SELECTED(space_clip, track)) {
+      continue;
+    }
+    const MovieTrackingMarker *marker = BKE_tracking_marker_get(track, framenr);
+    if (marker != NULL) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+static bool mask_has_selection(const bContext *C)
+{
+  Mask *mask = CTX_data_edit_mask(C);
+  if (mask == NULL) {
+    return false;
+  }
+
+  LISTBASE_FOREACH (MaskLayer *, mask_layer, &mask->masklayers) {
+    if (mask_layer->visibility_flag & (MASK_HIDE_VIEW | MASK_HIDE_SELECT)) {
+      continue;
+    }
+    LISTBASE_FOREACH (MaskSpline *, spline, &mask_layer->splines) {
+      for (int i = 0; i < spline->tot_point; i++) {
+        const MaskSplinePoint *point = &spline->points[i];
+        const BezTriple *bezt = &point->bezt;
+        if (!MASKPOINT_ISSEL_ANY(point)) {
+          continue;
+        }
+        if (bezt->f2 & SELECT) {
+          return true;
+        }
+
+        if (BKE_mask_point_handles_mode_get(point) == MASK_HANDLE_MODE_STICK) {
+          return true;
+        }
+
+        if ((bezt->f1 & SELECT) && (bezt->h1 != HD_VECT)) {
+          return true;
+        }
+        if ((bezt->f3 & SELECT) && (bezt->h2 != HD_VECT)) {
+          return true;
+        }
+      }
+    }
+  }
+
+  return false;
+}
+
+static bool selected_boundbox(const bContext *C,
+                              float min[2],
+                              float max[2],
+                              bool handles_as_control_point)
+{
+  SpaceClip *sc = CTX_wm_space_clip(C);
+  if (sc->mode == SC_MODE_TRACKING) {
+    return selected_tracking_boundbox(sc, min, max);
+  }
+
+  if (ED_mask_selected_minmax(C, min, max, handles_as_control_point)) {
+    MovieClip *clip = ED_space_clip_get_clip(sc);
+    int width, height;
+    ED_space_clip_get_size(sc, &width, &height);
+    BKE_mask_coord_to_movieclip(clip, &sc->user, min, min);
+    BKE_mask_coord_to_movieclip(clip, &sc->user, max, max);
+    min[0] *= width;
+    min[1] *= height;
+    max[0] *= width;
+    max[1] *= height;
+    return true;
+  }
+  return false;
+}
+
+bool clip_view_calculate_view_selection(
+    const bContext *C, bool fit, float *r_offset_x, float *r_offset_y, float *r_zoom)
+{
+  SpaceClip *sc = CTX_wm_space_clip(C);
+
+  int frame_width, frame_height;
+  ED_space_clip_get_size(sc, &frame_width, &frame_height);
+
+  if ((frame_width == 0) || (frame_height == 0) || (sc->clip == NULL)) {
+    return false;
+  }
+
+  /* NOTE: The `fit` argument is set to truth when doing "View to Selected" operator, and it set to
+   * false when this function is used for Lock-to-Selection functionality. When locking to
+   * selection the handles are to use control point position. So we can derive the
+   * `handles_as_control_point` from `fit`.
+   *
+   * TODO(sergey): Make such decision more explicit. Maybe pass use-case for the calculation to
+   * tell operator from lock-to-selection apart. */
+  float min[2], max[2];
+  if (!selected_boundbox(C, min, max, !fit)) {
+    return false;
+  }
+
+  /* center view */
+  clip_view_offset_for_center_to_point(sc,
+                                       (max[0] + min[0]) / (2 * frame_width),
+                                       (max[1] + min[1]) / (2 * frame_height),
+                                       r_offset_x,
+                                       r_offset_y);
+
+  const int w = max[0] - min[0];
+  const int h = max[1] - min[1];
+
+  /* set zoom to see all selection */
+  *r_zoom = sc->zoom;
+  if (w > 0 && h > 0) {
+    ARegion *region = CTX_wm_region(C);
+
+    int width, height;
+    float zoomx, zoomy, newzoom, aspx, aspy;
+
+    ED_space_clip_get_aspect(sc, &aspx, &aspy);
+
+    width = BLI_rcti_size_x(&region->winrct) + 1;
+    height = BLI_rcti_size_y(&region->winrct) + 1;
+
+    zoomx = (float)width / w / aspx;
+    zoomy = (float)height / h / aspy;
+
+    newzoom = 1.0f / power_of_2(1.0f / min_ff(zoomx, zoomy));
+
+    if (fit) {
+      *r_zoom = newzoom;
+    }
+  }
+
+  return true;
+}
+
+bool clip_view_has_locked_selection(const bContext *C)
+{
+  SpaceClip *space_clip = CTX_wm_space_clip(C);
+
+  if ((space_clip->flag & SC_LOCK_SELECTION) == 0) {
+    return false;
+  }
+
+  if (space_clip->mode == SC_MODE_TRACKING) {
+    return tracking_has_selection(space_clip);
+  }
+
+  return mask_has_selection(C);
 }
 
 void clip_draw_sfra_efra(View2D *v2d, Scene *scene)
@@ -415,18 +611,16 @@ void clip_draw_sfra_efra(View2D *v2d, Scene *scene)
   UI_view2d_view_ortho(v2d);
 
   /* currently clip editor supposes that editing clip length is equal to scene frame range */
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
   immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
 
   immUniformColor4f(0.0f, 0.0f, 0.0f, 0.4f);
-  immRectf(pos, v2d->cur.xmin, v2d->cur.ymin, (float)SFRA, v2d->cur.ymax);
-  immRectf(pos, (float)EFRA, v2d->cur.ymin, v2d->cur.xmax, v2d->cur.ymax);
+  immRectf(pos, v2d->cur.xmin, v2d->cur.ymin, (float)scene->r.sfra, v2d->cur.ymax);
+  immRectf(pos, (float)scene->r.efra, v2d->cur.ymin, v2d->cur.xmax, v2d->cur.ymax);
 
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 
   immUniformThemeColorShade(TH_BACK, -60);
 
@@ -434,10 +628,10 @@ void clip_draw_sfra_efra(View2D *v2d, Scene *scene)
   GPU_line_width(1.0f);
 
   immBegin(GPU_PRIM_LINES, 4);
-  immVertex2f(pos, (float)SFRA, v2d->cur.ymin);
-  immVertex2f(pos, (float)SFRA, v2d->cur.ymax);
-  immVertex2f(pos, (float)EFRA, v2d->cur.ymin);
-  immVertex2f(pos, (float)EFRA, v2d->cur.ymax);
+  immVertex2f(pos, (float)scene->r.sfra, v2d->cur.ymin);
+  immVertex2f(pos, (float)scene->r.sfra, v2d->cur.ymax);
+  immVertex2f(pos, (float)scene->r.efra, v2d->cur.ymin);
+  immVertex2f(pos, (float)scene->r.efra, v2d->cur.ymax);
   immEnd();
 
   immUnbindProgram();

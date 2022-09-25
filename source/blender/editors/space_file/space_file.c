@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spfile
@@ -27,19 +11,26 @@
 #include "MEM_guardedalloc.h"
 
 #include "BLI_blenlib.h"
+#include "BLI_linklist.h"
 #include "BLI_utildefines.h"
 
 #include "BKE_appdir.h"
 #include "BKE_context.h"
 #include "BKE_global.h"
+#include "BKE_lib_remap.h"
+#include "BKE_main.h"
 #include "BKE_screen.h"
 
 #include "RNA_access.h"
+#include "RNA_define.h"
+#include "RNA_enum_types.h"
 
 #include "WM_api.h"
 #include "WM_message.h"
 #include "WM_types.h"
 
+#include "ED_asset.h"
+#include "ED_asset_indexer.h"
 #include "ED_fileselect.h"
 #include "ED_screen.h"
 #include "ED_space_api.h"
@@ -51,9 +42,27 @@
 #include "UI_view2d.h"
 
 #include "GPU_framebuffer.h"
-#include "file_intern.h"  // own include
+#include "file_indexer.h"
+#include "file_intern.h" /* own include */
 #include "filelist.h"
 #include "fsmenu.h"
+
+static ARegion *file_ui_region_ensure(ScrArea *area, ARegion *region_prev)
+{
+  ARegion *region;
+
+  if ((region = BKE_area_find_region_type(area, RGN_TYPE_UI)) != NULL) {
+    return region;
+  }
+
+  region = MEM_callocN(sizeof(ARegion), "execute region for file");
+  BLI_insertlinkafter(&area->regionbase, region_prev, region);
+  region->regiontype = RGN_TYPE_UI;
+  region->alignment = RGN_ALIGN_TOP;
+  region->flag = RGN_FLAG_DYNAMIC_SIZE;
+
+  return region;
+}
 
 static ARegion *file_execute_region_ensure(ScrArea *area, ARegion *region_prev)
 {
@@ -85,13 +94,14 @@ static ARegion *file_tool_props_region_ensure(ScrArea *area, ARegion *region_pre
   BLI_insertlinkafter(&area->regionbase, region_prev, region);
   region->regiontype = RGN_TYPE_TOOL_PROPS;
   region->alignment = RGN_ALIGN_RIGHT;
+  region->flag = RGN_FLAG_HIDDEN;
 
   return region;
 }
 
 /* ******************** default callbacks for file space ***************** */
 
-static SpaceLink *file_new(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
+static SpaceLink *file_create(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
 {
   ARegion *region;
   SpaceFile *sfile;
@@ -142,34 +152,20 @@ static void file_free(SpaceLink *sl)
   BLI_assert(sfile->previews_timer == NULL);
 
   if (sfile->files) {
-    // XXXXX would need to do thumbnails_stop here, but no context available
+    /* XXX would need to do thumbnails_stop here, but no context available */
     filelist_freelib(sfile->files);
     filelist_free(sfile->files);
     MEM_freeN(sfile->files);
     sfile->files = NULL;
   }
 
-  if (sfile->folders_prev) {
-    folderlist_free(sfile->folders_prev);
-    MEM_freeN(sfile->folders_prev);
-    sfile->folders_prev = NULL;
-  }
+  folder_history_list_free(sfile);
 
-  if (sfile->folders_next) {
-    folderlist_free(sfile->folders_next);
-    MEM_freeN(sfile->folders_next);
-    sfile->folders_next = NULL;
-  }
+  MEM_SAFE_FREE(sfile->params);
+  MEM_SAFE_FREE(sfile->asset_params);
+  MEM_SAFE_FREE(sfile->runtime);
 
-  if (sfile->params) {
-    MEM_freeN(sfile->params);
-    sfile->params = NULL;
-  }
-
-  if (sfile->layout) {
-    MEM_freeN(sfile->layout);
-    sfile->layout = NULL;
-  }
+  MEM_SAFE_FREE(sfile->layout);
 }
 
 /* spacetype; init callback, area size changes, screen set, etc */
@@ -180,6 +176,12 @@ static void file_init(wmWindowManager *UNUSED(wm), ScrArea *area)
   if (sfile->layout) {
     sfile->layout->dirty = true;
   }
+
+  if (sfile->runtime == NULL) {
+    sfile->runtime = MEM_callocN(sizeof(*sfile->runtime), __func__);
+  }
+  /* Validate the params right after file read. */
+  fileselect_refresh_params(sfile);
 }
 
 static void file_exit(wmWindowManager *wm, ScrArea *area)
@@ -191,7 +193,7 @@ static void file_exit(wmWindowManager *wm, ScrArea *area)
     sfile->previews_timer = NULL;
   }
 
-  ED_fileselect_exit(wm, NULL, sfile);
+  ED_fileselect_exit(wm, sfile);
 }
 
 static SpaceLink *file_duplicate(SpaceLink *sl)
@@ -201,23 +203,25 @@ static SpaceLink *file_duplicate(SpaceLink *sl)
 
   /* clear or remove stuff from old */
   sfilen->op = NULL; /* file window doesn't own operators */
+  sfilen->runtime = NULL;
 
   sfilen->previews_timer = NULL;
   sfilen->smoothscroll_timer = NULL;
 
+  FileSelectParams *active_params_old = ED_fileselect_get_active_params(sfileo);
+  if (active_params_old) {
+    sfilen->files = filelist_new(active_params_old->type);
+    filelist_setdir(sfilen->files, active_params_old->dir);
+  }
+
   if (sfileo->params) {
-    sfilen->files = filelist_new(sfileo->params->type);
     sfilen->params = MEM_dupallocN(sfileo->params);
-    filelist_setdir(sfilen->files, sfilen->params->dir);
+  }
+  if (sfileo->asset_params) {
+    sfilen->asset_params = MEM_dupallocN(sfileo->asset_params);
   }
 
-  if (sfileo->folders_prev) {
-    sfilen->folders_prev = folderlist_duplicate(sfileo->folders_prev);
-  }
-
-  if (sfileo->folders_next) {
-    sfilen->folders_next = folderlist_duplicate(sfileo->folders_next);
-  }
+  sfilen->folder_histories = folder_history_list_duplicate(&sfileo->folder_histories);
 
   if (sfileo->layout) {
     sfilen->layout = MEM_dupallocN(sfileo->layout);
@@ -232,15 +236,30 @@ static void file_ensure_valid_region_state(bContext *C,
                                            SpaceFile *sfile,
                                            FileSelectParams *params)
 {
-  ARegion *region_ui = BKE_area_find_region_type(area, RGN_TYPE_UI);
-  ARegion *region_props = BKE_area_find_region_type(area, RGN_TYPE_TOOL_PROPS);
-  ARegion *region_execute = BKE_area_find_region_type(area, RGN_TYPE_EXECUTE);
-  bool needs_init = false; /* To avoid multiple ED_area_initialize() calls. */
+  ARegion *region_tools = BKE_area_find_region_type(area, RGN_TYPE_TOOLS);
+  bool needs_init = false; /* To avoid multiple ED_area_init() calls. */
 
+  BLI_assert(region_tools);
+
+  if (sfile->browse_mode == FILE_BROWSE_MODE_ASSETS) {
+    file_tool_props_region_ensure(area, region_tools);
+
+    ARegion *region_execute = BKE_area_find_region_type(area, RGN_TYPE_EXECUTE);
+    if (region_execute) {
+      ED_region_remove(C, area, region_execute);
+      needs_init = true;
+    }
+    ARegion *region_ui = BKE_area_find_region_type(area, RGN_TYPE_UI);
+    if (region_ui) {
+      ED_region_remove(C, area, region_ui);
+      needs_init = true;
+    }
+  }
   /* If there's an file-operation, ensure we have the option and execute region */
-  if (sfile->op && (region_props == NULL)) {
-    region_execute = file_execute_region_ensure(area, region_ui);
-    region_props = file_tool_props_region_ensure(area, region_execute);
+  else if (sfile->op && !BKE_area_find_region_type(area, RGN_TYPE_TOOL_PROPS)) {
+    ARegion *region_ui = file_ui_region_ensure(area, region_tools);
+    ARegion *region_execute = file_execute_region_ensure(area, region_ui);
+    ARegion *region_props = file_tool_props_region_ensure(area, region_execute);
 
     if (params->flag & FILE_HIDE_TOOL_PROPS) {
       region_props->flag |= RGN_FLAG_HIDDEN;
@@ -252,16 +271,24 @@ static void file_ensure_valid_region_state(bContext *C,
     needs_init = true;
   }
   /* If there's _no_ file-operation, ensure we _don't_ have the option and execute region */
-  else if ((sfile->op == NULL) && (region_props != NULL)) {
-    BLI_assert(region_execute != NULL);
+  else if (!sfile->op) {
+    ARegion *region_props = BKE_area_find_region_type(area, RGN_TYPE_TOOL_PROPS);
+    ARegion *region_execute = BKE_area_find_region_type(area, RGN_TYPE_EXECUTE);
+    ARegion *region_ui = file_ui_region_ensure(area, region_tools);
+    UNUSED_VARS(region_ui);
 
-    ED_region_remove(C, area, region_props);
-    ED_region_remove(C, area, region_execute);
-    needs_init = true;
+    if (region_execute) {
+      ED_region_remove(C, area, region_execute);
+      needs_init = true;
+    }
+    if (region_props) {
+      ED_region_remove(C, area, region_props);
+      needs_init = true;
+    }
   }
 
   if (needs_init) {
-    ED_area_initialize(wm, win, area);
+    ED_area_init(wm, win, area);
   }
 }
 
@@ -270,19 +297,35 @@ static void file_refresh(const bContext *C, ScrArea *area)
   wmWindowManager *wm = CTX_wm_manager(C);
   wmWindow *win = CTX_wm_window(C);
   SpaceFile *sfile = CTX_wm_space_file(C);
-  FileSelectParams *params = ED_fileselect_get_params(sfile);
+  FileSelectParams *params = ED_fileselect_ensure_active_params(sfile);
+  FileAssetSelectParams *asset_params = ED_fileselect_get_asset_params(sfile);
   struct FSMenu *fsmenu = ED_fsmenu_get();
 
-  if (!sfile->folders_prev) {
-    sfile->folders_prev = folderlist_new();
+  fileselect_refresh_params(sfile);
+  folder_history_list_ensure_for_active_browse_mode(sfile);
+
+  if (sfile->files && (sfile->tags & FILE_TAG_REBUILD_MAIN_FILES) &&
+      filelist_needs_reset_on_main_changes(sfile->files)) {
+    filelist_tag_force_reset_mainfiles(sfile->files);
   }
+  sfile->tags &= ~FILE_TAG_REBUILD_MAIN_FILES;
+
   if (!sfile->files) {
     sfile->files = filelist_new(params->type);
     params->highlight_file = -1; /* added this so it opens nicer (ton) */
   }
+
+  if (ED_fileselect_is_asset_browser(sfile)) {
+    /* Ask the asset code for appropriate ID filter flags for the supported assets, and mask others
+     * out. */
+    params->filter_id &= ED_asset_types_supported_as_filter_flags();
+  }
+
+  filelist_settype(sfile->files, params->type);
   filelist_setdir(sfile->files, params->dir);
   filelist_setrecursion(sfile->files, params->recursion_level);
   filelist_setsorting(sfile->files, params->sort, params->flag & FILE_SORT_INVERT);
+  filelist_setlibrary(sfile->files, asset_params ? &asset_params->asset_library_ref : NULL);
   filelist_setfilter_options(
       sfile->files,
       (params->flag & FILE_FILTER) != 0,
@@ -290,8 +333,19 @@ static void file_refresh(const bContext *C, ScrArea *area)
       true, /* Just always hide parent, prefer to not add an extra user option for this. */
       params->filter,
       params->filter_id,
+      (params->flag & FILE_ASSETS_ONLY) != 0,
       params->filter_glob,
       params->filter_search);
+  if (asset_params) {
+    filelist_set_asset_catalog_filter_options(
+        sfile->files, asset_params->asset_catalog_visibility, &asset_params->catalog_id);
+  }
+
+  if (ED_fileselect_is_asset_browser(sfile)) {
+    const bool use_asset_indexer = !USER_EXPERIMENTAL_TEST(&U, no_asset_indexing);
+    filelist_setindexer(sfile->files,
+                        use_asset_indexer ? &file_indexer_asset : &file_indexer_noop);
+  }
 
   /* Update the active indices of bookmarks & co. */
   sfile->systemnr = fsmenu_get_active_indices(fsmenu, FS_CATEGORY_SYSTEM, params->dir);
@@ -300,14 +354,14 @@ static void file_refresh(const bContext *C, ScrArea *area)
   sfile->bookmarknr = fsmenu_get_active_indices(fsmenu, FS_CATEGORY_BOOKMARKS, params->dir);
   sfile->recentnr = fsmenu_get_active_indices(fsmenu, FS_CATEGORY_RECENT, params->dir);
 
-  if (filelist_force_reset(sfile->files)) {
-    filelist_readjob_stop(wm, CTX_data_scene(C));
-    filelist_clear(sfile->files);
+  if (filelist_needs_force_reset(sfile->files)) {
+    filelist_readjob_stop(sfile->files, wm);
+    filelist_clear_from_reset_tag(sfile->files);
   }
 
-  if (filelist_empty(sfile->files)) {
+  if (filelist_needs_reading(sfile->files)) {
     if (!filelist_pending(sfile->files)) {
-      filelist_readjob_start(sfile->files, C);
+      filelist_readjob_start(sfile->files, NC_SPACE | ND_SPACE_FILE_LIST, C);
     }
   }
 
@@ -341,11 +395,38 @@ static void file_refresh(const bContext *C, ScrArea *area)
   ED_area_tag_redraw(area);
 }
 
-static void file_listener(wmWindow *UNUSED(win),
-                          ScrArea *area,
-                          wmNotifier *wmn,
-                          Scene *UNUSED(scene))
+void file_on_reload_callback_register(SpaceFile *sfile,
+                                      onReloadFn callback,
+                                      onReloadFnData custom_data)
 {
+  sfile->runtime->on_reload = callback;
+  sfile->runtime->on_reload_custom_data = custom_data;
+}
+
+static void file_on_reload_callback_call(SpaceFile *sfile)
+{
+  if (sfile->runtime->on_reload == NULL) {
+    return;
+  }
+
+  sfile->runtime->on_reload(sfile, sfile->runtime->on_reload_custom_data);
+
+  sfile->runtime->on_reload = NULL;
+  sfile->runtime->on_reload_custom_data = NULL;
+}
+
+static void file_reset_filelist_showing_main_data(ScrArea *area, SpaceFile *sfile)
+{
+  if (sfile->files && filelist_needs_reset_on_main_changes(sfile->files)) {
+    filelist_tag_force_reset_mainfiles(sfile->files);
+    ED_area_tag_refresh(area);
+  }
+}
+
+static void file_listener(const wmSpaceTypeListenerParams *listener_params)
+{
+  ScrArea *area = listener_params->area;
+  wmNotifier *wmn = listener_params->notifier;
   SpaceFile *sfile = (SpaceFile *)area->spacedata.first;
 
   /* context changes */
@@ -363,8 +444,55 @@ static void file_listener(wmWindow *UNUSED(win),
             ED_area_tag_refresh(area);
           }
           break;
+        case ND_SPACE_ASSET_PARAMS:
+          if (sfile->browse_mode == FILE_BROWSE_MODE_ASSETS) {
+            ED_area_tag_refresh(area);
+          }
+          break;
+        case ND_SPACE_CHANGED:
+          /* If the space was just turned into a file/asset browser, the file-list may need to be
+           * updated to reflect latest changes in main data. */
+          file_reset_filelist_showing_main_data(area, sfile);
+          break;
+      }
+      switch (wmn->action) {
+        case NA_JOB_FINISHED:
+          file_on_reload_callback_call(sfile);
+          break;
       }
       break;
+    case NC_ID: {
+      switch (wmn->action) {
+        case NA_RENAME: {
+          const ID *active_file_id = ED_fileselect_active_asset_get(sfile);
+          /* If a renamed ID is active in the file browser, update scrolling to keep it in view. */
+          if (active_file_id && (wmn->reference == active_file_id)) {
+            FileSelectParams *params = ED_fileselect_get_active_params(sfile);
+            params->rename_id = active_file_id;
+            file_params_invoke_rename_postscroll(G_MAIN->wm.first, listener_params->window, sfile);
+          }
+
+          /* Force list to update sorting (with a full reset for now). */
+          file_reset_filelist_showing_main_data(area, sfile);
+          break;
+        }
+      }
+      break;
+    }
+    case NC_ASSET: {
+      switch (wmn->action) {
+        case NA_SELECTED:
+        case NA_ACTIVATED:
+          ED_area_tag_refresh(area);
+          break;
+        case NA_ADDED:
+        case NA_REMOVED:
+        case NA_EDITED:
+          file_reset_filelist_showing_main_data(area, sfile);
+          break;
+      }
+      break;
+    }
   }
 }
 
@@ -383,12 +511,11 @@ static void file_main_region_init(wmWindowManager *wm, ARegion *region)
   WM_event_add_keymap_handler_v2d_mask(&region->handlers, keymap);
 }
 
-static void file_main_region_listener(wmWindow *UNUSED(win),
-                                      ScrArea *UNUSED(area),
-                                      ARegion *region,
-                                      wmNotifier *wmn,
-                                      const Scene *UNUSED(scene))
+static void file_main_region_listener(const wmRegionListenerParams *listener_params)
 {
+  ARegion *region = listener_params->region;
+  wmNotifier *wmn = listener_params->notifier;
+
   /* context changes */
   switch (wmn->category) {
     case NC_SPACE:
@@ -401,19 +528,23 @@ static void file_main_region_listener(wmWindow *UNUSED(win),
           break;
       }
       break;
+    case NC_ID:
+      if (ELEM(wmn->action, NA_SELECTED, NA_ACTIVATED, NA_RENAME)) {
+        ED_region_tag_redraw(region);
+      }
+      break;
   }
 }
 
-static void file_main_region_message_subscribe(const struct bContext *UNUSED(C),
-                                               struct WorkSpace *UNUSED(workspace),
-                                               struct Scene *UNUSED(scene),
-                                               struct bScreen *screen,
-                                               struct ScrArea *area,
-                                               struct ARegion *region,
-                                               struct wmMsgBus *mbus)
+static void file_main_region_message_subscribe(const wmRegionMessageSubscribeParams *params)
 {
+  struct wmMsgBus *mbus = params->message_bus;
+  bScreen *screen = params->screen;
+  ScrArea *area = params->area;
+  ARegion *region = params->region;
   SpaceFile *sfile = area->spacedata.first;
-  FileSelectParams *params = ED_fileselect_get_params(sfile);
+
+  FileSelectParams *file_params = ED_fileselect_ensure_active_params(sfile);
   /* This is a bit odd that a region owns the subscriber for an area,
    * keep for now since all subscribers for WM are regions.
    * May be worth re-visiting later. */
@@ -435,32 +566,53 @@ static void file_main_region_message_subscribe(const struct bContext *UNUSED(C),
   /* FileSelectParams */
   {
     PointerRNA ptr;
-    RNA_pointer_create(&screen->id, &RNA_FileSelectParams, params, &ptr);
+    RNA_pointer_create(&screen->id, &RNA_FileSelectParams, file_params, &ptr);
 
     /* All properties for this space type. */
     WM_msg_subscribe_rna(mbus, &ptr, NULL, &msg_sub_value_area_tag_refresh, __func__);
   }
+
+  /* Experimental Asset Browser features option. */
+  {
+    PointerRNA ptr;
+    RNA_pointer_create(NULL, &RNA_PreferencesExperimental, &U.experimental, &ptr);
+    PropertyRNA *prop = RNA_struct_find_property(&ptr, "use_extended_asset_browser");
+
+    /* All properties for this space type. */
+    WM_msg_subscribe_rna(mbus, &ptr, prop, &msg_sub_value_area_tag_refresh, __func__);
+  }
+}
+
+static bool file_main_region_needs_refresh_before_draw(SpaceFile *sfile)
+{
+  /* Needed, because filelist is not initialized on loading */
+  if (!sfile->files || filelist_needs_reading(sfile->files)) {
+    return true;
+  }
+
+  /* File reading tagged the space because main data changed that may require a filelist reset. */
+  if (filelist_needs_reset_on_main_changes(sfile->files) &&
+      (sfile->tags & FILE_TAG_REBUILD_MAIN_FILES)) {
+    return true;
+  }
+
+  return false;
 }
 
 static void file_main_region_draw(const bContext *C, ARegion *region)
 {
   /* draw entirely, view changes should be handled here */
   SpaceFile *sfile = CTX_wm_space_file(C);
-  FileSelectParams *params = ED_fileselect_get_params(sfile);
+  FileSelectParams *params = ED_fileselect_ensure_active_params(sfile);
 
   View2D *v2d = &region->v2d;
-  View2DScrollers *scrollers;
-  float col[3];
 
-  /* Needed, because filelist is not initialized on loading */
-  if (!sfile->files || filelist_empty(sfile->files)) {
+  if (file_main_region_needs_refresh_before_draw(sfile)) {
     file_refresh(C, NULL);
   }
 
   /* clear and setup matrix */
-  UI_GetThemeColor3fv(TH_BACK, col);
-  GPU_clear_color(col[0], col[1], col[2], 0.0);
-  GPU_clear(GPU_COLOR_BIT);
+  UI_ThemeClearColor(TH_BACK);
 
   /* Allow dynamically sliders to be set, saves notifiers etc. */
 
@@ -480,7 +632,7 @@ static void file_main_region_draw(const bContext *C, ARegion *region)
     v2d->keepofs |= V2D_LOCKOFS_Y;
 
     /* XXX this happens on scaling down Screen (like from startup.blend) */
-    /* view2d has no type specific for filewindow case, which doesn't scroll vertically */
+    /* view2d has no type specific for file-window case, which doesn't scroll vertically. */
     if (v2d->cur.ymax < 0) {
       v2d->cur.ymin -= v2d->cur.ymax;
       v2d->cur.ymax = 0;
@@ -498,10 +650,12 @@ static void file_main_region_draw(const bContext *C, ARegion *region)
   /* on first read, find active file */
   if (params->highlight_file == -1) {
     wmEvent *event = CTX_wm_window(C)->eventstate;
-    file_highlight_set(sfile, region, event->x, event->y);
+    file_highlight_set(sfile, region, event->xy[0], event->xy[1]);
   }
 
-  file_draw_list(C, region);
+  if (!file_draw_hint_if_invalid(C, sfile, region)) {
+    file_draw_list(C, region);
+  }
 
   /* reset view matrix */
   UI_view2d_view_restore(C);
@@ -509,9 +663,7 @@ static void file_main_region_draw(const bContext *C, ARegion *region)
   /* scrollers */
   rcti view_rect;
   ED_fileselect_layout_maskrect(sfile->layout, v2d, &view_rect);
-  scrollers = UI_view2d_scrollers_calc(v2d, &view_rect);
-  UI_view2d_scrollers_draw(v2d, scrollers);
-  UI_view2d_scrollers_free(scrollers);
+  UI_view2d_scrollers_draw(v2d, &view_rect);
 }
 
 static void file_operatortypes(void)
@@ -524,6 +676,7 @@ static void file_operatortypes(void)
   WM_operatortype_append(FILE_OT_highlight);
   WM_operatortype_append(FILE_OT_sort_column_ui_context);
   WM_operatortype_append(FILE_OT_execute);
+  WM_operatortype_append(FILE_OT_mouse_execute);
   WM_operatortype_append(FILE_OT_cancel);
   WM_operatortype_append(FILE_OT_parent);
   WM_operatortype_append(FILE_OT_previous);
@@ -542,6 +695,8 @@ static void file_operatortypes(void)
   WM_operatortype_append(FILE_OT_smoothscroll);
   WM_operatortype_append(FILE_OT_filepath_drop);
   WM_operatortype_append(FILE_OT_start_filter);
+  WM_operatortype_append(FILE_OT_edit_directory_path);
+  WM_operatortype_append(FILE_OT_view_selected);
 }
 
 /* NOTE: do not add .blend file reading on this level */
@@ -574,18 +729,38 @@ static void file_tools_region_draw(const bContext *C, ARegion *region)
   ED_region_panels(C, region);
 }
 
-static void file_tools_region_listener(wmWindow *UNUSED(win),
-                                       ScrArea *UNUSED(area),
-                                       ARegion *UNUSED(region),
-                                       wmNotifier *UNUSED(wmn),
-                                       const Scene *UNUSED(scene))
+static void file_tools_region_listener(const wmRegionListenerParams *listener_params)
 {
-#if 0
-  /* context changes */
+  const wmNotifier *wmn = listener_params->notifier;
+  ARegion *region = listener_params->region;
+
   switch (wmn->category) {
-    /* pass */
+    case NC_SCENE:
+      if (ELEM(wmn->data, ND_MODE)) {
+        ED_region_tag_redraw(region);
+      }
+      break;
   }
-#endif
+}
+
+static void file_tool_props_region_listener(const wmRegionListenerParams *listener_params)
+{
+  const wmNotifier *wmn = listener_params->notifier;
+  ARegion *region = listener_params->region;
+
+  switch (wmn->category) {
+    case NC_ID:
+      if (ELEM(wmn->action, NA_RENAME)) {
+        /* In case the filelist shows ID names. */
+        ED_region_tag_redraw(region);
+      }
+      break;
+    case NC_SCENE:
+      if (ELEM(wmn->data, ND_MODE)) {
+        ED_region_tag_redraw(region);
+      }
+      break;
+  }
 }
 
 /* add handlers, stuff you only do once or on area/region changes */
@@ -642,12 +817,11 @@ static void file_execution_region_draw(const bContext *C, ARegion *region)
   ED_region_panels(C, region);
 }
 
-static void file_ui_region_listener(wmWindow *UNUSED(win),
-                                    ScrArea *UNUSED(area),
-                                    ARegion *region,
-                                    wmNotifier *wmn,
-                                    const Scene *UNUSED(scene))
+static void file_ui_region_listener(const wmRegionListenerParams *listener_params)
 {
+  ARegion *region = listener_params->region;
+  wmNotifier *wmn = listener_params->notifier;
+
   /* context changes */
   switch (wmn->category) {
     case NC_SPACE:
@@ -660,21 +834,18 @@ static void file_ui_region_listener(wmWindow *UNUSED(win),
   }
 }
 
-static bool filepath_drop_poll(bContext *C,
-                               wmDrag *drag,
-                               const wmEvent *UNUSED(event),
-                               const char **UNUSED(r_tooltip))
+static bool filepath_drop_poll(bContext *C, wmDrag *drag, const wmEvent *UNUSED(event))
 {
   if (drag->type == WM_DRAG_PATH) {
     SpaceFile *sfile = CTX_wm_space_file(C);
     if (sfile) {
-      return 1;
+      return true;
     }
   }
-  return 0;
+  return false;
 }
 
-static void filepath_drop_copy(wmDrag *drag, wmDropBox *drop)
+static void filepath_drop_copy(bContext *UNUSED(C), wmDrag *drag, wmDropBox *drop)
 {
   RNA_string_set(drop->ptr, "filepath", drag->path);
 }
@@ -684,10 +855,137 @@ static void file_dropboxes(void)
 {
   ListBase *lb = WM_dropboxmap_find("Window", SPACE_EMPTY, RGN_TYPE_WINDOW);
 
-  WM_dropbox_add(lb, "FILE_OT_filepath_drop", filepath_drop_poll, filepath_drop_copy);
+  WM_dropbox_add(lb, "FILE_OT_filepath_drop", filepath_drop_poll, filepath_drop_copy, NULL, NULL);
 }
 
-/* only called once, from space/spacetypes.c */
+static int file_space_subtype_get(ScrArea *area)
+{
+  SpaceFile *sfile = area->spacedata.first;
+  return sfile->browse_mode;
+}
+
+static void file_space_subtype_set(ScrArea *area, int value)
+{
+  SpaceFile *sfile = area->spacedata.first;
+  sfile->browse_mode = value;
+}
+
+static void file_space_subtype_item_extend(bContext *UNUSED(C),
+                                           EnumPropertyItem **item,
+                                           int *totitem)
+{
+  RNA_enum_items_add(item, totitem, rna_enum_space_file_browse_mode_items);
+}
+
+const char *file_context_dir[] = {
+    "active_file",
+    "selected_files",
+    "asset_library_ref",
+    "selected_asset_files",
+    "id",
+    NULL,
+};
+
+static int /*eContextResult*/ file_context(const bContext *C,
+                                           const char *member,
+                                           bContextDataResult *result)
+{
+  bScreen *screen = CTX_wm_screen(C);
+  SpaceFile *sfile = CTX_wm_space_file(C);
+  FileSelectParams *params = ED_fileselect_get_active_params(sfile);
+
+  BLI_assert(!ED_area_is_global(CTX_wm_area(C)));
+
+  if (CTX_data_dir(member)) {
+    CTX_data_dir_set(result, file_context_dir);
+    return CTX_RESULT_OK;
+  }
+
+  /* The following member checks return file-list data, check if that needs refreshing first. */
+  if (file_main_region_needs_refresh_before_draw(sfile)) {
+    return CTX_RESULT_NO_DATA;
+  }
+
+  if (CTX_data_equals(member, "active_file")) {
+    FileDirEntry *file = filelist_file(sfile->files, params->active_file);
+    if (file == NULL) {
+      return CTX_RESULT_NO_DATA;
+    }
+
+    CTX_data_pointer_set(result, &screen->id, &RNA_FileSelectEntry, file);
+    return CTX_RESULT_OK;
+  }
+  if (CTX_data_equals(member, "selected_files")) {
+    const int num_files_filtered = filelist_files_ensure(sfile->files);
+
+    for (int file_index = 0; file_index < num_files_filtered; file_index++) {
+      if (filelist_entry_is_selected(sfile->files, file_index)) {
+        FileDirEntry *entry = filelist_file(sfile->files, file_index);
+        CTX_data_list_add(result, &screen->id, &RNA_FileSelectEntry, entry);
+      }
+    }
+
+    CTX_data_type_set(result, CTX_DATA_TYPE_COLLECTION);
+    return CTX_RESULT_OK;
+  }
+
+  if (CTX_data_equals(member, "asset_library_ref")) {
+    FileAssetSelectParams *asset_params = ED_fileselect_get_asset_params(sfile);
+    if (!asset_params) {
+      return CTX_RESULT_NO_DATA;
+    }
+
+    CTX_data_pointer_set(
+        result, &screen->id, &RNA_AssetLibraryReference, &asset_params->asset_library_ref);
+    return CTX_RESULT_OK;
+  }
+  /** TODO temporary AssetHandle design: For now this returns the file entry. Would be better if it
+   * was `"selected_assets"` and returned the assets (e.g. as `AssetHandle`) directly. See comment
+   * for #AssetHandle for more info. */
+  if (CTX_data_equals(member, "selected_asset_files")) {
+    const int num_files_filtered = filelist_files_ensure(sfile->files);
+
+    for (int file_index = 0; file_index < num_files_filtered; file_index++) {
+      if (filelist_entry_is_selected(sfile->files, file_index)) {
+        FileDirEntry *entry = filelist_file(sfile->files, file_index);
+        if (entry->asset_data) {
+          CTX_data_list_add(result, &screen->id, &RNA_FileSelectEntry, entry);
+        }
+      }
+    }
+
+    CTX_data_type_set(result, CTX_DATA_TYPE_COLLECTION);
+    return CTX_RESULT_OK;
+  }
+  if (CTX_data_equals(member, "id")) {
+    const FileDirEntry *file = filelist_file(sfile->files, params->active_file);
+    if (file == NULL) {
+      return CTX_RESULT_NO_DATA;
+    }
+
+    ID *id = filelist_file_get_id(file);
+    if (id == NULL) {
+      return CTX_RESULT_NO_DATA;
+    }
+
+    CTX_data_id_pointer_set(result, id);
+    return CTX_RESULT_OK;
+  }
+
+  return CTX_RESULT_MEMBER_NOT_FOUND;
+}
+
+static void file_id_remap(ScrArea *area, SpaceLink *sl, const struct IDRemapper *UNUSED(mappings))
+{
+  SpaceFile *sfile = (SpaceFile *)sl;
+
+  /* If the file shows main data (IDs), tag it for reset.
+   * Full reset of the file list if main data was changed, don't even attempt remap pointers.
+   * We could give file list types a id-remap callback, but it's probably not worth it.
+   * Refreshing local file lists is relatively cheap. */
+  file_reset_filelist_showing_main_data(area, sfile);
+}
+
 void ED_spacetype_file(void)
 {
   SpaceType *st = MEM_callocN(sizeof(SpaceType), "spacetype file");
@@ -696,7 +994,7 @@ void ED_spacetype_file(void)
   st->spaceid = SPACE_FILE;
   strncpy(st->name, "File", BKE_ST_MAXNAME);
 
-  st->new = file_new;
+  st->create = file_create;
   st->free = file_free;
   st->init = file_init;
   st->exit = file_exit;
@@ -706,6 +1004,11 @@ void ED_spacetype_file(void)
   st->operatortypes = file_operatortypes;
   st->keymap = file_keymap;
   st->dropboxes = file_dropboxes;
+  st->space_subtype_item_extend = file_space_subtype_item_extend;
+  st->space_subtype_get = file_space_subtype_get;
+  st->space_subtype_set = file_space_subtype_set;
+  st->context = file_context;
+  st->id_remap = file_id_remap;
 
   /* regions: main window */
   art = MEM_callocN(sizeof(ARegionType), "spacetype file region");
@@ -756,6 +1059,7 @@ void ED_spacetype_file(void)
   art->init = file_tools_region_init;
   art->draw = file_tools_region_draw;
   BLI_addhead(&st->regiontypes, art);
+  file_tools_region_panels_register(art);
 
   /* regions: tool properties */
   art = MEM_callocN(sizeof(ARegionType), "spacetype file operator region");
@@ -763,7 +1067,7 @@ void ED_spacetype_file(void)
   art->prefsizex = 240;
   art->prefsizey = 60;
   art->keymapflag = ED_KEYMAP_UI;
-  art->listener = file_tools_region_listener;
+  art->listener = file_tool_props_region_listener;
   art->init = file_tools_region_init;
   art->draw = file_tools_region_draw;
   BLI_addhead(&st->regiontypes, art);

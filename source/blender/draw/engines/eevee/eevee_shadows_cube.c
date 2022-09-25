@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup EEVEE
@@ -95,7 +80,6 @@ start:
   add_v3_v3(ws_sample_pos, jitter);
 }
 
-/* Return true if sample has changed and light needs to be updated. */
 bool EEVEE_shadows_cube_setup(EEVEE_LightsInfo *linfo, const EEVEE_Light *evli, int sample_ofs)
 {
   EEVEE_Shadow *shdw_data = linfo->shadow_data + (int)evli->shadow_id;
@@ -123,7 +107,7 @@ bool EEVEE_shadows_cube_setup(EEVEE_LightsInfo *linfo, const EEVEE_Light *evli, 
      * Note that this may be a rough approximation an may not converge to a perfectly
      * smooth shadow (because sample distribution is quite non-uniform) but is enough
      * in practice.
-     **/
+     */
     /* NOTE: this has implication for spotlight rendering optimization
      * (see EEVEE_shadows_draw_cubemap). */
     float angular_texel_size = 2.0f * DEG2RADF(90) / (float)linfo->shadow_cube_size;
@@ -142,7 +126,7 @@ static void eevee_ensure_cube_views(
   float winmat[4][4];
   float side = near;
 
-  /* TODO shadowcube array. */
+  /* TODO: shadow-cube array. */
   if (true) {
     /* This half texel offset is used to ensure correct filtering between faces. */
     /* FIXME: This exhibit float precision issue with lower cube_res.
@@ -209,7 +193,7 @@ void EEVEE_shadows_draw_cubemap(EEVEE_ViewLayerData *sldata, EEVEE_Data *vedata,
     if (evli->light_type != LA_LOCAL && j == 4) {
       continue;
     }
-    /* TODO(fclem) some cube sides can be invisible in the main views. Cull them. */
+    /* TODO(fclem): some cube sides can be invisible in the main views. Cull them. */
     // if (frustum_intersect(g_data->cube_views[j], main_view))
     //   continue;
 

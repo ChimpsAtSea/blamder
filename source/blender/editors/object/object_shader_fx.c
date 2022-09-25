@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2018 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2018 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edobj
@@ -24,6 +8,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "MEM_guardedalloc.h"
 
@@ -33,12 +18,14 @@
 #include "DNA_shader_fx_types.h"
 
 #include "BLI_listbase.h"
+#include "BLI_string.h"
 #include "BLI_string_utf8.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.h"
 
 #include "BKE_context.h"
+#include "BKE_lib_id.h"
 #include "BKE_main.h"
 #include "BKE_object.h"
 #include "BKE_report.h"
@@ -51,16 +38,21 @@
 #include "RNA_access.h"
 #include "RNA_define.h"
 #include "RNA_enum_types.h"
+#include "RNA_prototypes.h"
 
 #include "ED_object.h"
 #include "ED_screen.h"
+
+#include "UI_interface.h"
 
 #include "WM_api.h"
 #include "WM_types.h"
 
 #include "object_intern.h"
 
-/******************************** API ****************************/
+/* -------------------------------------------------------------------- */
+/** \name Public API
+ * \{ */
 
 ShaderFxData *ED_object_shaderfx_add(
     ReportList *reports, Main *bmain, Scene *UNUSED(scene), Object *ob, const char *name, int type)
@@ -200,7 +192,116 @@ int ED_object_shaderfx_move_down(ReportList *UNUSED(reports), Object *ob, Shader
   return 1;
 }
 
-/************************ add effect operator *********************/
+bool ED_object_shaderfx_move_to_index(ReportList *reports,
+                                      Object *ob,
+                                      ShaderFxData *fx,
+                                      const int index)
+{
+  BLI_assert(fx != NULL);
+  BLI_assert(index >= 0);
+  if (index >= BLI_listbase_count(&ob->shader_fx)) {
+    BKE_report(reports, RPT_WARNING, "Cannot move effect beyond the end of the stack");
+    return false;
+  }
+
+  int fx_index = BLI_findindex(&ob->shader_fx, fx);
+  BLI_assert(fx_index != -1);
+  if (fx_index < index) {
+    /* Move shaderfx down in list. */
+    for (; fx_index < index; fx_index++) {
+      if (!ED_object_shaderfx_move_down(reports, ob, fx)) {
+        break;
+      }
+    }
+  }
+  else {
+    /* Move shaderfx up in list. */
+    for (; fx_index > index; fx_index--) {
+      if (!ED_object_shaderfx_move_up(reports, ob, fx)) {
+        break;
+      }
+    }
+  }
+
+  DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
+  WM_main_add_notifier(NC_OBJECT | ND_SHADERFX, ob);
+
+  return true;
+}
+
+void ED_object_shaderfx_link(Object *dst, Object *src)
+{
+  BLI_freelistN(&dst->shader_fx);
+  BKE_shaderfx_copy(&dst->shader_fx, &src->shader_fx);
+
+  DEG_id_tag_update(&dst->id, ID_RECALC_GEOMETRY);
+  WM_main_add_notifier(NC_OBJECT | ND_SHADERFX, dst);
+}
+
+void ED_object_shaderfx_copy(Object *dst, ShaderFxData *fx)
+{
+  ShaderFxData *nfx = BKE_shaderfx_new(fx->type);
+  BLI_strncpy(nfx->name, fx->name, sizeof(nfx->name));
+  BKE_shaderfx_copydata(fx, nfx);
+  BLI_addtail(&dst->shader_fx, nfx);
+
+  DEG_id_tag_update(&dst->id, ID_RECALC_GEOMETRY);
+  WM_main_add_notifier(NC_OBJECT | ND_SHADERFX, dst);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Generic Poll Callback Helpers
+ * \{ */
+
+static bool edit_shaderfx_poll_generic(bContext *C,
+                                       StructRNA *rna_type,
+                                       int obtype_flag,
+                                       const bool is_liboverride_allowed)
+{
+  PointerRNA ptr = CTX_data_pointer_get_type(C, "shaderfx", rna_type);
+  Object *ob = (ptr.owner_id) ? (Object *)ptr.owner_id : ED_object_active_context(C);
+  ShaderFxData *fx = ptr.data; /* May be NULL. */
+
+  if (!ED_operator_object_active_editable_ex(C, ob)) {
+    return false;
+  }
+
+  /* NOTE: Temporary 'forbid all' for overrides, until we implement support to add shaderfx to
+   * overrides. */
+  if (ID_IS_OVERRIDE_LIBRARY(ob)) {
+    CTX_wm_operator_poll_msg_set(C, "Cannot edit shaderfxs in a library override");
+    return false;
+  }
+
+  if (obtype_flag != 0 && ((1 << ob->type) & obtype_flag) == 0) {
+    CTX_wm_operator_poll_msg_set(C, "Object type is not supported");
+    return false;
+  }
+  if (ptr.owner_id != NULL && !BKE_id_is_editable(CTX_data_main(C), ptr.owner_id)) {
+    CTX_wm_operator_poll_msg_set(C, "Cannot edit library or override data");
+    return false;
+  }
+  if (!is_liboverride_allowed && BKE_shaderfx_is_nonlocal_in_liboverride(ob, fx)) {
+    CTX_wm_operator_poll_msg_set(
+        C, "Cannot edit shaderfxs coming from linked data in a library override");
+    return false;
+  }
+
+  return true;
+}
+
+static bool edit_shaderfx_poll(bContext *C)
+{
+  return edit_shaderfx_poll_generic(C, &RNA_ShaderFx, 0, false);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Add Effect Operator
+ * \{ */
 
 static int shaderfx_add_exec(bContext *C, wmOperator *op)
 {
@@ -213,7 +314,7 @@ static int shaderfx_add_exec(bContext *C, wmOperator *op)
     return OPERATOR_CANCELLED;
   }
 
-  WM_event_add_notifier(C, NC_OBJECT | ND_MODIFIER, ob);
+  WM_event_add_notifier(C, NC_OBJECT | ND_SHADERFX, ob);
 
   return OPERATOR_FINISHED;
 }
@@ -273,7 +374,7 @@ void OBJECT_OT_shaderfx_add(wmOperatorType *ot)
   /* api callbacks */
   ot->invoke = WM_menu_invoke;
   ot->exec = shaderfx_add_exec;
-  ot->poll = ED_operator_object_active_editable;
+  ot->poll = edit_shaderfx_poll;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -287,37 +388,11 @@ void OBJECT_OT_shaderfx_add(wmOperatorType *ot)
   RNA_def_property_translation_context(ot->prop, BLT_I18NCONTEXT_ID_ID);
 }
 
+/** \} */
+
 /* -------------------------------------------------------------------- */
 /** \name Generic Functions for Operators Using Names and Data Context
  * \{ */
-
-static bool edit_shaderfx_poll_generic(bContext *C, StructRNA *rna_type, int obtype_flag)
-{
-  PointerRNA ptr = CTX_data_pointer_get_type(C, "shaderfx", rna_type);
-  Object *ob = (ptr.owner_id) ? (Object *)ptr.owner_id : ED_object_active_context(C);
-
-  if (!ob || ID_IS_LINKED(ob)) {
-    return 0;
-  }
-  if (obtype_flag && ((1 << ob->type) & obtype_flag) == 0) {
-    return 0;
-  }
-  if (ptr.owner_id && ID_IS_LINKED(ptr.owner_id)) {
-    return 0;
-  }
-
-  if (ID_IS_OVERRIDE_LIBRARY(ob)) {
-    CTX_wm_operator_poll_msg_set(C, "Cannot edit shaderfxs coming from library override");
-    return (((ShaderFxData *)ptr.data)->flag & eShaderFxFlag_OverrideLibrary_Local) != 0;
-  }
-
-  return 1;
-}
-
-static bool edit_shaderfx_poll(bContext *C)
-{
-  return edit_shaderfx_poll_generic(C, &RNA_ShaderFx, 0);
-}
 
 static void edit_shaderfx_properties(wmOperatorType *ot)
 {
@@ -326,22 +401,57 @@ static void edit_shaderfx_properties(wmOperatorType *ot)
   RNA_def_property_flag(prop, PROP_HIDDEN);
 }
 
-static int edit_shaderfx_invoke_properties(bContext *C, wmOperator *op)
+static void edit_shaderfx_report_property(wmOperatorType *ot)
 {
-  ShaderFxData *fx;
+  PropertyRNA *prop = RNA_def_boolean(
+      ot->srna, "report", false, "Report", "Create a notification after the operation");
+  RNA_def_property_flag(prop, PROP_HIDDEN | PROP_SKIP_SAVE);
+}
 
+/**
+ * \param event: If this isn't NULL, the operator will also look for panels underneath
+ * the cursor with custom-data set to a modifier.
+ * \param r_retval: This should be used if #event is used in order to return
+ * #OPERATOR_PASS_THROUGH to check other operators with the same key set.
+ */
+static bool edit_shaderfx_invoke_properties(bContext *C,
+                                            wmOperator *op,
+                                            const wmEvent *event,
+                                            int *r_retval)
+{
   if (RNA_struct_property_is_set(op->ptr, "shaderfx")) {
     return true;
   }
-  else {
-    PointerRNA ptr = CTX_data_pointer_get_type(C, "shaderfx", &RNA_ShaderFx);
-    if (ptr.data) {
-      fx = ptr.data;
-      RNA_string_set(op->ptr, "shaderfx", fx->name);
-      return true;
+
+  PointerRNA ctx_ptr = CTX_data_pointer_get_type(C, "shaderfx", &RNA_ShaderFx);
+  if (ctx_ptr.data != NULL) {
+    ShaderFxData *fx = ctx_ptr.data;
+    RNA_string_set(op->ptr, "shaderfx", fx->name);
+    return true;
+  }
+
+  /* Check the custom data of panels under the mouse for an effect. */
+  if (event != NULL) {
+    PointerRNA *panel_ptr = UI_region_panel_custom_data_under_cursor(C, event);
+
+    if (!(panel_ptr == NULL || RNA_pointer_is_null(panel_ptr))) {
+      if (RNA_struct_is_a(panel_ptr->type, &RNA_ShaderFx)) {
+        ShaderFxData *fx = panel_ptr->data;
+        RNA_string_set(op->ptr, "shaderfx", fx->name);
+        return true;
+      }
+
+      BLI_assert(r_retval != NULL); /* We need the return value in this case. */
+      if (r_retval != NULL) {
+        *r_retval = (OPERATOR_PASS_THROUGH | OPERATOR_CANCELLED);
+      }
+      return false;
     }
   }
 
+  if (r_retval != NULL) {
+    *r_retval = OPERATOR_CANCELLED;
+  }
   return false;
 }
 
@@ -362,37 +472,49 @@ static ShaderFxData *edit_shaderfx_property_get(wmOperator *op, Object *ob, int 
 
 /** \} */
 
-/************************ remove shaderfx operator *********************/
+/* -------------------------------------------------------------------- */
+/** \name Remove ShaderFX Operator
+ * \{ */
 
 static int shaderfx_remove_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   Object *ob = ED_object_active_context(C);
   ShaderFxData *fx = edit_shaderfx_property_get(op, ob, 0);
-
-  if (!fx || !ED_object_shaderfx_remove(op->reports, bmain, ob, fx)) {
+  if (!fx) {
     return OPERATOR_CANCELLED;
   }
 
-  WM_event_add_notifier(C, NC_OBJECT | ND_MODIFIER, ob);
+  /* Store name temporarily for report. */
+  char name[MAX_NAME];
+  strcpy(name, fx->name);
+
+  if (!ED_object_shaderfx_remove(op->reports, bmain, ob, fx)) {
+    return OPERATOR_CANCELLED;
+  }
+
+  if (RNA_boolean_get(op->ptr, "report")) {
+    BKE_reportf(op->reports, RPT_INFO, "Removed effect: %s", name);
+  }
+
+  WM_event_add_notifier(C, NC_OBJECT | ND_SHADERFX, ob);
 
   return OPERATOR_FINISHED;
 }
 
-static int shaderfx_remove_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(event))
+static int shaderfx_remove_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
-  if (edit_shaderfx_invoke_properties(C, op)) {
+  int retval;
+  if (edit_shaderfx_invoke_properties(C, op, event, &retval)) {
     return shaderfx_remove_exec(C, op);
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return retval;
 }
 
 void OBJECT_OT_shaderfx_remove(wmOperatorType *ot)
 {
-  ot->name = "Remove Grease Pencil Modifier";
-  ot->description = "Remove a shaderfx from the active grease pencil object";
+  ot->name = "Remove Grease Pencil Effect";
+  ot->description = "Remove a effect from the active grease pencil object";
   ot->idname = "OBJECT_OT_shaderfx_remove";
 
   ot->invoke = shaderfx_remove_invoke;
@@ -402,9 +524,14 @@ void OBJECT_OT_shaderfx_remove(wmOperatorType *ot)
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO | OPTYPE_INTERNAL;
   edit_shaderfx_properties(ot);
+  edit_shaderfx_report_property(ot);
 }
 
-/************************ move up shaderfx operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Move up ShaderFX Operator
+ * \{ */
 
 static int shaderfx_move_up_exec(bContext *C, wmOperator *op)
 {
@@ -416,25 +543,24 @@ static int shaderfx_move_up_exec(bContext *C, wmOperator *op)
   }
 
   DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
-  WM_event_add_notifier(C, NC_OBJECT | ND_MODIFIER, ob);
+  WM_event_add_notifier(C, NC_OBJECT | ND_SHADERFX, ob);
 
   return OPERATOR_FINISHED;
 }
 
-static int shaderfx_move_up_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(event))
+static int shaderfx_move_up_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
-  if (edit_shaderfx_invoke_properties(C, op)) {
+  int retval;
+  if (edit_shaderfx_invoke_properties(C, op, event, &retval)) {
     return shaderfx_move_up_exec(C, op);
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return retval;
 }
 
 void OBJECT_OT_shaderfx_move_up(wmOperatorType *ot)
 {
-  ot->name = "Move Up Modifier";
-  ot->description = "Move shaderfx up in the stack";
+  ot->name = "Move Up Effect";
+  ot->description = "Move effect up in the stack";
   ot->idname = "OBJECT_OT_shaderfx_move_up";
 
   ot->invoke = shaderfx_move_up_invoke;
@@ -446,7 +572,11 @@ void OBJECT_OT_shaderfx_move_up(wmOperatorType *ot)
   edit_shaderfx_properties(ot);
 }
 
-/************************ move down shaderfx operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Move Down ShaderFX Operator
+ * \{ */
 
 static int shaderfx_move_down_exec(bContext *C, wmOperator *op)
 {
@@ -458,25 +588,24 @@ static int shaderfx_move_down_exec(bContext *C, wmOperator *op)
   }
 
   DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
-  WM_event_add_notifier(C, NC_OBJECT | ND_MODIFIER, ob);
+  WM_event_add_notifier(C, NC_OBJECT | ND_SHADERFX, ob);
 
   return OPERATOR_FINISHED;
 }
 
-static int shaderfx_move_down_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(event))
+static int shaderfx_move_down_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
-  if (edit_shaderfx_invoke_properties(C, op)) {
+  int retval;
+  if (edit_shaderfx_invoke_properties(C, op, event, &retval)) {
     return shaderfx_move_down_exec(C, op);
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return retval;
 }
 
 void OBJECT_OT_shaderfx_move_down(wmOperatorType *ot)
 {
-  ot->name = "Move Down Modifier";
-  ot->description = "Move shaderfx down in the stack";
+  ot->name = "Move Down Effect";
+  ot->description = "Move effect down in the stack";
   ot->idname = "OBJECT_OT_shaderfx_move_down";
 
   ot->invoke = shaderfx_move_down_invoke;
@@ -487,3 +616,107 @@ void OBJECT_OT_shaderfx_move_down(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO | OPTYPE_INTERNAL;
   edit_shaderfx_properties(ot);
 }
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Move ShaderFX to Index Operator
+ * \{ */
+
+static int shaderfx_move_to_index_exec(bContext *C, wmOperator *op)
+{
+  Object *ob = ED_object_active_context(C);
+  ShaderFxData *fx = edit_shaderfx_property_get(op, ob, 0);
+  int index = RNA_int_get(op->ptr, "index");
+
+  if (!fx || !ED_object_shaderfx_move_to_index(op->reports, ob, fx, index)) {
+    return OPERATOR_CANCELLED;
+  }
+
+  return OPERATOR_FINISHED;
+}
+
+static int shaderfx_move_to_index_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+{
+  int retval;
+  if (edit_shaderfx_invoke_properties(C, op, event, &retval)) {
+    return shaderfx_move_to_index_exec(C, op);
+  }
+  return retval;
+}
+
+void OBJECT_OT_shaderfx_move_to_index(wmOperatorType *ot)
+{
+  ot->name = "Move Effect to Index";
+  ot->idname = "OBJECT_OT_shaderfx_move_to_index";
+  ot->description =
+      "Change the effect's position in the list so it evaluates after the set number of "
+      "others";
+
+  ot->invoke = shaderfx_move_to_index_invoke;
+  ot->exec = shaderfx_move_to_index_exec;
+  ot->poll = edit_shaderfx_poll;
+
+  /* flags */
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO | OPTYPE_INTERNAL;
+  edit_shaderfx_properties(ot);
+  RNA_def_int(
+      ot->srna, "index", 0, 0, INT_MAX, "Index", "The index to move the effect to", 0, INT_MAX);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Copy Shader Operator
+ * \{ */
+
+static int shaderfx_copy_exec(bContext *C, wmOperator *op)
+{
+  Object *ob = ED_object_active_context(C);
+  ShaderFxData *fx = edit_shaderfx_property_get(op, ob, 0);
+  if (!fx) {
+    return OPERATOR_CANCELLED;
+  }
+  ShaderFxData *nfx = BKE_shaderfx_new(fx->type);
+  if (!nfx) {
+    return OPERATOR_CANCELLED;
+  }
+
+  BLI_strncpy(nfx->name, fx->name, sizeof(nfx->name));
+  /* Make sure effect data has unique name. */
+  BKE_shaderfx_unique_name(&ob->shader_fx, nfx);
+
+  BKE_shaderfx_copydata(fx, nfx);
+  BLI_insertlinkafter(&ob->shader_fx, fx, nfx);
+
+  DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
+  WM_main_add_notifier(NC_OBJECT | ND_SHADERFX, ob);
+
+  return OPERATOR_FINISHED;
+}
+
+static int shaderfx_copy_invoke(bContext *C, wmOperator *op, const wmEvent *event)
+{
+  int retval;
+  if (edit_shaderfx_invoke_properties(C, op, event, &retval)) {
+    return shaderfx_copy_exec(C, op);
+  }
+  return retval;
+}
+
+void OBJECT_OT_shaderfx_copy(wmOperatorType *ot)
+{
+  ot->name = "Copy Effect";
+  ot->description = "Duplicate effect at the same position in the stack";
+  ot->idname = "OBJECT_OT_shaderfx_copy";
+
+  ot->invoke = shaderfx_copy_invoke;
+  ot->exec = shaderfx_copy_exec;
+  ot->poll = edit_shaderfx_poll;
+
+  /* flags */
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO | OPTYPE_INTERNAL;
+  edit_shaderfx_properties(ot);
+}
+
+/** \} */

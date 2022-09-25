@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -24,7 +8,7 @@
  * fixed size hash tables but falls back to heap memory once the stack limits reached
  * (#SMSTACKSIZE).
  *
- * based on a doubling hashing approach (non-chaining) which uses more buckets then entries
+ * based on a doubling hashing approach (non-chaining) which uses more buckets than entries
  * stepping over buckets when two keys share the same hash so any key can find a free bucket.
  *
  * See: https://en.wikipedia.org/wiki/Double_hashing
@@ -34,11 +18,11 @@
  * Otherwise #GHash should be used instead.
  *
  * #SmallHashEntry.key
- * - ``SMHASH_KEY_UNUSED`` means the key in the cell has not been initialized.
+ * - `SMHASH_KEY_UNUSED` means the key in the cell has not been initialized.
  *
  * #SmallHashEntry.val
- * - ``SMHASH_CELL_UNUSED`` means this cell is inside a key series.
- * - ``SMHASH_CELL_FREE`` means this cell terminates a key series.
+ * - `SMHASH_CELL_UNUSED` means this cell is inside a key series.
+ * - `SMHASH_CELL_FREE` means this cell terminates a key series.
  *
  * Note that the values and keys are often pointers or index values,
  * use the maximum values to avoid real pointers colliding with magic numbers.
@@ -124,7 +108,7 @@ BLI_INLINE SmallHashEntry *smallhash_lookup(const SmallHash *sh, const uintptr_t
 
   BLI_assert(key != SMHASH_KEY_UNUSED);
 
-  /* note: there are always more buckets than entries,
+  /* NOTE: there are always more buckets than entries,
    * so we know there will always be a free bucket if the key isn't found. */
   for (e = &sh->buckets[h % sh->nbuckets]; e->val != SMHASH_CELL_FREE;
        h = SMHASH_NEXT(h, hoff), e = &sh->buckets[h % sh->nbuckets]) {
@@ -214,7 +198,6 @@ void BLI_smallhash_init(SmallHash *sh)
   BLI_smallhash_init_ex(sh, 0);
 }
 
-/* NOTE: does *not* free *sh itself!  only the direct data! */
 void BLI_smallhash_release(SmallHash *sh)
 {
   if (sh->buckets != sh->buckets_stack) {
@@ -222,12 +205,12 @@ void BLI_smallhash_release(SmallHash *sh)
   }
 }
 
-void BLI_smallhash_insert(SmallHash *sh, uintptr_t key, void *val)
+void BLI_smallhash_insert(SmallHash *sh, uintptr_t key, void *item)
 {
   SmallHashEntry *e;
 
   BLI_assert(key != SMHASH_KEY_UNUSED);
-  BLI_assert(smallhash_val_is_used(val));
+  BLI_assert(smallhash_val_is_used(item));
   BLI_assert(BLI_smallhash_haskey(sh, key) == false);
 
   if (UNLIKELY(smallhash_test_expand_buckets(++sh->nentries, sh->nbuckets))) {
@@ -236,16 +219,9 @@ void BLI_smallhash_insert(SmallHash *sh, uintptr_t key, void *val)
 
   e = smallhash_lookup_first_free(sh, key);
   e->key = key;
-  e->val = val;
+  e->val = item;
 }
 
-/**
- * Inserts a new value to a key that may already be in ghash.
- *
- * Avoids #BLI_smallhash_remove, #BLI_smallhash_insert calls (double lookups)
- *
- * \returns true if a new key has been added.
- */
 bool BLI_smallhash_reinsert(SmallHash *sh, uintptr_t key, void *item)
 {
   SmallHashEntry *e = smallhash_lookup(sh, key);
@@ -253,10 +229,9 @@ bool BLI_smallhash_reinsert(SmallHash *sh, uintptr_t key, void *item)
     e->val = item;
     return false;
   }
-  else {
-    BLI_smallhash_insert(sh, key, item);
-    return true;
-  }
+
+  BLI_smallhash_insert(sh, key, item);
+  return true;
 }
 
 #ifdef USE_REMOVE
@@ -350,11 +325,12 @@ void **BLI_smallhash_iternew_p(const SmallHash *sh, SmallHashIter *iter, uintptr
   return BLI_smallhash_iternext_p(iter, key);
 }
 
+/* -------------------------------------------------------------------- */
 /** \name Debugging & Introspection
  * \{ */
 
-/* note, this was called _print_smhash in knifetool.c
- * it may not be intended for general use - campbell */
+/* NOTE(campbell): this was called _print_smhash in knifetool.c
+ * it may not be intended for general use. */
 #if 0
 void BLI_smallhash_print(SmallHash *sh)
 {
@@ -389,12 +365,6 @@ void BLI_smallhash_print(SmallHash *sh)
 #endif
 
 #ifdef DEBUG
-/**
- * Measure how well the hash function performs
- * (1.0 is perfect - no stepping needed).
- *
- * Smaller is better!
- */
 double BLI_smallhash_calc_quality(SmallHash *sh)
 {
   uint64_t sum = 0;

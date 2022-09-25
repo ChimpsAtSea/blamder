@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 by the Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup modifiers
@@ -27,6 +11,7 @@
 
 #include "BLT_translation.h"
 
+#include "DNA_defaults.h"
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
@@ -43,6 +28,7 @@
 #include "UI_resources.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "DEG_depsgraph_query.h"
 
@@ -63,9 +49,9 @@ static void initData(ModifierData *md)
 {
   DecimateModifierData *dmd = (DecimateModifierData *)md;
 
-  dmd->percent = 1.0;
-  dmd->angle = DEG2RADF(5.0f);
-  dmd->defgrp_factor = 1.0;
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(dmd, modifier));
+
+  MEMCPY_STRUCT_AFTER(dmd, DNA_struct_default_get(DecimateModifierData), modifier);
 }
 
 static void requiredDataMask(Object *UNUSED(ob),
@@ -105,6 +91,7 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   DecimateModifierData *dmd = (DecimateModifierData *)md;
   Mesh *mesh = meshData, *result = NULL;
   BMesh *bm;
+  bool calc_vert_normal;
   bool calc_face_normal;
   float *vweights = NULL;
 
@@ -112,7 +99,7 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   TIMEIT_START(decim);
 #endif
 
-  /* set up front so we dont show invalid info in the UI */
+  /* Set up front so we don't show invalid info in the UI. */
   updateFaceCount(ctx, dmd, mesh->totpoly);
 
   switch (dmd->mode) {
@@ -121,25 +108,28 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
         return mesh;
       }
       calc_face_normal = true;
+      calc_vert_normal = true;
       break;
     case MOD_DECIM_MODE_UNSUBDIV:
       if (dmd->iter == 0) {
         return mesh;
       }
       calc_face_normal = false;
+      calc_vert_normal = false;
       break;
     case MOD_DECIM_MODE_DISSOLVE:
       if (dmd->angle == 0.0f) {
         return mesh;
       }
       calc_face_normal = true;
+      calc_vert_normal = false;
       break;
     default:
       return mesh;
   }
 
   if (dmd->face_count <= 3) {
-    BKE_modifier_set_error(md, "Modifier requires more than 3 input faces");
+    BKE_modifier_set_error(ctx->object, md, "Modifier requires more than 3 input faces");
     return mesh;
   }
 
@@ -174,6 +164,7 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
                             &(struct BMeshCreateParams){0},
                             &(struct BMeshFromMeshParams){
                                 .calc_face_normal = calc_face_normal,
+                                .calc_vert_normal = calc_vert_normal,
                                 .cd_mask_extra = {.vmask = CD_MASK_ORIGINDEX,
                                                   .emask = CD_MASK_ORIGINDEX,
                                                   .pmask = CD_MASK_ORIGINDEX},
@@ -221,55 +212,57 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   TIMEIT_END(decim);
 #endif
 
-  result->runtime.cd_dirty_vert |= CD_MASK_NORMAL;
-
   return result;
 }
 
-static void panel_draw(const bContext *C, Panel *panel)
+static void panel_draw(const bContext *UNUSED(C), Panel *panel)
 {
   uiLayout *sub, *row;
   uiLayout *layout = panel->layout;
 
-  PointerRNA ptr;
   PointerRNA ob_ptr;
-  modifier_panel_get_property_pointers(C, panel, &ob_ptr, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
+
+  int decimate_type = RNA_enum_get(ptr, "decimate_type");
+  char count_info[64];
+  snprintf(count_info, 32, TIP_("Face Count: %d"), RNA_int_get(ptr, "face_count"));
+
+  uiItemR(layout, ptr, "decimate_type", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
 
   uiLayoutSetPropSep(layout, true);
 
-  int decimate_type = RNA_enum_get(&ptr, "decimate_type");
-  char count_info[32];
-  snprintf(count_info, 32, IFACE_("Face Count: %d"), RNA_int_get(&ptr, "face_count"));
-
-  uiItemR(layout, &ptr, "decimate_type", 0, NULL, ICON_NONE);
-
   if (decimate_type == MOD_DECIM_MODE_COLLAPSE) {
-    uiItemR(layout, &ptr, "ratio", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "ratio", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
 
-    row = uiLayoutRowWithHeading(layout, true, "Symmetry");
+    row = uiLayoutRowWithHeading(layout, true, IFACE_("Symmetry"));
     uiLayoutSetPropDecorate(row, false);
     sub = uiLayoutRow(row, true);
-    uiItemR(sub, &ptr, "use_symmetry", 0, "", ICON_NONE);
+    uiItemR(sub, ptr, "use_symmetry", 0, "", ICON_NONE);
     sub = uiLayoutRow(sub, true);
-    uiLayoutSetActive(sub, RNA_boolean_get(&ptr, "use_symmetry"));
-    uiItemR(sub, &ptr, "symmetry_axis", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
-    uiItemDecoratorR(row, &ptr, "symmetry_axis", 0);
+    uiLayoutSetActive(sub, RNA_boolean_get(ptr, "use_symmetry"));
+    uiItemR(sub, ptr, "symmetry_axis", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
+    uiItemDecoratorR(row, ptr, "symmetry_axis", 0);
 
-    uiItemR(layout, &ptr, "use_collapse_triangulate", 0, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "use_collapse_triangulate", 0, NULL, ICON_NONE);
 
-    modifier_vgroup_ui(layout, &ptr, &ob_ptr, "vertex_group", "invert_vertex_group", NULL);
+    modifier_vgroup_ui(layout, ptr, &ob_ptr, "vertex_group", "invert_vertex_group", NULL);
+    sub = uiLayoutRow(layout, true);
+    bool has_vertex_group = RNA_string_length(ptr, "vertex_group") != 0;
+    uiLayoutSetActive(sub, has_vertex_group);
+    uiItemR(sub, ptr, "vertex_group_factor", 0, NULL, ICON_NONE);
   }
   else if (decimate_type == MOD_DECIM_MODE_UNSUBDIV) {
-    uiItemR(layout, &ptr, "iterations", 0, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "iterations", 0, NULL, ICON_NONE);
   }
   else { /* decimate_type == MOD_DECIM_MODE_DISSOLVE. */
-    uiItemR(layout, &ptr, "angle_limit", 0, NULL, ICON_NONE);
-    uiItemR(layout, &ptr, "delimit", 0, NULL, ICON_NONE);
-    uiItemR(layout, &ptr, "use_dissolve_boundaries", 0, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "angle_limit", 0, NULL, ICON_NONE);
+    uiLayout *col = uiLayoutColumn(layout, false);
+    uiItemR(col, ptr, "delimit", 0, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "use_dissolve_boundaries", 0, NULL, ICON_NONE);
   }
   uiItemL(layout, count_info, ICON_NONE);
 
-  modifier_panel_end(layout, &ptr);
+  modifier_panel_end(layout, ptr);
 }
 
 static void panelRegister(ARegionType *region_type)
@@ -278,11 +271,13 @@ static void panelRegister(ARegionType *region_type)
 }
 
 ModifierTypeInfo modifierType_Decimate = {
-    /* name */ "Decimate",
+    /* name */ N_("Decimate"),
     /* structName */ "DecimateModifierData",
     /* structSize */ sizeof(DecimateModifierData),
+    /* srna */ &RNA_DecimateModifier,
     /* type */ eModifierTypeType_Nonconstructive,
     /* flags */ eModifierTypeFlag_AcceptsMesh | eModifierTypeFlag_AcceptsCVs,
+    /* icon */ ICON_MOD_DECIM,
 
     /* copyData */ BKE_modifier_copydata_generic,
 
@@ -291,9 +286,7 @@ ModifierTypeInfo modifierType_Decimate = {
     /* deformVertsEM */ NULL,
     /* deformMatricesEM */ NULL,
     /* modifyMesh */ modifyMesh,
-    /* modifyHair */ NULL,
-    /* modifyPointCloud */ NULL,
-    /* modifyVolume */ NULL,
+    /* modifyGeometrySet */ NULL,
 
     /* initData */ initData,
     /* requiredDataMask */ requiredDataMask,
@@ -302,9 +295,10 @@ ModifierTypeInfo modifierType_Decimate = {
     /* updateDepsgraph */ NULL,
     /* dependsOnTime */ NULL,
     /* dependsOnNormals */ NULL,
-    /* foreachObjectLink */ NULL,
     /* foreachIDLink */ NULL,
     /* foreachTexLink */ NULL,
     /* freeRuntimeData */ NULL,
     /* panelRegister */ panelRegister,
+    /* blendWrite */ NULL,
+    /* blendRead */ NULL,
 };

@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __BLI_TIMEIT_HH__
-#define __BLI_TIMEIT_HH__
+#pragma once
 
 #include <chrono>
 #include <iostream>
@@ -23,8 +8,7 @@
 
 #include "BLI_sys_types.h"
 
-namespace BLI {
-namespace Timeit {
+namespace blender::timeit {
 
 using Clock = std::chrono::steady_clock;
 using TimePoint = Clock::time_point;
@@ -34,29 +18,61 @@ void print_duration(Nanoseconds duration);
 
 class ScopedTimer {
  private:
-  std::string m_name;
-  TimePoint m_start;
+  std::string name_;
+  TimePoint start_;
 
  public:
-  ScopedTimer(std::string name) : m_name(std::move(name))
+  ScopedTimer(std::string name) : name_(std::move(name))
   {
-    m_start = Clock::now();
+    start_ = Clock::now();
   }
 
   ~ScopedTimer()
   {
-    TimePoint end = Clock::now();
-    Nanoseconds duration = end - m_start;
+    const TimePoint end = Clock::now();
+    const Nanoseconds duration = end - start_;
 
-    std::cout << "Timer '" << m_name << "' took ";
+    std::cout << "Timer '" << name_ << "' took ";
     print_duration(duration);
     std::cout << '\n';
   }
 };
 
-}  // namespace Timeit
-}  // namespace BLI
+class ScopedTimerAveraged {
+ private:
+  std::string name_;
+  TimePoint start_;
 
-#define SCOPED_TIMER(name) BLI::Timeit::ScopedTimer scoped_timer(name)
+  int64_t &total_count_;
+  Nanoseconds &total_time_;
+  Nanoseconds &min_time_;
 
-#endif /* __BLI_TIMEIT_HH__ */
+ public:
+  ScopedTimerAveraged(std::string name,
+                      int64_t &total_count,
+                      Nanoseconds &total_time,
+                      Nanoseconds &min_time)
+      : name_(std::move(name)),
+        total_count_(total_count),
+        total_time_(total_time),
+        min_time_(min_time)
+  {
+    start_ = Clock::now();
+  }
+
+  ~ScopedTimerAveraged();
+};
+
+}  // namespace blender::timeit
+
+#define SCOPED_TIMER(name) blender::timeit::ScopedTimer scoped_timer(name)
+
+/**
+ * Print the average and minimum runtime of the timer's scope.
+ * \warning This uses static variables, so it is not thread-safe.
+ */
+#define SCOPED_TIMER_AVERAGED(name) \
+  static int64_t total_count_; \
+  static blender::timeit::Nanoseconds total_time_; \
+  static blender::timeit::Nanoseconds min_time_ = blender::timeit::Nanoseconds::max(); \
+  blender::timeit::ScopedTimerAveraged scoped_timer(name, total_count_, total_time_, min_time_)

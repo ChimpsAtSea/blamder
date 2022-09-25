@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8-80 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # panels get subclassed (not registered directly)
 # menus are referenced `as is`
@@ -26,7 +8,7 @@ from bpy.app.translations import contexts as i18n_contexts
 
 
 # Use by both image & clip context menus.
-def draw_mask_context_menu(layout, context):
+def draw_mask_context_menu(layout, _context):
     layout.operator_menu_enum("mask.handle_type_set", "type")
     layout.operator("mask.switch_direction")
     layout.operator("mask.cyclic_toggle")
@@ -37,7 +19,7 @@ def draw_mask_context_menu(layout, context):
 
     layout.separator()
 
-    layout.operator("mask.shape_key_rekey", text="Re-key Shape Points")
+    layout.operator("mask.shape_key_rekey", text="Re-Key Shape Points")
     layout.operator("mask.feather_weight_clear")
     layout.operator("mask.shape_key_feather_reset", text="Reset Feather Animation")
 
@@ -237,9 +219,8 @@ class MASK_PT_point:
 class MASK_PT_display:
     # subclasses must define...
     # ~ bl_space_type = 'CLIP_EDITOR'
-    # ~ bl_region_type = 'UI'
+    # ~ bl_region_type = 'HEADER'
     bl_label = "Mask Display"
-    bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):
@@ -250,14 +231,20 @@ class MASK_PT_display:
         layout = self.layout
 
         space_data = context.space_data
+
         row = layout.row(align=True)
-        row.prop(space_data, "show_mask_smooth", text="Smooth")
-        row.prop(space_data, "mask_display_type", text="")
+        row.prop(space_data, "show_mask_spline", text="Spline")
+        sub = row.row()
+        sub.active = space_data.show_mask_spline
+        sub.prop(space_data, "mask_display_type", text="")
         row = layout.row(align=True)
         row.prop(space_data, "show_mask_overlay", text="Overlay")
         sub = row.row()
         sub.active = space_data.show_mask_overlay
         sub.prop(space_data, "mask_overlay_mode", text="")
+        row = layout.row()
+        row.active = (space_data.mask_overlay_mode in ['COMBINED'] and space_data.show_mask_overlay)
+        row.prop(space_data, "blend_factor", text="Blending Factor")
 
 
 class MASK_PT_transforms:
@@ -324,27 +311,29 @@ class MASK_MT_mask(Menu):
     def draw(self, _context):
         layout = self.layout
 
-        layout.operator("mask.delete")
+        layout.menu("MASK_MT_transform")
+        layout.operator("mask.feather_weight_clear")
 
         layout.separator()
         layout.operator("mask.cyclic_toggle")
-        layout.operator("mask.switch_direction")
-        layout.operator("mask.normals_make_consistent")
         layout.operator("mask.handle_type_set")
-        layout.operator("mask.feather_weight_clear")  # TODO, better place?
-
-        layout.separator()
-        layout.operator("mask.parent_clear")
-        layout.operator("mask.parent_set")
+        layout.operator("mask.normals_make_consistent")
+        layout.operator("mask.switch_direction")
 
         layout.separator()
         layout.operator("mask.copy_splines")
         layout.operator("mask.paste_splines")
 
         layout.separator()
-        layout.menu("MASK_MT_visibility")
-        layout.menu("MASK_MT_transform")
+        layout.operator("mask.parent_clear")
+        layout.operator("mask.parent_set")
+
+        layout.separator()
         layout.menu("MASK_MT_animation")
+
+        layout.separator()
+        layout.menu("MASK_MT_visibility")
+        layout.operator("mask.delete")
 
 
 class MASK_MT_add(Menu):
@@ -380,6 +369,13 @@ class MASK_MT_transform(Menu):
         layout.operator("transform.translate")
         layout.operator("transform.rotate")
         layout.operator("transform.resize")
+
+        layout.separator()
+        layout.operator("transform.tosphere")
+        layout.operator("transform.shear")
+        layout.operator("transform.push_pull")
+
+        layout.separator()
         layout.operator("transform.transform", text="Scale Feather").mode = 'MASK_SHRINKFATTEN'
 
 
@@ -409,6 +405,7 @@ class MASK_MT_select(Menu):
 
         layout.operator("mask.select_box")
         layout.operator("mask.select_circle")
+        layout.operator_menu_enum("mask.select_lasso", "mode")
 
         layout.separator()
 

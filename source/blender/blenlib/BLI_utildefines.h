@@ -1,22 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
+/* Use a define instead of `#pragma once` because of `BLI_memory_utils.h` */
 #ifndef __BLI_UTILDEFINES_H__
 #define __BLI_UTILDEFINES_H__
 
@@ -136,50 +121,66 @@ extern "C" {
   (void)0
 #define DO_MIN(vec, min) \
   { \
-    if ((min)[0] > (vec)[0]) \
+    if ((min)[0] > (vec)[0]) { \
       (min)[0] = (vec)[0]; \
-    if ((min)[1] > (vec)[1]) \
+    } \
+    if ((min)[1] > (vec)[1]) { \
       (min)[1] = (vec)[1]; \
-    if ((min)[2] > (vec)[2]) \
+    } \
+    if ((min)[2] > (vec)[2]) { \
       (min)[2] = (vec)[2]; \
+    } \
   } \
   (void)0
 #define DO_MAX(vec, max) \
   { \
-    if ((max)[0] < (vec)[0]) \
+    if ((max)[0] < (vec)[0]) { \
       (max)[0] = (vec)[0]; \
-    if ((max)[1] < (vec)[1]) \
+    } \
+    if ((max)[1] < (vec)[1]) { \
       (max)[1] = (vec)[1]; \
-    if ((max)[2] < (vec)[2]) \
+    } \
+    if ((max)[2] < (vec)[2]) { \
       (max)[2] = (vec)[2]; \
+    } \
   } \
   (void)0
 #define DO_MINMAX(vec, min, max) \
   { \
-    if ((min)[0] > (vec)[0]) \
+    if ((min)[0] > (vec)[0]) { \
       (min)[0] = (vec)[0]; \
-    if ((min)[1] > (vec)[1]) \
+    } \
+    if ((min)[1] > (vec)[1]) { \
       (min)[1] = (vec)[1]; \
-    if ((min)[2] > (vec)[2]) \
+    } \
+    if ((min)[2] > (vec)[2]) { \
       (min)[2] = (vec)[2]; \
-    if ((max)[0] < (vec)[0]) \
+    } \
+    if ((max)[0] < (vec)[0]) { \
       (max)[0] = (vec)[0]; \
-    if ((max)[1] < (vec)[1]) \
+    } \
+    if ((max)[1] < (vec)[1]) { \
       (max)[1] = (vec)[1]; \
-    if ((max)[2] < (vec)[2]) \
+    } \
+    if ((max)[2] < (vec)[2]) { \
       (max)[2] = (vec)[2]; \
+    } \
   } \
   (void)0
 #define DO_MINMAX2(vec, min, max) \
   { \
-    if ((min)[0] > (vec)[0]) \
+    if ((min)[0] > (vec)[0]) { \
       (min)[0] = (vec)[0]; \
-    if ((min)[1] > (vec)[1]) \
+    } \
+    if ((min)[1] > (vec)[1]) { \
       (min)[1] = (vec)[1]; \
-    if ((max)[0] < (vec)[0]) \
+    } \
+    if ((max)[0] < (vec)[0]) { \
       (max)[0] = (vec)[0]; \
-    if ((max)[1] < (vec)[1]) \
+    } \
+    if ((max)[1] < (vec)[1]) { \
       (max)[1] = (vec)[1]; \
+    } \
   } \
   (void)0
 
@@ -330,24 +331,28 @@ extern "C" {
 
 #define CLAMP(a, b, c) \
   { \
-    if ((a) < (b)) \
+    if ((a) < (b)) { \
       (a) = (b); \
-    else if ((a) > (c)) \
+    } \
+    else if ((a) > (c)) { \
       (a) = (c); \
+    } \
   } \
   (void)0
 
 #define CLAMP_MAX(a, c) \
   { \
-    if ((a) > (c)) \
+    if ((a) > (c)) { \
       (a) = (c); \
+    } \
   } \
   (void)0
 
 #define CLAMP_MIN(a, b) \
   { \
-    if ((a) < (b)) \
+    if ((a) < (b)) { \
       (a) = (b); \
+    } \
   } \
   (void)0
 
@@ -496,7 +501,7 @@ extern "C" {
 #  define ARRAY_SIZE(arr) (sizeof(arr) / sizeof(*(arr)))
 #endif
 
-/* ARRAY_SET_ITEMS#(v, ...): set indices of array 'v'  */
+/* ARRAY_SET_ITEMS#(v, ...): set indices of array 'v' */
 /* internal helpers */
 #define _VA_ARRAY_SET_ITEMS2(v, a) ((v)[0] = (a))
 #define _VA_ARRAY_SET_ITEMS3(v, a, b) \
@@ -614,7 +619,10 @@ extern "C" {
 /* defined
  * in memory_utils.c for now. I do not know where we should put it actually... */
 #ifndef __BLI_MEMORY_UTILS_H__
-extern bool BLI_memory_is_zero(const void *arr, const size_t arr_size);
+/**
+ * Check if memory is zeroed, as with `memset(arr, 0, arr_size)`.
+ */
+extern bool BLI_memory_is_zero(const void *arr, size_t arr_size);
 #endif
 
 #define MEMCMP_STRUCT_AFTER_IS_ZERO(struct_var, member) \
@@ -627,11 +635,12 @@ extern bool BLI_memory_is_zero(const void *arr, const size_t arr_size);
 /** \name String Macros
  * \{ */
 
-/* Macro to convert a value to string in the preprocessor
- * STRINGIFY_ARG: gives the argument as a string
- * STRINGIFY_APPEND: appends any argument 'b' onto the string argument 'a',
- *   used by STRINGIFY because some preprocessors warn about zero arguments
- * STRINGIFY: gives the argument's value as a string */
+/* Macro to convert a value to string in the preprocessor:
+ * - `STRINGIFY_ARG`: gives the argument as a string
+ * - `STRINGIFY_APPEND`: appends any argument 'b' onto the string argument 'a',
+ *   used by `STRINGIFY` because some preprocessors warn about zero arguments.
+ * - `STRINGIFY`: gives the argument's value as a string. */
+
 #define STRINGIFY_ARG(x) "" #x
 #define STRINGIFY_APPEND(a, b) "" a #b
 #define STRINGIFY(x) STRINGIFY_APPEND("", x)
@@ -662,10 +671,20 @@ extern bool BLI_memory_is_zero(const void *arr, const size_t arr_size);
 #  define UNUSED(x) UNUSED_##x
 #endif
 
+/**
+ * WARNING: this doesn't warn when returning pointer types (because of the placement of `*`).
+ * Use #UNUSED_FUNCTION_WITH_RETURN_TYPE instead in this case.
+ */
 #if defined(__GNUC__) || defined(__clang__)
 #  define UNUSED_FUNCTION(x) __attribute__((__unused__)) UNUSED_##x
 #else
 #  define UNUSED_FUNCTION(x) UNUSED_##x
+#endif
+
+#if defined(__GNUC__) || defined(__clang__)
+#  define UNUSED_FUNCTION_WITH_RETURN_TYPE(rtype, x) __attribute__((__unused__)) rtype UNUSED_##x
+#else
+#  define UNUSED_FUNCTION_WITH_RETURN_TYPE(rtype, x) rtype UNUSED_##x
 #endif
 
 /**
@@ -755,6 +774,57 @@ extern bool BLI_memory_is_zero(const void *arr, const size_t arr_size);
 /** \} */
 
 /* -------------------------------------------------------------------- */
+/** \name C++ Macros
+ * \{ */
+
+#ifdef __cplusplus
+
+/* Useful to port C code using enums to C++ where enums are strongly typed.
+ * To use after the enum declaration. */
+/* If any enumerator `C` is set to say `A|B`, then `C` would be the max enum value. */
+#  define ENUM_OPERATORS(_enum_type, _max_enum_value) \
+    extern "C++" { \
+    inline constexpr _enum_type operator|(_enum_type a, _enum_type b) \
+    { \
+      return static_cast<_enum_type>(static_cast<uint64_t>(a) | static_cast<uint64_t>(b)); \
+    } \
+    inline constexpr _enum_type operator&(_enum_type a, _enum_type b) \
+    { \
+      return static_cast<_enum_type>(static_cast<uint64_t>(a) & static_cast<uint64_t>(b)); \
+    } \
+    inline constexpr _enum_type operator~(_enum_type a) \
+    { \
+      return static_cast<_enum_type>(~static_cast<uint64_t>(a) & \
+                                     (2 * static_cast<uint64_t>(_max_enum_value) - 1)); \
+    } \
+    inline _enum_type &operator|=(_enum_type &a, _enum_type b) \
+    { \
+      return a = static_cast<_enum_type>(static_cast<uint64_t>(a) | static_cast<uint64_t>(b)); \
+    } \
+    inline _enum_type &operator&=(_enum_type &a, _enum_type b) \
+    { \
+      return a = static_cast<_enum_type>(static_cast<uint64_t>(a) & static_cast<uint64_t>(b)); \
+    } \
+    } /* extern "C++" */
+
+#else
+/* Output nothing. */
+#  define ENUM_OPERATORS(_type, _max)
+#endif
+
+/**
+ * Utility so function declarations in C headers can use C++ default arguments. The default is then
+ * available when included in a C++ file, otherwise the argument has to be set explicitly.
+ */
+#ifdef __cplusplus
+#  define CPP_ARG_DEFAULT(default_value) = default_value
+#else
+#  define CPP_ARG_DEFAULT(default_value)
+#endif
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
 /** \name Misc Macros
  * \{ */
 
@@ -763,6 +833,27 @@ extern bool BLI_memory_is_zero(const void *arr, const size_t arr_size);
 
 /** No-op for expressions we don't want to instantiate, but must remain valid. */
 #define EXPR_NOP(expr) (void)(0 ? ((void)(expr), 1) : 0)
+
+/**
+ * Utility macro that wraps `std::enable_if` to make it a bit easier to use and less verbose for
+ * SFINAE in common cases.
+ *
+ * \note Often one has to invoke this macro with double parenthesis. That's because the condition
+ * often contains a comma and angle brackets are not recognized as parenthesis by the preprocessor.
+ */
+#define BLI_ENABLE_IF(condition) typename std::enable_if_t<(condition)> * = nullptr
+
+#if defined(_MSC_VER)
+#  define BLI_NO_UNIQUE_ADDRESS [[msvc::no_unique_address]]
+#elif defined(__has_cpp_attribute)
+#  if __has_cpp_attribute(no_unique_address)
+#    define BLI_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#  else
+#    define BLI_NO_UNIQUE_ADDRESS
+#  endif
+#else
+#  define BLI_NO_UNIQUE_ADDRESS [[no_unique_address]]
+#endif
 
 /** \} */
 

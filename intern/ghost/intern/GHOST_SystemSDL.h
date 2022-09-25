@@ -1,26 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup GHOST
  * Declaration of GHOST_SystemSDL class.
  */
 
-#ifndef __GHOST_SYSTEMSDL_H__
-#define __GHOST_SYSTEMSDL_H__
+#pragma once
 
 #include "../GHOST_Types.h"
 #include "GHOST_DisplayManagerSDL.h"
@@ -48,7 +33,7 @@ class GHOST_SystemSDL : public GHOST_System {
 
   bool processEvents(bool waitForEvent);
 
-  int toggleConsole(int action)
+  int setConsoleWindowState(GHOST_TConsoleWindowState /*action*/)
   {
     return 0;
   }
@@ -57,23 +42,23 @@ class GHOST_SystemSDL : public GHOST_System {
 
   GHOST_TSuccess getButtons(GHOST_Buttons &buttons) const;
 
-  GHOST_TUns8 *getClipboard(bool selection) const;
+  char *getClipboard(bool selection) const;
 
-  void putClipboard(GHOST_TInt8 *buffer, bool selection) const;
+  void putClipboard(const char *buffer, bool selection) const;
 
-  GHOST_TUns64 getMilliSeconds();
+  uint64_t getMilliSeconds();
 
-  GHOST_TUns8 getNumDisplays() const;
+  uint8_t getNumDisplays() const;
 
-  GHOST_TSuccess getCursorPosition(GHOST_TInt32 &x, GHOST_TInt32 &y) const;
+  GHOST_TSuccess getCursorPosition(int32_t &x, int32_t &y) const;
 
-  GHOST_TSuccess setCursorPosition(GHOST_TInt32 x, GHOST_TInt32 y);
+  GHOST_TSuccess setCursorPosition(int32_t x, int32_t y);
 
-  void getAllDisplayDimensions(GHOST_TUns32 &width, GHOST_TUns32 &height) const;
+  void getAllDisplayDimensions(uint32_t &width, uint32_t &height) const;
 
-  void getMainDisplayDimensions(GHOST_TUns32 &width, GHOST_TUns32 &height) const;
+  void getMainDisplayDimensions(uint32_t &width, uint32_t &height) const;
 
-  GHOST_IContext *createOffscreenContext();
+  GHOST_IContext *createOffscreenContext(GHOST_GLSettings glSettings);
 
   GHOST_TSuccess disposeContext(GHOST_IContext *context);
 
@@ -81,10 +66,10 @@ class GHOST_SystemSDL : public GHOST_System {
   GHOST_TSuccess init();
 
   GHOST_IWindow *createWindow(const char *title,
-                              GHOST_TInt32 left,
-                              GHOST_TInt32 top,
-                              GHOST_TUns32 width,
-                              GHOST_TUns32 height,
+                              int32_t left,
+                              int32_t top,
+                              uint32_t width,
+                              uint32_t height,
                               GHOST_TWindowState state,
                               GHOST_TDrawingContextType type,
                               GHOST_GLSettings glSettings,
@@ -99,8 +84,6 @@ class GHOST_SystemSDL : public GHOST_System {
 
   void processEvent(SDL_Event *sdl_event);
 
-  /// The vector of windows that need to be updated.
+  /** The vector of windows that need to be updated. */
   std::vector<GHOST_WindowSDL *> m_dirty_windows;
 };
-
-#endif

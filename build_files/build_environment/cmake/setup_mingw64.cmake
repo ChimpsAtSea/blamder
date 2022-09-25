@@ -1,25 +1,9 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 ####################################################################################################################
 # Mingw64 Builds
 ####################################################################################################################
-# This installs mingw64+msys to compile ffmpeg/iconv/libsndfile/lapack/fftw3
+# This installs mingw64+msys to compile ffmpeg/iconv/libsndfile/fftw3
 ####################################################################################################################
 
 message("LIBDIR = ${LIBDIR}")
@@ -124,6 +108,14 @@ if((EXISTS "${DOWNLOAD_DIR}/mingw/mingw64/bin/mingw-get.exe") AND (NOT EXISTS "$
   message("Installing mktemp")
   execute_process(
     COMMAND ${DOWNLOAD_DIR}/mingw/mingw64/bin/mingw-get install msys msys-mktemp
+    WORKING_DIRECTORY  ${DOWNLOAD_DIR}/mingw/mingw64/bin/
+  )
+endif()
+
+if((EXISTS "${DOWNLOAD_DIR}/mingw/mingw64/bin/mingw-get.exe") AND (NOT EXISTS "${DOWNLOAD_DIR}/mingw/mingw64/msys/1.0/bin/m4.exe"))
+  message("Installing m4")
+  execute_process(
+    COMMAND ${DOWNLOAD_DIR}/mingw/mingw64/bin/mingw-get install msys msys-m4
     WORKING_DIRECTORY  ${DOWNLOAD_DIR}/mingw/mingw64/bin/
   )
 endif()

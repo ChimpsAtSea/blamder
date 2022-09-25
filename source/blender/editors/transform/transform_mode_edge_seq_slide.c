@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -23,8 +7,10 @@
 
 #include <stdlib.h>
 
+#include "MEM_guardedalloc.h"
+
+#include "BLI_blenlib.h"
 #include "BLI_math.h"
-#include "BLI_string.h"
 
 #include "BKE_context.h"
 #include "BKE_unit.h"
@@ -32,19 +18,24 @@
 #include "ED_screen.h"
 
 #include "WM_api.h"
+#include "WM_types.h"
 
 #include "UI_interface.h"
+#include "UI_view2d.h"
+
+#include "SEQ_iterator.h"
+#include "SEQ_sequencer.h"
+#include "SEQ_time.h"
 
 #include "BLT_translation.h"
 
 #include "transform.h"
+#include "transform_convert.h"
 #include "transform_mode.h"
 #include "transform_snap.h"
 
 /* -------------------------------------------------------------------- */
-/* Transform (Sequencer Slide) */
-
-/** \name Transform Sequencer Slide
+/** \name Transform (Sequencer Slide)
  * \{ */
 
 static void headerSeqSlide(TransInfo *t, const float val[2], char str[UI_MAX_DRAW_STR])
@@ -59,19 +50,8 @@ static void headerSeqSlide(TransInfo *t, const float val[2], char str[UI_MAX_DRA
     BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.0f, %.0f", val[0], val[1]);
   }
 
-  ofs += BLI_snprintf(
-      str + ofs, UI_MAX_DRAW_STR - ofs, TIP_("Sequence Slide: %s%s, ("), &tvec[0], t->con.text);
-
-  if (t->keymap) {
-    wmKeyMapItem *kmi = WM_modalkeymap_find_propvalue(t->keymap, TFM_MODAL_TRANSLATE);
-    if (kmi) {
-      ofs += WM_keymap_item_to_string(kmi, false, str + ofs, UI_MAX_DRAW_STR - ofs);
-    }
-  }
-  ofs += BLI_snprintf(str + ofs,
-                      UI_MAX_DRAW_STR - ofs,
-                      TIP_(" or Alt) Expand to fit %s"),
-                      WM_bool_as_string((t->flag & T_ALT_TRANSFORM) != 0));
+  ofs += BLI_snprintf_rlen(
+      str + ofs, UI_MAX_DRAW_STR - ofs, TIP_("Sequence Slide: %s%s"), &tvec[0], t->con.text);
 }
 
 static void applySeqSlideValue(TransInfo *t, const float val[2])
@@ -90,25 +70,34 @@ static void applySeqSlideValue(TransInfo *t, const float val[2])
   }
 }
 
-static void applySeqSlide(TransInfo *t, const int mval[2])
+static void applySeqSlide(TransInfo *t, const int UNUSED(mval[2]))
 {
   char str[UI_MAX_DRAW_STR];
+  float values_final[3] = {0.0f};
 
-  snapSequenceBounds(t, mval);
-
-  if (t->con.mode & CON_APPLY) {
-    float tvec[3];
-    t->con.applyVec(t, NULL, NULL, t->values, tvec);
-    copy_v3_v3(t->values_final, tvec);
+  if (applyNumInput(&t->num, values_final)) {
+    if (t->con.mode & CON_APPLY) {
+      if (t->con.mode & CON_AXIS0) {
+        mul_v2_v2fl(values_final, t->spacemtx[0], values_final[0]);
+      }
+      else {
+        mul_v2_v2fl(values_final, t->spacemtx[1], values_final[0]);
+      }
+    }
   }
   else {
-    // snapGridIncrement(t, t->values);
-    applyNumInput(&t->num, t->values);
-    copy_v3_v3(t->values_final, t->values);
+    copy_v2_v2(values_final, t->values);
+    applySnappingAsGroup(t, values_final);
+    transform_convert_sequencer_channel_clamp(t, values_final);
+
+    if (t->con.mode & CON_APPLY) {
+      t->con.applyVec(t, NULL, NULL, values_final, values_final);
+    }
   }
 
-  t->values_final[0] = floorf(t->values_final[0] + 0.5f);
-  t->values_final[1] = floorf(t->values_final[1] + 0.5f);
+  values_final[0] = floorf(values_final[0] + 0.5f);
+  values_final[1] = floorf(values_final[1] + 0.5f);
+  copy_v2_v2(t->values_final, values_final);
 
   headerSeqSlide(t, t->values_final, str);
   applySeqSlideValue(t, t->values_final);
@@ -121,6 +110,7 @@ static void applySeqSlide(TransInfo *t, const int mval[2])
 void initSeqSlide(TransInfo *t)
 {
   t->transform = applySeqSlide;
+  t->tsnap.applySnap = transform_snap_sequencer_apply_translate;
 
   initMouseInputMode(t, &t->mouse, INPUT_VECTOR);
 
@@ -128,15 +118,20 @@ void initSeqSlide(TransInfo *t)
   t->num.flag = 0;
   t->num.idx_max = t->idx_max;
 
-  t->snap[0] = 0.0f;
-  t->snap[1] = floorf(t->scene->r.frs_sec / t->scene->r.frs_sec_base);
-  t->snap[2] = 10.0f;
+  t->snap[0] = floorf(t->scene->r.frs_sec / t->scene->r.frs_sec_base);
+  t->snap[1] = 10.0f;
 
-  copy_v3_fl(t->num.val_inc, t->snap[1]);
+  copy_v3_fl(t->num.val_inc, t->snap[0]);
   t->num.unit_sys = t->scene->unit.system;
   /* Would be nice to have a time handling in units as well
    * (supporting frames in addition to "natural" time...). */
   t->num.unit_type[0] = B_UNIT_NONE;
   t->num.unit_type[1] = B_UNIT_NONE;
+
+  if (t->keymap) {
+    /* Workaround to use the same key as the modal keymap. */
+    t->custom.mode.data = (void *)WM_modalkeymap_find_propvalue(t->keymap, TFM_MODAL_TRANSLATE);
+  }
 }
+
 /** \} */

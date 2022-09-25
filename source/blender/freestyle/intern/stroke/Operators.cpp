@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -34,7 +20,7 @@ namespace Freestyle {
 
 Operators::I1DContainer Operators::_current_view_edges_set;
 Operators::I1DContainer Operators::_current_chains_set;
-Operators::I1DContainer *Operators::_current_set = NULL;
+Operators::I1DContainer *Operators::_current_set = nullptr;
 Operators::StrokesContainer Operators::_current_strokes_set;
 
 int Operators::select(UnaryPredicate1D &pred)
@@ -656,7 +642,7 @@ int Operators::sequentialSplit(UnaryPredicate0D &startingPred,
           goto error;
         }
       } while (!startingPred.result);
-    } while ((itStart != end) && (itStart != last));
+    } while (!ELEM(itStart, end, last));
   }
 
   // Update the current set of chains:
@@ -738,7 +724,7 @@ static int __recursiveSplit(Chain *_curve,
 
   // retrieves the current splitting id
   Id *newId = _curve->getSplittingId();
-  if (newId == 0) {
+  if (newId == nullptr) {
     newId = new Id(_curve->getId());
     _curve->setSplittingId(newId);
   }
@@ -810,7 +796,7 @@ int Operators::recursiveSplit(UnaryFunction0D<double> &func,
     return 0;
   }
 
-  Chain *currentChain = 0;
+  Chain *currentChain = nullptr;
   I1DContainer splitted_chains;
   I1DContainer newChains;
   I1DContainer::iterator cit = _current_chains_set.begin(), citend = _current_chains_set.end();
@@ -885,7 +871,7 @@ static int __recursiveSplit(Chain *_curve,
 #endif
   real _min = FLT_MAX;
   ++it;
-  real mean = 0.f;
+  // real mean = 0.0f;
   // soc unused - real variance                              = 0.0f;
   unsigned count = 0;
   CurveInternal::CurvePointIterator next = it;
@@ -904,14 +890,14 @@ static int __recursiveSplit(Chain *_curve,
     if (func(it0d) < 0) {
       return -1;
     }
-    mean += func.result;
+    // mean += func.result;
     if (func.result < _min) {
       _min = func.result;
       split = it;
       bsplit = true;
     }
   }
-  mean /= (float)count;
+  // mean /= (float)count;
 
   // if ((!bsplit) || (mean - _min > mean)) { // we didn't find any minimum
   if (!bsplit) {  // we didn't find any minimum
@@ -921,7 +907,7 @@ static int __recursiveSplit(Chain *_curve,
 
   // retrieves the current splitting id
   Id *newId = _curve->getSplittingId();
-  if (newId == NULL) {
+  if (newId == nullptr) {
     newId = new Id(_curve->getId());
     _curve->setSplittingId(newId);
   }
@@ -994,7 +980,7 @@ int Operators::recursiveSplit(UnaryFunction0D<double> &func,
     return 0;
   }
 
-  Chain *currentChain = 0;
+  Chain *currentChain = nullptr;
   I1DContainer splitted_chains;
   I1DContainer newChains;
   I1DContainer::iterator cit = _current_chains_set.begin(), citend = _current_chains_set.end();
@@ -1095,7 +1081,7 @@ static Stroke *createStroke(Interface1D &inter)
   Vec2r previous = current;
   SVertex *sv;
   CurvePoint *cp;
-  StrokeVertex *stroke_vertex = NULL;
+  StrokeVertex *stroke_vertex = nullptr;
   bool hasSingularity = false;
 
   do {
@@ -1122,7 +1108,7 @@ static Stroke *createStroke(Interface1D &inter)
     stroke->push_back(stroke_vertex);
     previous = current;
     ++it;
-  } while ((it != itend) && (it != itfirst));
+  } while (!ELEM(it, itend, itfirst));
 
   if (it == itfirst) {
     // Add last vertex:
@@ -1152,7 +1138,7 @@ static Stroke *createStroke(Interface1D &inter)
   // Discard the stroke if the number of stroke vertices is less than two
   if (stroke->strokeVerticesSize() < 2) {
     delete stroke;
-    return NULL;
+    return nullptr;
   }
   stroke->setLength(currentCurvilignAbscissa);
   if (hasSingularity) {
@@ -1198,7 +1184,7 @@ static Stroke *createStroke(Interface1D &inter)
         else {
           // Discard the stroke because all stroke vertices are overlapping
           delete stroke;
-          return NULL;
+          return nullptr;
         }
         current = overlapping_vertices.front()->getPoint();
         Vec2r dir(target - current);

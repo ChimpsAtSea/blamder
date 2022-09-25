@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bli
@@ -244,7 +230,7 @@ static void bli_windows_system_backtrace_modules(FILE *fp)
   me32.dwSize = sizeof(MODULEENTRY32);
 
   if (!Module32First(hModuleSnap, &me32)) {
-    CloseHandle(hModuleSnap);  // Must clean up the snapshot object!
+    CloseHandle(hModuleSnap); /* Must clean up the snapshot object! */
     fprintf(fp, " Error getting module list.\n");
     return;
   }
@@ -309,7 +295,7 @@ static bool BLI_windows_system_backtrace_stack(FILE *fp)
   /* If we are handling an exception use the context record from that. */
   if (current_exception && current_exception->ExceptionRecord->ExceptionAddress) {
     /* The back trace code will write to the context record, to protect the original record from
-     * modifications give the backtrace a copy to work on.  */
+     * modifications give the backtrace a copy to work on. */
     CONTEXT TempContext = *current_exception->ContextRecord;
     return BLI_windows_system_backtrace_run_trace(fp, GetCurrentThread(), &TempContext);
   }
@@ -373,6 +359,9 @@ static void bli_load_symbols()
   }
 }
 
+/**
+ * Write a backtrace into a file for systems which support it.
+ */
 void BLI_system_backtrace(FILE *fp)
 {
   SymInitialize(GetCurrentProcess(), NULL, TRUE);
@@ -386,7 +375,6 @@ void BLI_system_backtrace(FILE *fp)
     bli_windows_system_backtrace_threads(fp);
   }
   bli_windows_system_backtrace_modules(fp);
-  fputc(0, fp); /* Give our selves a nice zero terminator for later on */
 }
 
 void BLI_windows_handle_exception(EXCEPTION_POINTERS *exception)

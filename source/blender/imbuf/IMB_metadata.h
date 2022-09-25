@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 Blender Foundation
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup imbuf
  */
 
-#ifndef __IMB_METADATA_H__
-#define __IMB_METADATA_H__
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -36,7 +19,7 @@ struct anim;
  * The metadata is a list of key/value pairs (both char *) that can me
  * saved in the header of several image formats.
  * Apart from some common keys like
- * 'Software' and 'Description' (png standard) we'll use keys within the
+ * 'Software' and 'Description' (PNG standard) we'll use keys within the
  * Blender namespace, so should be called 'Blender::StampInfo' or 'Blender::FrameNum'
  * etc...
  *
@@ -59,10 +42,7 @@ void IMB_metadata_free(struct IDProperty *metadata);
  * \param len: length of value buffer allocated by user.
  * \return 1 (true) if metadata is present and value for the key found, 0 (false) otherwise.
  */
-bool IMB_metadata_get_field(struct IDProperty *metadata,
-                            const char *key,
-                            char *value,
-                            const size_t len);
+bool IMB_metadata_get_field(struct IDProperty *metadata, const char *key, char *value, size_t len);
 
 /**
  * Set user data in the metadata.
@@ -84,5 +64,3 @@ void IMB_metadata_foreach(struct ImBuf *ibuf, IMBMetadataForeachCb callback, voi
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __IMB_METADATA_H__ */

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bli
@@ -97,6 +83,7 @@ BLI_INLINE int quad_flag(uint q)
 #define TL 2
 #define BR 3
 
+/* -------------------------------------------------------------------- */
 /** \name Box Accessor Functions
  * \{ */
 
@@ -119,8 +106,10 @@ static float box_ymax_get(const BoxPack *box)
 {
   return box->v[TR]->y;
 }
+
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name Box Placement
  * \{ */
 
@@ -163,8 +152,10 @@ static void box_ymax_set(BoxPack *box, const float f)
   box->v[TR]->y = f;
   box_v34y_update(box);
 }
+
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name Box Utils
  * \{ */
 
@@ -203,6 +194,7 @@ static void vert_bias_update(BoxVert *v)
     printf("\tBox Debug i %i, w:%.3f h:%.3f x:%.3f y:%.3f\n", b->index, b->w, b->h, b->x, b->y)
 #endif
 
+/* -------------------------------------------------------------------- */
 /** \name Box/Vert Sorting
  * \{ */
 
@@ -216,7 +208,7 @@ static int box_areasort(const void *p1, const void *p2)
   if (a1 < a2) {
     return 1;
   }
-  else if (a1 > a2) {
+  if (a1 > a2) {
     return -1;
   }
   return 0;
@@ -246,10 +238,10 @@ static int vertex_sort(const void *p1, const void *p2, void *vs_ctx_p)
   if (UNLIKELY(v1->free == 0 && v2->free == 0)) {
     return 0;
   }
-  else if (UNLIKELY(v1->free == 0)) {
+  if (UNLIKELY(v1->free == 0)) {
     return 1;
   }
-  else if (UNLIKELY(v2->free == 0)) {
+  if (UNLIKELY(v2->free == 0)) {
     return -1;
   }
 #endif
@@ -266,27 +258,14 @@ static int vertex_sort(const void *p1, const void *p2, void *vs_ctx_p)
   if (a1 > a2) {
     return 1;
   }
-  else if (a1 < a2) {
+  if (a1 < a2) {
     return -1;
   }
   return 0;
 }
+
 /** \} */
 
-/**
- * Main box-packing function accessed from other functions
- * This sets boxes x,y to positive values, sorting from 0,0 outwards.
- * There is no limit to the space boxes may take, only that they will be packed
- * tightly into the lower left hand corner (0,0)
- *
- * \param boxarray: a pre-allocated array of boxes.
- *      only the 'box->x' and 'box->y' are set, 'box->w' and 'box->h' are used,
- *      'box->index' is not used at all, the only reason its there
- *          is that the box array is sorted by area and programs need to be able
- *          to have some way of writing the boxes back to the original data.
- * \param len: the number of boxes in the array.
- * \param r_tot_x, r_tot_y: set so you can normalize the data.
- *  */
 void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r_tot_y)
 {
   uint box_index, verts_pack_len, i, j, k;
@@ -294,8 +273,8 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
   bool isect;
   float tot_x = 0.0f, tot_y = 0.0f;
 
-  BoxPack *box, *box_test; /*current box and another for intersection tests*/
-  BoxVert *vert;           /* the current vert */
+  BoxPack *box, *box_test; /* Current box and another for intersection tests. */
+  BoxVert *vert;           /* The current vert. */
 
   struct VertSortContext vs_ctx;
 
@@ -308,9 +287,9 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
   /* Sort boxes, biggest first */
   qsort(boxarray, (size_t)len, sizeof(BoxPack), box_areasort);
 
-  /* add verts to the boxes, these are only used internally  */
-  vert = MEM_mallocN((size_t)len * 4 * sizeof(BoxVert), "BoxPack Verts");
-  vertex_pack_indices = MEM_mallocN((size_t)len * 3 * sizeof(int), "BoxPack Indices");
+  /* Add verts to the boxes, these are only used internally. */
+  vert = MEM_mallocN(sizeof(BoxVert[4]) * (size_t)len, "BoxPack Verts");
+  vertex_pack_indices = MEM_mallocN(sizeof(int[3]) * (size_t)len, "BoxPack Indices");
 
   vs_ctx.vertarray = vert;
 
@@ -353,7 +332,7 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
   /* Pack the First box!
    * then enter the main box-packing loop */
 
-  box = boxarray; /* get the first box  */
+  box = boxarray; /* Get the first box. */
   /* First time, no boxes packed */
   box->v[BL]->free = 0; /* Can't use any if these */
   box->v[BR]->free &= ~(BLF | BRF);
@@ -381,7 +360,7 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
   box++; /* next box, needed for the loop below */
   /* ...done packing the first box */
 
-  /* Main boxpacking loop */
+  /* Main box-packing loop */
   for (box_index = 1; box_index < len; box_index++, box++) {
 
     /* These floats are used for sorting re-sorting */
@@ -405,13 +384,12 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
 
     for (i = 0; i < verts_pack_len && isect; i++) {
       vert = &vs_ctx.vertarray[vertex_pack_indices[i]];
-      /* printf("\ttesting vert %i %i %i %f %f\n", i,
-       *        vert->free, verts_pack_len, vert->x, vert->y); */
+      // printf("\ttesting vert %i %i %i %f %f\n", i,
+      //        vert->free, verts_pack_len, vert->x, vert->y);
 
       /* This vert has a free quadrant
        * Test if we can place the box here
-       * vert->free & quad_flags[j] - Checks
-       * */
+       * `vert->free & quad_flags[j]` - Checks. */
 
       for (j = 0; (j < 4) && isect; j++) {
         if (vert->free & quad_flag(j)) {
@@ -513,7 +491,7 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
              * flag verts on one or both of the boxes
              * as being used by checking the width or
              * height of both boxes */
-            if (vert->tlb && vert->trb && (box == vert->tlb || box == vert->trb)) {
+            if (vert->tlb && vert->trb && (ELEM(box, vert->tlb, vert->trb))) {
               if (UNLIKELY(fabsf(vert->tlb->h - vert->trb->h) < EPSILON_MERGE)) {
 #ifdef USE_MERGE
 #  define A (vert->trb->v[TL])
@@ -544,7 +522,7 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
                 vert->tlb->v[TR]->free &= ~(TRF | BRF);
               }
             }
-            else if (vert->blb && vert->brb && (box == vert->blb || box == vert->brb)) {
+            else if (vert->blb && vert->brb && (ELEM(box, vert->blb, vert->brb))) {
               if (UNLIKELY(fabsf(vert->blb->h - vert->brb->h) < EPSILON_MERGE)) {
 #ifdef USE_MERGE
 #  define A (vert->blb->v[BR])
@@ -576,7 +554,7 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
               }
             }
             /* Horizontal */
-            if (vert->tlb && vert->blb && (box == vert->tlb || box == vert->blb)) {
+            if (vert->tlb && vert->blb && (ELEM(box, vert->tlb, vert->blb))) {
               if (UNLIKELY(fabsf(vert->tlb->w - vert->blb->w) < EPSILON_MERGE)) {
 #ifdef USE_MERGE
 #  define A (vert->blb->v[TL])
@@ -607,7 +585,7 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
                 vert->tlb->v[BL]->free &= ~(BLF | BRF);
               }
             }
-            else if (vert->trb && vert->brb && (box == vert->trb || box == vert->brb)) {
+            else if (vert->trb && vert->brb && (ELEM(box, vert->trb, vert->brb))) {
               if (UNLIKELY(fabsf(vert->trb->w - vert->brb->w) < EPSILON_MERGE)) {
 
 #ifdef USE_MERGE
@@ -675,18 +653,6 @@ void BLI_box_pack_2d(BoxPack *boxarray, const uint len, float *r_tot_x, float *r
   MEM_freeN(vs_ctx.vertarray);
 }
 
-/* Packs boxes into a fixed area.
- * boxes and packed are linked lists containing structs that can be cast to
- * FixedSizeBoxPack (i.e. contains a FixedSizeBoxPack as its first element).
- * Boxes that were packed successfully are placed into *packed and removed from *boxes.
- *
- * The algorithm is a simplified version of https://github.com/TeamHypersomnia/rectpack2D.
- * Better ones could be used, but for the current use case (packing Image tiles into GPU
- * textures) this is fine.
- *
- * Note that packing efficiency depends on the order of the input boxes. Generally speaking,
- * larger boxes should come first, though how exactly size is best defined (e.g. area,
- * perimeter) depends on the particular application. */
 void BLI_box_pack_2d_fixedarea(ListBase *boxes, int width, int height, ListBase *packed)
 {
   ListBase spaces = {NULL};

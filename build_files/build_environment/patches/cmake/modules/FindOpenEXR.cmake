@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: BSD-3-Clause
+
 # Module to find OpenEXR.
 #
 # This module will first look into the directories defined by the variables:
@@ -22,7 +24,7 @@
 #                       These are defined by the FindIlmBase module.
 # OPENEXR_FOUND       - True if OpenEXR was found.
 
-# Other standarnd issue macros
+# Other standard issue macros
 include(SelectLibraryConfigurations)
 include(FindPackageHandleStandardArgs)
 include(FindPackageMessage)

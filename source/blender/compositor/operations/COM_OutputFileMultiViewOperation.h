@@ -1,23 +1,8 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2015, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2015 Blender Foundation. */
 
-#ifndef __COM_OUTPUTFILEMULTIVIEWOPERATION_H__
-#define __COM_OUTPUTFILEMULTIVIEWOPERATION_H__
+#pragma once
+
 #include "COM_NodeOperation.h"
 #include "COM_OutputFileOperation.h"
 
@@ -26,56 +11,59 @@
 
 #include "DNA_color_types.h"
 
-#include "intern/openexr/openexr_multi.h"
+#include "IMB_openexr.h"
+
+namespace blender::compositor {
 
 class OutputOpenExrSingleLayerMultiViewOperation : public OutputSingleLayerOperation {
  private:
  public:
-  OutputOpenExrSingleLayerMultiViewOperation(const RenderData *rd,
+  OutputOpenExrSingleLayerMultiViewOperation(const Scene *scene,
+                                             const RenderData *rd,
                                              const bNodeTree *tree,
                                              DataType datatype,
-                                             ImageFormatData *format,
+                                             const ImageFormatData *format,
                                              const char *path,
-                                             const ColorManagedViewSettings *viewSettings,
-                                             const ColorManagedDisplaySettings *displaySettings,
-                                             const char *viewName);
+                                             const char *view_name,
+                                             bool save_as_render);
 
   void *get_handle(const char *filename);
-  void deinitExecution();
+  void deinit_execution() override;
 };
 
 /* Writes inputs into OpenEXR multilayer channels. */
 class OutputOpenExrMultiLayerMultiViewOperation : public OutputOpenExrMultiLayerOperation {
  private:
  public:
-  OutputOpenExrMultiLayerMultiViewOperation(const RenderData *rd,
+  OutputOpenExrMultiLayerMultiViewOperation(const Scene *scene,
+                                            const RenderData *rd,
                                             const bNodeTree *tree,
                                             const char *path,
                                             char exr_codec,
                                             bool exr_half_float,
-                                            const char *viewName);
+                                            const char *view_name);
 
   void *get_handle(const char *filename);
-  void deinitExecution();
+  void deinit_execution() override;
 };
 
 class OutputStereoOperation : public OutputSingleLayerOperation {
  private:
-  char m_name[FILE_MAX];
-  size_t m_channels;
+  char name_[FILE_MAX];
+  size_t channels_;
 
  public:
-  OutputStereoOperation(const RenderData *rd,
+  OutputStereoOperation(const Scene *scene,
+                        const RenderData *rd,
                         const bNodeTree *tree,
                         DataType datatype,
-                        struct ImageFormatData *format,
+                        const struct ImageFormatData *format,
                         const char *path,
                         const char *name,
-                        const ColorManagedViewSettings *viewSettings,
-                        const ColorManagedDisplaySettings *displaySettings,
-                        const char *viewName);
+                        const char *view_name,
+                        bool save_as_render);
   void *get_handle(const char *filename);
-  void deinitExecution();
+  void deinit_execution() override;
 };
 
-#endif
+}  // namespace blender::compositor

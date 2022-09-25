@@ -1,22 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- * allocimbuf.c
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup imbuf
@@ -251,9 +234,6 @@ static void rect_crop_16bytes(void **buf_p, const int size_src[2], const rcti *c
   *buf_p = (void *)MEM_reallocN(*buf_p, sizeof(uint[4]) * size_dst[0] * size_dst[1]);
 }
 
-/**
- * In-place image crop.
- */
 void IMB_rect_crop(ImBuf *ibuf, const rcti *crop)
 {
   const int size_src[2] = {
@@ -302,9 +282,6 @@ static void rect_realloc_16bytes(void **buf_p, const uint size[2])
   *buf_p = MEM_mallocN(sizeof(uint[4]) * size[0] * size[1], __func__);
 }
 
-/**
- * In-place size setting (caller must fill in buffer contents).
- */
 void IMB_rect_size_set(ImBuf *ibuf, const uint size[2])
 {
   BLI_assert(size[0] > 0 && size[1] > 0);
@@ -538,7 +515,7 @@ void IMB_rectblend(ImBuf *dbuf,
   const unsigned short *cmaskrect = curvemask, *cmr;
   unsigned short *dmaskrect = dmask, *dmr;
   const unsigned short *texmaskrect = texmask, *tmr;
-  int do_float, do_char, srcskip, destskip, origskip, x;
+  int srcskip, destskip, origskip, x;
   IMB_blend_func func = NULL;
   IMB_blend_func_float func_float = NULL;
 
@@ -558,8 +535,8 @@ void IMB_rectblend(ImBuf *dbuf,
     return;
   }
 
-  do_char = (sbuf && sbuf->rect && dbuf->rect && obuf->rect);
-  do_float = (sbuf && sbuf->rect_float && dbuf->rect_float && obuf->rect_float);
+  const bool do_char = (sbuf && sbuf->rect && dbuf->rect && obuf->rect);
+  const bool do_float = (sbuf && sbuf->rect_float && dbuf->rect_float && obuf->rect_float);
 
   if (do_char) {
     drect = dbuf->rect + ((size_t)desty) * dbuf->x + destx;
@@ -610,7 +587,7 @@ void IMB_rectblend(ImBuf *dbuf,
       }
 
       if (do_float) {
-        memcpy(drectf, srectf, width * sizeof(float) * 4);
+        memcpy(drectf, srectf, sizeof(float[4]) * width);
         drectf += destskip * 4;
         srectf += srcskip * 4;
       }
@@ -988,8 +965,9 @@ typedef struct RectBlendThreadData {
   bool accumulate;
 } RectBlendThreadData;
 
-static void rectblend_thread_do(void *data_v, int start_scanline, int num_scanlines)
+static void rectblend_thread_do(void *data_v, int scanline)
 {
+  const int num_scanlines = 1;
   RectBlendThreadData *data = (RectBlendThreadData *)data_v;
   IMB_rectblend(data->dbuf,
                 data->obuf,
@@ -999,11 +977,11 @@ static void rectblend_thread_do(void *data_v, int start_scanline, int num_scanli
                 data->texmask,
                 data->mask_max,
                 data->destx,
-                data->desty + start_scanline,
+                data->desty + scanline,
                 data->origx,
-                data->origy + start_scanline,
+                data->origy + scanline,
                 data->srcx,
-                data->srcy + start_scanline,
+                data->srcy + scanline,
                 data->width,
                 num_scanlines,
                 data->mode,
@@ -1069,8 +1047,6 @@ void IMB_rectblend_threaded(ImBuf *dbuf,
   }
 }
 
-/* fill */
-
 void IMB_rectfill(ImBuf *drect, const float col[4])
 {
   int num;
@@ -1099,6 +1075,52 @@ void IMB_rectfill(ImBuf *drect, const float col[4])
       *rrectf++ = col[1];
       *rrectf++ = col[2];
       *rrectf++ = col[3];
+    }
+  }
+}
+
+void IMB_rectfill_area_replace(
+    const ImBuf *ibuf, const float col[4], int x1, int y1, int x2, int y2)
+{
+  /* Sanity checks. */
+  BLI_assert(ibuf->channels == 4);
+
+  if (ibuf->channels != 4) {
+    return;
+  }
+
+  int width = ibuf->x;
+  int height = ibuf->y;
+  CLAMP(x1, 0, width);
+  CLAMP(x2, 0, width);
+  CLAMP(y1, 0, height);
+  CLAMP(y2, 0, height);
+
+  if (x1 > x2) {
+    SWAP(int, x1, x2);
+  }
+  if (y1 > y2) {
+    SWAP(int, y1, y2);
+  }
+  if (x1 == x2 || y1 == y2) {
+    return;
+  }
+
+  unsigned char col_char[4] = {col[0] * 255, col[1] * 255, col[2] * 255, col[3] * 255};
+
+  for (int y = y1; y < y2; y++) {
+    for (int x = x1; x < x2; x++) {
+      size_t offset = ((size_t)ibuf->x) * y * 4 + 4 * x;
+
+      if (ibuf->rect) {
+        unsigned char *rrect = (unsigned char *)ibuf->rect + offset;
+        memcpy(rrect, &col_char, sizeof(unsigned char) * 4);
+      }
+
+      if (ibuf->rect_float) {
+        float *rrectf = ibuf->rect_float + offset;
+        memcpy(rrectf, &col, sizeof(float) * 4);
+      }
     }
   }
 }

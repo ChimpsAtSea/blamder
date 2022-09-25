@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -42,10 +28,6 @@ CulledOccluderSource::CulledOccluderSource(const GridHelpers::Transform &t,
   if (valid && !testCurrent()) {
     next();
   }
-}
-
-CulledOccluderSource::~CulledOccluderSource()
-{
 }
 
 bool CulledOccluderSource::testCurrent()
@@ -94,7 +76,7 @@ static inline bool crossesProscenium(real proscenium[4], FEdge *fe)
   return GeomUtils::intersect2dSeg2dArea(min, max, A, B);
 }
 
-static inline bool insideProscenium(real proscenium[4], const Vec3r &point)
+static inline bool insideProscenium(const real proscenium[4], const Vec3r &point)
 {
   return !(point[0] < proscenium[0] || point[0] > proscenium[1] || point[1] < proscenium[2] ||
            point[1] > proscenium[3]);
@@ -146,7 +128,7 @@ void CulledOccluderSource::cullViewEdges(ViewMap &viewMap, bool extensiveFEdgeSe
 
     // For each feature edge, while bestOccluderTarget not found and view edge not visible
     bool bestOccluderTargetFound = false;
-    FEdge *bestOccluderTarget = NULL;
+    FEdge *bestOccluderTarget = nullptr;
     real bestOccluderDistance = 0.0;
     FEdge *festart = (*ve)->fedgeA();
     FEdge *fe = festart;
@@ -173,7 +155,7 @@ void CulledOccluderSource::cullViewEdges(ViewMap &viewMap, bool extensiveFEdgeSe
         else {
           real d = distance2D(fe->center2d(), prosceniumOrigin);
           // If center point is closer to viewport origin than current target
-          if (bestOccluderTarget == NULL || d < bestOccluderDistance) {
+          if (bestOccluderTarget == nullptr || d < bestOccluderDistance) {
             // Then store as bestOccluderTarget
             bestOccluderDistance = d;
             bestOccluderTarget = fe;
@@ -187,18 +169,18 @@ void CulledOccluderSource::cullViewEdges(ViewMap &viewMap, bool extensiveFEdgeSe
         (*ve)->setIsInImage(true);
       }
       fe = fe->nextEdge();
-    } while (fe != NULL && fe != festart && !(bestOccluderTargetFound && (*ve)->isInImage()));
+    } while (fe != nullptr && fe != festart && !(bestOccluderTargetFound && (*ve)->isInImage()));
 
     // Either we have run out of FEdges, or we already have the one edge we need to determine
     // visibility Cull all remaining edges.
-    while (fe != NULL && fe != festart) {
+    while (!ELEM(fe, NULL, festart)) {
       fe->setIsInImage(false);
       fe = fe->nextEdge();
     }
 
     // If bestOccluderTarget was not found inside the occluder proscenium,
     // we need to expand the occluder proscenium to include it.
-    if ((*ve)->isInImage() && bestOccluderTarget != NULL && !bestOccluderTargetFound) {
+    if ((*ve)->isInImage() && bestOccluderTarget != nullptr && !bestOccluderTargetFound) {
       // Expand occluder proscenium to enclose bestOccluderTarget
       Vec3r point = bestOccluderTarget->center2d();
       if (point[0] < occluderProscenium[0]) {
@@ -253,7 +235,7 @@ void CulledOccluderSource::cullViewEdges(ViewMap &viewMap, bool extensiveFEdgeSe
           expandGridSpaceOccluderProscenium(fe);
         }
         fe = fe->nextEdge();
-      } while (fe != NULL && fe != festart);
+      } while (!ELEM(fe, NULL, festart));
     }
   }
 

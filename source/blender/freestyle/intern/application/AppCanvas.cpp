@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -31,13 +17,13 @@
 #include "../system/StringUtils.h"
 namespace Freestyle {
 
-AppCanvas::AppCanvas() : Canvas()
+AppCanvas::AppCanvas()
 {
-  _pViewer = 0;
+  _pViewer = nullptr;
   _MapsPath = Config::Path::getInstance()->getMapsDir().c_str();
 }
 
-AppCanvas::AppCanvas(AppView *iViewer) : Canvas()
+AppCanvas::AppCanvas(AppView *iViewer)
 {
   _pViewer = iViewer;
 }
@@ -49,7 +35,7 @@ AppCanvas::AppCanvas(const AppCanvas &iBrother) : Canvas(iBrother)
 
 AppCanvas::~AppCanvas()
 {
-  _pViewer = 0;
+  _pViewer = nullptr;
 }
 
 void AppCanvas::setViewer(AppView *iViewer)
@@ -122,7 +108,7 @@ void AppCanvas::Erase()
 void AppCanvas::readColorPixels(int x, int y, int w, int h, RGBImage &oImage) const
 {
   float *rgb = new float[3 * w * h];
-  memset(rgb, 0, sizeof(float) * 3 * w * h);
+  memset(rgb, 0, sizeof(float[3]) * w * h);
   int xsch = width();
   int ysch = height();
   if (_pass_diffuse.buf) {
@@ -161,8 +147,7 @@ void AppCanvas::readColorPixels(int x, int y, int w, int h, RGBImage &oImage) co
         if (ii < 0 || ii >= rectx) {
           continue;
         }
-        memcpy(
-            rgb + (w * j + i) * 3, _pass_diffuse.buf + (rectx * jj + ii) * 3, sizeof(float) * 3);
+        memcpy(rgb + (w * j + i) * 3, _pass_diffuse.buf + (rectx * jj + ii) * 3, sizeof(float[3]));
       }
     }
   }

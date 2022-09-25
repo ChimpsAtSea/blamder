@@ -1,27 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- *
- * The Original Code is: some of this file.
- *
- * */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
-#ifndef __BLI_MATH_BASE_H__
-#define __BLI_MATH_BASE_H__
+#pragma once
 
 /** \file
  * \ingroup bli
@@ -78,8 +58,7 @@
 
 #if defined(__GNUC__)
 #  define NAN_FLT __builtin_nanf("")
-#else
-/* evil quiet NaN definition */
+#else /* evil quiet NaN definition */
 static const int NAN_INT = 0x7FC00000;
 #  define NAN_FLT (*((float *)(&NAN_INT)))
 #endif
@@ -98,6 +77,8 @@ extern "C" {
 #endif
 
 /******************************* Float ******************************/
+
+/* `powf` is really slow for raising to integer powers. */
 
 MINLINE float pow2f(float x);
 MINLINE float pow3f(float x);
@@ -119,8 +100,21 @@ MINLINE float sasqrt(float fac);
 MINLINE float interpf(float a, float b, float t);
 MINLINE double interpd(double a, double b, double t);
 
+MINLINE float ratiof(float min, float max, float pos);
+MINLINE double ratiod(double min, double max, double pos);
+
+/**
+ * Map a normalized value, i.e. from interval [0, 1] to interval [a, b].
+ */
+MINLINE float scalenorm(float a, float b, float x);
+/**
+ * Map a normalized value, i.e. from interval [0, 1] to interval [a, b].
+ */
+MINLINE double scalenormd(double a, double b, double x);
+
 /* NOTE: Compilers will upcast all types smaller than int to int when performing arithmetic
  * operation. */
+
 MINLINE int square_s(short a);
 MINLINE int square_uchar(unsigned char a);
 MINLINE int cube_s(short a);
@@ -153,6 +147,9 @@ MINLINE int max_iii(int a, int b, int c);
 MINLINE int min_iiii(int a, int b, int c, int d);
 MINLINE int max_iiii(int a, int b, int c, int d);
 
+MINLINE uint min_uu(uint a, uint b);
+MINLINE uint max_uu(uint a, uint b);
+
 MINLINE size_t min_zz(size_t a, size_t b);
 MINLINE size_t max_zz(size_t a, size_t b);
 
@@ -163,31 +160,89 @@ MINLINE int clamp_i(int value, int min, int max);
 MINLINE float clamp_f(float value, float min, float max);
 MINLINE size_t clamp_z(size_t value, size_t min, size_t max);
 
-MINLINE int compare_ff(float a, float b, const float max_diff);
-MINLINE int compare_ff_relative(float a, float b, const float max_diff, const int max_ulps);
+/**
+ * Almost-equal for IEEE floats, using absolute difference method.
+ *
+ * \param max_diff: the maximum absolute difference.
+ */
+MINLINE int compare_ff(float a, float b, float max_diff);
+/**
+ * Almost-equal for IEEE floats, using their integer representation
+ * (mixing ULP and absolute difference methods).
+ *
+ * \param max_diff: is the maximum absolute difference (allows to take care of the near-zero area,
+ * where relative difference methods cannot really work).
+ * \param max_ulps: is the 'maximum number of floats + 1'
+ * allowed between \a a and \a b to consider them equal.
+ *
+ * \see https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
+ */
+MINLINE int compare_ff_relative(float a, float b, float max_diff, int max_ulps);
+MINLINE bool compare_threshold_relative(float value1, float value2, float thresh);
 
 MINLINE float signf(float f);
 MINLINE int signum_i_ex(float a, float eps);
 MINLINE int signum_i(float a);
 
+/**
+ * Used for zoom values.
+ */
 MINLINE float power_of_2(float f);
 
-MINLINE int integer_digits_f(const float f);
-MINLINE int integer_digits_d(const double d);
-MINLINE int integer_digits_i(const int i);
+/**
+ * Returns number of (base ten) *significant* digits of integer part of given float
+ * (negative in case of decimal-only floats, 0.01 returns -1 e.g.).
+ */
+MINLINE int integer_digits_f(float f);
+/**
+ * Returns number of (base ten) *significant* digits of integer part of given double
+ * (negative in case of decimal-only floats, 0.01 returns -1 e.g.).
+ */
+MINLINE int integer_digits_d(double d);
+MINLINE int integer_digits_i(int i);
 
-/* these don't really fit anywhere but were being copied about a lot */
+/* These don't really fit anywhere but were being copied about a lot. */
+
 MINLINE int is_power_of_2_i(int n);
-MINLINE int power_of_2_max_i(int n);
-MINLINE int power_of_2_min_i(int n);
 
-MINLINE unsigned int power_of_2_max_u(unsigned int x);
-MINLINE unsigned int power_of_2_min_u(unsigned int x);
 MINLINE unsigned int log2_floor_u(unsigned int x);
 MINLINE unsigned int log2_ceil_u(unsigned int x);
 
+/**
+ * Returns next (or previous) power of 2 or the input number if it is already a power of 2.
+ */
+MINLINE int power_of_2_max_i(int n);
+MINLINE int power_of_2_min_i(int n);
+MINLINE unsigned int power_of_2_max_u(unsigned int x);
+MINLINE unsigned int power_of_2_min_u(unsigned int x);
+
+/**
+ * Integer division that rounds 0.5 up, particularly useful for color blending
+ * with integers, to avoid gradual darkening when rounding down.
+ */
 MINLINE int divide_round_i(int a, int b);
+
+/**
+ * Integer division that returns the ceiling, instead of flooring like normal C division.
+ */
+MINLINE uint divide_ceil_u(uint a, uint b);
+MINLINE uint64_t divide_ceil_ul(uint64_t a, uint64_t b);
+
+/**
+ * Returns \a a if it is a multiple of \a b or the next multiple or \a b after \b a .
+ */
+MINLINE uint ceil_to_multiple_u(uint a, uint b);
+MINLINE uint64_t ceil_to_multiple_ul(uint64_t a, uint64_t b);
+
+/**
+ * modulo that handles negative numbers, works the same as Python's.
+ */
 MINLINE int mod_i(int i, int n);
+
+/**
+ * Round to closest even number, halfway cases are rounded away from zero.
+ */
+MINLINE float round_to_even(float f);
 
 MINLINE signed char round_fl_to_char(float a);
 MINLINE unsigned char round_fl_to_uchar(float a);
@@ -218,18 +273,44 @@ MINLINE int round_db_to_int_clamp(double a);
 MINLINE unsigned int round_db_to_uint_clamp(double a);
 
 int pow_i(int base, int exp);
+
+/**
+ * \param ndigits: must be between 0 and 21.
+ */
 double double_round(double x, int ndigits);
+
+/**
+ * Floor to the nearest power of 10, e.g.:
+ * - 15.0 -> 10.0
+ * - 0.015 -> 0.01
+ * - 1.0 -> 1.0
+ *
+ * \param f: Value to floor, must be over 0.0.
+ * \note If we wanted to support signed values we could if this becomes necessary.
+ */
+float floor_power_of_10(float f);
+/**
+ * Ceiling to the nearest power of 10, e.g.:
+ * - 15.0 -> 100.0
+ * - 0.015 -> 0.1
+ * - 1.0 -> 1.0
+ *
+ * \param f: Value to ceiling, must be over 0.0.
+ * \note If we wanted to support signed values we could if this becomes necessary.
+ */
+float ceil_power_of_10(float f);
 
 #ifdef BLI_MATH_GCC_WARN_PRAGMA
 #  pragma GCC diagnostic pop
 #endif
 
-/* asserts, some math functions expect normalized inputs
- * check the vector is unit length, or zero length (which can't be helped in some cases).
- */
+/* Asserts, some math functions expect normalized inputs
+ * check the vector is unit length, or zero length (which can't be helped in some cases). */
+
 #ifndef NDEBUG
 /** \note 0.0001 is too small because normals may be converted from short's: see T34322. */
 #  define BLI_ASSERT_UNIT_EPSILON 0.0002f
+#  define BLI_ASSERT_UNIT_EPSILON_DB 0.0002
 /**
  * \note Checks are flipped so NAN doesn't assert.
  * This is done because we're making sure the value was normalized and in the case we
@@ -240,6 +321,14 @@ double double_round(double x, int ndigits);
       const float _test_unit = len_squared_v3(v); \
       BLI_assert(!(fabsf(_test_unit - 1.0f) >= BLI_ASSERT_UNIT_EPSILON) || \
                  !(fabsf(_test_unit) >= BLI_ASSERT_UNIT_EPSILON)); \
+    } \
+    (void)0
+
+#  define BLI_ASSERT_UNIT_V3_DB(v) \
+    { \
+      const double _test_unit = len_squared_v3_db(v); \
+      BLI_assert(!(fabs(_test_unit - 1.0) >= BLI_ASSERT_UNIT_EPSILON_DB) || \
+                 !(fabs(_test_unit) >= BLI_ASSERT_UNIT_EPSILON_DB)); \
     } \
     (void)0
 
@@ -280,6 +369,7 @@ double double_round(double x, int ndigits);
 #else
 #  define BLI_ASSERT_UNIT_V2(v) (void)(v)
 #  define BLI_ASSERT_UNIT_V3(v) (void)(v)
+#  define BLI_ASSERT_UNIT_V3_DB(v) (void)(v)
 #  define BLI_ASSERT_UNIT_QUAT(v) (void)(v)
 #  define BLI_ASSERT_ZERO_M3(m) (void)(m)
 #  define BLI_ASSERT_ZERO_M4(m) (void)(m)
@@ -289,5 +379,3 @@ double double_round(double x, int ndigits);
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __BLI_MATH_BASE_H__ */

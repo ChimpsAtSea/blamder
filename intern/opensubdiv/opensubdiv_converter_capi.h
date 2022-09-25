@@ -107,7 +107,7 @@ typedef struct OpenSubdiv_Converter {
   bool (*isInfiniteSharpVertex)(const struct OpenSubdiv_Converter *converter,
                                 const int vertex_index);
 
-  // If vertex is not infinitely sharp, this is it's actual sharpness.
+  // If vertex is not infinitely sharp, this is its actual sharpness.
   float (*getVertexSharpness)(const struct OpenSubdiv_Converter *converter,
                               const int vertex_index);
 
@@ -135,7 +135,7 @@ typedef struct OpenSubdiv_Converter {
   // specified in precalcUVLayer().
   int (*getNumUVCoordinates)(const struct OpenSubdiv_Converter *converter);
   // For the given face index and its corner (known as loop in Blender)
-  // get corrsponding UV coordinate index.
+  // get corresponding UV coordinate index.
   int (*getFaceCornerUVIndex)(const struct OpenSubdiv_Converter *converter,
                               const int face_index,
                               const int corner_index);

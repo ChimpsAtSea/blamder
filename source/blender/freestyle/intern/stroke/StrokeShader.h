@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_STROKE_SHADERS_H__
-#define __FREESTYLE_STROKE_SHADERS_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -40,7 +25,7 @@ namespace Freestyle {
 
 class Stroke;
 
-/*! Base class for Stroke Shaders.
+/** Base class for Stroke Shaders.
  *  Any Stroke Shader must inherit from this class and overload the shade() method.
  *  A StrokeShader is designed to modify any Stroke's attribute such as Thickness, Color,
  *  Geometry, Texture, Blending mode...
@@ -66,24 +51,24 @@ class StrokeShader {
  public:
   void *py_ss;
 
-  /*! Default constructor. */
+  /** Default constructor. */
   StrokeShader()
   {
     py_ss = 0;
   }
 
-  /*! Destructor. */
+  /** Destructor. */
   virtual ~StrokeShader()
   {
   }
 
-  /*! Returns the string corresponding to the shader's name. */
+  /** Returns the string corresponding to the shader's name. */
   virtual string getName() const
   {
     return "StrokeShader";
   }
 
-  /*! The shading method. This method must be overloaded by inherited classes.
+  /** The shading method. This method must be overloaded by inherited classes.
    *  \param ioStroke:
    *    The stroke we wish to shade. this Stroke is modified by the Shader (which typically
    *    modifies the Stroke's attribute's values such as Color, Thickness, Geometry...)
@@ -96,5 +81,3 @@ class StrokeShader {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_STROKE_SHADERS_H__

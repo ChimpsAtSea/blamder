@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -36,6 +20,9 @@
 
 #include "BLT_translation.h"
 
+/* Allow using deprecated functionality for .blend file I/O. */
+#define DNA_DEPRECATED_ALLOW
+
 #include "DNA_brush_types.h"
 #include "DNA_color_types.h"
 #include "DNA_defaults.h"
@@ -50,6 +37,7 @@
 
 #include "BKE_main.h"
 
+#include "BKE_anim_data.h"
 #include "BKE_colorband.h"
 #include "BKE_colortools.h"
 #include "BKE_icons.h"
@@ -63,7 +51,11 @@
 #include "BKE_scene.h"
 #include "BKE_texture.h"
 
-#include "RE_shader_ext.h"
+#include "NOD_texture.h"
+
+#include "RE_texture.h"
+
+#include "BLO_read_write.h"
 
 static void texture_init_data(ID *id)
 {
@@ -81,6 +73,7 @@ static void texture_copy_data(Main *bmain, ID *id_dst, const ID *id_src, const i
   Tex *texture_dst = (Tex *)id_dst;
   const Tex *texture_src = (const Tex *)id_src;
 
+  const bool is_localized = (flag & LIB_ID_CREATE_LOCAL) != 0;
   /* We always need allocation of our private ID data. */
   const int flag_private_id_data = flag & ~LIB_ID_CREATE_NO_ALLOCATE;
 
@@ -95,8 +88,14 @@ static void texture_copy_data(Main *bmain, ID *id_dst, const ID *id_src, const i
     if (texture_src->nodetree->execdata) {
       ntreeTexEndExecTree(texture_src->nodetree->execdata);
     }
-    BKE_id_copy_ex(
-        bmain, (ID *)texture_src->nodetree, (ID **)&texture_dst->nodetree, flag_private_id_data);
+
+    if (is_localized) {
+      texture_dst->nodetree = ntreeLocalize(texture_src->nodetree);
+    }
+    else {
+      BKE_id_copy_ex(
+          bmain, (ID *)texture_src->nodetree, (ID **)&texture_dst->nodetree, flag_private_id_data);
+    }
   }
 
   if ((flag & LIB_ID_COPY_NO_PREVIEW) == 0) {
@@ -129,9 +128,64 @@ static void texture_foreach_id(ID *id, LibraryForeachIDData *data)
   Tex *texture = (Tex *)id;
   if (texture->nodetree) {
     /* nodetree **are owned by IDs**, treat them as mere sub-data and not real ID! */
-    BKE_library_foreach_ID_embedded(data, (ID **)&texture->nodetree);
+    BKE_LIB_FOREACHID_PROCESS_FUNCTION_CALL(
+        data, BKE_library_foreach_ID_embedded(data, (ID **)&texture->nodetree));
   }
-  BKE_LIB_FOREACHID_PROCESS(data, texture->ima, IDWALK_CB_USER);
+  BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, texture->ima, IDWALK_CB_USER);
+}
+
+static void texture_blend_write(BlendWriter *writer, ID *id, const void *id_address)
+{
+  Tex *tex = (Tex *)id;
+
+  /* write LibData */
+  BLO_write_id_struct(writer, Tex, id_address, &tex->id);
+  BKE_id_blend_write(writer, &tex->id);
+
+  if (tex->adt) {
+    BKE_animdata_blend_write(writer, tex->adt);
+  }
+
+  /* direct data */
+  if (tex->coba) {
+    BLO_write_struct(writer, ColorBand, tex->coba);
+  }
+
+  /* nodetree is integral part of texture, no libdata */
+  if (tex->nodetree) {
+    BLO_write_struct(writer, bNodeTree, tex->nodetree);
+    ntreeBlendWrite(writer, tex->nodetree);
+  }
+
+  BKE_previewimg_blend_write(writer, tex->preview);
+}
+
+static void texture_blend_read_data(BlendDataReader *reader, ID *id)
+{
+  Tex *tex = (Tex *)id;
+  BLO_read_data_address(reader, &tex->adt);
+  BKE_animdata_blend_read_data(reader, tex->adt);
+
+  BLO_read_data_address(reader, &tex->coba);
+
+  BLO_read_data_address(reader, &tex->preview);
+  BKE_previewimg_blend_read(reader, tex->preview);
+
+  tex->iuser.scene = NULL;
+}
+
+static void texture_blend_read_lib(BlendLibReader *reader, ID *id)
+{
+  Tex *tex = (Tex *)id;
+  BLO_read_id_address(reader, tex->id.lib, &tex->ima);
+  BLO_read_id_address(reader, tex->id.lib, &tex->ipo); /* XXX deprecated - old animation system */
+}
+
+static void texture_blend_read_expand(BlendExpander *expander, ID *id)
+{
+  Tex *tex = (Tex *)id;
+  BLO_expand(expander, tex->ima);
+  BLO_expand(expander, tex->ipo); /* XXX deprecated - old animation system */
 }
 
 IDTypeInfo IDType_ID_TE = {
@@ -142,20 +196,32 @@ IDTypeInfo IDType_ID_TE = {
     .name = "Texture",
     .name_plural = "textures",
     .translation_context = BLT_I18NCONTEXT_ID_TEXTURE,
-    .flags = 0,
+    .flags = IDTYPE_FLAGS_APPEND_IS_REUSABLE,
+    .asset_type_info = NULL,
 
     .init_data = texture_init_data,
     .copy_data = texture_copy_data,
     .free_data = texture_free_data,
     .make_local = NULL,
     .foreach_id = texture_foreach_id,
+    .foreach_cache = NULL,
+    .foreach_path = NULL,
+    .owner_get = NULL,
+
+    .blend_write = texture_blend_write,
+    .blend_read_data = texture_blend_read_data,
+    .blend_read_lib = texture_blend_read_lib,
+    .blend_read_expand = texture_blend_read_expand,
+
+    .blend_read_undo_preserve = NULL,
+
+    .lib_override_apply_post = NULL,
 };
 
-/* Utils for all IDs using those texture slots. */
 void BKE_texture_mtex_foreach_id(LibraryForeachIDData *data, MTex *mtex)
 {
-  BKE_LIB_FOREACHID_PROCESS(data, mtex->object, IDWALK_CB_NOP);
-  BKE_LIB_FOREACHID_PROCESS(data, mtex->tex, IDWALK_CB_USER);
+  BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, mtex->object, IDWALK_CB_NOP);
+  BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, mtex->tex, IDWALK_CB_USER);
 }
 
 /* ****************** Mapping ******************* */
@@ -308,9 +374,7 @@ Tex *BKE_texture_add(Main *bmain, const char *name)
 {
   Tex *tex;
 
-  tex = BKE_libblock_alloc(bmain, ID_TE, name, 0);
-
-  texture_init_data(&tex->id);
+  tex = BKE_id_new(bmain, ID_TE, name);
 
   return tex;
 }
@@ -335,7 +399,6 @@ MTex *BKE_texture_mtex_add(void)
   return mtex;
 }
 
-/* slot -1 for first free ID */
 MTex *BKE_texture_mtex_add_id(ID *id, int slot)
 {
   MTex **mtex_ar;
@@ -380,49 +443,6 @@ MTex *BKE_texture_mtex_add_id(ID *id, int slot)
 
 /* ------------------------------------------------------------------------- */
 
-Tex *BKE_texture_copy(Main *bmain, const Tex *tex)
-{
-  Tex *tex_copy;
-  BKE_id_copy(bmain, &tex->id, (ID **)&tex_copy);
-  return tex_copy;
-}
-
-/* texture copy without adding to main dbase */
-Tex *BKE_texture_localize(Tex *tex)
-{
-  /* TODO(bastien): Replace with something like:
-   *
-   *   Tex *tex_copy;
-   *   BKE_id_copy_ex(bmain, &tex->id, (ID **)&tex_copy,
-   *                  LIB_ID_COPY_NO_MAIN | LIB_ID_COPY_NO_PREVIEW | LIB_ID_COPY_NO_USER_REFCOUNT,
-   *                  false);
-   *   return tex_copy;
-   *
-   * NOTE: Only possible once nested node trees are fully converted to that too. */
-
-  Tex *texn;
-
-  texn = BKE_libblock_copy_for_localize(&tex->id);
-
-  /* image texture: texture_free_data also doesn't decrease */
-
-  if (texn->coba) {
-    texn->coba = MEM_dupallocN(texn->coba);
-  }
-
-  texn->preview = NULL;
-
-  if (tex->nodetree) {
-    texn->nodetree = ntreeLocalize(tex->nodetree);
-  }
-
-  texn->id.tag |= LIB_TAG_LOCALIZED;
-
-  return texn;
-}
-
-/* ------------------------------------------------------------------------- */
-
 Tex *give_current_linestyle_texture(FreestyleLineStyle *linestyle)
 {
   MTex *mtex = NULL;
@@ -455,9 +475,8 @@ void set_current_linestyle_texture(FreestyleLineStyle *linestyle, Tex *newtex)
     linestyle->mtex[act]->tex = newtex;
     id_us_plus(&newtex->id);
   }
-  else if (linestyle->mtex[act]) {
-    MEM_freeN(linestyle->mtex[act]);
-    linestyle->mtex[act] = NULL;
+  else {
+    MEM_SAFE_FREE(linestyle->mtex[act]);
   }
 }
 
@@ -560,9 +579,8 @@ void set_current_particle_texture(ParticleSettings *part, Tex *newtex)
     part->mtex[act]->tex = newtex;
     id_us_plus(&newtex->id);
   }
-  else if (part->mtex[act]) {
-    MEM_freeN(part->mtex[act]);
-    part->mtex[act] = NULL;
+  else {
+    MEM_SAFE_FREE(part->mtex[act]);
   }
 }
 
@@ -625,14 +643,8 @@ void BKE_texture_pointdensity_free_data(PointDensity *pd)
     BLI_bvhtree_free(pd->point_tree);
     pd->point_tree = NULL;
   }
-  if (pd->point_data) {
-    MEM_freeN(pd->point_data);
-    pd->point_data = NULL;
-  }
-  if (pd->coba) {
-    MEM_freeN(pd->coba);
-    pd->coba = NULL;
-  }
+  MEM_SAFE_FREE(pd->point_data);
+  MEM_SAFE_FREE(pd->coba);
 
   BKE_curvemapping_free(pd->falloff_curve); /* can be NULL */
 }
@@ -644,9 +656,6 @@ void BKE_texture_pointdensity_free(PointDensity *pd)
 }
 /* ------------------------------------------------------------------------- */
 
-/**
- * \returns true if this texture can use its #Texture.ima (even if its NULL)
- */
 bool BKE_texture_is_image_user(const struct Tex *tex)
 {
   switch (tex->type) {
@@ -658,17 +667,16 @@ bool BKE_texture_is_image_user(const struct Tex *tex)
   return false;
 }
 
-/* ------------------------------------------------------------------------- */
 bool BKE_texture_dependsOnTime(const struct Tex *texture)
 {
   if (texture->ima && BKE_image_is_animated(texture->ima)) {
     return true;
   }
-  else if (texture->adt) {
+  if (texture->adt) {
     /* assume anything in adt means the texture is animated */
     return true;
   }
-  else if (texture->type == TEX_NOISE) {
+  if (texture->type == TEX_NOISE) {
     /* noise always varies with time */
     return true;
   }
@@ -679,7 +687,7 @@ bool BKE_texture_dependsOnTime(const struct Tex *texture)
 
 void BKE_texture_get_value_ex(const Scene *scene,
                               Tex *texture,
-                              float *tex_co,
+                              const float *tex_co,
                               TexResult *texres,
                               struct ImagePool *pool,
                               bool use_color_management)
@@ -699,15 +707,18 @@ void BKE_texture_get_value_ex(const Scene *scene,
    * if the texture didn't give an RGB value, copy the intensity across
    */
   if (result_type & TEX_RGB) {
-    texres->tin = (1.0f / 3.0f) * (texres->tr + texres->tg + texres->tb);
+    texres->tin = (1.0f / 3.0f) * (texres->trgba[0] + texres->trgba[1] + texres->trgba[2]);
   }
   else {
-    copy_v3_fl(&texres->tr, texres->tin);
+    copy_v3_fl(texres->trgba, texres->tin);
   }
 }
 
-void BKE_texture_get_value(
-    const Scene *scene, Tex *texture, float *tex_co, TexResult *texres, bool use_color_management)
+void BKE_texture_get_value(const Scene *scene,
+                           Tex *texture,
+                           const float *tex_co,
+                           TexResult *texres,
+                           bool use_color_management)
 {
   BKE_texture_get_value_ex(scene, texture, tex_co, texres, NULL, use_color_management);
 }
@@ -729,7 +740,6 @@ static void texture_nodes_fetch_images_for_pool(Tex *texture,
   }
 }
 
-/* Make sure all images used by texture are loaded into pool. */
 void BKE_texture_fetch_images_for_pool(Tex *texture, struct ImagePool *pool)
 {
   if (texture->nodetree != NULL) {

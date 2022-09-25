@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spinfo
@@ -24,7 +8,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "DNA_packedFile_types.h"
 #include "DNA_space_types.h"
 #include "DNA_windowmanager_types.h"
 
@@ -52,14 +35,14 @@
 #include "UI_interface.h"
 #include "UI_resources.h"
 
-#include "IMB_imbuf_types.h"
-
 #include "RNA_access.h"
 #include "RNA_define.h"
 
 #include "info_intern.h"
 
-/********************* pack blend file libraries operator *********************/
+/* -------------------------------------------------------------------- */
+/** \name Pack Blend File Libraries Operator
+ * \{ */
 
 static int pack_libraries_exec(bContext *C, wmOperator *op)
 {
@@ -73,9 +56,11 @@ static int pack_libraries_exec(bContext *C, wmOperator *op)
 void FILE_OT_pack_libraries(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Pack Blender Libraries";
+  ot->name = "Pack Linked Libraries";
   ot->idname = "FILE_OT_pack_libraries";
-  ot->description = "Pack all used Blender library files into the current .blend";
+  ot->description =
+      "Store all data-blocks linked from other .blend files in the current .blend file. "
+      "Library references are preserved so the linked data-blocks can be unpacked again";
 
   /* api callbacks */
   ot->exec = pack_libraries_exec;
@@ -93,18 +78,24 @@ static int unpack_libraries_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Unpack Blend File Libraries Operator
+ * \{ */
+
 static int unpack_libraries_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(event))
 {
   return WM_operator_confirm_message(
-      C, op, "Unpack Blender Libraries - creates directories, all new paths should work");
+      C, op, "Unpack Linked Libraries - creates directories, all new paths should work");
 }
 
 void FILE_OT_unpack_libraries(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Unpack Blender Libraries";
+  ot->name = "Unpack Linked Libraries";
   ot->idname = "FILE_OT_unpack_libraries";
-  ot->description = "Unpack all used Blender library files from this .blend file";
+  ot->description = "Restore all packed linked data-blocks to their original locations";
 
   /* api callbacks */
   ot->invoke = unpack_libraries_invoke;
@@ -114,7 +105,11 @@ void FILE_OT_unpack_libraries(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-/********************* toggle auto-pack operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Toggle Auto-Pack Operator
+ * \{ */
 
 static int autopack_toggle_exec(bContext *C, wmOperator *op)
 {
@@ -134,7 +129,7 @@ static int autopack_toggle_exec(bContext *C, wmOperator *op)
 void FILE_OT_autopack_toggle(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Automatically Pack Into .blend";
+  ot->name = "Automatically Pack Resources";
   ot->idname = "FILE_OT_autopack_toggle";
   ot->description = "Automatically pack all external files into the .blend file";
 
@@ -145,7 +140,11 @@ void FILE_OT_autopack_toggle(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-/********************* pack all operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Pack All Operator
+ * \{ */
 
 static int pack_all_exec(bContext *C, wmOperator *op)
 {
@@ -161,7 +160,7 @@ static int pack_all_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(ev
   Main *bmain = CTX_data_main(C);
   Image *ima;
 
-  // first check for dirty images
+  /* First check for dirty images. */
   for (ima = bmain->images.first; ima; ima = ima->id.next) {
     if (BKE_image_is_dirty(ima)) {
       break;
@@ -179,9 +178,9 @@ static int pack_all_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(ev
 void FILE_OT_pack_all(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Pack All Into .blend";
+  ot->name = "Pack Resources";
   ot->idname = "FILE_OT_pack_all";
-  ot->description = "Pack all used external files into the .blend";
+  ot->description = "Pack all used external files into this .blend";
 
   /* api callbacks */
   ot->exec = pack_all_exec;
@@ -191,7 +190,11 @@ void FILE_OT_pack_all(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-/********************* unpack all operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Unpack All Operator
+ * \{ */
 
 static const EnumPropertyItem unpack_all_method_items[] = {
     {PF_USE_LOCAL, "USE_LOCAL", 0, "Use files in current directory (create when necessary)", ""},
@@ -210,7 +213,7 @@ static const EnumPropertyItem unpack_all_method_items[] = {
      0,
      "Write files to original location (overwrite existing files)",
      ""},
-    {PF_KEEP, "KEEP", 0, "Disable Auto-pack, keep all packed files", ""},
+    {PF_KEEP, "KEEP", 0, "Disable auto-pack, keep all packed files", ""},
     {PF_REMOVE, "REMOVE", 0, "Remove Pack", ""},
     /* {PF_ASK, "ASK", 0, "Ask for each file", ""}, */
     {0, NULL, 0, NULL, NULL},
@@ -266,7 +269,7 @@ static int unpack_all_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(
 void FILE_OT_unpack_all(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Unpack All Into Files";
+  ot->name = "Unpack Resources";
   ot->idname = "FILE_OT_unpack_all";
   ot->description = "Unpack all files packed into this .blend to external ones";
 
@@ -282,7 +285,11 @@ void FILE_OT_unpack_all(wmOperatorType *ot)
       ot->srna, "method", unpack_all_method_items, PF_USE_LOCAL, "Method", "How to unpack");
 }
 
-/********************* unpack single item operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Unpack Single Item Operator
+ * \{ */
 
 static const EnumPropertyItem unpack_item_method_items[] = {
     {PF_USE_LOCAL, "USE_LOCAL", 0, "Use file from current directory (create when necessary)", ""},
@@ -364,7 +371,7 @@ void FILE_OT_unpack_item(wmOperatorType *ot)
   RNA_def_enum(
       ot->srna, "method", unpack_item_method_items, PF_USE_LOCAL, "Method", "How to unpack");
   RNA_def_string(
-      ot->srna, "id_name", NULL, BKE_ST_MAXNAME, "ID name", "Name of ID block to unpack");
+      ot->srna, "id_name", NULL, BKE_ST_MAXNAME, "ID Name", "Name of ID block to unpack");
   RNA_def_int(ot->srna,
               "id_type",
               ID_IM,
@@ -376,18 +383,23 @@ void FILE_OT_unpack_item(wmOperatorType *ot)
               INT_MAX);
 }
 
-/********************* make paths relative operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Make Paths Relative Operator
+ * \{ */
 
 static int make_paths_relative_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
+  const char *blendfile_path = BKE_main_blendfile_path(bmain);
 
-  if (!G.relbase_valid) {
+  if (blendfile_path[0] == '\0') {
     BKE_report(op->reports, RPT_WARNING, "Cannot set relative paths with an unsaved blend file");
     return OPERATOR_CANCELLED;
   }
 
-  BKE_bpath_relative_convert(bmain, BKE_main_blendfile_path(bmain), op->reports);
+  BKE_bpath_relative_convert(bmain, blendfile_path, op->reports);
 
   /* redraw everything so any changed paths register */
   WM_main_add_notifier(NC_WINDOW, NULL);
@@ -398,7 +410,7 @@ static int make_paths_relative_exec(bContext *C, wmOperator *op)
 void FILE_OT_make_paths_relative(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Make All Paths Relative";
+  ot->name = "Make Paths Relative";
   ot->idname = "FILE_OT_make_paths_relative";
   ot->description = "Make all paths to external files relative to current .blend";
 
@@ -409,18 +421,23 @@ void FILE_OT_make_paths_relative(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-/********************* make paths absolute operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Make Paths Absolute Operator
+ * \{ */
 
 static int make_paths_absolute_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
+  const char *blendfile_path = BKE_main_blendfile_path(bmain);
 
-  if (!G.relbase_valid) {
+  if (blendfile_path[0] == '\0') {
     BKE_report(op->reports, RPT_WARNING, "Cannot set absolute paths with an unsaved blend file");
     return OPERATOR_CANCELLED;
   }
 
-  BKE_bpath_absolute_convert(bmain, BKE_main_blendfile_path(bmain), op->reports);
+  BKE_bpath_absolute_convert(bmain, blendfile_path, op->reports);
 
   /* redraw everything so any changed paths register */
   WM_main_add_notifier(NC_WINDOW, NULL);
@@ -431,7 +448,7 @@ static int make_paths_absolute_exec(bContext *C, wmOperator *op)
 void FILE_OT_make_paths_absolute(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Make All Paths Absolute";
+  ot->name = "Make Paths Absolute";
   ot->idname = "FILE_OT_make_paths_absolute";
   ot->description = "Make all paths to external files absolute";
 
@@ -442,7 +459,11 @@ void FILE_OT_make_paths_absolute(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-/********************* report missing files operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Report Missing Files Operator
+ * \{ */
 
 static int report_missing_files_exec(bContext *C, wmOperator *op)
 {
@@ -468,12 +489,16 @@ void FILE_OT_report_missing_files(wmOperatorType *ot)
   ot->flag = 0; /* only reports so no need to undo/register */
 }
 
-/********************* find missing files operator *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Find Missing Files Operator
+ * \{ */
 
 static int find_missing_files_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
-  const char *searchpath = RNA_string_get_alloc(op->ptr, "directory", NULL, 0);
+  const char *searchpath = RNA_string_get_alloc(op->ptr, "directory", NULL, 0, NULL);
   const bool find_all = RNA_boolean_get(op->ptr, "find_all");
 
   BKE_bpath_missing_files_find(bmain, searchpath, op->reports, find_all);
@@ -516,17 +541,20 @@ void FILE_OT_find_missing_files(wmOperatorType *ot)
                                  FILE_OPENFILE,
                                  WM_FILESEL_DIRECTORY,
                                  FILE_DEFAULTDISPLAY,
-                                 FILE_SORT_ALPHA);
+                                 FILE_SORT_DEFAULT);
 }
 
-/********************* report box operator *********************/
+/** \} */
 
-/* Hard to decide whether to keep this as an operator,
- * or turn it into a hardcoded ui control feature,
- * handling TIMER events for all regions in interface_handlers.c
+/* -------------------------------------------------------------------- */
+/** \name Report Box Operator
+ * \{ */
+
+/* NOTE(@broken): Hard to decide whether to keep this as an operator,
+ * or turn it into a hard_coded UI control feature,
+ * handling TIMER events for all regions in `interface_handlers.c`.
  * Not sure how good that is to be accessing UI data from
- * inactive regions, so use this for now. --matt
- */
+ * inactive regions, so use this for now. */
 
 #define INFO_TIMEOUT 5.0f
 #define ERROR_TIMEOUT 10.0f
@@ -567,15 +595,7 @@ static int update_reports_display_invoke(bContext *C, wmOperator *UNUSED(op), co
   }
 
   /* set target color based on report type */
-  if (report->type & RPT_ERROR_ALL) {
-    UI_GetThemeColorType3fv(TH_INFO_ERROR, SPACE_INFO, target_col);
-  }
-  else if (report->type & RPT_WARNING_ALL) {
-    UI_GetThemeColorType3fv(TH_INFO_WARNING, SPACE_INFO, target_col);
-  }
-  else if (report->type & RPT_INFO_ALL) {
-    UI_GetThemeColorType3fv(TH_INFO_INFO, SPACE_INFO, target_col);
-  }
+  UI_GetThemeColorType3fv(UI_icon_colorid_from_report_type(report->type), SPACE_INFO, target_col);
   target_col[3] = 0.65f;
 
   if (rti->widthfac == 0.0f) {
@@ -632,3 +652,5 @@ void INFO_OT_reports_display_update(wmOperatorType *ot)
 }
 
 /* report operators */
+
+/** \} */

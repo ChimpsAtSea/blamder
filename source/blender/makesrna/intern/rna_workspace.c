@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -44,6 +30,9 @@
 #  include "DNA_object_types.h"
 #  include "DNA_screen_types.h"
 #  include "DNA_space_types.h"
+
+#  include "ED_asset.h"
+#  include "ED_paint.h"
 
 #  include "RNA_access.h"
 
@@ -105,6 +94,18 @@ static void rna_WorkSpace_owner_ids_clear(WorkSpace *workspace)
 {
   BLI_freelistN(&workspace->owner_ids);
   WM_main_add_notifier(NC_OBJECT | ND_MODIFIER | NA_REMOVED, workspace);
+}
+
+static int rna_WorkSpace_asset_library_get(PointerRNA *ptr)
+{
+  const WorkSpace *workspace = ptr->data;
+  return ED_asset_library_reference_to_enum_value(&workspace->asset_library_ref);
+}
+
+static void rna_WorkSpace_asset_library_set(PointerRNA *ptr, int value)
+{
+  WorkSpace *workspace = ptr->data;
+  workspace->asset_library_ref = ED_asset_library_reference_from_enum_value(value);
 }
 
 static bToolRef *rna_WorkSpace_tools_from_tkey(WorkSpace *workspace,
@@ -178,6 +179,12 @@ const EnumPropertyItem *rna_WorkSpace_tools_mode_itemf(bContext *UNUSED(C),
       return rna_enum_space_sequencer_view_type_items;
   }
   return DummyRNA_DEFAULT_items;
+}
+
+static bool rna_WorkSpaceTool_use_paint_canvas_get(PointerRNA *ptr)
+{
+  bToolRef *tref = ptr->data;
+  return ED_paint_tool_use_canvas(NULL, tref);
 }
 
 static int rna_WorkSpaceTool_index_get(PointerRNA *ptr)
@@ -272,7 +279,6 @@ static void rna_def_workspace_tool(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "idname_fallback", PROP_STRING, PROP_NONE);
   RNA_def_property_ui_text(prop, "Identifier Fallback", "");
-  RNA_def_struct_name_property(srna, prop);
 
   prop = RNA_def_property(srna, "index", PROP_INT, PROP_NONE);
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
@@ -292,10 +298,16 @@ static void rna_def_workspace_tool(BlenderRNA *brna)
   RNA_def_property_ui_text(prop, "Tool Mode", "");
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
 
+  prop = RNA_def_property(srna, "use_paint_canvas", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_ui_text(prop, "Index", "");
+  RNA_def_property_boolean_funcs(prop, "rna_WorkSpaceTool_use_paint_canvas_get", NULL);
+  RNA_def_property_ui_text(prop, "Use Paint Canvas", "Does this tool use an painting canvas");
+
   RNA_define_verify_sdna(0);
   prop = RNA_def_property(srna, "has_datablock", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
-  RNA_def_property_ui_text(prop, "Has Datablock", "");
+  RNA_def_property_ui_text(prop, "Has Data-Block", "");
   RNA_def_property_boolean_funcs(prop, "rna_WorkSpaceTool_has_datablock_get", NULL);
   RNA_define_verify_sdna(1);
 
@@ -401,12 +413,28 @@ static void rna_def_workspace(BlenderRNA *brna)
   RNA_def_property_ui_text(
       prop, "Object Mode", "Switch to this object mode when activating the workspace");
 
+  prop = RNA_def_property(srna, "use_pin_scene", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, NULL, "flags", WORKSPACE_USE_PIN_SCENE);
+  RNA_def_property_ui_text(prop,
+                           "Pin Scene",
+                           "Remember the last used scene for the workspace and switch to it "
+                           "whenever this workspace is activated again");
+  RNA_def_property_update(prop, NC_WORKSPACE, NULL);
+
   /* Flags */
   prop = RNA_def_property(srna, "use_filter_by_owner", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
   RNA_def_property_boolean_sdna(prop, NULL, "flags", WORKSPACE_USE_FILTER_BY_ORIGIN);
   RNA_def_property_ui_text(prop, "Use UI Tags", "Filter the UI by tags");
   RNA_def_property_update(prop, 0, "rna_window_update_all");
+
+  prop = rna_def_asset_library_reference_common(
+      srna, "rna_WorkSpace_asset_library_get", "rna_WorkSpace_asset_library_set");
+  RNA_def_property_ui_text(prop,
+                           "Asset Library",
+                           "Active asset library to show in the UI, not used by the Asset Browser "
+                           "(which has its own active asset library)");
+  RNA_def_property_update(prop, NC_ASSET | ND_ASSET_LIST_READING, NULL);
 
   RNA_api_workspace(srna);
 }

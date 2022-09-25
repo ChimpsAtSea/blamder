@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -30,7 +16,7 @@
 
 #include "BLT_translation.h"
 
-#include "BKE_font.h"
+#include "BKE_vfont.h"
 
 #include "RNA_access.h"
 #include "RNA_define.h"
@@ -75,9 +61,14 @@ const EnumPropertyItem rna_enum_keyframe_handle_type_items[] = {
     {0, NULL, 0, NULL, NULL},
 };
 
+/**
+ * \note this is a near exact duplicate of `gpencil_interpolation_type_items`,
+ * Changes here will likely apply there too.
+ */
 const EnumPropertyItem rna_enum_beztriple_interpolation_mode_items[] = {
-    /* interpolation */
-    {0, "", 0, N_("Interpolation"), "Standard transitions between keyframes"},
+    /* Interpolation. */
+    RNA_ENUM_ITEM_HEADING(CTX_N_(BLT_I18NCONTEXT_ID_ACTION, "Interpolation"),
+                          N_("Standard transitions between keyframes")),
     {BEZT_IPO_CONST,
      "CONSTANT",
      ICON_IPO_CONSTANT,
@@ -94,13 +85,10 @@ const EnumPropertyItem rna_enum_beztriple_interpolation_mode_items[] = {
      "Bezier",
      "Smooth interpolation between A and B, with some control over curve shape"},
 
-    /* easing */
-    {0,
-     "",
-     0,
-     N_("Easing (by strength)"),
-     "Predefined inertial transitions, useful for motion graphics (from least to most "
-     "''dramatic'')"},
+    /* Easing. */
+    RNA_ENUM_ITEM_HEADING(CTX_N_(BLT_I18NCONTEXT_ID_ACTION, "Easing (by strength)"),
+                          N_("Predefined inertial transitions, useful for motion graphics "
+                             "(from least to most \"dramatic\")")),
     {BEZT_IPO_SINE,
      "SINE",
      ICON_IPO_SINE,
@@ -117,7 +105,8 @@ const EnumPropertyItem rna_enum_beztriple_interpolation_mode_items[] = {
      "Circular",
      "Circular easing (strongest and most dynamic)"},
 
-    {0, "", 0, N_("Dynamic Effects"), "Simple physics-inspired easing effects"},
+    RNA_ENUM_ITEM_HEADING(CTX_N_(BLT_I18NCONTEXT_ID_ACTION, "Dynamic Effects"),
+                          N_("Simple physics-inspired easing effects")),
     {BEZT_IPO_BACK, "BACK", ICON_IPO_BACK, "Back", "Cubic easing with overshoot and settle"},
     {BEZT_IPO_BOUNCE,
      "BOUNCE",
@@ -137,8 +126,6 @@ const EnumPropertyItem rna_enum_beztriple_interpolation_mode_items[] = {
 static const EnumPropertyItem curve_type_items[] = {
     {CU_POLY, "POLY", 0, "Poly", ""},
     {CU_BEZIER, "BEZIER", 0, "Bezier", ""},
-    {CU_BSPLINE, "BSPLINE", 0, "BSpline", ""},
-    {CU_CARDINAL, "CARDINAL", 0, "Cardinal", ""},
     {CU_NURBS, "NURBS", 0, "Ease", ""},
     {0, NULL, 0, NULL, NULL},
 };
@@ -167,6 +154,7 @@ static const EnumPropertyItem curve2d_fill_mode_items[] = {
 #  include "DNA_object_types.h"
 
 #  include "BKE_curve.h"
+#  include "BKE_curveprofile.h"
 #  include "BKE_main.h"
 
 #  include "DEG_depsgraph.h"
@@ -178,7 +166,7 @@ static const EnumPropertyItem curve2d_fill_mode_items[] = {
 
 #  include "ED_curve.h" /* for BKE_curve_nurbs_get */
 
-/* highly irritating but from RNA we cant know this */
+/* highly irritating but from RNA we can't know this */
 static Nurb *curve_nurb_from_point(Curve *cu, const void *point, int *nu_index, int *pt_index)
 {
   ListBase *nurbs = BKE_curve_nurbs_get(cu);
@@ -352,9 +340,8 @@ static void rna_Curve_dimension_set(PointerRNA *ptr, int value)
   }
   else {
     cu->flag &= ~CU_3D;
+    BKE_curve_dimension_update(cu);
   }
-
-  BKE_curve_curve_dimension_update(cu);
 }
 
 static const EnumPropertyItem *rna_Curve_fill_mode_itemf(bContext *UNUSED(C),
@@ -451,9 +438,9 @@ static void rna_Curve_bevelObject_set(PointerRNA *ptr,
   Object *ob = (Object *)value.data;
 
   if (ob) {
-    /* if bevel object has got the save curve, as object, for which it's */
-    /* set as bevobj, there could be infinity loop in displist calculation */
-    if (ob->type == OB_CURVE && ob->data != cu) {
+    /* If bevel object has got the save curve, as object, for which it's set as bevobj,
+     * there could be infinity loop in #DispList calculation. */
+    if (ob->type == OB_CURVES_LEGACY && ob->data != cu) {
       cu->bevobj = ob;
       id_lib_extern((ID *)ob);
     }
@@ -463,13 +450,42 @@ static void rna_Curve_bevelObject_set(PointerRNA *ptr,
   }
 }
 
+/**
+ * Special update function for setting the number of segments of the curve
+ * that also resamples the segments in the custom profile.
+ */
+static void rna_Curve_bevel_resolution_update(Main *bmain, Scene *scene, PointerRNA *ptr)
+{
+  Curve *cu = (Curve *)ptr->data;
+
+  if (cu->bevel_mode == CU_BEV_MODE_CURVE_PROFILE) {
+    BKE_curveprofile_init(cu->bevel_profile, cu->bevresol + 1);
+  }
+
+  rna_Curve_update_data(bmain, scene, ptr);
+}
+
+static void rna_Curve_bevel_mode_set(PointerRNA *ptr, int value)
+{
+  Curve *cu = (Curve *)ptr->owner_id;
+
+  if (value == CU_BEV_MODE_CURVE_PROFILE) {
+    if (cu->bevel_profile == NULL) {
+      cu->bevel_profile = BKE_curveprofile_add(PROF_PRESET_LINE);
+      BKE_curveprofile_init(cu->bevel_profile, cu->bevresol + 1);
+    }
+  }
+
+  cu->bevel_mode = value;
+}
+
 static bool rna_Curve_otherObject_poll(PointerRNA *ptr, PointerRNA value)
 {
   Curve *cu = (Curve *)ptr->owner_id;
   Object *ob = (Object *)value.data;
 
   if (ob) {
-    if (ob->type == OB_CURVE && ob->data != cu) {
+    if (ob->type == OB_CURVES_LEGACY && ob->data != cu) {
       return 1;
     }
   }
@@ -497,9 +513,9 @@ static void rna_Curve_taperObject_set(PointerRNA *ptr,
   Object *ob = (Object *)value.data;
 
   if (ob) {
-    /* if taper object has got the save curve, as object, for which it's */
-    /* set as bevobj, there could be infinity loop in displist calculation */
-    if (ob->type == OB_CURVE && ob->data != cu) {
+    /* If taper object has got the save curve, as object, for which it's set as bevobj,
+     * there could be infinity loop in #DispList calculation. */
+    if (ob->type == OB_CURVES_LEGACY && ob->data != cu) {
       cu->taperobj = ob;
       id_lib_extern((ID *)ob);
     }
@@ -513,11 +529,9 @@ static void rna_Curve_resolution_u_update_data(Main *bmain, Scene *scene, Pointe
 {
   Curve *cu = (Curve *)ptr->owner_id;
   ListBase *nurbs = BKE_curve_nurbs_get(cu);
-  Nurb *nu = nurbs->first;
 
-  while (nu) {
+  LISTBASE_FOREACH (Nurb *, nu, nurbs) {
     nu->resolu = cu->resolu;
-    nu = nu->next;
   }
 
   rna_Curve_update_data(bmain, scene, ptr);
@@ -527,11 +541,9 @@ static void rna_Curve_resolution_v_update_data(Main *bmain, Scene *scene, Pointe
 {
   Curve *cu = (Curve *)ptr->owner_id;
   ListBase *nurbs = BKE_curve_nurbs_get(cu);
-  Nurb *nu = nurbs->first;
 
-  while (nu) {
+  LISTBASE_FOREACH (Nurb *, nu, nurbs) {
     nu->resolv = cu->resolv;
-    nu = nu->next;
   }
 
   rna_Curve_update_data(bmain, scene, ptr);
@@ -540,13 +552,13 @@ static void rna_Curve_resolution_v_update_data(Main *bmain, Scene *scene, Pointe
 static float rna_Curve_offset_get(PointerRNA *ptr)
 {
   Curve *cu = (Curve *)ptr->owner_id;
-  return cu->width - 1.0f;
+  return cu->offset - 1.0f;
 }
 
 static void rna_Curve_offset_set(PointerRNA *ptr, float value)
 {
   Curve *cu = (Curve *)ptr->owner_id;
-  cu->width = 1.0f + value;
+  cu->offset = 1.0f + value;
 }
 
 static int rna_Curve_body_length(PointerRNA *ptr);
@@ -562,7 +574,7 @@ static int rna_Curve_body_length(PointerRNA *ptr)
   return cu->len;
 }
 
-/* TODO, how to handle editmode? */
+/* TODO: how to handle editmode? */
 static void rna_Curve_body_set(PointerRNA *ptr, const char *value)
 {
   size_t len_bytes;
@@ -570,7 +582,7 @@ static void rna_Curve_body_set(PointerRNA *ptr, const char *value)
 
   Curve *cu = (Curve *)ptr->owner_id;
 
-  cu->len_wchar = len_chars;
+  cu->len_char32 = len_chars;
   cu->len = len_bytes;
   cu->pos = len_chars;
 
@@ -687,12 +699,9 @@ static Nurb *rna_Curve_spline_new(Curve *cu, int type)
   nu->pntsv = 1;
 
   nu->orderu = nu->orderv = 4;
-  nu->resolu = nu->resolv = 12;
+  nu->resolu = cu->resolu;
+  nu->resolv = cu->resolv;
   nu->flag = CU_SMOOTH;
-
-  if ((cu->flag & CU_3D) == 0) {
-    nu->flag |= CU_2D;
-  }
 
   BLI_addtail(BKE_curve_nurbs_get(cu), nu);
 
@@ -760,7 +769,7 @@ static void rna_Curve_active_spline_set(PointerRNA *ptr,
   }
 }
 
-static char *rna_Curve_spline_path(PointerRNA *ptr)
+static char *rna_Curve_spline_path(const PointerRNA *ptr)
 {
   Curve *cu = (Curve *)ptr->owner_id;
   ListBase *nubase = BKE_curve_nurbs_get(cu);
@@ -776,7 +785,7 @@ static char *rna_Curve_spline_path(PointerRNA *ptr)
 }
 
 /* use for both bezier and nurbs */
-static char *rna_Curve_spline_point_path(PointerRNA *ptr)
+static char *rna_Curve_spline_point_path(const PointerRNA *ptr)
 {
   Curve *cu = (Curve *)ptr->owner_id;
   Nurb *nu;
@@ -798,10 +807,10 @@ static char *rna_Curve_spline_point_path(PointerRNA *ptr)
   }
 }
 
-static char *rna_TextBox_path(PointerRNA *ptr)
+static char *rna_TextBox_path(const PointerRNA *ptr)
 {
-  Curve *cu = (Curve *)ptr->owner_id;
-  TextBox *tb = ptr->data;
+  const Curve *cu = (Curve *)ptr->owner_id;
+  const TextBox *tb = ptr->data;
   int index = (int)(tb - cu->tb);
 
   if (index >= 0 && index < cu->totbox) {
@@ -845,7 +854,7 @@ static void rna_def_bpoint(BlenderRNA *brna)
 
   /* Boolean values */
   prop = RNA_def_property(srna, "select", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, NULL, "f1", 0);
+  RNA_def_property_boolean_sdna(prop, NULL, "f1", SELECT);
   RNA_def_property_ui_text(prop, "Select", "Selection status");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
@@ -900,17 +909,17 @@ static void rna_def_beztriple(BlenderRNA *brna)
 
   /* Boolean values */
   prop = RNA_def_property(srna, "select_left_handle", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, NULL, "f1", 0);
+  RNA_def_property_boolean_sdna(prop, NULL, "f1", SELECT);
   RNA_def_property_ui_text(prop, "Handle 1 selected", "Handle 1 selection status");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "select_right_handle", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, NULL, "f3", 0);
+  RNA_def_property_boolean_sdna(prop, NULL, "f3", SELECT);
   RNA_def_property_ui_text(prop, "Handle 2 selected", "Handle 2 selection status");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "select_control_point", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, NULL, "f2", 0);
+  RNA_def_property_boolean_sdna(prop, NULL, "f2", SELECT);
   RNA_def_property_ui_text(prop, "Control Point selected", "Control point selection status");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
@@ -1002,6 +1011,14 @@ static void rna_def_path(BlenderRNA *UNUSED(brna), StructRNA *srna)
   prop = RNA_def_property(srna, "use_path_follow", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flag", CU_FOLLOW);
   RNA_def_property_ui_text(prop, "Follow", "Make curve path children to rotate along the path");
+  RNA_def_property_update(prop, 0, "rna_Curve_update_data");
+
+  prop = RNA_def_property(srna, "use_path_clamp", PROP_BOOLEAN, PROP_NONE);
+  RNA_def_property_boolean_sdna(prop, NULL, "flag", CU_PATH_CLAMP);
+  RNA_def_property_ui_text(
+      prop,
+      "Clamp",
+      "Clamp the curve path children so they can't travel past the start/end point of the curve");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "use_stretch", PROP_BOOLEAN, PROP_NONE);
@@ -1115,7 +1132,7 @@ static void rna_def_font(BlenderRNA *UNUSED(brna), StructRNA *srna)
   RNA_def_property_float_sdna(prop, NULL, "fsize");
   RNA_def_property_range(prop, 0.0001f, 10000.0f);
   RNA_def_property_ui_range(prop, 0.01, 10, 1, 3);
-  RNA_def_property_ui_text(prop, "Font size", "");
+  RNA_def_property_ui_text(prop, "Font Size", "");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "small_caps_scale", PROP_FLOAT, PROP_NONE);
@@ -1181,7 +1198,7 @@ static void rna_def_font(BlenderRNA *UNUSED(brna), StructRNA *srna)
 
   prop = RNA_def_property(srna, "active_textbox", PROP_INT, PROP_NONE);
   RNA_def_property_int_sdna(prop, NULL, "actbox");
-  RNA_def_property_ui_text(prop, "The active text box", "");
+  RNA_def_property_ui_text(prop, "Active Text Box", "");
   RNA_def_property_int_funcs(prop, NULL, NULL, "rna_Curve_active_textbox_index_range");
 
   /* strings */
@@ -1190,9 +1207,9 @@ static void rna_def_font(BlenderRNA *UNUSED(brna), StructRNA *srna)
   RNA_def_property_ui_text(
       prop,
       "Object Font",
-      "Use Objects as font characters (give font objects a common name "
+      "Use objects as font characters (give font objects a common name "
       "followed by the character they represent, eg. 'family-a', 'family-b', etc, "
-      "set this setting to 'family-', and turn on Vertex Duplication)");
+      "set this setting to 'family-', and turn on Vertex Instancing)");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "body", PROP_STRING, PROP_NONE);
@@ -1205,7 +1222,7 @@ static void rna_def_font(BlenderRNA *UNUSED(brna), StructRNA *srna)
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "body_format", PROP_COLLECTION, PROP_NONE);
-  RNA_def_property_collection_sdna(prop, NULL, "strinfo", "len_wchar");
+  RNA_def_property_collection_sdna(prop, NULL, "strinfo", "len_char32");
   RNA_def_property_struct_type(prop, "TextCharacterFormat");
   RNA_def_property_ui_text(prop, "Character Info", "Stores the style of each character");
 
@@ -1342,7 +1359,7 @@ static void rna_def_charinfo(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "material_index", PROP_INT, PROP_UNSIGNED);
   // RNA_def_property_int_sdna(prop, NULL, "mat_nr");
-  RNA_def_property_ui_text(prop, "Material Index", "");
+  RNA_def_property_ui_text(prop, "Material Index", "Material slot index of this character");
   RNA_def_property_int_funcs(prop,
                              "rna_ChariInfo_material_index_get",
                              "rna_ChariInfo_material_index_set",
@@ -1384,7 +1401,7 @@ static void rna_def_text(BlenderRNA *brna)
 static void rna_def_curve_spline_points(BlenderRNA *brna, PropertyRNA *cprop)
 {
   StructRNA *srna;
-  /*PropertyRNA *prop; */
+  // PropertyRNA *prop;
 
   FunctionRNA *func;
   PropertyRNA *parm;
@@ -1414,7 +1431,7 @@ static void rna_def_curve_spline_points(BlenderRNA *brna, PropertyRNA *cprop)
 static void rna_def_curve_spline_bezpoints(BlenderRNA *brna, PropertyRNA *cprop)
 {
   StructRNA *srna;
-  /*PropertyRNA *prop; */
+  // PropertyRNA *prop;
 
   FunctionRNA *func;
   PropertyRNA *parm;
@@ -1511,18 +1528,56 @@ static void rna_def_curve(BlenderRNA *brna)
        "RESOLUTION",
        0,
        "Resolution",
-       "Map the bevel factor to the number of subdivisions of a spline (U resolution)"},
+       "Map the geometry factor to the number of subdivisions of a spline (U resolution)"},
       {CU_BEVFAC_MAP_SEGMENT,
        "SEGMENTS",
        0,
        "Segments",
-       "Map the bevel factor to the length of a segment and to the number of subdivisions of a "
+       "Map the geometry factor to the length of a segment and to the number of subdivisions of a "
        "segment"},
       {CU_BEVFAC_MAP_SPLINE,
        "SPLINE",
        0,
        "Spline",
-       "Map the bevel factor to the length of a spline"},
+       "Map the geometry factor to the length of a spline"},
+      {0, NULL, 0, NULL, NULL},
+  };
+
+  static const EnumPropertyItem bevel_mode_items[] = {
+      {CU_BEV_MODE_ROUND,
+       "ROUND",
+       0,
+       "Round",
+       "Use circle for the section of the curve's bevel geometry"},
+      {CU_BEV_MODE_OBJECT,
+       "OBJECT",
+       0,
+       "Object",
+       "Use an object for the section of the curve's bevel geometry segment"},
+      {CU_BEV_MODE_CURVE_PROFILE,
+       "PROFILE",
+       0,
+       "Profile",
+       "Use a custom profile for each quarter of curve's bevel geometry"},
+      {0, NULL, 0, NULL, NULL},
+  };
+
+  static const EnumPropertyItem curve_taper_radius_mode_items[] = {
+      {CU_TAPER_RADIUS_OVERRIDE,
+       "OVERRIDE",
+       0,
+       "Override",
+       "Override the radius of the spline point with the taper radius"},
+      {CU_TAPER_RADIUS_MULTIPLY,
+       "MULTIPLY",
+       0,
+       "Multiply",
+       "Multiply the radius of the spline point by the taper radius"},
+      {CU_TAPER_RADIUS_ADD,
+       "ADD",
+       0,
+       "Add",
+       "Add the radius of the bevel point to the taper radius"},
       {0, NULL, 0, NULL, NULL},
   };
 
@@ -1533,6 +1588,8 @@ static void rna_def_curve(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "shape_keys", PROP_POINTER, PROP_NONE);
   RNA_def_property_pointer_sdna(prop, NULL, "key");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_clear_flag(prop, PROP_PTR_NO_OWNERSHIP);
   RNA_def_property_ui_text(prop, "Shape Keys", "");
 
   prop = RNA_def_property(srna, "splines", PROP_COLLECTION, PROP_NONE);
@@ -1556,36 +1613,53 @@ static void rna_def_curve(BlenderRNA *brna)
 
   rna_def_path(brna, srna);
 
+  prop = RNA_def_property(srna, "bevel_mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, NULL, "bevel_mode");
+  RNA_def_property_enum_items(prop, bevel_mode_items);
+  RNA_def_property_ui_text(
+      prop, "Bevel Mode", "Determine how to build the curve's bevel geometry");
+  RNA_def_property_enum_funcs(prop, NULL, "rna_Curve_bevel_mode_set", NULL);
+  /* Use this update function so the curve profile is properly initialized when
+   * switching back to "Profile" mode after changing the resolution. */
+  RNA_def_property_update(prop, 0, "rna_Curve_bevel_resolution_update");
+
+  prop = RNA_def_property(srna, "bevel_profile", PROP_POINTER, PROP_NONE);
+  RNA_def_property_struct_type(prop, "CurveProfile");
+  RNA_def_property_pointer_sdna(prop, NULL, "bevel_profile");
+  RNA_def_property_ui_text(prop, "Custom Profile Path", "The path for the curve's custom profile");
+  RNA_def_property_update(prop, 0, "rna_Curve_update_data");
+
   /* Number values */
   prop = RNA_def_property(srna, "bevel_resolution", PROP_INT, PROP_NONE);
   RNA_def_property_int_sdna(prop, NULL, "bevresol");
   RNA_def_property_range(prop, 0, 32);
   RNA_def_property_ui_range(prop, 0, 32, 1.0, -1);
   RNA_def_property_ui_text(
-      prop,
-      "Bevel Resolution",
-      "Bevel resolution when depth is non-zero and no specific bevel object has been defined");
-  RNA_def_property_update(prop, 0, "rna_Curve_update_data");
+      prop, "Bevel Resolution", "The number of segments in each quarter-circle of the bevel");
+  RNA_def_property_update(prop, 0, "rna_Curve_bevel_resolution_update");
 
   prop = RNA_def_property(srna, "offset", PROP_FLOAT, PROP_NONE | PROP_UNIT_LENGTH);
-  RNA_def_property_float_sdna(prop, NULL, "width");
+  RNA_def_property_float_sdna(prop, NULL, "offset");
   RNA_def_property_ui_range(prop, -1.0, 1.0, 0.1, 3);
   RNA_def_property_float_funcs(prop, "rna_Curve_offset_get", "rna_Curve_offset_set", NULL);
-  RNA_def_property_ui_text(prop, "Offset", "Offset the curve to adjust the width of a text");
+  RNA_def_property_ui_text(prop, "Offset", "Distance to move the curve parallel to its normals");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "extrude", PROP_FLOAT, PROP_NONE | PROP_UNIT_LENGTH);
-  RNA_def_property_float_sdna(prop, NULL, "ext1");
+  RNA_def_property_float_sdna(prop, NULL, "extrude");
   RNA_def_property_ui_range(prop, 0, 100.0, 0.1, 3);
   RNA_def_property_range(prop, 0.0, FLT_MAX);
-  RNA_def_property_ui_text(
-      prop, "Extrude", "Amount of curve extrusion when not using a bevel object");
+  RNA_def_property_ui_text(prop,
+                           "Extrude",
+                           "Length of the depth added in the local Z direction along the curve, "
+                           "perpendicular to its normals");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "bevel_depth", PROP_FLOAT, PROP_NONE | PROP_UNIT_LENGTH);
-  RNA_def_property_float_sdna(prop, NULL, "ext2");
+  RNA_def_property_float_sdna(prop, NULL, "bevel_radius");
   RNA_def_property_ui_range(prop, 0, 100.0, 0.1, 3);
-  RNA_def_property_ui_text(prop, "Bevel Depth", "Bevel depth when not using a bevel object");
+  RNA_def_property_ui_text(
+      prop, "Bevel Depth", "Radius of the bevel geometry, not including extrusion");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "resolution_u", PROP_INT, PROP_NONE);
@@ -1593,7 +1667,10 @@ static void rna_def_curve(BlenderRNA *brna)
   RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
   RNA_def_property_range(prop, 1, 1024);
   RNA_def_property_ui_range(prop, 1, 64, 1, -1);
-  RNA_def_property_ui_text(prop, "Resolution U", "Surface resolution in U direction");
+  RNA_def_property_ui_text(
+      prop,
+      "Resolution U",
+      "Number of computed points in the U direction between every pair of control points");
   RNA_def_property_update(prop, 0, "rna_Curve_resolution_u_update_data");
 
   prop = RNA_def_property(srna, "resolution_v", PROP_INT, PROP_NONE);
@@ -1601,7 +1678,10 @@ static void rna_def_curve(BlenderRNA *brna)
   RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
   RNA_def_property_ui_range(prop, 1, 64, 1, -1);
   RNA_def_property_range(prop, 1, 1024);
-  RNA_def_property_ui_text(prop, "Resolution V", "Surface resolution in V direction");
+  RNA_def_property_ui_text(
+      prop,
+      "Resolution V",
+      "The number of computed points in the V direction between every pair of control points");
   RNA_def_property_update(prop, 0, "rna_Curve_resolution_v_update_data");
 
   prop = RNA_def_property(srna, "render_resolution_u", PROP_INT, PROP_NONE);
@@ -1637,7 +1717,8 @@ static void rna_def_curve(BlenderRNA *brna)
   RNA_def_property_pointer_sdna(prop, NULL, "bevobj");
   RNA_def_property_flag(prop, PROP_EDITABLE);
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
-  RNA_def_property_ui_text(prop, "Bevel Object", "Curve object name that defines the bevel shape");
+  RNA_def_property_ui_text(
+      prop, "Bevel Object", "The name of the Curve object that defines the bevel shape");
   RNA_def_property_update(prop, 0, "rna_Curve_update_deps");
   RNA_def_property_pointer_funcs(prop,
                                  "rna_Curve_bevelObject_get",
@@ -1681,31 +1762,34 @@ static void rna_def_curve(BlenderRNA *brna)
   RNA_def_property_ui_text(prop, "Twist Method", "The type of tilt calculation for 3D Curves");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
+  prop = RNA_def_property(srna, "taper_radius_mode", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, NULL, "taper_radius_mode");
+  RNA_def_property_enum_items(prop, curve_taper_radius_mode_items);
+  RNA_def_property_ui_text(prop,
+                           "Taper Radius",
+                           "Determine how the effective radius of the spline point is computed "
+                           "when a taper object is specified");
+  RNA_def_property_update(prop, 0, "rna_Curve_update_data");
+
   prop = RNA_def_property(srna, "bevel_factor_mapping_start", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_sdna(prop, NULL, "bevfac1_mapping");
   RNA_def_property_enum_items(prop, bevfac_mapping_items);
   RNA_def_property_ui_text(
-      prop, "Start Mapping Type", "Determines how the start bevel factor is mapped to a spline");
+      prop, "Start Mapping Type", "Determine how the geometry start factor is mapped to a spline");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "bevel_factor_mapping_end", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_sdna(prop, NULL, "bevfac2_mapping");
   RNA_def_property_enum_items(prop, bevfac_mapping_items);
   RNA_def_property_ui_text(
-      prop, "End Mapping Type", "Determines how the end bevel factor is mapped to a spline");
+      prop, "End Mapping Type", "Determine how the geometry end factor is mapped to a spline");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
-  /* XXX - would be nice to have a better way to do this, only add for testing. */
+  /* XXX: would be nice to have a better way to do this, only add for testing. */
   prop = RNA_def_property(srna, "twist_smooth", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, NULL, "twist_smooth");
   RNA_def_property_ui_range(prop, 0, 100.0, 1, 2);
   RNA_def_property_ui_text(prop, "Twist Smooth", "Smoothing iteration for tangents");
-  RNA_def_property_update(prop, 0, "rna_Curve_update_data");
-
-  prop = RNA_def_property(srna, "use_fill_deform", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, NULL, "flag", CU_DEFORM_FILL);
-  RNA_def_property_ui_text(
-      prop, "Fill Deformed", "Fill curve after applying shape keys and all modifiers");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "use_fill_caps", PROP_BOOLEAN, PROP_NONE);
@@ -1730,7 +1814,7 @@ static void rna_def_curve(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "texspace_location", PROP_FLOAT, PROP_TRANSLATION);
   RNA_def_property_array(prop, 3);
-  RNA_def_property_ui_text(prop, "Texture Space Location", "Texture space location");
+  RNA_def_property_ui_text(prop, "Texture Space Location", "");
   RNA_def_property_ui_range(prop, -FLT_MAX, FLT_MAX, 1, RNA_TRANSLATION_PREC_DEFAULT);
   RNA_def_property_editable_func(prop, "rna_Curve_texspace_editable");
   RNA_def_property_float_funcs(
@@ -1740,7 +1824,7 @@ static void rna_def_curve(BlenderRNA *brna)
   prop = RNA_def_property(srna, "texspace_size", PROP_FLOAT, PROP_XYZ);
   RNA_def_property_array(prop, 3);
   RNA_def_property_flag(prop, PROP_PROPORTIONAL);
-  RNA_def_property_ui_text(prop, "Texture Space Size", "Texture space size");
+  RNA_def_property_ui_text(prop, "Texture Space Size", "");
   RNA_def_property_editable_func(prop, "rna_Curve_texspace_editable");
   RNA_def_property_float_funcs(
       prop, "rna_Curve_texspace_size_get", "rna_Curve_texspace_size_set", NULL);
@@ -1759,18 +1843,18 @@ static void rna_def_curve(BlenderRNA *brna)
   RNA_def_property_float_sdna(prop, NULL, "bevfac1");
   RNA_def_property_range(prop, 0, 1.0);
   RNA_def_property_ui_text(prop,
-                           "Start Bevel Factor",
-                           "Factor that defines from where beveling of spline happens (0=from the "
-                           "very beginning, 1=from the very end)");
+                           "Geometry Start Factor",
+                           "Define where along the spline the curve geometry starts (0 for the "
+                           "beginning, 1 for the end)");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "bevel_factor_end", PROP_FLOAT, PROP_FACTOR);
   RNA_def_property_float_sdna(prop, NULL, "bevfac2");
   RNA_def_property_range(prop, 0, 1.0);
   RNA_def_property_ui_text(prop,
-                           "End Bevel Factor",
-                           "Factor that defines to where beveling of spline happens (0=to the "
-                           "very beginning, 1=to the very end)");
+                           "Geometry End Factor",
+                           "Define where along the spline the curve geometry ends (0 for the "
+                           "beginning, 1 for the end)");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "is_editmode", PROP_BOOLEAN, PROP_NONE);
@@ -1847,14 +1931,14 @@ static void rna_def_curve_nurb(BlenderRNA *brna)
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "point_count_u", PROP_INT, PROP_UNSIGNED);
-  RNA_def_property_clear_flag(prop, PROP_EDITABLE); /* editing this needs knot recalc*/
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE); /* Editing this needs knot recalc. */
   RNA_def_property_int_sdna(prop, NULL, "pntsu");
   RNA_def_property_ui_text(
       prop, "Points U", "Total number points for the curve or surface in the U direction");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "point_count_v", PROP_INT, PROP_UNSIGNED);
-  RNA_def_property_clear_flag(prop, PROP_EDITABLE); /* editing this needs knot recalc*/
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE); /* Editing this needs knot recalc. */
   RNA_def_property_int_sdna(prop, NULL, "pntsv");
   RNA_def_property_ui_text(
       prop, "Points V", "Total number points for the surface on the V direction");
@@ -1910,24 +1994,20 @@ static void rna_def_curve_nurb(BlenderRNA *brna)
   RNA_def_property_ui_text(prop, "Cyclic V", "Make this surface a closed loop in the V direction");
   RNA_def_property_update(prop, 0, "rna_Nurb_update_cyclic_v");
 
-  /* Note, endpoint and bezier flags should never be on at the same time! */
   prop = RNA_def_property(srna, "use_endpoint_u", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flagu", CU_NURB_ENDPOINT);
   RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
   RNA_def_property_ui_text(
       prop,
       "Endpoint U",
-      "Make this nurbs curve or surface meet the endpoints in the U direction "
-      "(Cyclic U must be disabled)");
+      "Make this nurbs curve or surface meet the endpoints in the U direction");
   RNA_def_property_update(prop, 0, "rna_Nurb_update_knot_u");
 
   prop = RNA_def_property(srna, "use_endpoint_v", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flagv", CU_NURB_ENDPOINT);
   RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
-  RNA_def_property_ui_text(prop,
-                           "Endpoint V",
-                           "Make this nurbs surface meet the endpoints in the V direction "
-                           "(Cyclic V must be disabled)");
+  RNA_def_property_ui_text(
+      prop, "Endpoint V", "Make this nurbs surface meet the endpoints in the V direction ");
   RNA_def_property_update(prop, 0, "rna_Nurb_update_knot_v");
 
   prop = RNA_def_property(srna, "use_bezier_u", PROP_BOOLEAN, PROP_NONE);
@@ -1936,17 +2016,14 @@ static void rna_def_curve_nurb(BlenderRNA *brna)
   RNA_def_property_ui_text(
       prop,
       "Bezier U",
-      "Make this nurbs curve or surface act like a Bezier spline in the U direction "
-      "(Order U must be 3 or 4, Cyclic U must be disabled)");
+      "Make this nurbs curve or surface act like a Bezier spline in the U direction");
   RNA_def_property_update(prop, 0, "rna_Nurb_update_knot_u");
 
   prop = RNA_def_property(srna, "use_bezier_v", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flagv", CU_NURB_BEZIER);
   RNA_def_property_clear_flag(prop, PROP_ANIMATABLE);
-  RNA_def_property_ui_text(prop,
-                           "Bezier V",
-                           "Make this nurbs surface act like a Bezier spline in the V direction "
-                           "(Order V must be 3 or 4, Cyclic V must be disabled)");
+  RNA_def_property_ui_text(
+      prop, "Bezier V", "Make this nurbs surface act like a Bezier spline in the V direction");
   RNA_def_property_update(prop, 0, "rna_Nurb_update_knot_v");
 
   prop = RNA_def_property(srna, "use_smooth", PROP_BOOLEAN, PROP_NONE);
@@ -1961,13 +2038,13 @@ static void rna_def_curve_nurb(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "material_index", PROP_INT, PROP_UNSIGNED);
   RNA_def_property_int_sdna(prop, NULL, "mat_nr");
-  RNA_def_property_ui_text(prop, "Material Index", "");
+  RNA_def_property_ui_text(prop, "Material Index", "Material slot index of this curve");
   RNA_def_property_int_funcs(prop, NULL, NULL, "rna_Curve_material_index_range");
   RNA_def_property_update(prop, 0, "rna_Curve_update_data");
 
   prop = RNA_def_property(srna, "character_index", PROP_INT, PROP_UNSIGNED);
   RNA_def_property_int_sdna(prop, NULL, "charidx");
-  RNA_def_property_clear_flag(prop, PROP_EDITABLE); /* editing this needs knot recalc*/
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE); /* Editing this needs knot recalc. */
   RNA_def_property_ui_text(prop,
                            "Character Index",
                            "Location of this character in the text data (only for text curves)");

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup spview3d
@@ -25,6 +11,7 @@
 #include "BKE_camera.h"
 #include "BKE_context.h"
 #include "BKE_layer.h"
+#include "BKE_lib_id.h"
 
 #include "DNA_camera_types.h"
 #include "DNA_object_types.h"
@@ -75,7 +62,7 @@ static bool WIDGETGROUP_camera_poll(const bContext *C, wmGizmoGroupType *UNUSED(
     if (ob->type == OB_CAMERA) {
       Camera *camera = ob->data;
       /* TODO: support overrides. */
-      if (camera->id.lib == NULL) {
+      if (BKE_id_is_editable(CTX_data_main(C), &camera->id)) {
         return true;
       }
     }
@@ -153,7 +140,7 @@ static void WIDGETGROUP_camera_refresh(const bContext *C, wmGizmoGroup *gzgroup)
     WM_gizmo_set_scale(cagzgroup->dop_dist, ca->drawsize);
     WM_gizmo_set_flag(cagzgroup->dop_dist, WM_GIZMO_HIDDEN, false);
 
-    /* Need to set property here for undo. TODO would prefer to do this in _init */
+    /* Need to set property here for undo. TODO: would prefer to do this in _init. */
     PointerRNA camera_dof_ptr;
     RNA_pointer_create(&ca->id, &RNA_CameraDOFSettings, &ca->dof, &camera_dof_ptr);
     WM_gizmo_target_property_def_rna(
@@ -163,7 +150,7 @@ static void WIDGETGROUP_camera_refresh(const bContext *C, wmGizmoGroup *gzgroup)
     WM_gizmo_set_flag(cagzgroup->dop_dist, WM_GIZMO_HIDDEN, true);
   }
 
-  /* TODO - make focal length/ortho ob_scale_inv widget optional */
+  /* TODO: make focal length/ortho ob_scale_inv widget optional. */
   const Scene *scene = CTX_data_scene(C);
   const float aspx = (float)scene->r.xsch * scene->r.xasp;
   const float aspy = (float)scene->r.ysch * scene->r.yasp;
@@ -242,7 +229,7 @@ static void WIDGETGROUP_camera_refresh(const bContext *C, wmGizmoGroup *gzgroup)
     WM_gizmo_target_property_def_rna_ptr(widget, gz_prop_type, &camera_ptr, prop, -1);
   }
 
-  /* This could be handled more elegently (split into two gizmo groups). */
+  /* This could be handled more elegantly (split into two gizmo groups). */
   if ((v3d->gizmo_show_camera & V3D_GIZMO_SHOW_CAMERA_LENS) == 0) {
     WM_gizmo_set_flag(cagzgroup->focal_len, WM_GIZMO_HIDDEN, true);
     WM_gizmo_set_flag(cagzgroup->ortho_scale, WM_GIZMO_HIDDEN, true);
@@ -265,16 +252,6 @@ static void WIDGETGROUP_camera_message_subscribe(const bContext *C,
   };
 
   {
-    extern PropertyRNA rna_CameraDOFSettings_focus_distance;
-    extern PropertyRNA rna_Camera_display_size;
-    extern PropertyRNA rna_Camera_ortho_scale;
-    extern PropertyRNA rna_Camera_sensor_fit;
-    extern PropertyRNA rna_Camera_sensor_width;
-    extern PropertyRNA rna_Camera_sensor_height;
-    extern PropertyRNA rna_Camera_shift_x;
-    extern PropertyRNA rna_Camera_shift_y;
-    extern PropertyRNA rna_Camera_type;
-    extern PropertyRNA rna_Camera_lens;
     const PropertyRNA *props[] = {
         &rna_CameraDOFSettings_focus_distance,
         &rna_Camera_display_size,
@@ -408,7 +385,7 @@ static bool WIDGETGROUP_camera_view_poll(const bContext *C, wmGizmoGroupType *UN
   if (rv3d->persp == RV3D_CAMOB) {
     if (scene->r.mode & R_BORDER) {
       /* TODO: support overrides. */
-      if (scene->id.lib == NULL) {
+      if (BKE_id_is_editable(CTX_data_main(C), &scene->id)) {
         return true;
       }
     }

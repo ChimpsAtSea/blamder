@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009, Blender Foundation, Joshua Leung
- * This is a new part of Blender
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation, Joshua Leung. */
 
 /** \file
  * \ingroup edarmature
@@ -33,7 +17,6 @@
 
 #include "BKE_action.h"
 #include "BKE_anim_data.h"
-#include "BKE_armature.h"
 #include "BKE_idprop.h"
 #include "BKE_layer.h"
 #include "BKE_object.h"
@@ -43,6 +26,8 @@
 #include "DEG_depsgraph.h"
 
 #include "RNA_access.h"
+#include "RNA_path.h"
+#include "RNA_prototypes.h"
 
 #include "WM_api.h"
 #include "WM_types.h"
@@ -117,15 +102,14 @@ static void fcurves_to_pchan_links_get(ListBase *pfLinks,
     pfl->roll1 = pchan->roll1;
     pfl->roll2 = pchan->roll2;
     pfl->curve_in_x = pchan->curve_in_x;
-    pfl->curve_in_y = pchan->curve_in_y;
+    pfl->curve_in_z = pchan->curve_in_z;
     pfl->curve_out_x = pchan->curve_out_x;
-    pfl->curve_out_y = pchan->curve_out_y;
+    pfl->curve_out_z = pchan->curve_out_z;
     pfl->ease1 = pchan->ease1;
     pfl->ease2 = pchan->ease2;
-    pfl->scale_in_x = pchan->scale_in_x;
-    pfl->scale_in_y = pchan->scale_in_y;
-    pfl->scale_out_x = pchan->scale_out_x;
-    pfl->scale_out_y = pchan->scale_out_y;
+
+    copy_v3_v3(pfl->scale_in, pchan->scale_in);
+    copy_v3_v3(pfl->scale_out, pchan->scale_out);
 
     /* make copy of custom properties */
     if (pchan->prop && (transFlags & ACT_TRANS_PROP)) {
@@ -134,9 +118,6 @@ static void fcurves_to_pchan_links_get(ListBase *pfLinks,
   }
 }
 
-/**
- *  Returns a valid pose armature for this object, else returns NULL.
- */
 Object *poseAnim_object_get(Object *ob_)
 {
   Object *ob = BKE_object_pose_armature_get(ob_);
@@ -146,7 +127,6 @@ Object *poseAnim_object_get(Object *ob_)
   return NULL;
 }
 
-/* get sets of F-Curves providing transforms for the bones in the Pose  */
 void poseAnim_mapping_get(bContext *C, ListBase *pfLinks)
 {
   /* for each Pose-Channel which gets affected, get the F-Curves for that channel
@@ -192,7 +172,6 @@ void poseAnim_mapping_get(bContext *C, ListBase *pfLinks)
   }
 }
 
-/* free F-Curve <-> PoseChannel links  */
 void poseAnim_mapping_free(ListBase *pfLinks)
 {
   tPChanFCurveLink *pfl, *pfln = NULL;
@@ -219,7 +198,6 @@ void poseAnim_mapping_free(ListBase *pfLinks)
 
 /* ------------------------- */
 
-/* helper for apply() / reset() - refresh the data */
 void poseAnim_mapping_refresh(bContext *C, Scene *UNUSED(scene), Object *ob)
 {
   DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
@@ -231,7 +209,6 @@ void poseAnim_mapping_refresh(bContext *C, Scene *UNUSED(scene), Object *ob)
   }
 }
 
-/* reset changes made to current pose */
 void poseAnim_mapping_reset(ListBase *pfLinks)
 {
   tPChanFCurveLink *pfl;
@@ -252,15 +229,14 @@ void poseAnim_mapping_reset(ListBase *pfLinks)
     pchan->roll1 = pfl->roll1;
     pchan->roll2 = pfl->roll2;
     pchan->curve_in_x = pfl->curve_in_x;
-    pchan->curve_in_y = pfl->curve_in_y;
+    pchan->curve_in_z = pfl->curve_in_z;
     pchan->curve_out_x = pfl->curve_out_x;
-    pchan->curve_out_y = pfl->curve_out_y;
+    pchan->curve_out_z = pfl->curve_out_z;
     pchan->ease1 = pfl->ease1;
     pchan->ease2 = pfl->ease2;
-    pchan->scale_in_x = pfl->scale_in_x;
-    pchan->scale_in_y = pfl->scale_in_y;
-    pchan->scale_out_x = pfl->scale_out_x;
-    pchan->scale_out_y = pfl->scale_out_y;
+
+    copy_v3_v3(pchan->scale_in, pfl->scale_in);
+    copy_v3_v3(pchan->scale_out, pfl->scale_out);
 
     /* just overwrite values of properties from the stored copies (there should be some) */
     if (pfl->oldprops) {
@@ -269,7 +245,6 @@ void poseAnim_mapping_reset(ListBase *pfLinks)
   }
 }
 
-/* perform auto-key-framing after changes were made + confirmed */
 void poseAnim_mapping_autoKeyframe(bContext *C, Scene *scene, ListBase *pfLinks, float cframe)
 {
   ViewLayer *view_layer = CTX_data_view_layer(C);
@@ -312,13 +287,8 @@ void poseAnim_mapping_autoKeyframe(bContext *C, Scene *scene, ListBase *pfLinks,
       continue;
     }
 
-    /* add datasource override for the PoseChannel, to be used later */
+    /* Add data-source override for the PoseChannel, to be used later. */
     ANIM_relative_keyingset_add_source(&dsources, &pfl->ob->id, &RNA_PoseBone, pchan);
-
-    /* clear any unkeyed tags */
-    if (pchan->bone) {
-      pchan->bone->flag &= ~BONE_UNKEYED;
-    }
   }
 
   /* insert keyframes for all relevant bones in one go */
@@ -332,7 +302,7 @@ void poseAnim_mapping_autoKeyframe(bContext *C, Scene *scene, ListBase *pfLinks,
   FOREACH_OBJECT_IN_MODE_BEGIN (view_layer, v3d, OB_ARMATURE, OB_MODE_POSE, ob) {
     if (ob->id.tag & LIB_TAG_DOIT) {
       if (ob->pose->avs.path_bakeflag & MOTIONPATH_BAKE_HAS_PATHS) {
-        // ED_pose_clear_paths(C, ob); // XXX for now, don't need to clear
+        // ED_pose_clear_paths(C, ob); /* XXX for now, don't need to clear. */
         /* TODO(sergey): Should ensure we can use more narrow update range here. */
         ED_pose_recalculate_paths(C, scene, ob, POSE_PATH_CALC_RANGE_FULL);
       }
@@ -343,9 +313,6 @@ void poseAnim_mapping_autoKeyframe(bContext *C, Scene *scene, ListBase *pfLinks,
 
 /* ------------------------- */
 
-/* find the next F-Curve for a PoseChannel with matching path...
- * - path is not just the pfl rna_path, since that path doesn't have property info yet
- */
 LinkData *poseAnim_mapping_getNextFCurve(ListBase *fcuLinks, LinkData *prev, const char *path)
 {
   LinkData *first = (prev) ? prev->next : (fcuLinks) ? fcuLinks->first : NULL;

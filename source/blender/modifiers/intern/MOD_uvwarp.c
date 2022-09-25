@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup modifiers
@@ -27,6 +13,7 @@
 
 #include "BLT_translation.h"
 
+#include "DNA_defaults.h"
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
@@ -43,13 +30,16 @@
 #include "UI_resources.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "DEG_depsgraph_query.h"
 
 #include "MOD_ui_common.h"
 #include "MOD_util.h"
 
-static void uv_warp_from_mat4_pair(float uv_dst[2], const float uv_src[2], float warp_mat[4][4])
+static void uv_warp_from_mat4_pair(float uv_dst[2],
+                                   const float uv_src[2],
+                                   const float warp_mat[4][4])
 {
   float tuv[3] = {0.0f};
 
@@ -61,10 +51,10 @@ static void uv_warp_from_mat4_pair(float uv_dst[2], const float uv_src[2], float
 static void initData(ModifierData *md)
 {
   UVWarpModifierData *umd = (UVWarpModifierData *)md;
-  umd->axis_u = 0;
-  umd->axis_v = 1;
-  copy_v2_fl(umd->center, 0.5f);
-  copy_v2_fl(umd->scale, 1.0f);
+
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(umd, modifier));
+
+  MEMCPY_STRUCT_AFTER(umd, DNA_struct_default_get(UVWarpModifierData), modifier);
 }
 
 static void requiredDataMask(Object *UNUSED(ob),
@@ -140,7 +130,7 @@ static void uv_warp_compute(void *__restrict userdata,
 static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *mesh)
 {
   UVWarpModifierData *umd = (UVWarpModifierData *)md;
-  int numPolys, numLoops;
+  int polys_num, loops_num;
   MPoly *mpoly;
   MLoop *mloop;
   MLoopUV *mloopuv;
@@ -185,7 +175,7 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
       mul_m4_m4m4(warp_mat, mat_cent, warp_mat);
     }
 
-    int shuf_indices[4] = {axis_u, axis_v, -1, 3};
+    const int shuf_indices[4] = {axis_u, axis_v, -1, 3};
     shuffle_m4(shuf_mat, shuf_indices);
     mul_m4_m4m4(warp_mat, shuf_mat, warp_mat);
     transpose_m4(shuf_mat);
@@ -206,14 +196,14 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   /* make sure we're using an existing layer */
   CustomData_validate_layer_name(&mesh->ldata, CD_MLOOPUV, umd->uvlayer_name, uvname);
 
-  numPolys = mesh->totpoly;
-  numLoops = mesh->totloop;
+  polys_num = mesh->totpoly;
+  loops_num = mesh->totloop;
 
   mpoly = mesh->mpoly;
   mloop = mesh->mloop;
   /* make sure we are not modifying the original UV map */
   mloopuv = CustomData_duplicate_referenced_layer_named(
-      &mesh->ldata, CD_MLOOPUV, uvname, numLoops);
+      &mesh->ldata, CD_MLOOPUV, uvname, loops_num);
   MOD_get_vgroup(ctx->object, mesh, umd->vgroup_name, &dvert, &defgrp_index);
 
   UVWarpData data = {
@@ -227,21 +217,20 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   };
   TaskParallelSettings settings;
   BLI_parallel_range_settings_defaults(&settings);
-  settings.use_threading = (numPolys > 1000);
-  BLI_task_parallel_range(0, numPolys, &data, uv_warp_compute, &settings);
+  settings.use_threading = (polys_num > 1000);
+  BLI_task_parallel_range(0, polys_num, &data, uv_warp_compute, &settings);
 
-  /* XXX TODO is this still needed? */
-  //  me_eval->dirty |= DM_DIRTY_TESS_CDLAYERS;
+  mesh->runtime.is_original = false;
 
   return mesh;
 }
 
-static void foreachObjectLink(ModifierData *md, Object *ob, ObjectWalkFunc walk, void *userData)
+static void foreachIDLink(ModifierData *md, Object *ob, IDWalkFunc walk, void *userData)
 {
   UVWarpModifierData *umd = (UVWarpModifierData *)md;
 
-  walk(userData, ob, &umd->object_dst, IDWALK_CB_NOP);
-  walk(userData, ob, &umd->object_src, IDWALK_CB_NOP);
+  walk(userData, ob, (ID **)&umd->object_dst, IDWALK_CB_NOP);
+  walk(userData, ob, (ID **)&umd->object_src, IDWALK_CB_NOP);
 }
 
 static void updateDepsgraph(ModifierData *md, const ModifierUpdateDepsgraphContext *ctx)
@@ -256,61 +245,59 @@ static void updateDepsgraph(ModifierData *md, const ModifierUpdateDepsgraphConte
   DEG_add_modifier_to_transform_relation(ctx->node, "UVWarp Modifier");
 }
 
-static void panel_draw(const bContext *C, Panel *panel)
+static void panel_draw(const bContext *UNUSED(C), Panel *panel)
 {
   uiLayout *col;
   uiLayout *layout = panel->layout;
 
-  PointerRNA ptr;
   PointerRNA ob_ptr;
-  modifier_panel_get_property_pointers(C, panel, &ob_ptr, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
   PointerRNA warp_obj_ptr;
   PointerRNA obj_data_ptr = RNA_pointer_get(&ob_ptr, "data");
 
   uiLayoutSetPropSep(layout, true);
 
-  uiItemPointerR(layout, &ptr, "uv_layer", &obj_data_ptr, "uv_layers", NULL, ICON_NONE);
+  uiItemPointerR(layout, ptr, "uv_layer", &obj_data_ptr, "uv_layers", NULL, ICON_NONE);
 
   col = uiLayoutColumn(layout, false);
-  uiItemR(col, &ptr, "center", 0, NULL, ICON_NONE);
+  uiItemR(col, ptr, "center", 0, NULL, ICON_NONE);
 
   col = uiLayoutColumn(layout, false);
-  uiItemR(col, &ptr, "axis_u", 0, IFACE_("Axis U"), ICON_NONE);
-  uiItemR(col, &ptr, "axis_v", 0, IFACE_("V"), ICON_NONE);
+  uiItemR(col, ptr, "axis_u", 0, IFACE_("Axis U"), ICON_NONE);
+  uiItemR(col, ptr, "axis_v", 0, IFACE_("V"), ICON_NONE);
 
   col = uiLayoutColumn(layout, false);
-  uiItemR(col, &ptr, "object_from", 0, NULL, ICON_NONE);
-  warp_obj_ptr = RNA_pointer_get(&ptr, "object_from");
+  uiItemR(col, ptr, "object_from", 0, NULL, ICON_NONE);
+  warp_obj_ptr = RNA_pointer_get(ptr, "object_from");
   if (!RNA_pointer_is_null(&warp_obj_ptr) && RNA_enum_get(&warp_obj_ptr, "type") == OB_ARMATURE) {
     PointerRNA warp_obj_data_ptr = RNA_pointer_get(&warp_obj_ptr, "data");
-    uiItemPointerR(col, &ptr, "bone_from", &warp_obj_data_ptr, "bones", NULL, ICON_NONE);
+    uiItemPointerR(col, ptr, "bone_from", &warp_obj_data_ptr, "bones", NULL, ICON_NONE);
   }
 
-  uiItemR(col, &ptr, "object_to", 0, IFACE_("To"), ICON_NONE);
-  warp_obj_ptr = RNA_pointer_get(&ptr, "object_to");
+  uiItemR(col, ptr, "object_to", 0, IFACE_("To"), ICON_NONE);
+  warp_obj_ptr = RNA_pointer_get(ptr, "object_to");
   if (!RNA_pointer_is_null(&warp_obj_ptr) && RNA_enum_get(&warp_obj_ptr, "type") == OB_ARMATURE) {
     PointerRNA warp_obj_data_ptr = RNA_pointer_get(&warp_obj_ptr, "data");
-    uiItemPointerR(col, &ptr, "bone_to", &warp_obj_data_ptr, "bones", NULL, ICON_NONE);
+    uiItemPointerR(col, ptr, "bone_to", &warp_obj_data_ptr, "bones", NULL, ICON_NONE);
   }
 
-  modifier_vgroup_ui(layout, &ptr, &ob_ptr, "vertex_group", "invert_vertex_group", NULL);
+  modifier_vgroup_ui(layout, ptr, &ob_ptr, "vertex_group", "invert_vertex_group", NULL);
 
-  modifier_panel_end(layout, &ptr);
+  modifier_panel_end(layout, ptr);
 }
 
-static void transform_panel_draw(const bContext *C, Panel *panel)
+static void transform_panel_draw(const bContext *UNUSED(C), Panel *panel)
 {
   uiLayout *layout = panel->layout;
 
-  PointerRNA ptr;
-  modifier_panel_get_property_pointers(C, panel, NULL, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, NULL);
 
   uiLayoutSetPropSep(layout, true);
 
-  uiItemR(layout, &ptr, "offset", 0, NULL, ICON_NONE);
-  uiItemR(layout, &ptr, "scale", 0, NULL, ICON_NONE);
-  uiItemR(layout, &ptr, "rotation", 0, NULL, ICON_NONE);
+  uiItemR(layout, ptr, "offset", 0, NULL, ICON_NONE);
+  uiItemR(layout, ptr, "scale", 0, NULL, ICON_NONE);
+  uiItemR(layout, ptr, "rotation", 0, NULL, ICON_NONE);
 }
 
 static void panelRegister(ARegionType *region_type)
@@ -321,12 +308,14 @@ static void panelRegister(ARegionType *region_type)
 }
 
 ModifierTypeInfo modifierType_UVWarp = {
-    /* name */ "UVWarp",
+    /* name */ N_("UVWarp"),
     /* structName */ "UVWarpModifierData",
     /* structSize */ sizeof(UVWarpModifierData),
+    /* srna */ &RNA_UVWarpModifier,
     /* type */ eModifierTypeType_NonGeometrical,
     /* flags */ eModifierTypeFlag_AcceptsMesh | eModifierTypeFlag_SupportsEditmode |
         eModifierTypeFlag_EnableInEditmode,
+    /* icon */ ICON_MOD_UVPROJECT, /* TODO: Use correct icon. */
 
     /* copyData */ BKE_modifier_copydata_generic,
 
@@ -335,9 +324,7 @@ ModifierTypeInfo modifierType_UVWarp = {
     /* deformVertsEM */ NULL,
     /* deformMatricesEM */ NULL,
     /* modifyMesh */ modifyMesh,
-    /* modifyHair */ NULL,
-    /* modifyPointCloud */ NULL,
-    /* modifyVolume */ NULL,
+    /* modifyGeometrySet */ NULL,
 
     /* initData */ initData,
     /* requiredDataMask */ requiredDataMask,
@@ -346,9 +333,10 @@ ModifierTypeInfo modifierType_UVWarp = {
     /* updateDepsgraph */ updateDepsgraph,
     /* dependsOnTime */ NULL,
     /* dependsOnNormals */ NULL,
-    /* foreachObjectLink */ foreachObjectLink,
-    /* foreachIDLink */ NULL,
+    /* foreachIDLink */ foreachIDLink,
     /* foreachTexLink */ NULL,
     /* freeRuntimeData */ NULL,
     /* panelRegister */ panelRegister,
+    /* blendWrite */ NULL,
+    /* blendRead */ NULL,
 };

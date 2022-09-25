@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -24,6 +10,7 @@
 #include "DNA_key_types.h"
 #include "DNA_lattice_types.h"
 #include "DNA_meshdata_types.h"
+#include "DNA_object_types.h"
 
 #include "BLI_utildefines.h"
 
@@ -131,12 +118,12 @@ static void rna_Lattice_update_size(Main *bmain, Scene *scene, PointerRNA *ptr)
   Object *ob;
   int newu, newv, neww;
 
-  /* we don't modify the actual pnts, but go through opnts instead */
+  /* We don't modify the actual `pnts`, but go through `opnts` instead. */
   newu = (lt->opntsu > 0) ? lt->opntsu : lt->pntsu;
   newv = (lt->opntsv > 0) ? lt->opntsv : lt->pntsv;
   neww = (lt->opntsw > 0) ? lt->opntsw : lt->pntsw;
 
-  /* BKE_lattice_resize needs an object, any object will have the same result */
+  /* #BKE_lattice_resize needs an object, any object will have the same result */
   for (ob = bmain->objects.first; ob; ob = ob->id.next) {
     if (ob->data == lt) {
       BKE_lattice_resize(lt, newu, newv, neww, ob);
@@ -222,11 +209,11 @@ static void rna_Lattice_vg_name_set(PointerRNA *ptr, const char *value)
 }
 
 /* annoying, but is a consequence of RNA structures... */
-static char *rna_LatticePoint_path(PointerRNA *ptr)
+static char *rna_LatticePoint_path(const PointerRNA *ptr)
 {
-  Lattice *lt = (Lattice *)ptr->owner_id;
-  void *point = ptr->data;
-  BPoint *points = NULL;
+  const Lattice *lt = (Lattice *)ptr->owner_id;
+  const void *point = ptr->data;
+  const BPoint *points = NULL;
 
   if (lt->editlatt && lt->editlatt->latt->def) {
     points = lt->editlatt->latt->def;
@@ -268,7 +255,7 @@ static void rna_def_latticepoint(BlenderRNA *brna)
   RNA_def_struct_path_func(srna, "rna_LatticePoint_path");
 
   prop = RNA_def_property(srna, "select", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, NULL, "f1", 0);
+  RNA_def_property_boolean_sdna(prop, NULL, "f1", SELECT);
   RNA_def_property_ui_text(prop, "Point selected", "Selection status");
 
   prop = RNA_def_property(srna, "co", PROP_FLOAT, PROP_TRANSLATION);
@@ -370,7 +357,7 @@ static void rna_def_lattice(BlenderRNA *brna)
   RNA_def_property_boolean_sdna(prop, NULL, "flag", LT_OUTSIDE);
   RNA_def_property_boolean_funcs(prop, NULL, "rna_Lattice_use_outside_set");
   RNA_def_property_ui_text(
-      prop, "Outside", "Only draw, and take into account, the outer vertices");
+      prop, "Outside", "Only display and take into account the outer vertices");
   RNA_def_property_update(prop, 0, "rna_Lattice_update_data_editlatt");
 
   prop = RNA_def_property(srna, "vertex_group", PROP_STRING, PROP_NONE);
@@ -382,6 +369,8 @@ static void rna_def_lattice(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "shape_keys", PROP_POINTER, PROP_NONE);
   RNA_def_property_pointer_sdna(prop, NULL, "key");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
+  RNA_def_property_clear_flag(prop, PROP_PTR_NO_OWNERSHIP);
   RNA_def_property_ui_text(prop, "Shape Keys", "");
 
   prop = RNA_def_property(srna, "points", PROP_COLLECTION, PROP_NONE);

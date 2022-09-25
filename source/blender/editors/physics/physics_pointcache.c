@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2007 by Janne Karhu.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2007 by Janne Karhu. All rights reserved. */
 
 /** \file
  * \ingroup edphys
@@ -34,7 +18,6 @@
 #include "BKE_context.h"
 #include "BKE_global.h"
 #include "BKE_layer.h"
-#include "BKE_particle.h"
 #include "BKE_pointcache.h"
 
 #include "DEG_depsgraph.h"
@@ -46,6 +29,7 @@
 
 #include "RNA_access.h"
 #include "RNA_define.h"
+#include "RNA_prototypes.h"
 
 #include "physics_intern.h"
 
@@ -57,7 +41,46 @@ static bool ptcache_bake_all_poll(bContext *C)
 static bool ptcache_poll(bContext *C)
 {
   PointerRNA ptr = CTX_data_pointer_get_type(C, "point_cache", &RNA_PointCache);
-  return (ptr.data && ptr.owner_id);
+
+  ID *id = ptr.owner_id;
+  PointCache *point_cache = ptr.data;
+
+  if (id == NULL || point_cache == NULL) {
+    return false;
+  }
+
+  if (ID_IS_OVERRIDE_LIBRARY_REAL(id) && (point_cache->flag & PTCACHE_DISK_CACHE) == false) {
+    CTX_wm_operator_poll_msg_set(C,
+                                 "Library override data-blocks only support Disk Cache storage");
+    return false;
+  }
+
+  if (ID_IS_LINKED(id) && (point_cache->flag & PTCACHE_DISK_CACHE) == false) {
+    CTX_wm_operator_poll_msg_set(C, "Linked data-blocks do not allow editing caches");
+    return false;
+  }
+
+  return true;
+}
+
+static bool ptcache_add_remove_poll(bContext *C)
+{
+  PointerRNA ptr = CTX_data_pointer_get_type(C, "point_cache", &RNA_PointCache);
+
+  ID *id = ptr.owner_id;
+  PointCache *point_cache = ptr.data;
+
+  if (id == NULL || point_cache == NULL) {
+    return false;
+  }
+
+  if (ID_IS_OVERRIDE_LIBRARY_REAL(id) || ID_IS_LINKED(id)) {
+    CTX_wm_operator_poll_msg_set(
+        C, "Linked or library override data-blocks do not allow adding or removing caches");
+    return false;
+  }
+
+  return true;
 }
 
 typedef struct PointCacheJob {
@@ -132,7 +155,7 @@ static void ptcache_job_endjob(void *customdata)
   WM_set_locked_interface(job->wm, false);
 
   WM_main_add_notifier(NC_SCENE | ND_FRAME, scene);
-  WM_main_add_notifier(NC_OBJECT | ND_POINTCACHE, job->baker->pid.ob);
+  WM_main_add_notifier(NC_OBJECT | ND_POINTCACHE, job->baker->pid.owner_id);
 }
 
 static void ptcache_free_bake(PointCache *cache)
@@ -356,7 +379,7 @@ void PTCACHE_OT_free_bake(wmOperatorType *ot)
 void PTCACHE_OT_bake_from_cache(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Bake From Cache";
+  ot->name = "Bake from Cache";
   ot->description = "Bake from cache";
   ot->idname = "PTCACHE_OT_bake_from_cache";
 
@@ -417,7 +440,7 @@ void PTCACHE_OT_add(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = ptcache_add_new_exec;
-  ot->poll = ptcache_poll;
+  ot->poll = ptcache_add_remove_poll;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -431,7 +454,7 @@ void PTCACHE_OT_remove(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = ptcache_remove_exec;
-  ot->poll = ptcache_poll;
+  ot->poll = ptcache_add_remove_poll;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;

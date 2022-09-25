@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 string(TIMESTAMP CURRENT_YEAR "%Y")
 
 set(PROJECT_DESCRIPTION  "Blender is the free and open source 3D creation suite software.")
@@ -86,7 +88,7 @@ if(WIN32)
   set(CPACK_NSIS_MUI_ICON ${CMAKE_SOURCE_DIR}/release/windows/icons/winblender.ico)
   set(CPACK_NSIS_COMPRESSOR "/SOLID lzma")
 
-  set(CPACK_RESOURCE_FILE_LICENSE ${CMAKE_SOURCE_DIR}/release/text/GPL3-license.txt)
+  set(CPACK_RESOURCE_FILE_LICENSE ${CMAKE_SOURCE_DIR}/release/license/GPL-3.0.txt)
   set(CPACK_WIX_PRODUCT_ICON ${CMAKE_SOURCE_DIR}/release/windows/icons/winblender.ico)
 
   set(BLENDER_NAMESPACE_GUID "507F933F-5898-404A-9A05-18282FD491A6")
@@ -104,8 +106,8 @@ if(WIN32)
   set(CPACK_WIX_LIGHT_EXTRA_FLAGS -dcl:medium)
 endif()
 
-set(CPACK_PACKAGE_EXECUTABLES "blender" "blender")
-set(CPACK_CREATE_DESKTOP_LINKS "blender" "blender")
+set(CPACK_PACKAGE_EXECUTABLES "blender-launcher" "Blender")
+set(CPACK_CREATE_DESKTOP_LINKS "blender-launcher" "Blender")
 
 include(CPack)
 

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup spinfo
@@ -58,7 +44,7 @@ typedef struct TextViewDrawState {
   int scroll_ymin, scroll_ymax;
   int *xy;   // [2]
   int *sel;  // [2]
-  /* Bottom of view == 0, top of file == combine chars, end of line is lower then start. */
+  /* Bottom of view == 0, top of file == combine chars, end of line is lower than start. */
   int *mval_pick_offset;
   const int *mval;  // [2]
   bool do_draw;
@@ -84,9 +70,7 @@ static void textview_draw_sel(const char *str,
     const int sta = BLI_str_utf8_offset_to_column(str, max_ii(sel[0], 0));
     const int end = BLI_str_utf8_offset_to_column(str, min_ii(sel[1], str_len_draw));
 
-    GPU_blend(true);
-    GPU_blend_set_func_separate(
-        GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+    GPU_blend(GPU_BLEND_ALPHA);
 
     GPUVertFormat *format = immVertexFormat();
     uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
@@ -97,7 +81,7 @@ static void textview_draw_sel(const char *str,
 
     immUnbindProgram();
 
-    GPU_blend(false);
+    GPU_blend(GPU_BLEND_NONE);
   }
 }
 
@@ -186,7 +170,7 @@ static bool textview_draw_string(TextViewDrawState *tds,
     MEM_freeN(offsets);
     return true;
   }
-  else if (y_next < tds->scroll_ymin) {
+  if (y_next < tds->scroll_ymin) {
     /* Have not reached the drawable area so don't break. */
     tds->xy[1] = y_next;
 
@@ -227,20 +211,23 @@ static bool textview_draw_string(TextViewDrawState *tds,
 
     rgba_uchar_to_float(col, icon_bg);
     UI_draw_roundbox_corner_set(UI_CNR_ALL);
-    UI_draw_roundbox_aa(true,
-                        hpadding,
-                        line_top - bg_size - vpadding,
-                        bg_size + hpadding,
-                        line_top - vpadding,
-                        4 * UI_DPI_FAC,
-                        col);
+    UI_draw_roundbox_4fv(
+        &(const rctf){
+            .xmin = hpadding,
+            .xmax = bg_size + hpadding,
+            .ymin = line_top - bg_size - vpadding,
+            .ymax = line_top - vpadding,
+        },
+        true,
+        4 * UI_DPI_FAC,
+        col);
   }
 
   if (icon) {
     int vpadding = (tds->lheight + (tds->row_vpadding * 2) - UI_DPI_ICON_SIZE) / 2;
     int hpadding = tds->draw_rect->xmin - (UI_DPI_ICON_SIZE * 1.3f);
 
-    GPU_blend(true);
+    GPU_blend(GPU_BLEND_ALPHA);
     UI_icon_draw_ex(hpadding,
                     line_top - UI_DPI_ICON_SIZE - vpadding,
                     icon,
@@ -249,7 +236,7 @@ static bool textview_draw_string(TextViewDrawState *tds,
                     0.0f,
                     icon_fg,
                     false);
-    GPU_blend(false);
+    GPU_blend(GPU_BLEND_NONE);
   }
 
   tds->xy[1] += tds->row_vpadding;
@@ -258,15 +245,16 @@ static bool textview_draw_string(TextViewDrawState *tds,
   const int final_offset = offsets[tot_lines - 1];
   len = str_len - final_offset;
   s = str + final_offset;
-  BLF_position(tds->font_id, tds->xy[0], tds->lofs + line_bottom + tds->row_vpadding, 0);
-  BLF_color4ubv(tds->font_id, fg);
-  BLF_draw_mono(tds->font_id, s, len, tds->cwidth);
 
   if (tds->sel[0] != tds->sel[1]) {
     textview_step_sel(tds, -final_offset);
-    int pos[2] = {tds->xy[0], line_bottom};
+    const int pos[2] = {tds->xy[0], line_bottom};
     textview_draw_sel(s, pos, len, tds, bg_sel);
   }
+
+  BLF_position(tds->font_id, tds->xy[0], tds->lofs + line_bottom + tds->row_vpadding, 0);
+  BLF_color4ubv(tds->font_id, fg);
+  BLF_draw_mono(tds->font_id, s, len, tds->cwidth);
 
   tds->xy[1] += tds->lheight;
 
@@ -276,13 +264,13 @@ static bool textview_draw_string(TextViewDrawState *tds,
     len = offsets[i] - offsets[i - 1];
     s = str + offsets[i - 1];
 
-    BLF_position(tds->font_id, tds->xy[0], tds->lofs + tds->xy[1], 0);
-    BLF_draw_mono(tds->font_id, s, len, tds->cwidth);
-
     if (tds->sel[0] != tds->sel[1]) {
       textview_step_sel(tds, len);
       textview_draw_sel(s, tds->xy, len, tds, bg_sel);
     }
+
+    BLF_position(tds->font_id, tds->xy[0], tds->lofs + tds->xy[1], 0);
+    BLF_draw_mono(tds->font_id, s, len, tds->cwidth);
 
     tds->xy[1] += tds->lheight;
 
@@ -302,13 +290,6 @@ static bool textview_draw_string(TextViewDrawState *tds,
   return true;
 }
 
-/**
- * \param r_mval_pick_item: The resulting item clicked on using \a mval_init.
- * Set from the void pointer which holds the current iterator.
- * It's type depends on the data being iterated over.
- * \param r_mval_pick_offset: The offset in bytes of the \a mval_init.
- * Use for selection.
- */
 int textview_draw(TextViewContext *tvc,
                   const bool do_draw,
                   const int mval_init[2],
@@ -352,7 +333,7 @@ int textview_draw(TextViewContext *tvc,
   tds.lheight = tvc->lheight;
   tds.row_vpadding = tvc->row_vpadding;
   tds.lofs = -BLF_descender(font_id);
-  /* Note, scroll bar must be already subtracted. */
+  /* NOTE: scroll bar must be already subtracted. */
   tds.columns = (tvc->draw_rect.xmax - tvc->draw_rect.xmin) / tds.cwidth;
   /* Avoid divide by zero on small windows. */
   if (tds.columns < 1) {

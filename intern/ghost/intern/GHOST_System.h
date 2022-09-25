@@ -1,29 +1,12 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  * Declaration of GHOST_System class.
  */
 
-#ifndef __GHOST_SYSTEM_H__
-#define __GHOST_SYSTEM_H__
+#pragma once
 
 #include "GHOST_ISystem.h"
 
@@ -76,26 +59,28 @@ class GHOST_System : public GHOST_ISystem {
    * Based on ANSI clock() routine.
    * \return The number of milliseconds.
    */
-  virtual GHOST_TUns64 getMilliSeconds() const;
+  virtual uint64_t getMilliSeconds() const;
 
   /**
    * Installs a timer.
-   * Note that, on most operating systems, messages need to be processed in order
+   *
+   * \note On most operating systems, messages need to be processed in order
    * for the timer callbacks to be invoked.
-   * \param delay     The time to wait for the first call to the timerProc (in milliseconds)
-   * \param interval  The interval between calls to the timerProc
-   * \param timerProc The callback invoked when the interval expires,
-   * \param userData  Placeholder for user data.
+   *
+   * \param delay: The time to wait for the first call to the #timerProc (in milliseconds).
+   * \param interval: The interval between calls to the #timerProc.
+   * \param timerProc: The callback invoked when the interval expires.
+   * \param userData: Placeholder for user data.
    * \return A timer task (0 if timer task installation failed).
    */
-  GHOST_ITimerTask *installTimer(GHOST_TUns64 delay,
-                                 GHOST_TUns64 interval,
+  GHOST_ITimerTask *installTimer(uint64_t delay,
+                                 uint64_t interval,
                                  GHOST_TimerProcPtr timerProc,
                                  GHOST_TUserDataPtr userData = NULL);
 
   /**
    * Removes a timer.
-   * \param timerTask Timer task to be removed.
+   * \param timerTask: Timer task to be removed.
    * \return Indication of success.
    */
   GHOST_TSuccess removeTimer(GHOST_ITimerTask *timerTask);
@@ -106,32 +91,32 @@ class GHOST_System : public GHOST_ISystem {
 
   /**
    * Dispose a window.
-   * \param   window Pointer to the window to be disposed.
-   * \return  Indication of success.
+   * \param window: Pointer to the window to be disposed.
+   * \return Indication of success.
    */
   GHOST_TSuccess disposeWindow(GHOST_IWindow *window);
 
   /**
-   * Create a new offscreen context.
-   * Never explicitly delete the context, use disposeContext() instead.
-   * \return  The new context (or 0 if creation failed).
+   * Create a new off-screen context.
+   * Never explicitly delete the context, use #disposeContext() instead.
+   * \return The new context (or 0 if creation failed).
    */
-  virtual GHOST_IContext *createOffscreenContext() = 0;
+  virtual GHOST_IContext *createOffscreenContext(GHOST_GLSettings glSettings) = 0;
 
   /**
    * Returns whether a window is valid.
-   * \param   window Pointer to the window to be checked.
-   * \return  Indication of validity.
+   * \param window: Pointer to the window to be checked.
+   * \return Indication of validity.
    */
   bool validWindow(GHOST_IWindow *window);
 
   /**
    * Begins full screen mode.
-   * \param setting   The new setting of the display.
-   * \param window    Window displayed in full screen.
-   * \param stereoVisual  Stereo visual for quad buffered stereo.
+   * \param setting: The new setting of the display.
+   * \param window: Window displayed in full screen.
+   * \param stereoVisual: Stereo visual for quad buffered stereo.
    * This window is invalid after full screen has been ended.
-   * \return  Indication of success.
+   * \return Indication of success.
    */
   GHOST_TSuccess beginFullScreen(const GHOST_DisplaySetting &setting,
                                  GHOST_IWindow **window,
@@ -140,16 +125,16 @@ class GHOST_System : public GHOST_ISystem {
 
   /**
    * Updates the resolution while in fullscreen mode.
-   * \param setting   The new setting of the display.
-   * \param window    Window displayed in full screen.
+   * \param setting: The new setting of the display.
+   * \param window: Window displayed in full screen.
    *
-   * \return  Indication of success.
+   * \return Indication of success.
    */
   GHOST_TSuccess updateFullScreen(const GHOST_DisplaySetting &setting, GHOST_IWindow **window);
 
   /**
    * Ends full screen mode.
-   * \return  Indication of success.
+   * \return Indication of success.
    */
   GHOST_TSuccess endFullScreen(void);
 
@@ -166,11 +151,23 @@ class GHOST_System : public GHOST_ISystem {
   bool useNativePixel(void);
   bool m_nativePixel;
 
+  bool supportsCursorWarp(void);
+  bool supportsWindowPosition(void);
+
   /**
    * Focus window after opening, or put them in the background.
    */
   void useWindowFocus(const bool use_focus);
+
   bool m_windowFocus;
+
+  /**
+   * Get the Window under the cursor.
+   * \param x: The x-coordinate of the cursor.
+   * \param y: The y-coordinate of the cursor.
+   * \return The window under the cursor or nullptr if none.
+   */
+  GHOST_IWindow *getWindowUnderCursor(int32_t x, int32_t y);
 
   /***************************************************************************************
    * Event management functionality
@@ -190,14 +187,14 @@ class GHOST_System : public GHOST_ISystem {
 
   /**
    * Adds the given event consumer to our list.
-   * \param consumer The event consumer to add.
+   * \param consumer: The event consumer to add.
    * \return Indication of success.
    */
   GHOST_TSuccess addEventConsumer(GHOST_IEventConsumer *consumer);
 
   /**
    * Remove the given event consumer to our list.
-   * \param consumer The event consumer to remove.
+   * \param consumer: The event consumer to remove.
    * \return Indication of success.
    */
   GHOST_TSuccess removeEventConsumer(GHOST_IEventConsumer *consumer);
@@ -206,11 +203,20 @@ class GHOST_System : public GHOST_ISystem {
    * Cursor management functionality
    ***************************************************************************************/
 
+  /* Client relative functions use a default implementation
+   * that converts from screen-coordinates to client coordinates.
+   * Implementations may override. */
+
+  GHOST_TSuccess getCursorPositionClientRelative(const GHOST_IWindow *window,
+                                                 int32_t &x,
+                                                 int32_t &y) const;
+  GHOST_TSuccess setCursorPositionClientRelative(GHOST_IWindow *window, int32_t x, int32_t y);
+
   /**
    * Inherited from GHOST_ISystem but left pure virtual
    * <pre>
-   * GHOST_TSuccess getCursorPosition(GHOST_TInt32& x, GHOST_TInt32& y) const = 0;
-   * GHOST_TSuccess setCursorPosition(GHOST_TInt32 x, GHOST_TInt32 y)
+   * GHOST_TSuccess getCursorPosition(int32_t& x, int32_t& y) const = 0;
+   * GHOST_TSuccess setCursorPosition(int32_t x, int32_t y)
    * </pre>
    */
 
@@ -220,25 +226,25 @@ class GHOST_System : public GHOST_ISystem {
 
   /**
    * Returns the state of a modifier key (outside the message queue).
-   * \param mask      The modifier key state to retrieve.
-   * \param isDown    The state of a modifier key (true == pressed).
-   * \return          Indication of success.
+   * \param mask: The modifier key state to retrieve.
+   * \param isDown: The state of a modifier key (true == pressed).
+   * \return Indication of success.
    */
-  GHOST_TSuccess getModifierKeyState(GHOST_TModifierKeyMask mask, bool &isDown) const;
+  GHOST_TSuccess getModifierKeyState(GHOST_TModifierKey mask, bool &isDown) const;
 
   /**
    * Returns the state of a mouse button (outside the message queue).
-   * \param mask      The button state to retrieve.
-   * \param isDown    Button state.
-   * \return          Indication of success.
+   * \param mask: The button state to retrieve.
+   * \param isDown: Button state.
+   * \return Indication of success.
    */
-  GHOST_TSuccess getButtonState(GHOST_TButtonMask mask, bool &isDown) const;
+  GHOST_TSuccess getButtonState(GHOST_TButton mask, bool &isDown) const;
 
   /**
    * Set which tablet API to use. Only affects Windows, other platforms have a single API.
-   * \param api Enum indicating which API to use.
+   * \param api: Enum indicating which API to use.
    */
-  void setTabletAPI(GHOST_TTabletAPI api);
+  virtual void setTabletAPI(GHOST_TTabletAPI api);
   GHOST_TTabletAPI getTabletAPI(void);
 
 #ifdef WITH_INPUT_NDOF
@@ -261,7 +267,7 @@ class GHOST_System : public GHOST_ISystem {
    * Pushes an event on the stack.
    * To dispatch it, call dispatchEvent() or dispatchEvents().
    * Do not delete the event!
-   * \param event The event to push on the stack.
+   * \param event: The event to push on the stack.
    */
   GHOST_TSuccess pushEvent(GHOST_IEvent *event);
 
@@ -289,46 +295,46 @@ class GHOST_System : public GHOST_ISystem {
 
   /**
    * Returns the state of all modifier keys.
-   * \param keys  The state of all modifier keys (true == pressed).
-   * \return      Indication of success.
+   * \param keys: The state of all modifier keys (true == pressed).
+   * \return Indication of success.
    */
   virtual GHOST_TSuccess getModifierKeys(GHOST_ModifierKeys &keys) const = 0;
 
   /**
    * Returns the state of the mouse buttons (outside the message queue).
-   * \param buttons   The state of the buttons.
-   * \return          Indication of success.
+   * \param buttons: The state of the buttons.
+   * \return Indication of success.
    */
   virtual GHOST_TSuccess getButtons(GHOST_Buttons &buttons) const = 0;
 
   /**
    * Returns the selection buffer
-   * \param selection     Only used on X11
-   * \return              Returns the clipboard data
+   * \param selection: Only used on X11.
+   * \return Returns the clipboard data
    *
    */
-  virtual GHOST_TUns8 *getClipboard(bool selection) const = 0;
+  virtual char *getClipboard(bool selection) const = 0;
 
   /**
    * Put data to the Clipboard
-   * \param buffer        The buffer to copy to the clipboard
-   * \param selection The clipboard to copy too only used on X11
+   * \param buffer: The buffer to copy to the clipboard.
+   * \param selection: The clipboard to copy too only used on X11.
    */
-  virtual void putClipboard(GHOST_TInt8 *buffer, bool selection) const = 0;
+  virtual void putClipboard(const char *buffer, bool selection) const = 0;
 
   /**
    * Show a system message box
-   * \param title                   The title of the message box
-   * \param message                 The message to display
-   * \param help_label              Help button label
-   * \param continue_label          Continue button label
-   * \param link                    An optional hyperlink
-   * \param dialog_options Options  how to display the message
+   * \param title: The title of the message box.
+   * \param message: The message to display.
+   * \param help_label: Help button label.
+   * \param continue_label: Continue button label.
+   * \param link: An optional hyperlink.
+   * \param dialog_options: Options  how to display the message.
    */
   virtual GHOST_TSuccess showMessageBox(const char * /*title*/,
                                         const char * /*message*/,
-                                        const char * /*help_label */,
-                                        const char * /*continue_label */,
+                                        const char * /*help_label*/,
+                                        const char * /*continue_label*/,
                                         const char * /*link*/,
                                         GHOST_DialogOptions /*dialog_options*/) const
   {
@@ -341,8 +347,9 @@ class GHOST_System : public GHOST_ISystem {
 
   /**
    * Specify whether debug messages are to be shown.
+   * \param debug: Flag for systems to debug.
    */
-  virtual void initDebug(bool is_debug_enabled);
+  virtual void initDebug(GHOST_Debug debug);
 
   /**
    * Check whether debug messages are to be shown.
@@ -364,7 +371,7 @@ class GHOST_System : public GHOST_ISystem {
 
   /**
    * Creates a fullscreen window.
-   * \param window The window created.
+   * \param window: The window created.
    * \return Indication of success.
    */
   GHOST_TSuccess createFullScreenWindow(GHOST_Window **window,
@@ -424,5 +431,3 @@ inline GHOST_NDOFManager *GHOST_System::getNDOFManager() const
   return m_ndofManager;
 }
 #endif
-
-#endif  // __GHOST_SYSTEM_H__

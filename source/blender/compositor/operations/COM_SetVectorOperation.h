@@ -1,35 +1,24 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_SETVECTOROPERATION_H__
-#define __COM_SETVECTOROPERATION_H__
-#include "COM_NodeOperation.h"
+#pragma once
+
+#include "COM_ConstantOperation.h"
+
+namespace blender::compositor {
 
 /**
  * this program converts an input color to an output value.
  * it assumes we are in sRGB color space.
  */
-class SetVectorOperation : public NodeOperation {
+class SetVectorOperation : public ConstantOperation {
  private:
-  float m_x;
-  float m_y;
-  float m_z;
-  float m_w;
+  struct {
+    float x;
+    float y;
+    float z;
+    float w;
+  } vector_;
 
  public:
   /**
@@ -37,55 +26,57 @@ class SetVectorOperation : public NodeOperation {
    */
   SetVectorOperation();
 
+  const float *get_constant_elem() override
+  {
+    return reinterpret_cast<float *>(&vector_);
+  }
+
   float getX()
   {
-    return this->m_x;
+    return vector_.x;
   }
   void setX(float value)
   {
-    this->m_x = value;
+    vector_.x = value;
   }
   float getY()
   {
-    return this->m_y;
+    return vector_.y;
   }
   void setY(float value)
   {
-    this->m_y = value;
+    vector_.y = value;
   }
   float getZ()
   {
-    return this->m_z;
+    return vector_.z;
   }
   void setZ(float value)
   {
-    this->m_z = value;
+    vector_.z = value;
   }
   float getW()
   {
-    return this->m_w;
+    return vector_.w;
   }
   void setW(float value)
   {
-    this->m_w = value;
+    vector_.w = value;
   }
 
   /**
-   * the inner loop of this program
+   * The inner loop of this operation.
    */
-  void executePixelSampled(float output[4], float x, float y, PixelSampler sampler);
+  void execute_pixel_sampled(float output[4], float x, float y, PixelSampler sampler) override;
 
-  void determineResolution(unsigned int resolution[2], unsigned int preferredResolution[2]);
-  bool isSetOperation() const
-  {
-    return true;
-  }
+  void determine_canvas(const rcti &preferred_area, rcti &r_area) override;
 
-  void setVector(const float vector[3])
+  void set_vector(const float vector[3])
   {
     setX(vector[0]);
     setY(vector[1]);
     setZ(vector[2]);
   }
 };
-#endif
+
+}  // namespace blender::compositor

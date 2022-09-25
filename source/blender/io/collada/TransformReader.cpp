@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
@@ -33,7 +19,7 @@ void TransformReader::get_node_mat(float mat[4][4],
                                    std::map<COLLADAFW::UniqueId, Animation> *animation_map,
                                    Object *ob)
 {
-  get_node_mat(mat, node, animation_map, ob, NULL);
+  get_node_mat(mat, node, animation_map, ob, nullptr);
 }
 
 void TransformReader::get_node_mat(float mat[4][4],
@@ -54,9 +40,9 @@ void TransformReader::get_node_mat(float mat[4][4],
 
     switch (type) {
       case COLLADAFW::Transformation::MATRIX:
-        // When matrix AND Trans/Rot/Scale are defined for a node,
-        // then this is considered as redundant information.
-        // So if we find a Matrix we use that and return.
+        /* When matrix AND Trans/Rot/Scale are defined for a node,
+         * then this is considered as redundant information.
+         * So if we find a Matrix we use that and return. */
         dae_matrix_to_mat4(tm, mat);
         if (parent_mat) {
           mul_m4_m4m4(mat, parent_mat, mat);
@@ -83,10 +69,10 @@ void TransformReader::get_node_mat(float mat[4][4],
     mul_m4_m4m4(mat, copy, cur);
 
     if (animation_map) {
-      // AnimationList that drives this Transformation
+      /* AnimationList that drives this Transformation */
       const COLLADAFW::UniqueId &anim_list_id = tm->getAnimationList();
 
-      // store this so later we can link animation data with ob
+      /* store this so later we can link animation data with ob */
       Animation anim = {ob, node, tm};
       (*animation_map)[anim_list_id] = anim;
     }
@@ -103,9 +89,11 @@ void TransformReader::dae_rotate_to_mat4(COLLADAFW::Transformation *tm, float m[
   COLLADABU::Math::Vector3 &axis = ro->getRotationAxis();
   const float angle = (float)DEG2RAD(ro->getRotationAngle());
   const float ax[] = {(float)axis[0], (float)axis[1], (float)axis[2]};
-  // float quat[4];
-  // axis_angle_to_quat(quat, axis, angle);
-  // quat_to_mat4(m, quat);
+#if 0
+  float quat[4];
+  axis_angle_to_quat(quat, axis, angle);
+  quat_to_mat4(m, quat);
+#endif
   axis_angle_to_mat4(m, ax, angle);
 }
 
@@ -130,7 +118,7 @@ void TransformReader::dae_scale_to_mat4(COLLADAFW::Transformation *tm, float m[4
 
 void TransformReader::dae_matrix_to_mat4(COLLADAFW::Transformation *tm, float m[4][4])
 {
-  unit_converter->dae_matrix_to_mat4_(m, ((COLLADAFW::Matrix *)tm)->getMatrix());
+  UnitConverter::dae_matrix_to_mat4_(m, ((COLLADAFW::Matrix *)tm)->getMatrix());
 }
 
 void TransformReader::dae_translate_to_v3(COLLADAFW::Transformation *tm, float v[3])

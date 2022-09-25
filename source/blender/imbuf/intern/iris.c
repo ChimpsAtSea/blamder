@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup imbuf
@@ -39,7 +23,7 @@
 #define IMAGIC 0732
 
 typedef struct {
-  ushort imagic; /* stuff saved on disk . . */
+  ushort imagic; /* Stuff saved on disk. */
   ushort type;
   ushort dim;
   ushort xsize;
@@ -72,14 +56,14 @@ BLI_STATIC_ASSERT(sizeof(IMAGE) == HEADER_SIZE, "Invalid header size");
 
 // #define TYPEMASK        0xff00
 #define BPPMASK 0x00ff
-// #define ITYPE_VERBATIM      0x0000 // UNUSED
+// #define ITYPE_VERBATIM      0x0000 /* UNUSED */
 #define ITYPE_RLE 0x0100
 #define ISRLE(type) (((type)&0xff00) == ITYPE_RLE)
 // #define ISVERBATIM(type)    (((type) & 0xff00) == ITYPE_VERBATIM)
 #define BPP(type) ((type)&BPPMASK)
 #define RLE(bpp) (ITYPE_RLE | (bpp))
-// #define VERBATIM(bpp)       (ITYPE_VERBATIM | (bpp)) // UNUSED
-// #define IBUFSIZE(pixels)    ((pixels + (pixels >> 6)) << 2) // UNUSED
+// #define VERBATIM(bpp)       (ITYPE_VERBATIM | (bpp)) /* UNUSED */
+// #define IBUFSIZE(pixels)    ((pixels + (pixels >> 6)) << 2) /* UNUSED */
 // #define RLE_NOP         0x00
 
 /* local struct for mem access */
@@ -109,7 +93,7 @@ static void readheader(MFileOffset *inf, IMAGE *image);
 static int writeheader(FILE *outf, IMAGE *image);
 
 static ushort getshort(MFileOffset *inf);
-static uint getlong(MFileOffset *inf);
+static uint getlong(MFileOffset *mofs);
 static void putshort(FILE *outf, ushort val);
 static int putlong(FILE *outf, uint val);
 static int writetab(FILE *outf, uint *tab, int len);
@@ -121,8 +105,8 @@ static int expandrow2(
     float *optr, const float *optr_end, const uchar *iptr, const uchar *iptr_end, int z);
 static void interleaverow(uchar *lptr, const uchar *cptr, int z, int n);
 static void interleaverow2(float *lptr, const uchar *cptr, int z, int n);
-static int compressrow(uchar *lbuf, uchar *rlebuf, int z, int cnt);
-static void lumrow(uchar *rgbptr, uchar *lumptr, int n);
+static int compressrow(const uchar *lbuf, uchar *rlebuf, int z, int row_len);
+static void lumrow(const uchar *rgbptr, uchar *lumptr, int n);
 
 /*
  * byte order independent read/write of shorts and ints.
@@ -237,22 +221,19 @@ static void test_endian_zbuf(struct ImBuf *ibuf)
   }
 }
 
-/* from misc_util: flip the bytes from x  */
+/* From misc_util: flip the bytes from x. */
 #define GS(x) (((uchar *)(x))[0] << 8 | ((uchar *)(x))[1])
 
-/* this one is only def-ed once, strangely... */
+/* This one is only def-ed once, strangely... */
 #define GSS(x) (((uchar *)(x))[1] << 8 | ((uchar *)(x))[0])
 
-int imb_is_a_iris(const uchar *mem)
+bool imb_is_a_iris(const uchar *mem, size_t size)
 {
+  if (size < 2) {
+    return false;
+  }
   return ((GS(mem) == IMAGIC) || (GSS(mem) == IMAGIC));
 }
-
-/*
- * longimagedata -
- * read in a B/W RGB or RGBA iris image file and return a
- * pointer to an array of ints.
- */
 
 struct ImBuf *imb_loadiris(const uchar *mem, size_t size, int flags, char colorspace[IM_MAX_SPACE])
 {
@@ -267,11 +248,13 @@ struct ImBuf *imb_loadiris(const uchar *mem, size_t size, int flags, char colors
   ImBuf *ibuf = NULL;
   uchar dirty_flag = 0;
 
-  if (size < HEADER_SIZE) {
+  if (!imb_is_a_iris(mem, size)) {
     return NULL;
   }
 
-  if (!imb_is_a_iris(mem)) {
+  /* Could be part of the magic check above,
+   * by convention this check only requests the size needed to read it's magic though. */
+  if (size < HEADER_SIZE) {
     return NULL;
   }
 
@@ -281,18 +264,18 @@ struct ImBuf *imb_loadiris(const uchar *mem, size_t size, int flags, char colors
   readheader(inf, &image);
   if (image.imagic != IMAGIC) {
     fprintf(stderr, "longimagedata: bad magic number in image file\n");
-    return (NULL);
+    return NULL;
   }
 
   rle = ISRLE(image.type);
   bpp = BPP(image.type);
-  if (bpp != 1 && bpp != 2) {
+  if (!ELEM(bpp, 1, 2)) {
     fprintf(stderr, "longimagedata: image must have 1 or 2 byte per pix chan\n");
-    return (NULL);
+    return NULL;
   }
   if ((uint)image.zsize > 8) {
     fprintf(stderr, "longimagedata: channels over 8 not supported\n");
-    return (NULL);
+    return NULL;
   }
 
   const int xsize = image.xsize;
@@ -304,7 +287,7 @@ struct ImBuf *imb_loadiris(const uchar *mem, size_t size, int flags, char colors
     if (ibuf) {
       ibuf->ftype = IMB_FTYPE_IMAGIC;
     }
-    return (ibuf);
+    return ibuf;
   }
 
   if (rle) {
@@ -537,7 +520,7 @@ struct ImBuf *imb_loadiris(const uchar *mem, size_t size, int flags, char colors
       }
     }
     else if (image.zsize == 2) {
-      /* grayscale with alpha */
+      /* Gray-scale with alpha. */
       rect = (uchar *)ibuf->rect;
       for (size_t x = (size_t)ibuf->x * (size_t)ibuf->y; x > 0; x--) {
         rect[0] = rect[2];
@@ -565,7 +548,7 @@ struct ImBuf *imb_loadiris(const uchar *mem, size_t size, int flags, char colors
       }
     }
     else if (image.zsize == 2) {
-      /* grayscale with alpha */
+      /* Gray-scale with alpha. */
       fbase = ibuf->rect_float;
       for (size_t x = (size_t)ibuf->x * (size_t)ibuf->y; x > 0; x--) {
         fbase[0] = fbase[2];
@@ -598,7 +581,7 @@ struct ImBuf *imb_loadiris(const uchar *mem, size_t size, int flags, char colors
     IMB_convert_rgba_to_abgr(ibuf);
   }
 
-  return (ibuf);
+  return ibuf;
 }
 
 /* static utility functions for longimagedata */
@@ -796,18 +779,24 @@ fail:
 }
 
 /**
- * Copy an array of ints to an iris image file.
- * Each int represents one pixel.  xsize and ysize specify the dimensions of
- * the pixel array.  zsize specifies what kind of image file to
- * write out.  if zsize is 1, the luminance of the pixels are
- * calculated, and a single channel black and white image is saved.
- * If zsize is 3, an RGB image file is saved.  If zsize is 4, an
- * RGBA image file is saved.
- *
- * Added: zbuf write
+ * \param filepath: The file path to write to.
+ * \param lptr: an array of integers to an iris image file (each int represents one pixel).
+ * \param zptr: depth-buffer (optional, may be NULL).
+ * \param xsize: with width of the pixel-array.
+ * \param ysize: height of the pixel-array.
+ * \param zsize: specifies what kind of image file to write out.
+ * - 1: the luminance of the pixels are calculated,
+ *      and a single channel black and white image is saved.
+ * - 3: an RGB image file is saved.
+ * - 4: an RGBA image file is saved.
+ * - 8: an RGBA image and a Z-buffer (non-null `zptr`).
  */
-
-static int output_iris(uint *lptr, int xsize, int ysize, int zsize, const char *name, int *zptr)
+static bool output_iris(const char *filepath,
+                        const uint *lptr,
+                        const int *zptr,
+                        const int xsize,
+                        const int ysize,
+                        const int zsize)
 {
   FILE *outf;
   IMAGE *image;
@@ -818,7 +807,7 @@ static int output_iris(uint *lptr, int xsize, int ysize, int zsize, const char *
   int rlebuflen, goodwrite;
 
   goodwrite = 1;
-  outf = BLI_fopen(name, "wb");
+  outf = BLI_fopen(filepath, "wb");
   if (!outf) {
     return 0;
   }
@@ -854,21 +843,20 @@ static int output_iris(uint *lptr, int xsize, int ysize, int zsize, const char *
     for (z = 0; z < zsize; z++) {
 
       if (zsize == 1) {
-        lumrow((uchar *)lptr, (uchar *)lumbuf, xsize);
-        len = compressrow((uchar *)lumbuf, rlebuf, CHANOFFSET(z), xsize);
+        lumrow((const uchar *)lptr, (uchar *)lumbuf, xsize);
+        len = compressrow((const uchar *)lumbuf, rlebuf, CHANOFFSET(z), xsize);
       }
       else {
         if (z < 4) {
-          len = compressrow((uchar *)lptr, rlebuf, CHANOFFSET(z), xsize);
+          len = compressrow((const uchar *)lptr, rlebuf, CHANOFFSET(z), xsize);
         }
         else if (z < 8 && zptr) {
-          len = compressrow((uchar *)zptr, rlebuf, CHANOFFSET(z - 4), xsize);
+          len = compressrow((const uchar *)zptr, rlebuf, CHANOFFSET(z - 4), xsize);
         }
       }
-      if (len > rlebuflen) {
-        fprintf(stderr, "output_iris: rlebuf is too small - bad poop\n");
-        exit(1);
-      }
+
+      BLI_assert_msg(len <= rlebuflen, "The length calculated for 'rlebuflen' was too small!");
+
       goodwrite *= fwrite(rlebuf, len, 1, outf);
       starttab[y + z * ysize] = pos;
       lengthtab[y + z * ysize] = len;
@@ -892,15 +880,14 @@ static int output_iris(uint *lptr, int xsize, int ysize, int zsize, const char *
   if (goodwrite) {
     return 1;
   }
-  else {
-    fprintf(stderr, "output_iris: not enough space for image!!\n");
-    return 0;
-  }
+
+  fprintf(stderr, "output_iris: not enough space for image!!\n");
+  return 0;
 }
 
 /* static utility functions for output_iris */
 
-static void lumrow(uchar *rgbptr, uchar *lumptr, int n)
+static void lumrow(const uchar *rgbptr, uchar *lumptr, int n)
 {
   lumptr += CHANOFFSET(0);
   while (n--) {
@@ -910,15 +897,16 @@ static void lumrow(uchar *rgbptr, uchar *lumptr, int n)
   }
 }
 
-static int compressrow(uchar *lbuf, uchar *rlebuf, int z, int cnt)
+static int compressrow(const uchar *lbuf, uchar *rlebuf, const int z, const int row_len)
 {
-  uchar *iptr, *ibufend, *sptr, *optr;
+  const uchar *iptr, *ibufend, *sptr;
+  uchar *optr;
   short todo, cc;
   int count;
 
   lbuf += z;
   iptr = lbuf;
-  ibufend = iptr + cnt * 4;
+  ibufend = iptr + row_len * 4;
   optr = rlebuf;
 
   while (iptr < ibufend) {
@@ -970,10 +958,9 @@ static int compressrow(uchar *lbuf, uchar *rlebuf, int z, int cnt)
   return optr - (uchar *)rlebuf;
 }
 
-int imb_saveiris(struct ImBuf *ibuf, const char *name, int flags)
+bool imb_saveiris(struct ImBuf *ibuf, const char *filepath, int flags)
 {
   short zsize;
-  int ret;
 
   zsize = (ibuf->planes + 7) >> 3;
   if (flags & IB_zbuf && ibuf->zbuf != NULL) {
@@ -983,11 +970,11 @@ int imb_saveiris(struct ImBuf *ibuf, const char *name, int flags)
   IMB_convert_rgba_to_abgr(ibuf);
   test_endian_zbuf(ibuf);
 
-  ret = output_iris(ibuf->rect, ibuf->x, ibuf->y, zsize, name, ibuf->zbuf);
+  const bool ok = output_iris(filepath, ibuf->rect, ibuf->zbuf, ibuf->x, ibuf->y, zsize);
 
   /* restore! Quite clumsy, 2 times a switch... maybe better a malloc ? */
   IMB_convert_rgba_to_abgr(ibuf);
   test_endian_zbuf(ibuf);
 
-  return (ret);
+  return ok;
 }

@@ -1,26 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup avi
  *
- * This is external code. Converts rgb-type avi-s.
+ * This is external code. Converts RGB-type AVI files.
  */
 
 #include <stdlib.h>
@@ -37,7 +21,10 @@
 
 /* implementation */
 
-void *avi_converter_from_avi_rgb(AviMovie *movie, int stream, unsigned char *buffer, size_t *size)
+void *avi_converter_from_avi_rgb(AviMovie *movie,
+                                 int stream,
+                                 unsigned char *buffer,
+                                 const size_t *size)
 {
   unsigned char *buf;
   AviBitmapInfoHeader *bi;
@@ -93,35 +80,34 @@ void *avi_converter_from_avi_rgb(AviMovie *movie, int stream, unsigned char *buf
 
     return buf;
   }
-  else {
-    buf = imb_alloc_pixels(
-        movie->header->Height, movie->header->Width, 3, sizeof(unsigned char), "fromavirgbbuf");
 
-    if (buf) {
-      size_t rowstride = movie->header->Width * 3;
-      BLI_assert(bits != 16);
-      if (movie->header->Width % 2) {
-        rowstride++;
-      }
+  buf = imb_alloc_pixels(
+      movie->header->Height, movie->header->Width, 3, sizeof(unsigned char), "fromavirgbbuf");
 
-      for (size_t y = 0; y < movie->header->Height; y++) {
-        memcpy(&buf[y * movie->header->Width * 3],
-               &buffer[((movie->header->Height - 1) - y) * rowstride],
-               movie->header->Width * 3);
-      }
-
-      for (size_t y = 0; y < (size_t)movie->header->Height * (size_t)movie->header->Width * 3;
-           y += 3) {
-        int i = buf[y];
-        buf[y] = buf[y + 2];
-        buf[y + 2] = i;
-      }
+  if (buf) {
+    size_t rowstride = movie->header->Width * 3;
+    BLI_assert(bits != 16);
+    if (movie->header->Width % 2) {
+      rowstride++;
     }
 
-    MEM_freeN(buffer);
+    for (size_t y = 0; y < movie->header->Height; y++) {
+      memcpy(&buf[y * movie->header->Width * 3],
+             &buffer[((movie->header->Height - 1) - y) * rowstride],
+             movie->header->Width * 3);
+    }
 
-    return buf;
+    for (size_t y = 0; y < (size_t)movie->header->Height * (size_t)movie->header->Width * 3;
+         y += 3) {
+      int i = buf[y];
+      buf[y] = buf[y + 2];
+      buf[y + 2] = i;
+    }
   }
+
+  MEM_freeN(buffer);
+
+  return buf;
 }
 
 void *avi_converter_to_avi_rgb(AviMovie *movie, int stream, unsigned char *buffer, size_t *size)

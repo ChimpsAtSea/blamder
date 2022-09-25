@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup balembic
@@ -44,6 +30,8 @@ using Alembic::AbcGeom::INuPatch;
 using Alembic::AbcGeom::INuPatchSchema;
 using Alembic::AbcGeom::IObject;
 
+namespace blender::io::alembic {
+
 AbcNurbsReader::AbcNurbsReader(const IObject &object, ImportSettings &settings)
     : AbcObjectReader(object, settings)
 {
@@ -69,6 +57,26 @@ bool AbcNurbsReader::valid() const
   return true;
 }
 
+bool AbcNurbsReader::accepts_object_type(
+    const Alembic::AbcCoreAbstract::v12::ObjectHeader &alembic_header,
+    const Object *const ob,
+    const char **err_str) const
+{
+  if (!Alembic::AbcGeom::INuPatch::matches(alembic_header)) {
+    *err_str =
+        "Object type mismatch, Alembic object path pointed to NURBS when importing, but not any "
+        "more.";
+    return false;
+  }
+
+  if (ob->type != OB_CURVES_LEGACY) {
+    *err_str = "Object type mismatch, Alembic object path points to NURBS.";
+    return false;
+  }
+
+  return true;
+}
+
 static bool set_knots(const FloatArraySamplePtr &knots, float *&nu_knots)
 {
   if (!knots || knots->size() < 2) {
@@ -88,7 +96,7 @@ static bool set_knots(const FloatArraySamplePtr &knots, float *&nu_knots)
 
 void AbcNurbsReader::readObjectData(Main *bmain, const Alembic::Abc::ISampleSelector &sample_sel)
 {
-  Curve *cu = static_cast<Curve *>(BKE_curve_add(bmain, "abc_curve", OB_SURF));
+  Curve *cu = static_cast<Curve *>(BKE_curve_add(bmain, m_data_name.c_str(), OB_SURF));
   cu->actvert = CU_ACT_NONE;
 
   std::vector<std::pair<INuPatchSchema, IObject>>::iterator it;
@@ -178,8 +186,6 @@ void AbcNurbsReader::readObjectData(Main *bmain, const Alembic::Abc::ISampleSele
     BLI_addtail(BKE_curve_nurbs_get(cu), nu);
   }
 
-  BLI_strncpy(cu->id.name + 2, m_data_name.c_str(), m_data_name.size() + 1);
-
   m_object = BKE_object_add_only_object(bmain, OB_SURF, m_object_name.c_str());
   m_object->data = cu;
 }
@@ -195,7 +201,7 @@ void AbcNurbsReader::getNurbsPatches(const IObject &obj)
   if (num_children == 0) {
     INuPatch abc_nurb(obj, kWrapExisting);
     INuPatchSchema schem = abc_nurb.getSchema();
-    m_schemas.push_back(std::pair<INuPatchSchema, IObject>(schem, obj));
+    m_schemas.emplace_back(schem, obj);
     return;
   }
 
@@ -216,9 +222,11 @@ void AbcNurbsReader::getNurbsPatches(const IObject &obj)
     if (INuPatch::matches(md) && ok) {
       INuPatch abc_nurb(child, kWrapExisting);
       INuPatchSchema schem = abc_nurb.getSchema();
-      m_schemas.push_back(std::pair<INuPatchSchema, IObject>(schem, child));
+      m_schemas.emplace_back(schem, child);
     }
 
     getNurbsPatches(child);
   }
 }
+
+}  // namespace blender::io::alembic

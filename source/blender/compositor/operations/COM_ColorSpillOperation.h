@@ -1,39 +1,26 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_COLORSPILLOPERATION_H__
-#define __COM_COLORSPILLOPERATION_H__
-#include "COM_NodeOperation.h"
+#pragma once
+
+#include "COM_MultiThreadedOperation.h"
+
+namespace blender::compositor {
 
 /**
  * this program converts an input color to an output value.
  * it assumes we are in sRGB color space.
  */
-class ColorSpillOperation : public NodeOperation {
+class ColorSpillOperation : public MultiThreadedOperation {
  protected:
-  NodeColorspill *m_settings;
-  SocketReader *m_inputImageReader;
-  SocketReader *m_inputFacReader;
-  int m_spillChannel;
-  int m_spillMethod;
-  int m_channel2;
-  int m_channel3;
-  float m_rmut, m_gmut, m_bmut;
+  NodeColorspill *settings_;
+  SocketReader *input_image_reader_;
+  SocketReader *input_fac_reader_;
+  int spill_channel_;
+  int spill_method_;
+  int channel2_;
+  int channel3_;
+  float rmut_, gmut_, bmut_;
 
  public:
   /**
@@ -42,27 +29,31 @@ class ColorSpillOperation : public NodeOperation {
   ColorSpillOperation();
 
   /**
-   * the inner loop of this program
+   * The inner loop of this operation.
    */
-  void executePixelSampled(float output[4], float x, float y, PixelSampler sampler);
+  void execute_pixel_sampled(float output[4], float x, float y, PixelSampler sampler) override;
 
-  void initExecution();
-  void deinitExecution();
+  void init_execution() override;
+  void deinit_execution() override;
 
-  void setSettings(NodeColorspill *nodeColorSpill)
+  void set_settings(NodeColorspill *node_color_spill)
   {
-    this->m_settings = nodeColorSpill;
+    settings_ = node_color_spill;
   }
-  void setSpillChannel(int channel)
+  void set_spill_channel(int channel)
   {
-    this->m_spillChannel = channel;
+    spill_channel_ = channel;
   }
-  void setSpillMethod(int method)
+  void set_spill_method(int method)
   {
-    this->m_spillMethod = method;
+    spill_method_ = method;
   }
 
-  float calculateMapValue(float fac, float *input);
+  float calculate_map_value(float fac, float *input);
+
+  void update_memory_buffer_partial(MemoryBuffer *output,
+                                    const rcti &area,
+                                    Span<MemoryBuffer *> inputs) override;
 };
 
-#endif
+}  // namespace blender::compositor

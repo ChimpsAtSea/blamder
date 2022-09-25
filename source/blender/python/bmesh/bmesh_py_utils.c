@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2012 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2012 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup pybmesh
@@ -86,16 +70,15 @@ static PyObject *bpy_bm_utils_vert_collapse_edge(PyObject *UNUSED(self), PyObjec
 
   bm = py_edge->bm;
 
-  e_new = BM_vert_collapse_edge(bm, py_edge->e, py_vert->v, true, true);
+  e_new = BM_vert_collapse_edge(bm, py_edge->e, py_vert->v, true, true, true);
 
   if (e_new) {
     return BPy_BMEdge_CreatePyObject(bm, e_new);
   }
-  else {
-    PyErr_SetString(PyExc_ValueError,
-                    "vert_collapse_edge(vert, edge): no new edge created, internal error");
-    return NULL;
-  }
+
+  PyErr_SetString(PyExc_ValueError,
+                  "vert_collapse_edge(vert, edge): no new edge created, internal error");
+  return NULL;
 }
 
 PyDoc_STRVAR(bpy_bm_utils_vert_collapse_faces_doc,
@@ -110,6 +93,9 @@ PyDoc_STRVAR(bpy_bm_utils_vert_collapse_faces_doc,
              "   :type edge: :class:`bmesh.types.BMEdge`\n"
              "   :arg fac: The factor to use when merging customdata [0 - 1].\n"
              "   :type fac: float\n"
+             "   :arg join_faces: When true the faces around the vertex will be joined otherwise "
+             "collapse the vertex by merging the 2 edges this vertex connects to into one.\n"
+             "   :type join_faces: bool\n"
              "   :return: The resulting edge from the collapse operation.\n"
              "   :rtype: :class:`bmesh.types.BMEdge`\n");
 static PyObject *bpy_bm_utils_vert_collapse_faces(PyObject *UNUSED(self), PyObject *args)
@@ -153,16 +139,15 @@ static PyObject *bpy_bm_utils_vert_collapse_faces(PyObject *UNUSED(self), PyObje
   bm = py_edge->bm;
 
   e_new = BM_vert_collapse_faces(
-      bm, py_edge->e, py_vert->v, clamp_f(fac, 0.0f, 1.0f), true, do_join_faces, true);
+      bm, py_edge->e, py_vert->v, clamp_f(fac, 0.0f, 1.0f), true, do_join_faces, true, true);
 
   if (e_new) {
     return BPy_BMEdge_CreatePyObject(bm, e_new);
   }
-  else {
-    PyErr_SetString(PyExc_ValueError,
-                    "vert_collapse_faces(vert, edge): no new edge created, internal error");
-    return NULL;
-  }
+
+  PyErr_SetString(PyExc_ValueError,
+                  "vert_collapse_faces(vert, edge): no new edge created, internal error");
+  return NULL;
 }
 
 PyDoc_STRVAR(bpy_bm_utils_vert_dissolve_doc,
@@ -188,7 +173,7 @@ static PyObject *bpy_bm_utils_vert_dissolve(PyObject *UNUSED(self), PyObject *ar
 
   bm = py_vert->bm;
 
-  return PyBool_FromLong((BM_vert_dissolve(bm, py_vert->v)));
+  return PyBool_FromLong(BM_vert_dissolve(bm, py_vert->v));
 }
 
 PyDoc_STRVAR(bpy_bm_utils_vert_splice_doc,
@@ -360,11 +345,10 @@ static PyObject *bpy_bm_utils_edge_split(PyObject *UNUSED(self), PyObject *args)
         ret, BPy_BMEdge_CreatePyObject(bm, e_new), BPy_BMVert_CreatePyObject(bm, v_new));
     return ret;
   }
-  else {
-    PyErr_SetString(PyExc_ValueError,
-                    "edge_split(edge, vert): couldn't split the edge, internal error");
-    return NULL;
-  }
+
+  PyErr_SetString(PyExc_ValueError,
+                  "edge_split(edge, vert): couldn't split the edge, internal error");
+  return NULL;
 }
 
 PyDoc_STRVAR(bpy_bm_utils_edge_rotate_doc,
@@ -401,9 +385,8 @@ static PyObject *bpy_bm_utils_edge_rotate(PyObject *UNUSED(self), PyObject *args
   if (e_new) {
     return BPy_BMEdge_CreatePyObject(bm, e_new);
   }
-  else {
-    Py_RETURN_NONE;
-  }
+
+  Py_RETURN_NONE;
 }
 
 PyDoc_STRVAR(
@@ -451,7 +434,7 @@ static PyObject *bpy_bm_utils_face_split(PyObject *UNUSED(self), PyObject *args,
 
   if (!PyArg_ParseTupleAndKeywords(args,
                                    kw,
-                                   "O!O!O!|OO&O!:face_split",
+                                   "O!O!O!|$OO&O!:face_split",
                                    (char **)kwlist,
                                    &BPy_BMFace_Type,
                                    &py_face,
@@ -534,10 +517,9 @@ static PyObject *bpy_bm_utils_face_split(PyObject *UNUSED(self), PyObject *args,
         ret, BPy_BMFace_CreatePyObject(bm, f_new), BPy_BMLoop_CreatePyObject(bm, l_new));
     return ret;
   }
-  else {
-    PyErr_SetString(PyExc_ValueError, "face_split(...): couldn't split the face, internal error");
-    return NULL;
-  }
+
+  PyErr_SetString(PyExc_ValueError, "face_split(...): couldn't split the face, internal error");
+  return NULL;
 }
 
 PyDoc_STRVAR(bpy_bm_utils_face_split_edgenet_doc,
@@ -617,11 +599,10 @@ static PyObject *bpy_bm_utils_face_split_edgenet(PyObject *UNUSED(self),
     }
     return ret;
   }
-  else {
-    PyErr_SetString(PyExc_ValueError,
-                    "face_split_edgenet(...): couldn't split the face, internal error");
-    return NULL;
-  }
+
+  PyErr_SetString(PyExc_ValueError,
+                  "face_split_edgenet(...): couldn't split the face, internal error");
+  return NULL;
 }
 
 PyDoc_STRVAR(bpy_bm_utils_face_join_doc,
@@ -664,9 +645,8 @@ static PyObject *bpy_bm_utils_face_join(PyObject *UNUSED(self), PyObject *args)
   if (f_new) {
     return BPy_BMFace_CreatePyObject(bm, f_new);
   }
-  else {
-    Py_RETURN_NONE;
-  }
+
+  Py_RETURN_NONE;
 }
 
 PyDoc_STRVAR(
@@ -721,9 +701,8 @@ static PyObject *bpy_bm_utils_face_vert_separate(PyObject *UNUSED(self), PyObjec
   if (v_new != v_old) {
     return BPy_BMVert_CreatePyObject(bm, v_new);
   }
-  else {
-    Py_RETURN_NONE;
-  }
+
+  Py_RETURN_NONE;
 }
 
 PyDoc_STRVAR(bpy_bm_utils_face_flip_doc,
@@ -782,9 +761,8 @@ static PyObject *bpy_bm_utils_loop_separate(PyObject *UNUSED(self), BPy_BMLoop *
   if (v_new != v_old) {
     return BPy_BMVert_CreatePyObject(bm, v_new);
   }
-  else {
-    Py_RETURN_NONE;
-  }
+
+  Py_RETURN_NONE;
 }
 
 static struct PyMethodDef BPy_BM_utils_methods[] = {

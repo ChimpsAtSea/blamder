@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # semi-useful script, runs all operators in a number of different
 # contexts, cheap way to find misc small bugs but is in no way a complete test.
@@ -89,7 +71,7 @@ op_blacklist = (
     "wm.memory_statistics",     # another annoying one
     "wm.dependency_relations",  # another annoying one
     "wm.keymap_restore",        # another annoying one
-    "wm.addon_*",               # harmless, but dont change state
+    "wm.addon_*",               # harmless, but don't change state
     "console.*",                # just annoying - but harmless
     "wm.url_open_preset",       # Annoying but harmless (opens web pages).
 
@@ -178,7 +160,7 @@ if USE_ATTRSET:
             if issubclass(cls, skip_classes):
                 continue
 
-            # # to support skip-save we cant get all props
+            # # to support skip-save we can't get all props
             # properties = cls.bl_rna.properties.keys()
             properties = []
             for prop_id, prop in cls.bl_rna.properties.items():
@@ -503,7 +485,7 @@ def main():
 
 
 if __name__ == "__main__":
-    # ~ for i in range(200):
-        # ~ RANDOM_SEED[0] += 1
-        #~ main()
+    # for i in range(200):
+    #     RANDOM_SEED[0] += 1
+    #     main()
     main()

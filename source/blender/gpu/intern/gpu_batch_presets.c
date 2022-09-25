@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2016 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup gpu
@@ -27,15 +11,8 @@
 #include "BLI_utildefines.h"
 #include "MEM_guardedalloc.h"
 
-#include "DNA_userdef_types.h"
-
-#include "UI_interface.h"
-#include "UI_resources.h"
-
 #include "GPU_batch.h"
-#include "GPU_batch_presets.h" /* own include */
-#include "GPU_batch_utils.h"
-#include "gpu_shader_private.h"
+#include "GPU_batch_presets.h" /* Own include. */
 
 /* -------------------------------------------------------------------- */
 /** \name Local Structures
@@ -63,6 +40,7 @@ static struct {
 static struct {
   struct {
     GPUBatch *panel_drag_widget;
+    GPUBatch *quad;
   } batch;
 
   float panel_drag_widget_pixelsize;
@@ -129,12 +107,11 @@ GPUBatch *GPU_batch_preset_sphere(int lod)
   if (lod == 0) {
     return g_presets_3d.batch.sphere_low;
   }
-  else if (lod == 1) {
+  if (lod == 1) {
     return g_presets_3d.batch.sphere_med;
   }
-  else {
-    return g_presets_3d.batch.sphere_high;
-  }
+
+  return g_presets_3d.batch.sphere_high;
 }
 
 GPUBatch *GPU_batch_preset_sphere_wire(int lod)
@@ -145,9 +122,8 @@ GPUBatch *GPU_batch_preset_sphere_wire(int lod)
   if (lod == 0) {
     return g_presets_3d.batch.sphere_wire_low;
   }
-  else {
-    return g_presets_3d.batch.sphere_wire_med;
-  }
+
+  return g_presets_3d.batch.sphere_wire_med;
 }
 
 /** \} */
@@ -156,8 +132,7 @@ GPUBatch *GPU_batch_preset_sphere_wire(int lod)
 /** \name Create Sphere (3D)
  * \{ */
 
-/* Replacement for gluSphere */
-GPUBatch *gpu_batch_sphere(int lat_res, int lon_res)
+static GPUBatch *gpu_batch_sphere(int lat_res, int lon_res)
 {
   const float lon_inc = 2 * M_PI / lon_res;
   const float lat_inc = M_PI / lat_res;
@@ -333,6 +308,24 @@ GPUBatch *GPU_batch_preset_panel_drag_widget(const float pixelsize,
   return g_presets_2d.batch.panel_drag_widget;
 }
 
+GPUBatch *GPU_batch_preset_quad(void)
+{
+  if (!g_presets_2d.batch.quad) {
+    GPUVertBuf *vbo = GPU_vertbuf_create_with_format(preset_2d_format());
+    GPU_vertbuf_data_alloc(vbo, 4);
+
+    float pos_data[4][2] = {{0.0f, 0.0f}, {0.0f, 1.0f}, {1.0f, 0.0f}, {1.0f, 1.0f}};
+    GPU_vertbuf_attr_fill(vbo, g_presets_2d.attr_id.pos, pos_data);
+    /* Don't fill the color. */
+
+    g_presets_2d.batch.quad = GPU_batch_create_ex(
+        GPU_PRIM_TRI_STRIP, vbo, NULL, GPU_BATCH_OWNS_VBO);
+
+    gpu_batch_presets_register(g_presets_2d.batch.quad);
+  }
+  return g_presets_2d.batch.quad;
+}
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -380,18 +373,6 @@ bool gpu_batch_presets_unregister(GPUBatch *preset_batch)
   }
   BLI_mutex_unlock(&g_presets_3d.mutex);
   return false;
-}
-
-void gpu_batch_presets_reset(void)
-{
-  BLI_mutex_lock(&g_presets_3d.mutex);
-  /* Reset vao caches for these every time we switch opengl context.
-   * This way they will draw correctly for each window. */
-  LISTBASE_FOREACH (LinkData *, link, &presets_list) {
-    GPUBatch *preset = link->data;
-    GPU_batch_vao_cache_clear(preset);
-  }
-  BLI_mutex_unlock(&g_presets_3d.mutex);
 }
 
 void gpu_batch_presets_exit(void)

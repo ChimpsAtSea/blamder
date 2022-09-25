@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2020 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2020 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edsculpt
@@ -47,7 +31,6 @@
 #include "paint_intern.h"
 #include "sculpt_intern.h"
 
-#include "GPU_draw.h"
 #include "GPU_immediate.h"
 #include "GPU_immediate_util.h"
 #include "GPU_matrix.h"
@@ -86,41 +69,36 @@ static void calc_multiplane_scrape_surface_task_cb(void *__restrict userdata,
   test_radius *= brush->normal_radius_factor;
   test.radius_squared = test_radius * test_radius;
 
-  BKE_pbvh_vertex_iter_begin(ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE)
-  {
+  BKE_pbvh_vertex_iter_begin (ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE) {
 
-    if (sculpt_brush_test_sq_fn(&test, vd.co)) {
-      float local_co[3];
-      float normal[3];
-      if (vd.no) {
-        normal_short_to_float_v3(normal, vd.no);
-      }
-      else {
-        copy_v3_v3(normal, vd.fno);
-      }
-      mul_v3_m4v3(local_co, mat, vd.co);
-      /* Use the brush falloff to weight the sampled normals. */
-      const float fade = SCULPT_brush_strength_factor(ss,
-                                                      brush,
-                                                      vd.co,
-                                                      sqrtf(test.dist),
-                                                      vd.no,
-                                                      vd.fno,
-                                                      vd.mask ? *vd.mask : 0.0f,
-                                                      vd.index,
-                                                      thread_id);
+    if (!sculpt_brush_test_sq_fn(&test, vd.co)) {
+      continue;
+    }
+    float local_co[3];
+    float normal[3];
+    copy_v3_v3(normal, vd.no ? vd.no : vd.fno);
+    mul_v3_m4v3(local_co, mat, vd.co);
+    /* Use the brush falloff to weight the sampled normals. */
+    const float fade = SCULPT_brush_strength_factor(ss,
+                                                    brush,
+                                                    vd.co,
+                                                    sqrtf(test.dist),
+                                                    vd.no,
+                                                    vd.fno,
+                                                    vd.mask ? *vd.mask : 0.0f,
+                                                    vd.index,
+                                                    thread_id);
 
-      /* Sample the normal and area of the +X and -X axis individually. */
-      if (local_co[0] > 0.0f) {
-        madd_v3_v3fl(mssd->area_nos[0], normal, fade);
-        add_v3_v3(mssd->area_cos[0], vd.co);
-        mssd->area_count[0]++;
-      }
-      else {
-        madd_v3_v3fl(mssd->area_nos[1], normal, fade);
-        add_v3_v3(mssd->area_cos[1], vd.co);
-        mssd->area_count[1]++;
-      }
+    /* Sample the normal and area of the +X and -X axis individually. */
+    if (local_co[0] > 0.0f) {
+      madd_v3_v3fl(mssd->area_nos[0], normal, fade);
+      add_v3_v3(mssd->area_cos[0], vd.co);
+      mssd->area_count[0]++;
+    }
+    else {
+      madd_v3_v3fl(mssd->area_nos[1], normal, fade);
+      add_v3_v3(mssd->area_cos[1], vd.co);
+      mssd->area_count[1]++;
     }
     BKE_pbvh_vertex_iter_end;
   }
@@ -166,59 +144,63 @@ static void do_multiplane_scrape_brush_task_cb_ex(void *__restrict userdata,
       ss, &test, data->brush->falloff_shape);
   const int thread_id = BLI_task_parallel_thread_id(tls);
 
-  BKE_pbvh_vertex_iter_begin(ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE)
-  {
+  BKE_pbvh_vertex_iter_begin (ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE) {
 
-    if (sculpt_brush_test_sq_fn(&test, vd.co)) {
-      float local_co[3];
-      bool deform = false;
+    if (!sculpt_brush_test_sq_fn(&test, vd.co)) {
+      continue;
+    }
 
-      mul_v3_m4v3(local_co, mat, vd.co);
+    float local_co[3];
+    bool deform = false;
 
-      if (local_co[0] > 0.0f) {
-        deform = !SCULPT_plane_point_side(vd.co, scrape_planes[0]);
-      }
-      else {
-        deform = !SCULPT_plane_point_side(vd.co, scrape_planes[1]);
-      }
+    mul_v3_m4v3(local_co, mat, vd.co);
 
-      if (angle < 0.0f) {
-        deform = true;
-      }
+    if (local_co[0] > 0.0f) {
+      deform = !SCULPT_plane_point_side(vd.co, scrape_planes[0]);
+    }
+    else {
+      deform = !SCULPT_plane_point_side(vd.co, scrape_planes[1]);
+    }
 
-      if (deform) {
-        float intr[3];
-        float val[3];
+    if (angle < 0.0f) {
+      deform = true;
+    }
 
-        if (local_co[0] > 0.0f) {
-          closest_to_plane_normalized_v3(intr, scrape_planes[0], vd.co);
-        }
-        else {
-          closest_to_plane_normalized_v3(intr, scrape_planes[1], vd.co);
-        }
+    if (!deform) {
+      continue;
+    }
 
-        sub_v3_v3v3(val, intr, vd.co);
-        if (SCULPT_plane_trim(ss->cache, brush, val)) {
-          /* Deform the local space along the Y axis to avoid artifacts on curved strokes. */
-          /* This produces a not round brush tip. */
-          local_co[1] *= 2.0f;
-          const float fade = bstrength * SCULPT_brush_strength_factor(ss,
-                                                                      brush,
-                                                                      vd.co,
-                                                                      len_v3(local_co),
-                                                                      vd.no,
-                                                                      vd.fno,
-                                                                      vd.mask ? *vd.mask : 0.0f,
-                                                                      vd.index,
-                                                                      thread_id);
+    float intr[3];
+    float val[3];
 
-          mul_v3_v3fl(proxy[vd.i], val, fade);
+    if (local_co[0] > 0.0f) {
+      closest_to_plane_normalized_v3(intr, scrape_planes[0], vd.co);
+    }
+    else {
+      closest_to_plane_normalized_v3(intr, scrape_planes[1], vd.co);
+    }
 
-          if (vd.mvert) {
-            vd.mvert->flag |= ME_VERT_PBVH_UPDATE;
-          }
-        }
-      }
+    sub_v3_v3v3(val, intr, vd.co);
+    if (!SCULPT_plane_trim(ss->cache, brush, val)) {
+      continue;
+    }
+    /* Deform the local space along the Y axis to avoid artifacts on curved strokes. */
+    /* This produces a not round brush tip. */
+    local_co[1] *= 2.0f;
+    const float fade = bstrength * SCULPT_brush_strength_factor(ss,
+                                                                brush,
+                                                                vd.co,
+                                                                len_v3(local_co),
+                                                                vd.no,
+                                                                vd.fno,
+                                                                vd.mask ? *vd.mask : 0.0f,
+                                                                vd.index,
+                                                                thread_id);
+
+    mul_v3_v3fl(proxy[vd.i], val, fade);
+
+    if (vd.mvert) {
+      BKE_pbvh_vert_tag_update_normal(ss->pbvh, vd.index);
     }
   }
   BKE_pbvh_vertex_iter_end;
@@ -226,7 +208,6 @@ static void do_multiplane_scrape_brush_task_cb_ex(void *__restrict userdata,
 
 /* Public functions. */
 
-/* Main Brush Function. */
 void SCULPT_do_multiplane_scrape_brush(Sculpt *sd, Object *ob, PBVHNode **nodes, int totnode)
 {
   SculptSession *ss = ob->sculpt;
@@ -257,7 +238,7 @@ void SCULPT_do_multiplane_scrape_brush(Sculpt *sd, Object *ob, PBVHNode **nodes,
   }
 
   /* Delay the first daub because grab delta is not setup. */
-  if (ss->cache->first_time) {
+  if (SCULPT_stroke_is_first_brush_step_of_symmetry_pass(ss->cache)) {
     ss->cache->multiplane_scrape_angle = 0.0f;
     return;
   }
@@ -304,7 +285,7 @@ void SCULPT_do_multiplane_scrape_brush(Sculpt *sd, Object *ob, PBVHNode **nodes,
     MultiplaneScrapeSampleData mssd = {{{0}}};
 
     TaskParallelSettings sample_settings;
-    BKE_pbvh_parallel_range_settings(&sample_settings, (sd->flags & SCULPT_USE_OPENMP), totnode);
+    BKE_pbvh_parallel_range_settings(&sample_settings, true, totnode);
     sample_settings.func_reduce = calc_multiplane_scrape_surface_reduce;
     sample_settings.userdata_chunk = &mssd;
     sample_settings.userdata_chunk_size = sizeof(MultiplaneScrapeSampleData);
@@ -376,7 +357,7 @@ void SCULPT_do_multiplane_scrape_brush(Sculpt *sd, Object *ob, PBVHNode **nodes,
   /* Calculate the final left and right scrape planes. */
   float plane_no[3];
   float plane_no_rot[3];
-  float y_axis[3] = {0.0f, 1.0f, 0.0f};
+  const float y_axis[3] = {0.0f, 1.0f, 0.0f};
   float mat_inv[4][4];
   invert_m4_m4(mat_inv, mat);
 
@@ -395,15 +376,20 @@ void SCULPT_do_multiplane_scrape_brush(Sculpt *sd, Object *ob, PBVHNode **nodes,
   plane_from_point_normal_v3(data.multiplane_scrape_planes[0], area_co, plane_no);
 
   TaskParallelSettings settings;
-  BKE_pbvh_parallel_range_settings(&settings, (sd->flags & SCULPT_USE_OPENMP), totnode);
+  BKE_pbvh_parallel_range_settings(&settings, true, totnode);
   BLI_task_parallel_range(0, totnode, &data, do_multiplane_scrape_brush_task_cb_ex, &settings);
 }
 
 void SCULPT_multiplane_scrape_preview_draw(const uint gpuattr,
+                                           Brush *brush,
                                            SculptSession *ss,
                                            const float outline_col[3],
                                            const float outline_alpha)
 {
+  if (!(brush->flag2 & BRUSH_MULTIPLANE_SCRAPE_PLANES_PREVIEW)) {
+    return;
+  }
+
   float local_mat_inv[4][4];
   invert_m4_m4(local_mat_inv, ss->cache->stroke_local_mat);
   GPU_matrix_mul(local_mat_inv);
@@ -414,11 +400,11 @@ void SCULPT_multiplane_scrape_preview_draw(const uint gpuattr,
 
   float offset = ss->cache->radius * 0.25f;
 
-  float p[3] = {0.0f, 0.0f, ss->cache->radius};
-  float y_axis[3] = {0.0f, 1.0f, 0.0f};
+  const float p[3] = {0.0f, 0.0f, ss->cache->radius};
+  const float y_axis[3] = {0.0f, 1.0f, 0.0f};
   float p_l[3];
   float p_r[3];
-  float area_center[3] = {0.0f, 0.0f, 0.0f};
+  const float area_center[3] = {0.0f, 0.0f, 0.0f};
   rotate_v3_v3v3fl(p_r, p, y_axis, DEG2RADF((angle + 180) * 0.5f));
   rotate_v3_v3v3fl(p_l, p, y_axis, DEG2RADF(-(angle + 180) * 0.5f));
 

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup imbuf
@@ -31,6 +17,10 @@
 #include "IMB_imbuf_types.h"
 
 #include "imbuf.h"
+
+/* -------------------------------------------------------------------- */
+/** \name Local Structs
+ * \{ */
 
 /* We use a two level cache here. A per-thread cache with limited number of
  * tiles. This can be accessed without locking and so is hoped to lead to most
@@ -85,7 +75,11 @@ typedef struct ImGlobalTileCache {
 
 static ImGlobalTileCache GLOBAL_CACHE;
 
-/***************************** Hash Functions ********************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Hash Functions
+ * \{ */
 
 static unsigned int imb_global_tile_hash(const void *gtile_p)
 {
@@ -117,7 +111,11 @@ static bool imb_thread_tile_cmp(const void *a_p, const void *b_p)
   return ((a->ibuf != b->ibuf) || (a->tx != b->tx) || (a->ty != b->ty));
 }
 
-/******************************** Load/Unload ********************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Load/Unload
+ * \{ */
 
 static void imb_global_cache_tile_load(ImGlobalTile *gtile)
 {
@@ -141,7 +139,6 @@ static void imb_global_cache_tile_unload(ImGlobalTile *gtile)
   GLOBAL_CACHE.totmem -= sizeof(unsigned int) * ibuf->tilex * ibuf->tiley;
 }
 
-/* external free */
 void imb_tile_cache_tile_free(ImBuf *ibuf, int tx, int ty)
 {
   ImGlobalTile *gtile, lookuptile;
@@ -167,7 +164,11 @@ void imb_tile_cache_tile_free(ImBuf *ibuf, int tx, int ty)
   BLI_mutex_unlock(&GLOBAL_CACHE.mutex);
 }
 
-/******************************* Init/Exit ***********************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Init/Exit
+ * \{ */
 
 static void imb_thread_cache_init(ImThreadTileCache *cache)
 {
@@ -232,7 +233,6 @@ void imb_tile_cache_exit(void)
   }
 }
 
-/* presumed to be called when no threads are running */
 void IMB_tile_cache_params(int totthread, int maxmem)
 {
   int a;
@@ -265,7 +265,11 @@ void IMB_tile_cache_params(int totthread, int maxmem)
   BLI_mutex_init(&GLOBAL_CACHE.mutex);
 }
 
-/***************************** Global Cache **********************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Global Cache
+ * \{ */
 
 static ImGlobalTile *imb_global_cache_get_tile(ImBuf *ibuf,
                                                int tx,
@@ -353,7 +357,11 @@ static ImGlobalTile *imb_global_cache_get_tile(ImBuf *ibuf,
   return gtile;
 }
 
-/***************************** Per-Thread Cache ******************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Per-Thread Cache
+ * \{ */
 
 static unsigned int *imb_thread_cache_get_tile(ImThreadTileCache *cache,
                                                ImBuf *ibuf,
@@ -465,3 +473,5 @@ void IMB_tiles_to_rect(ImBuf *ibuf)
     }
   }
 }
+
+/** \} */

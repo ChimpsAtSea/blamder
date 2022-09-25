@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup imbdds
@@ -25,38 +11,37 @@
  * Original license from NVIDIA follows.
  */
 
-// Copyright NVIDIA Corporation 2007 -- Ignacio Castano <icastano@nvidia.com>
-//
-// Permission is hereby granted, free of charge, to any person
-// obtaining a copy of this software and associated documentation
-// files (the "Software"), to deal in the Software without
-// restriction, including without limitation the rights to use,
-// copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following
-// conditions:
-//
-// The above copyright notice and this permission notice shall be
-// included in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-// OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-// HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-// OTHER DEALINGS IN THE SOFTWARE.
+/* Copyright NVIDIA Corporation 2007 -- Ignacio Castano <icastano@nvidia.com>
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use,
+ * copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following
+ * conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE. */
 
-#ifndef __BLOCKDXT_H__
-#define __BLOCKDXT_H__
+#pragma once
 
 #include <Color.h>
 #include <ColorBlock.h>
 #include <Common.h>
 #include <Stream.h>
 
-/// DXT1 block.
+/** DXT1 block. */
 struct BlockDXT1 {
   Color16 col0;
   Color16 col1;
@@ -70,25 +55,29 @@ struct BlockDXT1 {
   uint evaluatePalette(Color32 color_array[4]) const;
   uint evaluatePaletteNV5x(Color32 color_array[4]) const;
 
+  /** Evaluate palette assuming 3 color block. */
   void evaluatePalette3(Color32 color_array[4]) const;
+  /** Evaluate palette assuming 4 color block. */
   void evaluatePalette4(Color32 color_array[4]) const;
 
   void decodeBlock(ColorBlock *block) const;
   void decodeBlockNV5x(ColorBlock *block) const;
 
-  void setIndices(int *idx);
+  void setIndices(const int *idx);
 
+  /** Flip DXT1 block vertically. */
   void flip4();
+  /** Flip half DXT1 block vertically. */
   void flip2();
 };
 
-/// Return true if the block uses four color mode, false otherwise.
+/** Return true if the block uses four color mode, false otherwise. */
 inline bool BlockDXT1::isFourColorMode() const
 {
   return col0.u > col1.u;
 }
 
-/// DXT3 alpha block with explicit alpha.
+/** DXT3 alpha block with explicit alpha. */
 struct AlphaBlockDXT3 {
   union {
     struct {
@@ -114,11 +103,13 @@ struct AlphaBlockDXT3 {
 
   void decodeBlock(ColorBlock *block) const;
 
+  /** Flip DXT3 alpha block vertically. */
   void flip4();
+  /** Flip half DXT3 alpha block vertically. */
   void flip2();
 };
 
-/// DXT3 block.
+/** DXT3 block. */
 struct BlockDXT3 {
   AlphaBlockDXT3 alpha;
   BlockDXT1 color;
@@ -126,34 +117,36 @@ struct BlockDXT3 {
   void decodeBlock(ColorBlock *block) const;
   void decodeBlockNV5x(ColorBlock *block) const;
 
+  /** Flip DXT3 block vertically. */
   void flip4();
+  /** Flip half DXT3 block vertically. */
   void flip2();
 };
 
-/// DXT5 alpha block.
+/** DXT5 alpha block. */
 struct AlphaBlockDXT5 {
-  // uint64 unions do not compile on all platforms
+  /* uint64 unions do not compile on all platforms */
 #if 0
   union {
     struct {
-      uint64 alpha0 : 8;  // 8
-      uint64 alpha1 : 8;  // 16
-      uint64 bits0 : 3;   // 3 - 19
-      uint64 bits1 : 3;   // 6 - 22
-      uint64 bits2 : 3;   // 9 - 25
-      uint64 bits3 : 3;   // 12 - 28
-      uint64 bits4 : 3;   // 15 - 31
-      uint64 bits5 : 3;   // 18 - 34
-      uint64 bits6 : 3;   // 21 - 37
-      uint64 bits7 : 3;   // 24 - 40
-      uint64 bits8 : 3;   // 27 - 43
-      uint64 bits9 : 3;   // 30 - 46
-      uint64 bitsA : 3;   // 33 - 49
-      uint64 bitsB : 3;   // 36 - 52
-      uint64 bitsC : 3;   // 39 - 55
-      uint64 bitsD : 3;   // 42 - 58
-      uint64 bitsE : 3;   // 45 - 61
-      uint64 bitsF : 3;   // 48 - 64
+      uint64 alpha0 : 8;  /* 8 */
+      uint64 alpha1 : 8;  /* 16 */
+      uint64 bits0 : 3;   /* 3 - 19 */
+      uint64 bits1 : 3;   /* 6 - 22 */
+      uint64 bits2 : 3;   /* 9 - 25 */
+      uint64 bits3 : 3;   /* 12 - 28 */
+      uint64 bits4 : 3;   /* 15 - 31 */
+      uint64 bits5 : 3;   /* 18 - 34 */
+      uint64 bits6 : 3;   /* 21 - 37 */
+      uint64 bits7 : 3;   /* 24 - 40 */
+      uint64 bits8 : 3;   /* 27 - 43 */
+      uint64 bits9 : 3;   /* 30 - 46 */
+      uint64 bitsA : 3;   /* 33 - 49 */
+      uint64 bitsB : 3;   /* 36 - 52 */
+      uint64 bitsC : 3;   /* 39 - 55 */
+      uint64 bitsD : 3;   /* 42 - 58 */
+      uint64 bitsE : 3;   /* 45 - 61 */
+      uint64 bitsF : 3;   /* 48 - 64 */
     };
     uint64 u;
   };
@@ -246,7 +239,7 @@ struct AlphaBlockDXT5 {
   void flip2();
 };
 
-/// DXT5 block.
+/** DXT5 block. */
 struct BlockDXT5 {
   AlphaBlockDXT5 alpha;
   BlockDXT1 color;
@@ -254,32 +247,40 @@ struct BlockDXT5 {
   void decodeBlock(ColorBlock *block) const;
   void decodeBlockNV5x(ColorBlock *block) const;
 
+  /** Flip DXT5 block vertically. */
   void flip4();
+  /** Flip half DXT5 block vertically. */
   void flip2();
 };
 
-/// ATI1 block.
+/** ATI1 block. */
 struct BlockATI1 {
   AlphaBlockDXT5 alpha;
 
+  /** Decode ATI1 block. */
   void decodeBlock(ColorBlock *block) const;
 
+  /** Flip ATI1 block vertically. */
   void flip4();
+  /** Flip half ATI1 block vertically. */
   void flip2();
 };
 
-/// ATI2 block.
+/** ATI2 block. */
 struct BlockATI2 {
   AlphaBlockDXT5 x;
   AlphaBlockDXT5 y;
 
+  /** Decode ATI2 block. */
   void decodeBlock(ColorBlock *block) const;
 
+  /** Flip ATI2 block vertically. */
   void flip4();
+  /** Flip half ATI2 block vertically. */
   void flip2();
 };
 
-/// CTX1 block.
+/** CTX1 block. */
 struct BlockCTX1 {
   uint8 col0[2];
   uint8 col1[2];
@@ -289,11 +290,13 @@ struct BlockCTX1 {
   };
 
   void evaluatePalette(Color32 color_array[4]) const;
-  void setIndices(int *idx);
+  void setIndices(const int *idx);
 
   void decodeBlock(ColorBlock *block) const;
 
+  /** Flip CTX1 block vertically. */
   void flip4();
+  /** Flip half CTX1 block vertically. */
   void flip2();
 };
 
@@ -305,5 +308,3 @@ void mem_read(Stream &mem, BlockDXT5 &block);
 void mem_read(Stream &mem, BlockATI1 &block);
 void mem_read(Stream &mem, BlockATI2 &block);
 void mem_read(Stream &mem, BlockCTX1 &block);
-
-#endif /* __BLOCKDXT_H__ */

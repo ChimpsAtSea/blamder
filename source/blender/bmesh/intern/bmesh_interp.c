@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2007 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2007 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bmesh
@@ -81,13 +65,6 @@ static void bm_data_interp_from_elem(CustomData *data_layer,
   }
 }
 
-/**
- * \brief Data, Interp From Verts
- *
- * Interpolates per-vertex data from two sources to \a v_dst
- *
- * \note This is an exact match to #BM_data_interp_from_edges
- */
 void BM_data_interp_from_verts(
     BMesh *bm, const BMVert *v_src_1, const BMVert *v_src_2, BMVert *v_dst, const float fac)
 {
@@ -95,13 +72,6 @@ void BM_data_interp_from_verts(
       &bm->vdata, (const BMElem *)v_src_1, (const BMElem *)v_src_2, (BMElem *)v_dst, fac);
 }
 
-/**
- * \brief Data, Interp From Edges
- *
- * Interpolates per-edge data from two sources to \a e_dst.
- *
- * \note This is an exact match to #BM_data_interp_from_verts
- */
 void BM_data_interp_from_edges(
     BMesh *bm, const BMEdge *e_src_1, const BMEdge *e_src_2, BMEdge *e_dst, const float fac)
 {
@@ -120,12 +90,6 @@ static void UNUSED_FUNCTION(BM_Data_Vert_Average)(BMesh *UNUSED(bm), BMFace *UNU
   // BMIter iter;
 }
 
-/**
- * \brief Data Face-Vert Edge Interp
- *
- * Walks around the faces of \a e and interpolates
- * the loop data between two sources.
- */
 void BM_data_interp_face_vert_edge(BMesh *bm,
                                    const BMVert *v_src_1,
                                    const BMVert *UNUSED(v_src_2),
@@ -160,24 +124,15 @@ void BM_data_interp_face_vert_edge(BMesh *bm,
     if (!l_v1 || !l_v2) {
       return;
     }
-    else {
-      const void *src[2];
-      src[0] = l_v1->head.data;
-      src[1] = l_v2->head.data;
 
-      CustomData_bmesh_interp(&bm->ldata, src, w, NULL, 2, l_v->head.data);
-    }
+    const void *src[2];
+    src[0] = l_v1->head.data;
+    src[1] = l_v2->head.data;
+
+    CustomData_bmesh_interp(&bm->ldata, src, w, NULL, 2, l_v->head.data);
   } while ((l_iter = l_iter->radial_next) != e->l);
 }
 
-/**
- * \brief Data Interp From Face
- *
- * projects target onto source, and pulls interpolated customdata from
- * source.
- *
- * \note Only handles loop customdata. multires is handled.
- */
 void BM_face_interp_from_face_ex(BMesh *bm,
                                  BMFace *f_dst,
                                  const BMFace *f_src,
@@ -296,7 +251,7 @@ static bool quad_co(const float v1[3],
                     float r_uv[2])
 {
   float projverts[5][3], n2[3];
-  float origin[2] = {0.0f, 0.0f};
+  const float origin[2] = {0.0f, 0.0f};
   int i;
 
   /* project points into 2d along normal */
@@ -329,7 +284,7 @@ static bool quad_co(const float v1[3],
   return true;
 }
 
-static void mdisp_axis_from_quad(float v1[3],
+static void mdisp_axis_from_quad(const float v1[3],
                                  const float v2[3],
                                  float UNUSED(v3[3]),
                                  const float v4[3],
@@ -343,8 +298,12 @@ static void mdisp_axis_from_quad(float v1[3],
   normalize_v3(r_axis_y);
 }
 
-/* tl is loop to project onto, l is loop whose internal displacement, co, is being
- * projected.  x and y are location in loop's mdisps grid of point co. */
+/**
+ * \param l_src: is loop whose internal displacement.
+ * \param l_dst: is loop to project onto.
+ * \param p: The point being projected.
+ * \param r_axis_x, r_axis_y: The location in loop's #CD_MDISPS grid of point `p`.
+ */
 static bool mdisp_in_mdispquad(BMLoop *l_src,
                                BMLoop *l_dst,
                                const float l_dst_f_center[3],
@@ -536,7 +495,7 @@ void BM_loop_interp_multires_ex(BMesh *UNUSED(bm),
     md_dst->totdisp = md_src->totdisp;
     md_dst->level = md_src->level;
     if (md_dst->totdisp) {
-      md_dst->disps = MEM_callocN(sizeof(float) * 3 * md_dst->totdisp, __func__);
+      md_dst->disps = MEM_callocN(sizeof(float[3]) * md_dst->totdisp, __func__);
     }
     else {
       return;
@@ -567,9 +526,6 @@ void BM_loop_interp_multires_ex(BMesh *UNUSED(bm),
   BLI_task_parallel_range(0, res, &data, loop_interp_multires_cb, &settings);
 }
 
-/**
- * project the multires grid in target onto f_src's set of multires grids
- */
 void BM_loop_interp_multires(BMesh *bm, BMLoop *l_dst, const BMFace *f_src)
 {
   const int cd_loop_mdisp_offset = CustomData_get_offset(&bm->ldata, CD_MDISPS);
@@ -615,10 +571,6 @@ void BM_face_interp_multires(BMesh *bm, BMFace *f_dst, const BMFace *f_src)
   }
 }
 
-/**
- * smooths boundaries between multires grids,
- * including some borders in adjacent faces
- */
 void BM_face_multires_bounds_smooth(BMesh *bm, BMFace *f)
 {
   const int cd_loop_mdisp_offset = CustomData_get_offset(&bm->ldata, CD_MDISPS);
@@ -727,10 +679,6 @@ void BM_face_multires_bounds_smooth(BMesh *bm, BMFace *f)
   }
 }
 
-/**
- * projects a single loop, target, onto f_src for customdata interpolation. multires is handled.
- * if do_vertex is true, target's vert data will also get interpolated.
- */
 void BM_loop_interp_from_face(
     BMesh *bm, BMLoop *l_dst, const BMFace *f_src, const bool do_vertex, const bool do_multires)
 {
@@ -744,9 +692,21 @@ void BM_loop_interp_from_face(
   float co[2];
   int i;
 
-  /* convert the 3d coords into 2d for projection */
-  BLI_assert(BM_face_is_normal_valid(f_src));
-  axis_dominant_v3_to_m3(axis_mat, f_src->no);
+  /* Convert the 3d coords into 2d for projection. */
+  float axis_dominant[3];
+  if (!is_zero_v3(f_src->no)) {
+    BLI_assert(BM_face_is_normal_valid(f_src));
+    copy_v3_v3(axis_dominant, f_src->no);
+  }
+  else {
+    /* Rare case in which all the vertices of the face are aligned.
+     * Get a random axis that is orthogonal to the tangent. */
+    float vec[3];
+    BM_face_calc_tangent_auto(f_src, vec);
+    ortho_v3_v3(axis_dominant, vec);
+    normalize_v3(axis_dominant);
+  }
+  axis_dominant_v3_to_m3(axis_mat, axis_dominant);
 
   i = 0;
   l_iter = l_first = BM_FACE_FIRST_LOOP(f_src);
@@ -869,7 +829,7 @@ static void update_data_blocks(BMesh *bm, CustomData *olddata, CustomData *data)
   }
 
   if (oldpool) {
-    /* this should never happen but can when dissolve fails - [#28960] */
+    /* this should never happen but can when dissolve fails - T28960. */
     BLI_assert(data->pool != oldpool);
 
     BLI_mempool_destroy(oldpool);
@@ -924,7 +884,7 @@ void BM_data_layer_free(BMesh *bm, CustomData *data, int type)
   data->pool = NULL;
 
   has_layer = CustomData_free_layer_active(data, type, 0);
-  /* assert because its expensive to realloc - better not do if layer isnt present */
+  /* Assert because its expensive to realloc - better not do if layer isn't present. */
   BLI_assert(has_layer != false);
   UNUSED_VARS_NDEBUG(has_layer);
 
@@ -932,6 +892,27 @@ void BM_data_layer_free(BMesh *bm, CustomData *data, int type)
   if (olddata.layers) {
     MEM_freeN(olddata.layers);
   }
+}
+
+bool BM_data_layer_free_named(BMesh *bm, CustomData *data, const char *name)
+{
+  CustomData olddata = *data;
+  olddata.layers = (olddata.layers) ? MEM_dupallocN(olddata.layers) : NULL;
+
+  /* the pool is now owned by olddata and must not be shared */
+  data->pool = NULL;
+
+  const bool has_layer = CustomData_free_layer_named(data, name, 0);
+
+  if (has_layer) {
+    update_data_blocks(bm, &olddata, data);
+  }
+
+  if (olddata.layers) {
+    MEM_freeN(olddata.layers);
+  }
+
+  return has_layer;
 }
 
 void BM_data_layer_free_n(BMesh *bm, CustomData *data, int type, int n)
@@ -946,7 +927,7 @@ void BM_data_layer_free_n(BMesh *bm, CustomData *data, int type, int n)
   data->pool = NULL;
 
   has_layer = CustomData_free_layer(data, type, 0, CustomData_get_layer_index_n(data, type, n));
-  /* assert because its expensive to realloc - better not do if layer isnt present */
+  /* Assert because its expensive to realloc - better not do if layer isn't present. */
   BLI_assert(has_layer != false);
   UNUSED_VARS_NDEBUG(has_layer);
 
@@ -1016,6 +997,7 @@ void BM_elem_float_data_set(CustomData *cd, void *element, int type, const float
   }
 }
 
+/* -------------------------------------------------------------------- */
 /** \name Loop interpolation functions: BM_vert_loop_groups_data_layer_***
  *
  * Handling loop custom-data such as UV's, while keeping contiguous fans is rather tedious.
@@ -1230,9 +1212,6 @@ static void bm_vert_loop_groups_data_layer_merge_weights__single(
   }
 }
 
-/**
- * Take existing custom data and merge each fan's data.
- */
 void BM_vert_loop_groups_data_layer_merge(BMesh *bm, LinkNode *groups, const int layer_n)
 {
   const int type = bm->ldata.layers[layer_n].type;
@@ -1244,10 +1223,6 @@ void BM_vert_loop_groups_data_layer_merge(BMesh *bm, LinkNode *groups, const int
   } while ((groups = groups->next));
 }
 
-/**
- * A version of #BM_vert_loop_groups_data_layer_merge
- * that takes an array of loop-weights (aligned with #BM_LOOPS_OF_VERT iterator)
- */
 void BM_vert_loop_groups_data_layer_merge_weights(BMesh *bm,
                                                   LinkNode *groups,
                                                   const int layer_n,

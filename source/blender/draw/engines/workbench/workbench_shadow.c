@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2020, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2020 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -62,10 +47,10 @@ static void workbench_shadow_update(WORKBENCH_PrivateData *wpd)
       wpd->shadow_cached_direction, wpd->shadow_direction_ws, 1e-5f);
 
   if (wpd->shadow_changed) {
-    float up[3] = {0.0f, 0.0f, 1.0f};
+    const float up[3] = {0.0f, 0.0f, 1.0f};
     unit_m4(wpd->shadow_mat);
 
-    /* TODO fix singularity. */
+    /* TODO: fix singularity. */
     copy_v3_v3(wpd->shadow_mat[2], wpd->shadow_direction_ws);
     cross_v3_v3v3(wpd->shadow_mat[0], wpd->shadow_mat[2], up);
     normalize_v3(wpd->shadow_mat[0]);
@@ -157,7 +142,7 @@ void workbench_shadow_cache_init(WORKBENCH_Data *data)
     DRWState state = DRW_STATE_DEPTH_LESS | DRW_STATE_STENCIL_ALWAYS;
 #endif
 
-    /* TODO(fclem) Merge into one pass with subpasses. */
+    /* TODO(fclem): Merge into one pass with sub-passes. */
     DRW_PASS_CREATE(psl->shadow_ps[0], state | depth_pass_state);
     DRW_PASS_CREATE(psl->shadow_ps[1], state | depth_fail_state);
 
@@ -181,9 +166,9 @@ void workbench_shadow_cache_init(WORKBENCH_Data *data)
   }
 }
 
-static BoundBox *workbench_shadow_object_shadow_bbox_get(WORKBENCH_PrivateData *wpd,
-                                                         Object *ob,
-                                                         WORKBENCH_ObjectData *oed)
+static const BoundBox *workbench_shadow_object_shadow_bbox_get(WORKBENCH_PrivateData *wpd,
+                                                               Object *ob,
+                                                               WORKBENCH_ObjectData *oed)
 {
   if (oed->shadow_bbox_dirty || wpd->shadow_changed) {
     float tmp_mat[4][4];
@@ -193,7 +178,7 @@ static BoundBox *workbench_shadow_object_shadow_bbox_get(WORKBENCH_PrivateData *
     INIT_MINMAX(oed->shadow_min, oed->shadow_max);
 
     /* From object space to shadow space */
-    BoundBox *bbox = BKE_object_boundbox_get(ob);
+    const BoundBox *bbox = BKE_object_boundbox_get(ob);
     for (int i = 0; i < 8; i++) {
       float corner[3];
       mul_v3_m4v3(corner, tmp_mat, bbox->vec[i]);
@@ -218,7 +203,7 @@ static bool workbench_shadow_object_cast_visible_shadow(WORKBENCH_PrivateData *w
                                                         Object *ob,
                                                         WORKBENCH_ObjectData *oed)
 {
-  BoundBox *shadow_bbox = workbench_shadow_object_shadow_bbox_get(wpd, ob, oed);
+  const BoundBox *shadow_bbox = workbench_shadow_object_shadow_bbox_get(wpd, ob, oed);
   const DRWView *default_view = DRW_view_default_get();
   return DRW_culling_box_test(default_view, shadow_bbox);
 }
@@ -227,9 +212,9 @@ static float workbench_shadow_object_shadow_distance(WORKBENCH_PrivateData *wpd,
                                                      Object *ob,
                                                      WORKBENCH_ObjectData *oed)
 {
-  BoundBox *shadow_bbox = workbench_shadow_object_shadow_bbox_get(wpd, ob, oed);
+  const BoundBox *shadow_bbox = workbench_shadow_object_shadow_bbox_get(wpd, ob, oed);
 
-  int corners[4] = {0, 3, 4, 7};
+  const int corners[4] = {0, 3, 4, 7};
   float dist = 1e4f, dist_isect;
   for (int i = 0; i < 4; i++) {
     if (isect_ray_plane_v3(shadow_bbox->vec[corners[i]],

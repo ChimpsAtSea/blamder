@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 import bpy
 from bpy.types import Panel, Menu
 from rna_prop_ui import PropertyPanel
@@ -86,11 +68,18 @@ class DATA_PT_display(ArmatureButtonsPanel, Panel):
 
         col = layout.column(heading="Show")
         col.prop(arm, "show_names", text="Names")
-        col.prop(arm, "show_axes", text="Axes")
         col.prop(arm, "show_bone_custom_shapes", text="Shapes")
         col.prop(arm, "show_group_colors", text="Group Colors")
+
         if ob:
             col.prop(ob, "show_in_front", text="In Front")
+
+        col = layout.column(align=False, heading="Axes")
+        row = col.row(align=True)
+        row.prop(arm, "show_axes", text="")
+        sub = row.row(align=True)
+        sub.active = arm.show_axes
+        sub.prop(arm, "axes_position", text="Position")
 
 
 class DATA_MT_bone_group_context_menu(Menu):
@@ -133,7 +122,6 @@ class DATA_PT_bone_groups(ArmatureButtonsPanel, Panel):
         )
 
         col = row.column(align=True)
-        col.active = (ob.proxy is None)
         col.operator("pose.group_add", icon='ADD', text="")
         col.operator("pose.group_remove", icon='REMOVE', text="")
         col.menu("DATA_MT_bone_group_context_menu", icon='DOWNARROW_HLT', text="")
@@ -143,7 +131,6 @@ class DATA_PT_bone_groups(ArmatureButtonsPanel, Panel):
             col.operator("pose.group_move", icon='TRIA_DOWN', text="").direction = 'DOWN'
 
             split = layout.split()
-            split.active = (ob.proxy is None)
 
             col = split.column()
             col.prop(group, "color_set")
@@ -156,7 +143,6 @@ class DATA_PT_bone_groups(ArmatureButtonsPanel, Panel):
                 sub.prop(group.colors, "active", text="")
 
         row = layout.row()
-        row.active = (ob.proxy is None)
 
         sub = row.row(align=True)
         sub.operator("pose.group_assign", text="Assign")
@@ -169,30 +155,60 @@ class DATA_PT_bone_groups(ArmatureButtonsPanel, Panel):
 
 
 class DATA_PT_pose_library(ArmatureButtonsPanel, Panel):
-    bl_label = "Pose Library"
+    bl_label = "Pose Library (Legacy)"
     bl_options = {'DEFAULT_CLOSED'}
 
     @classmethod
     def poll(cls, context):
         return (context.object and context.object.type == 'ARMATURE' and context.object.pose)
 
+    @staticmethod
+    def get_manual_url():
+        url_fmt = "https://docs.blender.org/manual/en/%d.%d/animation/armatures/posing/editing/pose_library.html"
+        return url_fmt % bpy.app.version[:2]
+
     def draw(self, context):
         layout = self.layout
+
+        col = layout.column(align=True)
+        col.label(text="This panel is a remainder of the old pose library,")
+        col.label(text="which was replaced by the Asset Browser")
+
+        url = self.get_manual_url()
+        col.operator("wm.url_open", text="More Info", icon='URL').url = url
+
+        layout.separator()
 
         ob = context.object
         poselib = ob.pose_library
 
-        layout.template_ID(ob, "pose_library", new="poselib.new", unlink="poselib.unlink")
+        col = layout.column(align=True)
+        col.template_ID(ob, "pose_library", new="poselib.new", unlink="poselib.unlink")
 
         if poselib:
+            if hasattr(bpy.types, "POSELIB_OT_convert_old_object_poselib"):
+                col.operator("poselib.convert_old_object_poselib",
+                             text="Convert to Pose Assets", icon='ASSET_MANAGER')
+            else:
+                col.label(text="Enable the Pose Library add-on to convert", icon='ERROR')
+                col.label(text="this legacy pose library to pose assets", icon='BLANK1')
+
+            # Put the deprecated stuff in its own sub-layout.
+
+            dep_layout = layout.column()
+            dep_layout.active = False
+
             # warning about poselib being in an invalid state
             if poselib.fcurves and not poselib.pose_markers:
-                layout.label(icon='ERROR', text="Error: Potentially corrupt library, run 'Sanitize' operator to fix")
+                dep_layout.label(
+                    icon='ERROR',
+                    text="Error: Potentially corrupt library, run 'Sanitize' operator to fix",
+                )
 
             # list of poses in pose library
-            row = layout.row()
+            row = dep_layout.row()
             row.template_list("UI_UL_list", "pose_markers", poselib, "pose_markers",
-                              poselib.pose_markers, "active_index", rows=5)
+                              poselib.pose_markers, "active_index", rows=3)
 
             # column of operators for active pose
             # - goes beside list

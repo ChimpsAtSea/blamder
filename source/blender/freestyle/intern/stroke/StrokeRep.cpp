@@ -1,29 +1,17 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
  * \brief Class to define the representation of a stroke (for display purpose)
  */
 
-#include "StrokeRep.h"
+#include <cmath>
+
 #include "Stroke.h"
 #include "StrokeAdvancedIterators.h"
 #include "StrokeIterators.h"
 #include "StrokeRenderer.h"
+#include "StrokeRep.h"
 
 #include "BKE_global.h"
 
@@ -50,8 +38,8 @@ StrokeVertexRep::StrokeVertexRep(const StrokeVertexRep &iBrother)
 
 Strip::Strip(const vector<StrokeVertex *> &iStrokeVertices,
              bool hasTex,
-             bool beginTip,
-             bool endTip,
+             bool tipBegin,
+             bool tipEnd,
              float texStep)
 {
   createStrip(iStrokeVertices);
@@ -61,7 +49,7 @@ Strip::Strip(const vector<StrokeVertex *> &iStrokeVertices,
   if (hasTex) {
     // We compute both kinds of coordinates to use different kinds of textures
     computeTexCoord(iStrokeVertices, texStep);
-    computeTexCoordWithTips(iStrokeVertices, beginTip, endTip, texStep);
+    computeTexCoordWithTips(iStrokeVertices, tipBegin, tipEnd, texStep);
   }
 }
 
@@ -561,8 +549,8 @@ void Strip::computeTexCoordWithTips(const vector<StrokeVertex *> &iStrokeVertice
                                     float texStep)
 {
   vector<StrokeVertex *>::const_iterator v, vend;
-  StrokeVertex *sv = NULL;
-  StrokeVertexRep *tvRep[2] = {NULL};
+  StrokeVertex *sv = nullptr;
+  StrokeVertexRep *tvRep[2] = {nullptr};
 
   float l, fact, t;
   float u = 0, uPrev = 0;
@@ -573,7 +561,7 @@ void Strip::computeTexCoordWithTips(const vector<StrokeVertex *> &iStrokeVertice
   v = iStrokeVertices.begin();
   vend = iStrokeVertices.end();
   l = (*v)->strokeLength() / spacedThickness;
-  tiles = int(l + 0.5);  // round to the nearest
+  tiles = std::roundf(l);  // round to the nearest
   fact = (float(tiles) + 0.5) / l;
 
 #if 0
@@ -748,13 +736,13 @@ void Strip::computeTexCoordWithTips(const vector<StrokeVertex *> &iStrokeVertice
 
 StrokeRep::StrokeRep()
 {
-  _stroke = 0;
+  _stroke = nullptr;
   _strokeType = Stroke::OPAQUE_MEDIUM;
-  _nodeTree = NULL;
+  _nodeTree = nullptr;
   _hasTex = false;
   _textureStep = 1.0;
   for (int a = 0; a < MAX_MTEX; a++) {
-    _mtex[a] = NULL;
+    _mtex[a] = nullptr;
   }
   TextureManager *ptm = TextureManager::getInstance();
   if (ptm) {
@@ -784,7 +772,7 @@ StrokeRep::StrokeRep(Stroke *iStroke)
       _mtex[a] = iStroke->getMTex(a);
     }
     else {
-      _mtex[a] = NULL;
+      _mtex[a] = nullptr;
     }
   }
   if (_textureId == 0) {
@@ -820,7 +808,7 @@ StrokeRep::StrokeRep(const StrokeRep &iBrother)
       _mtex[a] = iBrother._mtex[a];
     }
     else {
-      _mtex[a] = NULL;
+      _mtex[a] = nullptr;
     }
   }
   for (vector<Strip *>::const_iterator s = iBrother._strips.begin(), send = iBrother._strips.end();

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -33,18 +19,18 @@ BlenderFileLoader::BlenderFileLoader(Render *re, ViewLayer *view_layer, Depsgrap
 {
   _re = re;
   _depsgraph = depsgraph;
-  _Scene = NULL;
+  _Scene = nullptr;
   _numFacesRead = 0;
 #if 0
   _minEdgeSize = DBL_MAX;
 #endif
   _smooth = (view_layer->freestyle_config.flags & FREESTYLE_FACE_SMOOTHNESS_FLAG) != 0;
-  _pRenderMonitor = NULL;
+  _pRenderMonitor = nullptr;
 }
 
 BlenderFileLoader::~BlenderFileLoader()
 {
-  _Scene = NULL;
+  _Scene = nullptr;
 }
 
 NodeGroup *BlenderFileLoader::Load()
@@ -56,16 +42,11 @@ NodeGroup *BlenderFileLoader::Load()
   // creation of the scene root node
   _Scene = new NodeGroup;
 
-  _viewplane_left = _re->viewplane.xmin;
-  _viewplane_right = _re->viewplane.xmax;
-  _viewplane_bottom = _re->viewplane.ymin;
-  _viewplane_top = _re->viewplane.ymax;
-
-  if (_re->clip_start < 0.f) {
+  if (_re->clip_start < 0.0f) {
     // Adjust clipping start/end and set up a Z offset when the viewport preview
     // is used with the orthographic view.  In this case, _re->clip_start is negative,
     // while Freestyle assumes that imported mesh data are in the camera coordinate
-    // system with the view point located at origin [bug #36009].
+    // system with the view point located at origin [bug T36009].
     _z_near = -0.001f;
     _z_offset = _re->clip_start + _z_near;
     _z_far = -_re->clip_end + _z_offset;
@@ -73,16 +54,8 @@ NodeGroup *BlenderFileLoader::Load()
   else {
     _z_near = -_re->clip_start;
     _z_far = -_re->clip_end;
-    _z_offset = 0.f;
+    _z_offset = 0.0f;
   }
-
-#if 0
-  if (G.debug & G_DEBUG_FREESTYLE) {
-    cout << "Frustum: l " << _viewplane_left << " r " << _viewplane_right << " b "
-         << _viewplane_bottom << " t " << _viewplane_top << " n " << _z_near << " f " << _z_far
-         << endl;
-  }
-#endif
 
   int id = 0;
   const eEvaluationMode eval_mode = DEG_get_mode(_depsgraph);
@@ -104,7 +77,7 @@ NodeGroup *BlenderFileLoader::Load()
       continue;
     }
 
-    Mesh *mesh = BKE_object_to_mesh(NULL, ob, false);
+    Mesh *mesh = BKE_object_to_mesh(nullptr, ob, false);
 
     if (mesh) {
       insertShapeNode(ob, mesh, ++id);
@@ -169,7 +142,7 @@ int BlenderFileLoader::countClippedFaces(float v1[3], float v2[3], float v3[3], 
       }
       break;
     case 3:
-      if (sum == 3 || sum == -3) {
+      if (ELEM(sum, 3, -3)) {
         numTris = 0;
       }
       else {
@@ -222,7 +195,7 @@ void BlenderFileLoader::clipTriangle(int numTris,
                                      bool em1,
                                      bool em2,
                                      bool em3,
-                                     int clip[3])
+                                     const int clip[3])
 {
   float *v[3], *n[3];
   bool em[3];
@@ -397,7 +370,7 @@ int BlenderFileLoader::testDegenerateTriangle(float v1[3], float v2[3], float v3
   return 0;
 }
 
-static bool testEdgeMark(Mesh *me, FreestyleEdge *fed, const MLoopTri *lt, int i)
+static bool testEdgeMark(Mesh *me, const FreestyleEdge *fed, const MLoopTri *lt, int i)
 {
   MLoop *mloop = &me->mloop[lt->tri[i]];
   MLoop *mloop_next = &me->mloop[lt->tri[(i + 1) % 3]];
@@ -422,7 +395,7 @@ void BlenderFileLoader::insertShapeNode(Object *ob, Mesh *me, int id)
 
   // Compute loop normals
   BKE_mesh_calc_normals_split(me);
-  float(*lnors)[3] = NULL;
+  const float(*lnors)[3] = nullptr;
 
   if (CustomData_has_layer(&me->ldata, CD_NORMAL)) {
     lnors = (float(*)[3])CustomData_get_layer(&me->ldata, CD_NORMAL);
@@ -432,8 +405,8 @@ void BlenderFileLoader::insertShapeNode(Object *ob, Mesh *me, int id)
   MVert *mvert = me->mvert;
   MLoop *mloop = me->mloop;
   MPoly *mpoly = me->mpoly;
-  FreestyleEdge *fed = (FreestyleEdge *)CustomData_get_layer(&me->edata, CD_FREESTYLE_EDGE);
-  FreestyleFace *ffa = (FreestyleFace *)CustomData_get_layer(&me->pdata, CD_FREESTYLE_FACE);
+  const FreestyleEdge *fed = (FreestyleEdge *)CustomData_get_layer(&me->edata, CD_FREESTYLE_EDGE);
+  const FreestyleFace *ffa = (FreestyleFace *)CustomData_get_layer(&me->pdata, CD_FREESTYLE_FACE);
 
   // Compute view matrix
   Object *ob_camera_eval = DEG_get_evaluated_object(_depsgraph, RE_GetCamera(_re));
@@ -448,7 +421,7 @@ void BlenderFileLoader::insertShapeNode(Object *ob, Mesh *me, int id)
   transpose_m4(nmat);
 
   // We count the number of triangles after the clipping by the near and far view
-  // planes is applied (Note: mesh vertices are in the camera coordinate system).
+  // planes is applied (NOTE: mesh vertices are in the camera coordinate system).
   unsigned numFaces = 0;
   float v1[3], v2[3], v3[3];
   float n1[3], n2[3], n3[3], facenormal[3];
@@ -577,7 +550,7 @@ void BlenderFileLoader::insertShapeNode(Object *ob, Mesh *me, int id)
       tmpMat.setLine(mat->line_col[0], mat->line_col[1], mat->line_col[2], mat->line_col[3]);
       tmpMat.setDiffuse(mat->r, mat->g, mat->b, 1.0f);
       tmpMat.setSpecular(mat->specr, mat->specg, mat->specb, 1.0f);
-      tmpMat.setShininess(128.f);
+      tmpMat.setShininess(128.0f);
       tmpMat.setPriority(mat->line_priority);
     }
 
@@ -633,16 +606,16 @@ void BlenderFileLoader::insertShapeNode(Object *ob, Mesh *me, int id)
 
   // We might have several times the same vertex. We want a clean
   // shape with no real-vertex. Here, we are making a cleaning pass.
-  float *cleanVertices = NULL;
+  float *cleanVertices = nullptr;
   unsigned int cvSize;
-  unsigned int *cleanVIndices = NULL;
+  unsigned int *cleanVIndices = nullptr;
 
   GeomCleaner::CleanIndexedVertexArray(
       vertices, vSize, VIndices, viSize, &cleanVertices, &cvSize, &cleanVIndices);
 
-  float *cleanNormals = NULL;
+  float *cleanNormals = nullptr;
   unsigned int cnSize;
-  unsigned int *cleanNIndices = NULL;
+  unsigned int *cleanNIndices = nullptr;
 
   GeomCleaner::CleanIndexedVertexArray(
       normals, nSize, NIndices, niSize, &cleanNormals, &cnSize, &cleanNIndices);
@@ -684,7 +657,7 @@ void BlenderFileLoader::insertShapeNode(Object *ob, Mesh *me, int id)
     if (v0 == v1 || v0 == v2 || v1 == v2) {
       continue;  // do nothing for now
     }
-    else if (GeomUtils::distPointSegment<Vec3r>(v0, v1, v2) < 1.0e-6) {
+    if (GeomUtils::distPointSegment<Vec3r>(v0, v1, v2) < 1.0e-6) {
       detri.viP = vi0;
       detri.viA = vi1;
       detri.viB = vi2;
@@ -746,7 +719,7 @@ void BlenderFileLoader::insertShapeNode(Object *ob, Mesh *me, int id)
     detriList.push_back(detri);
   }
 
-  if (detriList.size() > 0) {
+  if (!detriList.empty()) {
     vector<detri_t>::iterator v;
     for (v = detriList.begin(); v != detriList.end(); v++) {
       detri_t detri = (*v);
@@ -777,7 +750,7 @@ void BlenderFileLoader::insertShapeNode(Object *ob, Mesh *me, int id)
                            cnSize,
                            marray,
                            meshFrsMaterials.size(),
-                           0,
+                           nullptr,
                            0,
                            numFaces,
                            numVertexPerFaces,
@@ -789,13 +762,13 @@ void BlenderFileLoader::insertShapeNode(Object *ob, Mesh *me, int id)
                            niSize,
                            MIndices,
                            viSize,
-                           0,
+                           nullptr,
                            0,
                            0);
   // sets the id of the rep
   rep->setId(Id(id, 0));
   rep->setName(ob->id.name + 2);
-  rep->setLibraryPath(ob->id.lib ? ob->id.lib->name : "");
+  rep->setLibraryPath(ob->id.lib ? ob->id.lib->filepath : "");
 
   const BBox<Vec3r> bbox = BBox<Vec3r>(Vec3r(ls.minBBox[0], ls.minBBox[1], ls.minBBox[2]),
                                        Vec3r(ls.maxBBox[0], ls.maxBBox[1], ls.maxBBox[2]));

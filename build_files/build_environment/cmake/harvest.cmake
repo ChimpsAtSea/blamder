@@ -1,23 +1,7 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 ########################################################################
-# Copy all generated files to the proper strucure as blender prefers
+# Copy all generated files to the proper structure as blender prefers
 ########################################################################
 
 if(NOT DEFINED HARVEST_TARGET)
@@ -26,11 +10,12 @@ endif()
 message("HARVEST_TARGET = ${HARVEST_TARGET}")
 
 if(WIN32)
+
 if(BUILD_MODE STREQUAL Release)
   add_custom_target(Harvest_Release_Results
     COMMAND # jpeg rename libfile + copy include
-        ${CMAKE_COMMAND} -E copy ${LIBDIR}/jpg/lib/jpeg-static.lib ${HARVEST_TARGET}/jpeg/lib/libjpeg.lib &&
-        ${CMAKE_COMMAND} -E copy_directory ${LIBDIR}/jpg/include/ ${HARVEST_TARGET}/jpeg/include/ &&
+        ${CMAKE_COMMAND} -E copy ${LIBDIR}/jpeg/lib/jpeg-static.lib ${HARVEST_TARGET}/jpeg/lib/libjpeg.lib &&
+        ${CMAKE_COMMAND} -E copy_directory ${LIBDIR}/jpeg/include/ ${HARVEST_TARGET}/jpeg/include/ &&
         # png
         ${CMAKE_COMMAND} -E copy ${LIBDIR}/png/lib/libpng16_static.lib ${HARVEST_TARGET}/png/lib/libpng.lib &&
         ${CMAKE_COMMAND} -E copy_directory ${LIBDIR}/png/include/ ${HARVEST_TARGET}/png/include/ &&
@@ -40,21 +25,7 @@ if(BUILD_MODE STREQUAL Release)
         # glew-> opengl
         ${CMAKE_COMMAND} -E copy ${LIBDIR}/glew/lib/libglew32.lib ${HARVEST_TARGET}/opengl/lib/glew.lib &&
         ${CMAKE_COMMAND} -E copy_directory ${LIBDIR}/glew/include/ ${HARVEST_TARGET}/opengl/include/ &&
-        # tiff
-        ${CMAKE_COMMAND} -E copy ${LIBDIR}/tiff/lib/tiff.lib ${HARVEST_TARGET}/tiff/lib/libtiff.lib &&
-        ${CMAKE_COMMAND} -E copy_directory ${LIBDIR}/tiff/include/ ${HARVEST_TARGET}/tiff/include/ &&
-        # hidapi
-        ${CMAKE_COMMAND} -E copy_directory ${LIBDIR}/hidapi/ ${HARVEST_TARGET}/hidapi/
     DEPENDS
-  )
-endif()
-
-if(BUILD_MODE STREQUAL Debug)
-  add_custom_target(Harvest_Debug_Results
-    COMMAND
-        # hdf5
-        ${CMAKE_COMMAND} -E copy_directory ${LIBDIR}/hdf5/lib ${HARVEST_TARGET}/hdf5/lib &&
-    DEPENDS Package_Python
   )
 endif()
 
@@ -89,8 +60,12 @@ endfunction()
 harvest(alembic/include alembic/include "*.h")
 harvest(alembic/lib/libAlembic.a alembic/lib/libAlembic.a)
 harvest(alembic/bin alembic/bin "*")
+harvest(brotli/include brotli/include "*.h")
+harvest(brotli/lib brotli/lib "*.a")
 harvest(boost/include boost/include "*")
 harvest(boost/lib boost/lib "*.a")
+harvest(imath/include imath/include "*.h")
+harvest(imath/lib imath/lib "*.a")
 harvest(ffmpeg/include ffmpeg/include "*.h")
 harvest(ffmpeg/lib ffmpeg/lib "*.a")
 harvest(fftw3/include fftw3/include "*.h")
@@ -100,19 +75,33 @@ harvest(freetype/include freetype/include "*.h")
 harvest(freetype/lib/libfreetype2ST.a freetype/lib/libfreetype.a)
 harvest(glew/include glew/include "*.h")
 harvest(glew/lib glew/lib "*.a")
+harvest(gmp/include gmp/include "*.h")
+harvest(gmp/lib gmp/lib "*.a")
 harvest(jemalloc/include jemalloc/include "*.h")
 harvest(jemalloc/lib jemalloc/lib "*.a")
-harvest(jpg/include jpeg/include "*.h")
-harvest(jpg/lib jpeg/lib "libjpeg.a")
+harvest(jpeg/include jpeg/include "*.h")
+harvest(jpeg/lib jpeg/lib "libjpeg.a")
 harvest(lame/lib ffmpeg/lib "*.a")
-harvest(clang/bin llvm/bin "clang-format")
-harvest(clang/include llvm/include "*")
+if(NOT APPLE)
+  harvest(level-zero/include/level_zero level-zero/include/level_zero "*.h")
+  harvest(level-zero/lib level-zero/lib "*.so*")
+endif()
+harvest(llvm/bin llvm/bin "clang-format")
+if(BUILD_CLANG_TOOLS)
+  harvest(llvm/bin llvm/bin "clang-tidy")
+  harvest(llvm/share/clang llvm/share "run-clang-tidy.py")
+endif()
 harvest(llvm/include llvm/include "*")
 harvest(llvm/bin llvm/bin "llvm-config")
 harvest(llvm/lib llvm/lib "libLLVM*.a")
+harvest(llvm/lib llvm/lib "libclang*.a")
+harvest(llvm/lib/clang llvm/lib/clang "*.h")
 if(APPLE)
   harvest(openmp/lib openmp/lib "*")
   harvest(openmp/include openmp/include "*.h")
+endif()
+if(BLENDER_PLATFORM_ARM)
+  harvest(sse2neon sse2neon "*.h")
 endif()
 harvest(ogg/lib ffmpeg/lib "*.a")
 harvest(openal/include openal/include "*.h")
@@ -127,6 +116,8 @@ if(UNIX AND NOT APPLE)
 
   harvest(xml2/include xml2/include "*.h")
   harvest(xml2/lib xml2/lib "*.a")
+
+  harvest(wayland-protocols/share/wayland-protocols wayland-protocols/share/wayland-protocols/ "*.xml")
 else()
   harvest(blosc/lib openvdb/lib "*.a")
   harvest(xml2/lib opencollada/lib "*.a")
@@ -145,21 +136,26 @@ harvest(openimageio/include openimageio/include "*")
 harvest(openimageio/lib openimageio/lib "*.a")
 harvest(openimagedenoise/include openimagedenoise/include "*")
 harvest(openimagedenoise/lib openimagedenoise/lib "*.a")
-harvest(openjpeg/include/openjpeg-2.3 openjpeg/include "*.h")
+harvest(embree/include embree/include "*.h")
+harvest(embree/lib embree/lib "*.a")
+harvest(openjpeg/include/openjpeg-${OPENJPEG_SHORT_VERSION} openjpeg/include "*.h")
 harvest(openjpeg/lib openjpeg/lib "*.a")
 harvest(opensubdiv/include opensubdiv/include "*.h")
 harvest(opensubdiv/lib opensubdiv/lib "*.a")
 harvest(openvdb/include/openvdb openvdb/include/openvdb "*.h")
+harvest(openvdb/include/nanovdb openvdb/include/nanovdb "*.h")
 harvest(openvdb/lib openvdb/lib "*.a")
 harvest(xr_openxr_sdk/include/openxr xr_openxr_sdk/include/openxr "*.h")
 harvest(xr_openxr_sdk/lib xr_openxr_sdk/lib "*.a")
 harvest(osl/bin osl/bin "oslc")
 harvest(osl/include osl/include "*.h")
 harvest(osl/lib osl/lib "*.a")
-harvest(osl/shaders osl/shaders "*.h")
+harvest(osl/share/OSL/shaders osl/share/OSL/shaders "*.h")
 harvest(png/include png/include "*.h")
 harvest(png/lib png/lib "*.a")
-harvest(python/bin python/bin "python${PYTHON_SHORT_VERSION}m")
+harvest(pugixml/include pugixml/include "*.hpp")
+harvest(pugixml/lib pugixml/lib "*.a")
+harvest(python/bin python/bin "python${PYTHON_SHORT_VERSION}")
 harvest(python/include python/include "*h")
 harvest(python/lib python/lib "*")
 harvest(sdl/include/SDL2 sdl/include "*.h")
@@ -176,18 +172,28 @@ harvest(tiff/lib tiff/lib "*.a")
 harvest(vorbis/lib ffmpeg/lib "*.a")
 harvest(opus/lib ffmpeg/lib "*.a")
 harvest(vpx/lib ffmpeg/lib "*.a")
-harvest(webp/lib ffmpeg/lib "*.a")
 harvest(x264/lib ffmpeg/lib "*.a")
 harvest(xvidcore/lib ffmpeg/lib "*.a")
-harvest(embree/include embree/include "*.h")
-harvest(embree/lib embree/lib "*.a")
+harvest(aom/lib ffmpeg/lib "*.a")
+harvest(webp/lib webp/lib "*.a")
+harvest(webp/include webp/include "*.h")
 harvest(usd/include usd/include "*.h")
 harvest(usd/lib/usd usd/lib/usd "*")
 harvest(usd/plugin usd/plugin "*")
+harvest(potrace/include potrace/include "*.h")
+harvest(potrace/lib potrace/lib "*.a")
+harvest(haru/include haru/include "*.h")
+harvest(haru/lib haru/lib "*.a")
+harvest(zstd/include zstd/include "*.h")
+harvest(zstd/lib zstd/lib "*.a")
 
 if(UNIX AND NOT APPLE)
   harvest(libglu/lib mesa/lib "*.so*")
-  harvest(mesa/lib mesa/lib "*.so*")
-endif()
+  harvest(mesa/lib64 mesa/lib "*.so*")
+
+  harvest(dpcpp dpcpp "*")
+  harvest(igc dpcpp/lib/igc "*")
+  harvest(ocloc dpcpp/lib/ocloc "*")
+ endif()
 
 endif()

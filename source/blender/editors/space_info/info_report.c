@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup spinfo
@@ -100,22 +86,22 @@ int info_report_mask(const SpaceInfo *UNUSED(sinfo))
          RPT_ERROR_ALL;
 }
 
-// TODO, get this working again!
 static int report_replay_exec(bContext *C, wmOperator *UNUSED(op))
 {
-  //  SpaceInfo *sc = CTX_wm_space_info(C);
-  //  ReportList *reports = CTX_wm_reports(C);
-  //  int report_mask = info_report_mask(sc);
-  //  Report *report;
-
+  /* TODO: get this working again! */
 #if 0
+  SpaceInfo *sc = CTX_wm_space_info(C);
+  ReportList *reports = CTX_wm_reports(C);
+  int report_mask = info_report_mask(sc);
+  Report *report;
+
   sc->type = CONSOLE_TYPE_PYTHON;
 
   for (report = reports->list.last; report; report = report->prev) {
     if ((report->type & report_mask) && (report->type & RPT_OPERATOR_ALL | RPT_PROPERTY_ALL) &&
         (report->flag & SELECT)) {
       console_history_add_str(sc, report->message, 0);
-      WM_operator_name_call(C, "CONSOLE_OT_execute", WM_OP_EXEC_DEFAULT, NULL);
+      WM_operator_name_call(C, "CONSOLE_OT_execute", WM_OP_EXEC_DEFAULT, NULL, NULL);
 
       ED_area_tag_redraw(CTX_wm_area(C));
     }
@@ -299,6 +285,7 @@ static int box_select_exec(bContext *C, wmOperator *op)
 }
 
 /* ****** Box Select ****** */
+
 void INFO_OT_select_box(wmOperatorType *ot)
 {
   /* identifiers */
@@ -360,7 +347,7 @@ void INFO_OT_report_delete(wmOperatorType *ot)
   ot->exec = report_delete_exec;
 
   /* flags */
-  /*ot->flag = OPTYPE_REGISTER;*/
+  // ot->flag = OPTYPE_REGISTER;
 
   /* properties */
 }
@@ -396,7 +383,7 @@ void INFO_OT_report_copy(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Copy Reports to Clipboard";
-  ot->description = "Copy selected reports to Clipboard";
+  ot->description = "Copy selected reports to clipboard";
   ot->idname = "INFO_OT_report_copy";
 
   /* api callbacks */
@@ -404,7 +391,7 @@ void INFO_OT_report_copy(wmOperatorType *ot)
   ot->exec = report_copy_exec;
 
   /* flags */
-  /*ot->flag = OPTYPE_REGISTER;*/
+  // ot->flag = OPTYPE_REGISTER;
 
   /* properties */
 }

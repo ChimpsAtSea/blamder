@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 Blender Foundation
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup imbuf
@@ -29,6 +13,8 @@
 
 #include "BKE_idprop.h"
 
+#include "DNA_ID.h" /* ID property definitions. */
+
 #include "MEM_guardedalloc.h"
 
 #include "IMB_imbuf.h"
@@ -36,15 +22,13 @@
 
 #include "IMB_metadata.h"
 
-#define METADATA_MAX_VALUE_LENGTH 1024
-
 void IMB_metadata_ensure(struct IDProperty **metadata)
 {
   if (*metadata != NULL) {
     return;
   }
 
-  IDPropertyTemplate val;
+  IDPropertyTemplate val = {0};
   *metadata = IDP_New(IDP_GROUP, &val, "metadata");
 }
 
@@ -97,11 +81,11 @@ void IMB_metadata_set_field(struct IDProperty *metadata, const char *key, const 
   }
 
   if (prop == NULL) {
-    prop = IDP_NewString(value, key, METADATA_MAX_VALUE_LENGTH);
+    prop = IDP_NewString(value, key, 0);
     IDP_AddToGroup(metadata, prop);
   }
 
-  IDP_AssignString(prop, value, METADATA_MAX_VALUE_LENGTH);
+  IDP_AssignString(prop, value, 0);
 }
 
 void IMB_metadata_foreach(struct ImBuf *ibuf, IMBMetadataForeachCb callback, void *userdata)

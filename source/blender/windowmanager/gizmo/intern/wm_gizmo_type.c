@@ -1,22 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup wm
  */
+
+#include <stdio.h>
 
 #include "BLI_ghash.h"
 #include "BLI_listbase.h"
@@ -32,6 +20,7 @@
 
 #include "RNA_access.h"
 #include "RNA_define.h"
+#include "RNA_prototypes.h"
 
 #include "WM_api.h"
 #include "WM_types.h"
@@ -45,6 +34,7 @@
 #include "wm_gizmo_intern.h"
 #include "wm_gizmo_wmapi.h"
 
+/* -------------------------------------------------------------------- */
 /** \name Gizmo Type Append
  *
  * \note This follows conventions from #WM_operatortype_find #WM_operatortype_append & friends.
@@ -75,7 +65,6 @@ const wmGizmoType *WM_gizmotype_find(const char *idname, bool quiet)
   return NULL;
 }
 
-/* caller must free */
 void WM_gizmotype_iter(GHashIterator *ghi)
 {
   BLI_ghashIterator_init(ghi, global_gizmotype_hash);
@@ -115,10 +104,7 @@ void WM_gizmotype_append_ptr(void (*gtfunc)(struct wmGizmoType *, void *), void 
   wm_gizmotype_append__end(mt);
 }
 
-/**
- * Free but don't remove from ghash.
- */
-static void gizmotype_free(wmGizmoType *gzt)
+void WM_gizmotype_free_ptr(wmGizmoType *gzt)
 {
   if (gzt->rna_ext.srna) { /* python gizmo, allocs own string */
     MEM_freeN((void *)gzt->idname);
@@ -166,8 +152,6 @@ void WM_gizmotype_remove_ptr(bContext *C, Main *bmain, wmGizmoType *gzt)
   BLI_ghash_remove(global_gizmotype_hash, gzt->idname, NULL, NULL);
 
   gizmotype_unlink(C, bmain, gzt);
-
-  gizmotype_free(gzt);
 }
 
 bool WM_gizmotype_remove(bContext *C, Main *bmain, const char *idname)
@@ -183,9 +167,9 @@ bool WM_gizmotype_remove(bContext *C, Main *bmain, const char *idname)
   return true;
 }
 
-static void wm_gizmotype_ghash_free_cb(wmGizmoType *mt)
+static void wm_gizmotype_ghash_free_cb(wmGizmoType *gzt)
 {
-  gizmotype_free(mt);
+  WM_gizmotype_free_ptr(gzt);
 }
 
 void wm_gizmotype_free(void)
@@ -194,7 +178,6 @@ void wm_gizmotype_free(void)
   global_gizmotype_hash = NULL;
 }
 
-/* called on initialize WM_init() */
 void wm_gizmotype_init(void)
 {
   /* reserve size is set based on blender default setup */

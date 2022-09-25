@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -42,12 +26,12 @@
 #include "BLT_translation.h"
 
 #include "transform.h"
+#include "transform_convert.h"
+
 #include "transform_mode.h"
 
 /* -------------------------------------------------------------------- */
-/* Transform (Animation Time Slide) */
-
-/** \name Transform Animation Time Slide
+/** \name Transform (Animation Time Slide)
  * \{ */
 
 static void headerTimeSlide(TransInfo *t, const float sval, char str[UI_MAX_DRAW_STR])
@@ -147,7 +131,7 @@ static void applyTimeSlide(TransInfo *t, const int mval[2])
   UI_view2d_region_to_view(v2d, t->mouse.imval[0], t->mouse.imval[1], &sval[0], &sval[1]);
 
   /* t->values_final[0] stores cval[0], which is the current mouse-pointer location (in frames) */
-  // XXX Need to be able to repeat this
+  /* XXX Need to be able to repeat this. */
   /* t->values_final[0] = cval[0]; */ /* UNUSED (reset again later). */
 
   /* handle numeric-input stuff */
@@ -219,18 +203,18 @@ void initTimeSlide(TransInfo *t)
     range[1] = max;
   }
 
-  /* num-input has max of (n-1) */
+  /* Numeric-input has max of (n-1). */
   t->idx_max = 0;
   t->num.flag = 0;
   t->num.idx_max = t->idx_max;
 
-  /* initialize snap like for everything else */
-  t->snap[0] = 0.0f;
-  t->snap[1] = t->snap[2] = 1.0f;
+  /* Initialize snap like for everything else. */
+  t->snap[0] = t->snap[1] = 1.0f;
 
-  copy_v3_fl(t->num.val_inc, t->snap[1]);
+  copy_v3_fl(t->num.val_inc, t->snap[0]);
   t->num.unit_sys = t->scene->unit.system;
-  /* No time unit supporting frames currently... */
+  /* No time unit supporting frames currently. */
   t->num.unit_type[0] = B_UNIT_NONE;
 }
+
 /** \} */

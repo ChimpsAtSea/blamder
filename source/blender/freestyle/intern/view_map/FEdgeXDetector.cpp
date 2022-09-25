@@ -1,25 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
  * \brief Detects/flags/builds extended features edges on the WXEdge structure
  */
 
-#include <float.h>
+#include <cfloat>
 
 #include "FEdgeXDetector.h"
 
@@ -39,7 +25,7 @@ void FEdgeXDetector::processShapes(WingedEdge &we)
   vector<WShape *> wshapes = we.getWShapes();
   WXShape *wxs;
 
-  if (_pProgressBar != NULL) {
+  if (_pProgressBar != nullptr) {
     _pProgressBar->reset();
     _pProgressBar->setLabelText("Detecting feature lines");
     _pProgressBar->setTotalSteps(wshapes.size() * 3);
@@ -190,7 +176,7 @@ void FEdgeXDetector::computeCurvatures(WXVertex *vertex)
   }
 
   // CURVATURE LAYER
-  // store all the curvature datas for each vertex
+  // store all the curvature data for each vertex
 
   // soc unused - real K1, K2
   real cos2theta, sin2theta;
@@ -228,7 +214,7 @@ void FEdgeXDetector::computeCurvatures(WXVertex *vertex)
   }
   // view dependent
   C = vertex->curvatures();
-  if (C == 0) {
+  if (C == nullptr) {
     return;
   }
 
@@ -370,7 +356,7 @@ void FEdgeXDetector::ProcessBorderEdge(WXEdge *iEdge)
 {
   // first check whether it is a border edge: BORDER ?
   //---------
-  if (iEdge->GetaFace() == 0) {
+  if (iEdge->GetaFace() == nullptr) {
     // it is a border edge
     iEdge->AddNature(Nature::BORDER);
   }

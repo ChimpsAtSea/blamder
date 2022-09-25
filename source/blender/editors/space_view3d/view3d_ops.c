@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spview3d
@@ -24,7 +8,6 @@
 #include <math.h>
 #include <stdlib.h>
 
-#include "DNA_collection_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 #include "DNA_screen_types.h"
@@ -36,7 +19,6 @@
 
 #include "BKE_appdir.h"
 #include "BKE_blender_copybuffer.h"
-#include "BKE_collection.h"
 #include "BKE_context.h"
 #include "BKE_main.h"
 #include "BKE_report.h"
@@ -49,10 +31,10 @@
 
 #include "ED_outliner.h"
 #include "ED_screen.h"
-#include "ED_select_utils.h"
 #include "ED_transform.h"
 
 #include "view3d_intern.h"
+#include "view3d_navigate.h"
 
 #ifdef WIN32
 #  include "BLI_math_base.h" /* M_PI */
@@ -66,19 +48,19 @@ static int view3d_copybuffer_exec(bContext *C, wmOperator *op)
   char str[FILE_MAX];
   int num_copied = 0;
 
-  BKE_copybuffer_begin(bmain);
+  BKE_copybuffer_copy_begin(bmain);
 
   /* context, selection, could be generalized */
   CTX_DATA_BEGIN (C, Object *, ob, selected_objects) {
     if ((ob->id.tag & LIB_TAG_DOIT) == 0) {
-      BKE_copybuffer_tag_ID(&ob->id);
+      BKE_copybuffer_copy_tag_ID(&ob->id);
       num_copied++;
     }
   }
   CTX_DATA_END;
 
   BLI_join_dirfile(str, sizeof(str), BKE_tempdir_base(), "copybuffer.blend");
-  BKE_copybuffer_save(bmain, str, op->reports);
+  BKE_copybuffer_copy_end(bmain, str, op->reports);
 
   BKE_reportf(op->reports, RPT_INFO, "Copied %d selected object(s)", num_copied);
 
@@ -172,6 +154,7 @@ void view3d_operatortypes(void)
   WM_operatortype_append(VIEW3D_OT_view_persportho);
   WM_operatortype_append(VIEW3D_OT_background_image_add);
   WM_operatortype_append(VIEW3D_OT_background_image_remove);
+  WM_operatortype_append(VIEW3D_OT_drop_world);
   WM_operatortype_append(VIEW3D_OT_view_selected);
   WM_operatortype_append(VIEW3D_OT_view_lock_clear);
   WM_operatortype_append(VIEW3D_OT_view_lock_to_active);
@@ -190,6 +173,7 @@ void view3d_operatortypes(void)
   WM_operatortype_append(VIEW3D_OT_cursor3d);
   WM_operatortype_append(VIEW3D_OT_select_lasso);
   WM_operatortype_append(VIEW3D_OT_select_menu);
+  WM_operatortype_append(VIEW3D_OT_bone_select_menu);
   WM_operatortype_append(VIEW3D_OT_camera_to_view);
   WM_operatortype_append(VIEW3D_OT_camera_to_view_selected);
   WM_operatortype_append(VIEW3D_OT_object_as_camera);

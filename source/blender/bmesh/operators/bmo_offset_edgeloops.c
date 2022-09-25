@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -74,7 +60,7 @@ static BMFace *bm_face_split_walk_back(BMesh *bm, BMLoop *l_src, BMLoop **r_l)
 
 void bmo_offset_edgeloops_exec(BMesh *bm, BMOperator *op)
 {
-  const int edges_num = BMO_slot_buffer_count(op->slots_in, "edges");
+  const int edges_num = BMO_slot_buffer_len(op->slots_in, "edges");
   BMVert **verts;
   STACK_DECLARE(verts);
   int i;
@@ -221,7 +207,7 @@ void bmo_offset_edgeloops_exec(BMesh *bm, BMOperator *op)
               }
             }
 
-            /* Note: instead of duplicate code in alternate direction,
+            /* NOTE: instead of duplicate code in alternate direction,
              * we can be sure to hit the other vertex, so the code above runs. */
 #if 0
             else if (BM_elem_index_get(l->prev->v) == -1) {
@@ -263,7 +249,7 @@ void bmo_offset_edgeloops_exec(BMesh *bm, BMOperator *op)
       }
 
       while ((v = STACK_POP(varr))) {
-        bmesh_kernel_join_edge_kill_vert(bm, v->e, v, true, false, false);
+        bmesh_kernel_join_edge_kill_vert(bm, v->e, v, true, false, false, true);
       }
     }
   }

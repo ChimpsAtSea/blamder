@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2020 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2020 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -33,7 +17,7 @@
 #include "intern/depsgraph_relation.h"
 #include "intern/depsgraph_type.h"
 
-namespace DEG {
+namespace blender::deg {
 
 static inline bool is_unused_noop(OperationNode *op_node)
 {
@@ -67,7 +51,7 @@ void deg_graph_remove_unused_noops(Depsgraph *graph)
 
       /* Remove the relation. */
       rel_in->unlink();
-      OBJECT_GUARDED_DELETE(rel_in, Relation);
+      delete rel_in;
       num_removed_relations++;
 
       /* Queue parent no-op node that has now become unused. */
@@ -84,4 +68,4 @@ void deg_graph_remove_unused_noops(Depsgraph *graph)
       (::Depsgraph *)graph, BUILD, "Removed %d relations to no-op nodes\n", num_removed_relations);
 }
 
-}  // namespace DEG
+}  // namespace blender::deg

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -53,24 +37,24 @@
 #include "BKE_report.h"
 #include "BKE_scene.h"
 #include "BKE_screen.h"
-#include "BKE_sequencer.h"
 #include "BKE_studiolight.h"
 
 #include "DEG_depsgraph.h"
 
 #include "RE_pipeline.h"
-#include "RE_render_ext.h"
+#include "RE_texture.h"
+
+#include "SEQ_sequencer.h"
 
 #include "BLF_api.h"
 
 Global G;
 UserDef U;
 
-static char blender_version_string[48] = "";
+/* -------------------------------------------------------------------- */
+/** \name Blender Free on Exit
+ * \{ */
 
-/* ********** free ********** */
-
-/* only to be called on exit blender */
 void BKE_blender_free(void)
 {
   /* samples are in a global list..., also sets G_MAIN->sound->sample NULL */
@@ -89,7 +73,6 @@ void BKE_blender_free(void)
 
   IMB_exit();
   BKE_cachefiles_exit();
-  BKE_images_exit();
   DEG_free_node_types();
 
   BKE_brush_system_exit();
@@ -99,8 +82,16 @@ void BKE_blender_free(void)
 
   IMB_moviecache_destruct();
 
-  free_nodesystem();
+  BKE_node_system_exit();
 }
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Blender Version Access
+ * \{ */
+
+static char blender_version_string[48] = "";
 
 static void blender_version_init(void)
 {
@@ -118,12 +109,12 @@ static void blender_version_init(void)
     version_cycle = "";
   }
   else {
-    BLI_assert(!"Invalid Blender version cycle");
+    BLI_assert_msg(0, "Invalid Blender version cycle");
   }
 
   BLI_snprintf(blender_version_string,
                ARRAY_SIZE(blender_version_string),
-               "%d.%02d.%d%s",
+               "%d.%01d.%d%s",
                BLENDER_VERSION / 100,
                BLENDER_VERSION % 100,
                BLENDER_VERSION_PATCH,
@@ -134,6 +125,18 @@ const char *BKE_blender_version_string(void)
 {
   return blender_version_string;
 }
+
+bool BKE_blender_version_is_alpha(void)
+{
+  bool is_alpha = STREQ(STRINGIFY(BLENDER_VERSION_CYCLE), "alpha");
+  return is_alpha;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Blender #Global Initialize/Clear
+ * \{ */
 
 void BKE_blender_globals_init(void)
 {
@@ -163,7 +166,11 @@ void BKE_blender_globals_clear(void)
   G_MAIN = NULL;
 }
 
-/***/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Blender Preferences
+ * \{ */
 
 static void keymap_item_free(wmKeyMapItem *kmi)
 {
@@ -248,14 +255,10 @@ static void userdef_free_addons(UserDef *userdef)
   BLI_listbase_clear(&userdef->addons);
 }
 
-/**
- * When loading a new userdef from file,
- * or when exiting Blender.
- */
 void BKE_blender_userdef_data_free(UserDef *userdef, bool clear_fonts)
 {
-#define U _invalid_access_ /* ensure no accidental global access */
-#ifdef U                   /* quiet warning */
+#define U BLI_STATIC_ASSERT(false, "Global 'U' not allowed, only use arguments passed in!")
+#ifdef U /* quiet warning */
 #endif
 
   userdef_free_keymaps(userdef);
@@ -271,6 +274,7 @@ void BKE_blender_userdef_data_free(UserDef *userdef, bool clear_fonts)
   }
 
   BLI_freelistN(&userdef->autoexec_paths);
+  BLI_freelistN(&userdef->asset_libraries);
 
   BLI_freelistN(&userdef->uistyles);
   BLI_freelistN(&userdef->uifonts);
@@ -279,10 +283,12 @@ void BKE_blender_userdef_data_free(UserDef *userdef, bool clear_fonts)
 #undef U
 }
 
-/**
- * Write U from userdef.
- * This function defines which settings a template will override for the user preferences.
- */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Blender Preferences (Application Templates)
+ * \{ */
+
 void BKE_blender_userdef_app_template_data_swap(UserDef *userdef_a, UserDef *userdef_b)
 {
   /* TODO:
@@ -330,7 +336,9 @@ void BKE_blender_userdef_app_template_data_swap(UserDef *userdef_a, UserDef *use
   DATA_SWAP(app_flag);
 
   /* We could add others. */
-  FLAG_SWAP(uiflag, int, USER_SAVE_PROMPT);
+  FLAG_SWAP(uiflag, int, USER_SAVE_PROMPT | USER_SPLASH_DISABLE | USER_SHOW_GIZMO_NAVIGATE);
+
+  DATA_SWAP(ui_scale);
 
 #undef SWAP_TYPELESS
 #undef DATA_SWAP
@@ -350,6 +358,9 @@ void BKE_blender_userdef_app_template_data_set_and_free(UserDef *userdef)
   MEM_freeN(userdef);
 }
 
+/** \} */
+
+/* -------------------------------------------------------------------- */
 /** \name Blender's AtExit
  *
  * \note Don't use MEM_mallocN so functions can be registered at any time.
@@ -382,7 +393,7 @@ void BKE_blender_atexit_unregister(void (*func)(void *user_data), const void *us
       free(ae);
       return;
     }
-    ae_p = &ae;
+    ae_p = &ae->next;
     ae = ae->next;
   }
 }

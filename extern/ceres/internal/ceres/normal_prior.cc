@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2022 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -32,15 +32,14 @@
 
 #include <cstddef>
 #include <vector>
+
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/scoped_ptr.h"
 #include "ceres/types.h"
 #include "glog/logging.h"
 
 namespace ceres {
 
-NormalPrior::NormalPrior(const Matrix& A, const Vector& b)
-    : A_(A), b_(b) {
+NormalPrior::NormalPrior(const Matrix& A, const Vector& b) : A_(A), b_(b) {
   CHECK_GT(b_.rows(), 0);
   CHECK_GT(A_.rows(), 0);
   CHECK_EQ(b_.rows(), A.cols());
@@ -57,7 +56,7 @@ bool NormalPrior::Evaluate(double const* const* parameters,
   // r = A_ * (p - b_);
   // The extra eval is to get around a bug in the eigen library.
   r = A_ * (p - b_).eval();
-  if ((jacobians != NULL) && (jacobians[0] != NULL)) {
+  if ((jacobians != nullptr) && (jacobians[0] != nullptr)) {
     MatrixRef(jacobians[0], num_residuals(), parameter_block_sizes()[0]) = A_;
   }
   return true;

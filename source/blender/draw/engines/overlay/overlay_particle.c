@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -174,7 +159,7 @@ void OVERLAY_particle_cache_populate(OVERLAY_Data *vedata, Object *ob)
     int draw_as = (part->draw_as == PART_DRAW_REND) ? part->ren_as : part->draw_as;
 
     if (part->type == PART_HAIR) {
-      /* Hairs should have been rendered by the render engine.*/
+      /* Hairs should have been rendered by the render engine. */
       continue;
     }
 
@@ -183,10 +168,10 @@ void OVERLAY_particle_cache_populate(OVERLAY_Data *vedata, Object *ob)
       struct GPUBatch *shape = NULL;
       DRWShadingGroup *grp;
 
-      /* TODO(fclem) Here would be a good place for preemptive culling. */
+      /* TODO(fclem): Here would be a good place for preemptive culling. */
 
-      /* fclem: Is color even usefull in our modern context? */
-      Material *ma = BKE_object_material_get(ob, part->omat);
+      /* NOTE(fclem): Is color even useful in our modern context? */
+      Material *ma = BKE_object_material_get_eval(ob, part->omat);
       float color[4] = {0.6f, 0.6f, 0.6f, part->draw_size};
       if (ma != NULL) {
         copy_v3_v3(color, &ma->r);

@@ -31,20 +31,23 @@
 #ifndef CERES_INTERNAL_TRUST_REGION_PREPROCESSOR_H_
 #define CERES_INTERNAL_TRUST_REGION_PREPROCESSOR_H_
 
+#include "ceres/internal/disable_warnings.h"
+#include "ceres/internal/export.h"
 #include "ceres/preprocessor.h"
 
 namespace ceres {
 namespace internal {
 
-class TrustRegionPreprocessor : public Preprocessor {
+class CERES_NO_EXPORT TrustRegionPreprocessor final : public Preprocessor {
  public:
-  virtual ~TrustRegionPreprocessor();
-  virtual bool Preprocess(const Solver::Options& options,
-                          ProblemImpl* problem,
-                          PreprocessedProblem* preprocessed_problem);
+  bool Preprocess(const Solver::Options& options,
+                  ProblemImpl* problem,
+                  PreprocessedProblem* preprocessed_problem) override;
 };
 
 }  // namespace internal
 }  // namespace ceres
+
+#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_TRUST_REGION_PREPROCESSOR_H_

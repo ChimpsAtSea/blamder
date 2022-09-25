@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_SCENE_DEFAULTS_H__
-#define __DNA_SCENE_DEFAULTS_H__
+#pragma once
 
 #include "DNA_view3d_defaults.h"
 
@@ -48,6 +33,7 @@
     .width = 512, \
     .height = 512, \
     .margin = 16, \
+    .margin_type = R_BAKE_ADJACENT_FACES, \
     .normal_space = R_BAKE_SPACE_TANGENT, \
     .normal_swizzle = {R_BAKE_POSX, R_BAKE_POSY, R_BAKE_POSZ}, \
   }
@@ -103,7 +89,8 @@
     .dither_intensity = 1.0f, \
  \
     .bake_mode = 0, \
-    .bake_filter = 16, \
+    .bake_margin = 16, \
+    .bake_margin_type = R_BAKE_ADJACENT_FACES, \
     .bake_flag = R_BAKE_CLEAR, \
     .bake_samples = 256, \
     .bake_biasdist = 0.001f, \
@@ -129,13 +116,12 @@
  \
     .simplify_subsurf = 6, \
     .simplify_particles = 1.0f, \
+    .simplify_volumes = 1.0f, \
  \
     .border.xmin = 0.0f, \
     .border.ymin = 0.0f, \
     .border.xmax = 1.0f, \
     .border.ymax = 1.0f, \
- \
-    .preview_start_resolution = 64, \
  \
     .line_thickness_mode = R_LINE_THICKNESS_ABSOLUTE, \
     .unit_line_thickness = 1.0f, \
@@ -208,8 +194,11 @@
     .gtao_factor = 1.0f, \
     .gtao_quality = 0.25f, \
  \
+    .bokeh_overblur = 5.0f, \
     .bokeh_max_size = 100.0f, \
     .bokeh_threshold = 1.0f, \
+    .bokeh_neighbor_max = 10.0f, \
+    .bokeh_denoise_fac = 0.75f, \
  \
     .bloom_color = {1.0f, 1.0f, 1.0f}, \
     .bloom_threshold = 0.8f, \
@@ -218,8 +207,10 @@
     .bloom_radius = 6.5f, \
     .bloom_clamp = 0.0f, \
  \
-    .motion_blur_samples = 8, \
     .motion_blur_shutter = 0.5f, \
+    .motion_blur_depth_scale = 100.0f, \
+    .motion_blur_max = 32, \
+    .motion_blur_steps = 1, \
  \
     .shadow_cube_size = 512, \
     .shadow_cascade_size = 1024, \
@@ -279,6 +270,15 @@
     .count = 10, \
   }
 
+#define _DNA_DEFAULTS_UnifiedPaintSettings \
+  { \
+    .size = 50, \
+    .unprojected_radius = 0.29, \
+    .alpha = 0.5f, \
+    .weight = 0.5f, \
+    .flag = UNIFIED_PAINT_SIZE | UNIFIED_PAINT_ALPHA, \
+  }
+
 #define _DNA_DEFAULTS_ParticleEditSettings \
   { \
     .flag = PE_KEEP_LENGTHS | PE_LOCK_FIRST | PE_DEFLECT_EMITTER | PE_AUTO_VELOCITY, \
@@ -325,7 +325,7 @@
     .doublimit = 0.001, \
     .vgroup_weight = 1.0f, \
     .uvcalc_margin = 0.001f, \
-    .uvcalc_flag = UVCALC_TRANSFORM_CORRECT, \
+    .uvcalc_flag = UVCALC_TRANSFORM_CORRECT_SLIDE, \
     .unwrapper = 1, \
     .select_thresh = 0.01f, \
  \
@@ -337,9 +337,13 @@
     .snap_mode = SCE_SNAP_MODE_INCREMENT, \
     .snap_node_mode = SCE_SNAP_MODE_GRID, \
     .snap_uv_mode = SCE_SNAP_MODE_INCREMENT, \
+    .snap_flag = SCE_SNAP_TO_INCLUDE_EDITED | SCE_SNAP_TO_INCLUDE_NONEDITED, \
     .snap_transform_mode_flag = SCE_SNAP_TRANSFORM_MODE_TRANSLATE, \
+    .snap_face_nearest_steps = 1, \
  \
     .curve_paint_settings = _DNA_DEFAULTS_CurvePaintSettings, \
+ \
+    .unified_paint_settings = _DNA_DEFAULTS_UnifiedPaintSettings, \
  \
     .statvis = _DNA_DEFAULTS_MeshStatVis, \
  \
@@ -358,10 +362,12 @@
     /* GP Stroke Placement */ \
     .gpencil_v3d_align = GP_PROJECT_VIEWSPACE, \
     .gpencil_v2d_align = GP_PROJECT_VIEWSPACE, \
-    .gpencil_seq_align = GP_PROJECT_VIEWSPACE, \
-    .gpencil_ima_align = GP_PROJECT_VIEWSPACE, \
+ \
+    /* UV painting */ \
+    .uv_sculpt_settings = 0, \
+    .uv_relax_method = UV_SCULPT_TOOL_RELAX_LAPLACIAN, \
   }
 
 /* clang-format off */
 
-#endif  /* __DNA_SCENE_DEFAULTS_H__ */
+/** \} */

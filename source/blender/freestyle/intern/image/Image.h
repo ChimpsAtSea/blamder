@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __IMAGE_H__
-#define __IMAGE_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -35,14 +20,14 @@ namespace Freestyle {
 //
 ///////////////////////////////////////////////////////////////////////////////
 
-/*! This class allows the storing of part of an image, while allowing a normal access to its pixel
+/** This class allows the storing of part of an image, while allowing a normal access to its pixel
  * values. You can for example only a rectangle of sw*sh, whose lower-left corner is at (ox, oy),
  * of an image of size w*h, and access these pixels using x,y coordinates specified in the whole
  * image coordinate system.
  */
 class FrsImage {
  public:
-  /*! Default constructor */
+  /** Default constructor */
   FrsImage()
   {
     _storedWidth = 0;
@@ -53,7 +38,7 @@ class FrsImage {
     _Oy = 0;
   }
 
-  /*! Copy constructor */
+  /** Copy constructor */
   FrsImage(const FrsImage &brother)
   {
     _storedWidth = brother._storedWidth;
@@ -64,7 +49,7 @@ class FrsImage {
     _Oy = brother._Oy;
   }
 
-  /*! Builds an FrsImage from its width and height.
+  /** Builds an FrsImage from its width and height.
    *  The memory is allocated consequently.
    */
   FrsImage(unsigned w, unsigned h)
@@ -77,7 +62,7 @@ class FrsImage {
     _Oy = 0;
   }
 
-  /*! Builds a partial-storing image.
+  /** Builds a partial-storing image.
    *  \param w:
    *    The width of the complete image
    *  \param h:
@@ -101,7 +86,7 @@ class FrsImage {
     _Oy = oy;
   }
 
-  /*! Operator= */
+  /** Operator= */
   FrsImage &operator=(const FrsImage &brother)
   {
     _width = brother._width;
@@ -113,27 +98,27 @@ class FrsImage {
     return *this;
   }
 
-  /*! Destructor */
+  /** Destructor */
   virtual ~FrsImage()
   {
   }
 
-  /*! Returns the width of the complete image */
+  /** Returns the width of the complete image */
   inline unsigned width() const
   {
     return _width;
   }
 
-  /*! Returns the height of the complete image */
+  /** Returns the height of the complete image */
   inline unsigned height() const
   {
     return _height;
   }
 
-  /*! Returns the gray value for pixel x,y */
+  /** Returns the gray value for pixel x,y */
   virtual float pixel(unsigned x, unsigned y) const = 0;
 
-  /*! Sets the array.
+  /** Sets the array.
    *  \param array:
    *    The array containing the values we wish to store.
    *    Its size is sw*sh.
@@ -161,7 +146,7 @@ class FrsImage {
                         unsigned y,
                         bool copy = true) = 0;
 
-  /*! Returns the array containing the pixels values.
+  /** Returns the array containing the pixels values.
    *  Its size is sw*sh, i.e. potentially a smaller rectangular part of the complete image.
    */
   virtual float *getArray() = 0;
@@ -207,7 +192,7 @@ class RGBImage : public FrsImage {
     memcpy(_rgb, rgb, 3 * _width * _height * sizeof(float));
   }
 
-  /*! Builds an RGB partial image from the useful part buffer.
+  /** Builds an RGB partial image from the useful part buffer.
    *  \param rgb:
    *    The array of size 3*sw*sh containing the RGB values of the sw*sh pixels we need to stored.
    *    These sw*sh pixels constitute a rectangular part of a bigger
@@ -280,7 +265,7 @@ class RGBImage : public FrsImage {
     return res / 32.0f;
   }
 
-  /*! Sets the RGB array.
+  /** Sets the RGB array.
    *    copy
    *      If true, the array is copied, otherwise the pointer is copied
    */
@@ -334,7 +319,7 @@ class GrayImage : public FrsImage {
     memcpy(_lvl, brother._lvl, _storedWidth * _storedHeight * sizeof(*_lvl));
   }
 
-  /*! Builds an empty gray image */
+  /** Builds an empty gray image */
   GrayImage(unsigned w, unsigned h) : FrsImage(w, h)
   {
     _lvl = new float[_width * _height];
@@ -346,7 +331,7 @@ class GrayImage : public FrsImage {
     memcpy(_lvl, lvl, _width * _height * sizeof(*_lvl));
   }
 
-  /*! Builds a partial image from the useful part buffer.
+  /** Builds a partial image from the useful part buffer.
    *  \param lvl:
    *    The array of size sw*sh containing the gray values of the sw*sh pixels we need to stored.
    *    These sw*sh pixels constitute a rectangular part of a bigger
@@ -392,9 +377,9 @@ class GrayImage : public FrsImage {
     return _lvl[(y - _Oy) * _storedWidth + (x - _Ox)];
   }
 
-  /*! Sets the array.
+  /** Sets the array.
    *    copy
-   *      If true, the array is copie, otherwise the pounsigneder is copied
+   *      If true, the array is copied, otherwise the pounsigneder is copied
    */
   void setArray(float *lvl,
                 unsigned width,
@@ -419,7 +404,7 @@ class GrayImage : public FrsImage {
     memcpy(_lvl, lvl, _storedWidth * _storedHeight * sizeof(float));
   }
 
-  /*! Returns the array containing the gray values. */
+  /** Returns the array containing the gray values. */
   virtual float *getArray()
   {
     return _lvl;
@@ -430,5 +415,3 @@ class GrayImage : public FrsImage {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __IMAGE_H__

@@ -1,25 +1,9 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- * Windows-posix compatibility layer, windows-specific functions.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bli
+ * WIN32-POSIX compatibility layer, MS-Windows-specific functions.
  */
 
 #ifdef WIN32
@@ -30,24 +14,22 @@
 
 #  include "MEM_guardedalloc.h"
 
-#  define WIN32_SKIP_HKEY_PROTECTION  // need to use HKEY
+#  define WIN32_SKIP_HKEY_PROTECTION /* Need to use HKEY. */
 #  include "BLI_path_util.h"
 #  include "BLI_string.h"
 #  include "BLI_utildefines.h"
 #  include "BLI_winstuff.h"
-
-#  include "../blenkernel/BKE_global.h" /* G.background, bad level include (no function calls) */
 
 #  include "utf_winfunc.h"
 #  include "utfconv.h"
 
 /* FILE_MAXDIR + FILE_MAXFILE */
 
-int BLI_getInstallationDir(char *str)
+int BLI_windows_get_executable_dir(char *str)
 {
   char dir[FILE_MAXDIR];
   int a;
-  /*change to utf support*/
+  /* Change to utf support. */
   GetModuleFileName(NULL, str, FILE_MAX);
   BLI_split_dir_part(str, dir, sizeof(dir)); /* shouldn't be relative */
   a = strlen(dir);
@@ -60,19 +42,18 @@ int BLI_getInstallationDir(char *str)
   return 1;
 }
 
-static void RegisterBlendExtension_Fail(HKEY root)
+static void register_blend_extension_failed(HKEY root, const bool background)
 {
   printf("failed\n");
   if (root) {
     RegCloseKey(root);
   }
-  if (!G.background) {
+  if (!background) {
     MessageBox(0, "Could not register file extension.", "Blender error", MB_OK | MB_ICONERROR);
   }
-  TerminateProcess(GetCurrentProcess(), 1);
 }
 
-void RegisterBlendExtension(void)
+bool BLI_windows_register_blend_extension(const bool background)
 {
   LONG lresult;
   HKEY hkey = 0;
@@ -96,9 +77,9 @@ void RegisterBlendExtension(void)
   GetModuleFileName(0, BlPath, MAX_PATH);
 
   /* Replace the actual app name with the wrapper. */
-  blender_app = strstr(BlPath, "blender-app.exe");
+  blender_app = strstr(BlPath, "blender.exe");
   if (blender_app != NULL) {
-    strcpy(blender_app, "blender.exe");
+    strcpy(blender_app, "blender-launcher.exe");
   }
 
   /* root is HKLM by default */
@@ -108,7 +89,8 @@ void RegisterBlendExtension(void)
     usr_mode = true;
     lresult = RegOpenKeyEx(HKEY_CURRENT_USER, "Software\\Classes", 0, KEY_ALL_ACCESS, &root);
     if (lresult != ERROR_SUCCESS) {
-      RegisterBlendExtension_Fail(0);
+      register_blend_extension_failed(0, background);
+      return false;
     }
   }
 
@@ -120,7 +102,8 @@ void RegisterBlendExtension(void)
     RegCloseKey(hkey);
   }
   if (lresult != ERROR_SUCCESS) {
-    RegisterBlendExtension_Fail(root);
+    register_blend_extension_failed(root, background);
+    return false;
   }
 
   lresult = RegCreateKeyEx(root,
@@ -138,7 +121,8 @@ void RegisterBlendExtension(void)
     RegCloseKey(hkey);
   }
   if (lresult != ERROR_SUCCESS) {
-    RegisterBlendExtension_Fail(root);
+    register_blend_extension_failed(root, background);
+    return false;
   }
 
   lresult = RegCreateKeyEx(root,
@@ -156,7 +140,8 @@ void RegisterBlendExtension(void)
     RegCloseKey(hkey);
   }
   if (lresult != ERROR_SUCCESS) {
-    RegisterBlendExtension_Fail(root);
+    register_blend_extension_failed(root, background);
+    return false;
   }
 
   lresult = RegCreateKeyEx(
@@ -167,29 +152,32 @@ void RegisterBlendExtension(void)
     RegCloseKey(hkey);
   }
   if (lresult != ERROR_SUCCESS) {
-    RegisterBlendExtension_Fail(root);
+    register_blend_extension_failed(root, background);
+    return false;
   }
 
-  BLI_getInstallationDir(InstallDir);
+#  ifdef WITH_BLENDER_THUMBNAILER
+  BLI_windows_get_executable_dir(InstallDir);
   GetSystemDirectory(SysDir, FILE_MAXDIR);
   ThumbHandlerDLL = "BlendThumb.dll";
   snprintf(
       RegCmd, MAX_PATH * 2, "%s\\regsvr32 /s \"%s\\%s\"", SysDir, InstallDir, ThumbHandlerDLL);
   system(RegCmd);
+#  endif
 
   RegCloseKey(root);
   printf("success (%s)\n", usr_mode ? "user" : "system");
-  if (!G.background) {
+  if (!background) {
     sprintf(MBox,
             "File extension registered for %s.",
             usr_mode ? "the current user. To register for all users, run as an administrator" :
                        "all users");
     MessageBox(0, MBox, "Blender", MB_OK | MB_ICONINFORMATION);
   }
-  TerminateProcess(GetCurrentProcess(), 0);
+  return true;
 }
 
-void get_default_root(char *root)
+void BLI_windows_get_default_root_dir(char root[4])
 {
   char str[MAX_PATH + 1];
 
@@ -236,7 +224,7 @@ void get_default_root(char *root)
         }
       }
       if (0 == rc) {
-        printf("ERROR in 'get_default_root': can't find a valid drive!\n");
+        printf("ERROR in 'BLI_windows_get_default_root_dir': can't find a valid drive!\n");
         root[0] = 'C';
         root[1] = ':';
         root[2] = '\\';
@@ -245,30 +233,6 @@ void get_default_root(char *root)
     }
   }
 }
-
-/* UNUSED */
-#  if 0
-int check_file_chars(char *filename)
-{
-  char *p = filename;
-  while (*p) {
-    switch (*p) {
-      case ':':
-      case '?':
-      case '*':
-      case '|':
-      case '\\':
-      case '/':
-      case '\"':
-        return 0;
-        break;
-    }
-
-    p++;
-  }
-  return 1;
-}
-#  endif
 
 #else
 

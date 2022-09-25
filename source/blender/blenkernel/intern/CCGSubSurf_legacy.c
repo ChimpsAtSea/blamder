@@ -1,24 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bke
  */
 
-#include "BLI_sys_types.h"  // for intptr_t support
+#include "BLI_sys_types.h" /* for intptr_t support */
 #include "MEM_guardedalloc.h"
 
 #include "BLI_math.h"
@@ -38,9 +24,7 @@ static void *_edge_getCoVert(CCGEdge *e, CCGVert *v, int lvl, int x, int dataSiz
   if (v == e->v0) {
     return &EDGE_getLevelData(e)[dataSize * (levelBase + x)];
   }
-  else {
-    return &EDGE_getLevelData(e)[dataSize * (levelBase + (1 << lvl) - x)];
-  }
+  return &EDGE_getLevelData(e)[dataSize * (levelBase + (1 << lvl) - x)];
 }
 /* *************************************************** */
 
@@ -49,15 +33,14 @@ static int _edge_isBoundary(const CCGEdge *e)
   return e->numFaces < 2;
 }
 
-static int _vert_isBoundary(const CCGVert *v)
+static bool _vert_isBoundary(const CCGVert *v)
 {
-  int i;
-  for (i = 0; i < v->numEdges; i++) {
+  for (int i = 0; i < v->numEdges; i++) {
     if (_edge_isBoundary(v->edges[i])) {
-      return 1;
+      return true;
     }
   }
-  return 0;
+  return false;
 }
 
 static CCGVert *_edge_getOtherVert(CCGEdge *e, CCGVert *vQ)
@@ -65,9 +48,8 @@ static CCGVert *_edge_getOtherVert(CCGEdge *e, CCGVert *vQ)
   if (vQ == e->v0) {
     return e->v1;
   }
-  else {
-    return e->v0;
-  }
+
+  return e->v0;
 }
 
 static float *_face_getIFNoEdge(CCGFace *f,
@@ -111,15 +93,13 @@ static float EDGE_getSharpness(CCGEdge *e, int lvl)
   if (!lvl) {
     return e->crease;
   }
-  else if (!e->crease) {
+  if (!e->crease) {
     return 0.0f;
   }
-  else if (e->crease - lvl < 0.0f) {
+  if (e->crease - lvl < 0.0f) {
     return 0.0f;
   }
-  else {
-    return e->crease - lvl;
-  }
+  return e->crease - lvl;
 }
 
 typedef struct CCGSubSurfCalcSubdivData {
@@ -1315,7 +1295,6 @@ void ccgSubSurf__sync_legacy(CCGSubSurf *ss)
 
 /* ** Public API exposed to other areas which depends on old CCG code. ** */
 
-/* Update normals for specified faces. */
 CCGError ccgSubSurf_updateNormals(CCGSubSurf *ss, CCGFace **effectedF, int numEffectedF)
 {
   CCGVert **effectedV;
@@ -1350,9 +1329,6 @@ CCGError ccgSubSurf_updateNormals(CCGSubSurf *ss, CCGFace **effectedF, int numEf
   return eCCGError_None;
 }
 
-/* compute subdivision levels from a given starting point, used by
- * multires subdivide/propagate, by filling in coordinates at a
- * certain level, and then subdividing that up to the highest level */
 CCGError ccgSubSurf_updateLevels(CCGSubSurf *ss, int lvl, CCGFace **effectedF, int numEffectedF)
 {
   CCGVert **effectedV;

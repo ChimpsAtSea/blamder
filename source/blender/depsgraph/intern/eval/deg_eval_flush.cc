@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -32,9 +16,11 @@
 #include "BLI_task.h"
 #include "BLI_utildefines.h"
 
+#include "BKE_key.h"
 #include "BKE_object.h"
 #include "BKE_scene.h"
 
+#include "DNA_key_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
@@ -56,18 +42,18 @@
 
 #include "intern/eval/deg_eval_copy_on_write.h"
 
-// Invalidate data-block data when update is flushed on it.
-//
-// The idea of this is to help catching cases when area is accessing data which
-// is not yet evaluated, which could happen due to missing relations. The issue
-// is that usually that data will be kept from previous frame, and it looks to
-// be plausible.
-//
-// This ensures that data does not look plausible, making it much easier to
-// catch usage of invalid state.
+/* Invalidate data-block data when update is flushed on it.
+ *
+ * The idea of this is to help catching cases when area is accessing data which
+ * is not yet evaluated, which could happen due to missing relations. The issue
+ * is that usually that data will be kept from previous frame, and it looks to
+ * be plausible.
+ *
+ * This ensures that data does not look plausible, making it much easier to
+ * catch usage of invalid state. */
 #undef INVALIDATE_ON_FLUSH
 
-namespace DEG {
+namespace blender::deg {
 
 enum {
   ID_STATE_NONE = 0,
@@ -80,7 +66,7 @@ enum {
   COMPONENT_STATE_DONE = 2,
 };
 
-typedef deque<OperationNode *> FlushQueue;
+using FlushQueue = deque<OperationNode *>;
 
 namespace {
 
@@ -96,7 +82,7 @@ void flush_init_id_node_func(void *__restrict data_v,
   }
 }
 
-BLI_INLINE void flush_prepare(Depsgraph *graph)
+inline void flush_prepare(Depsgraph *graph)
 {
   for (OperationNode *node : graph->operations) {
     node->scheduled = false;
@@ -111,7 +97,7 @@ BLI_INLINE void flush_prepare(Depsgraph *graph)
   }
 }
 
-BLI_INLINE void flush_schedule_entrypoints(Depsgraph *graph, FlushQueue *queue)
+inline void flush_schedule_entrypoints(Depsgraph *graph, FlushQueue *queue)
 {
   for (OperationNode *op_node : graph->entry_tags) {
     queue->push_back(op_node);
@@ -123,15 +109,15 @@ BLI_INLINE void flush_schedule_entrypoints(Depsgraph *graph, FlushQueue *queue)
   }
 }
 
-BLI_INLINE void flush_handle_id_node(IDNode *id_node)
+inline void flush_handle_id_node(IDNode *id_node)
 {
   id_node->custom_flags = ID_STATE_MODIFIED;
 }
 
 /* TODO(sergey): We can reduce number of arguments here. */
-BLI_INLINE void flush_handle_component_node(IDNode *id_node,
-                                            ComponentNode *comp_node,
-                                            FlushQueue *queue)
+inline void flush_handle_component_node(IDNode *id_node,
+                                        ComponentNode *comp_node,
+                                        FlushQueue *queue)
 {
   /* We only handle component once. */
   if (comp_node->custom_flags == COMPONENT_STATE_DONE) {
@@ -142,8 +128,7 @@ BLI_INLINE void flush_handle_component_node(IDNode *id_node,
    * special component where we don't want all operations to be tagged.
    *
    * TODO(sergey): Make this a more generic solution. */
-  if (comp_node->type != NodeType::PARTICLE_SETTINGS &&
-      comp_node->type != NodeType::PARTICLE_SYSTEM) {
+  if (!ELEM(comp_node->type, NodeType::PARTICLE_SETTINGS, NodeType::PARTICLE_SYSTEM)) {
     for (OperationNode *op : comp_node->operations) {
       op->flag |= DEPSOP_FLAG_NEEDS_UPDATE;
     }
@@ -166,7 +151,7 @@ BLI_INLINE void flush_handle_component_node(IDNode *id_node,
  * return value, so it can start being handled right away, without building too
  * much of a queue.
  */
-BLI_INLINE OperationNode *flush_schedule_children(OperationNode *op_node, FlushQueue *queue)
+inline OperationNode *flush_schedule_children(OperationNode *op_node, FlushQueue *queue)
 {
   if (op_node->flag & DEPSOP_FLAG_USER_MODIFIED) {
     IDNode *id_node = op_node->owner->owner;
@@ -227,7 +212,7 @@ void flush_editors_id_update(Depsgraph *graph, const DEGEditorUpdateContext *upd
     ID *id_orig = id_node->id_orig;
     ID *id_cow = id_node->id_cow;
     /* Gather recalc flags from all changed components. */
-    for (DEG::ComponentNode *comp_node : id_node->components.values()) {
+    for (ComponentNode *comp_node : id_node->components.values()) {
       if (comp_node->custom_flags != COMPONENT_STATE_DONE) {
         continue;
       }
@@ -250,10 +235,30 @@ void flush_editors_id_update(Depsgraph *graph, const DEGEditorUpdateContext *upd
     if (deg_copy_on_write_is_expanded(id_cow)) {
       if (graph->is_active && id_node->is_user_modified) {
         deg_editors_id_update(update_ctx, id_orig);
-      }
-      /* ID may need to get its auto-override operations refreshed. */
-      if (ID_IS_OVERRIDE_LIBRARY_AUTO(id_orig)) {
-        id_orig->tag |= LIB_TAG_OVERRIDE_LIBRARY_AUTOREFRESH;
+
+        /* We only want to tag an ID for lib-override auto-refresh if it was actually tagged as
+         * changed. CoW IDs indirectly modified because of changes in other IDs should never
+         * require a lib-override diffing. */
+        if (ID_IS_OVERRIDE_LIBRARY_REAL(id_orig)) {
+          id_orig->tag |= LIB_TAG_OVERRIDE_LIBRARY_AUTOREFRESH;
+        }
+        else if (ID_IS_OVERRIDE_LIBRARY_VIRTUAL(id_orig)) {
+          switch (GS(id_orig->name)) {
+            case ID_KE:
+              ((Key *)id_orig)->from->tag |= LIB_TAG_OVERRIDE_LIBRARY_AUTOREFRESH;
+              break;
+            case ID_GR:
+              BLI_assert(id_orig->flag & LIB_EMBEDDED_DATA);
+              /* TODO. */
+              break;
+            case ID_NT:
+              BLI_assert(id_orig->flag & LIB_EMBEDDED_DATA);
+              /* TODO. */
+              break;
+            default:
+              BLI_assert(0);
+          }
+        }
       }
       /* Inform draw engines that something was changed. */
       flush_engine_data_update(id_cow);
@@ -325,22 +330,15 @@ void invalidate_tagged_evaluated_data(Depsgraph *graph)
 
 }  // namespace
 
-/* Flush updates from tagged nodes outwards until all affected nodes
- * are tagged.
- */
-void deg_graph_flush_updates(Main *bmain, Depsgraph *graph)
+void deg_graph_flush_updates(Depsgraph *graph)
 {
   /* Sanity checks. */
-  BLI_assert(bmain != nullptr);
   BLI_assert(graph != nullptr);
+  Main *bmain = graph->bmain;
+
+  graph->time_source->flush_update_tag(graph);
+
   /* Nothing to update, early out. */
-  if (graph->need_update_time) {
-    const Scene *scene_orig = graph->scene;
-    const float ctime = BKE_scene_frame_get(scene_orig);
-    DEG::TimeSourceNode *time_source = graph->find_time_source();
-    graph->ctime = ctime;
-    time_source->tag_update(graph, DEG::DEG_UPDATE_SOURCE_TIME);
-  }
   if (graph->entry_tags.is_empty()) {
     return;
   }
@@ -378,16 +376,12 @@ void deg_graph_flush_updates(Main *bmain, Depsgraph *graph)
   invalidate_tagged_evaluated_data(graph);
 }
 
-/* Clear tags from all operation nodes. */
 void deg_graph_clear_tags(Depsgraph *graph)
 {
-  /* Go over all operation nodes, clearing tags. */
-  for (OperationNode *node : graph->operations) {
-    node->flag &= ~(DEPSOP_FLAG_DIRECTLY_MODIFIED | DEPSOP_FLAG_NEEDS_UPDATE |
-                    DEPSOP_FLAG_USER_MODIFIED);
-  }
   /* Clear any entry tags which haven't been flushed. */
   graph->entry_tags.clear();
+
+  graph->time_source->tagged_for_update = false;
 }
 
-}  // namespace DEG
+}  // namespace blender::deg

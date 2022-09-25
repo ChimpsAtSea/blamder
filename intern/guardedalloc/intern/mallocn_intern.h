@@ -1,24 +1,8 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 by Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
- * \ingroup MEM
+ * \ingroup intern_mem
  */
 
 #ifndef __MALLOCN_INTERN_H__
@@ -53,14 +37,8 @@ size_t malloc_usable_size(void *ptr);
 #  undef USE_MALLOC_USABLE_SIZE
 #endif
 
-/* Blame Microsoft for LLP64 and no inttypes.h, quick workaround needed: */
-#if defined(WIN64)
-#  define SIZET_FORMAT "%I64u"
-#  define SIZET_ARG(a) ((unsigned long long)(a))
-#else
-#  define SIZET_FORMAT "%lu"
-#  define SIZET_ARG(a) ((unsigned long)(a))
-#endif
+#define SIZET_FORMAT "%zu"
+#define SIZET_ARG(a) ((size_t)(a))
 
 #define SIZET_ALIGN_4(len) ((len + 3) & ~(size_t)3)
 
@@ -100,10 +78,17 @@ size_t malloc_usable_size(void *ptr);
 
 #include "mallocn_inline.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define ALIGNED_MALLOC_MINIMUM_ALIGNMENT sizeof(void *)
 
 void *aligned_malloc(size_t size, size_t alignment);
 void aligned_free(void *ptr);
+
+extern bool leak_detector_has_run;
+extern char free_after_leak_detection_message[];
 
 /* Prototypes for counted allocator functions */
 size_t MEM_lockfree_allocN_len(const void *vmemh) ATTR_WARN_UNUSED_RESULT;
@@ -111,27 +96,27 @@ void MEM_lockfree_freeN(void *vmemh);
 void *MEM_lockfree_dupallocN(const void *vmemh) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT;
 void *MEM_lockfree_reallocN_id(void *vmemh,
                                size_t len,
-                               const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                               const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(2);
 void *MEM_lockfree_recallocN_id(void *vmemh,
                                 size_t len,
-                                const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                                const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(2);
-void *MEM_lockfree_callocN(size_t len, const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+void *MEM_lockfree_callocN(size_t len, const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(2);
 void *MEM_lockfree_calloc_arrayN(size_t len,
                                  size_t size,
-                                 const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                                 const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1, 2) ATTR_NONNULL(3);
-void *MEM_lockfree_mallocN(size_t len, const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+void *MEM_lockfree_mallocN(size_t len, const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(2);
 void *MEM_lockfree_malloc_arrayN(size_t len,
                                  size_t size,
-                                 const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                                 const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1, 2) ATTR_NONNULL(3);
 void *MEM_lockfree_mallocN_aligned(size_t len,
                                    size_t alignment,
-                                   const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                                   const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(3);
 void MEM_lockfree_printmemlist_pydict(void);
 void MEM_lockfree_printmemlist(void);
@@ -154,27 +139,27 @@ void MEM_guarded_freeN(void *vmemh);
 void *MEM_guarded_dupallocN(const void *vmemh) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT;
 void *MEM_guarded_reallocN_id(void *vmemh,
                               size_t len,
-                              const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                              const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(2);
 void *MEM_guarded_recallocN_id(void *vmemh,
                                size_t len,
-                               const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                               const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(2);
-void *MEM_guarded_callocN(size_t len, const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+void *MEM_guarded_callocN(size_t len, const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(2);
 void *MEM_guarded_calloc_arrayN(size_t len,
                                 size_t size,
-                                const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                                const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1, 2) ATTR_NONNULL(3);
-void *MEM_guarded_mallocN(size_t len, const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+void *MEM_guarded_mallocN(size_t len, const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(2);
 void *MEM_guarded_malloc_arrayN(size_t len,
                                 size_t size,
-                                const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                                const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1, 2) ATTR_NONNULL(3);
 void *MEM_guarded_mallocN_aligned(size_t len,
                                   size_t alignment,
-                                  const char *UNUSED(str)) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
+                                  const char *str) ATTR_MALLOC ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(3);
 void MEM_guarded_printmemlist_pydict(void);
 void MEM_guarded_printmemlist(void);
@@ -189,6 +174,10 @@ void MEM_guarded_reset_peak_memory(void);
 size_t MEM_guarded_get_peak_memory(void) ATTR_WARN_UNUSED_RESULT;
 #ifndef NDEBUG
 const char *MEM_guarded_name_ptr(void *vmemh);
+#endif
+
+#ifdef __cplusplus
+}
 #endif
 
 #endif /* __MALLOCN_INTERN_H__ */

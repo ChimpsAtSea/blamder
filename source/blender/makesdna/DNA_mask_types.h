@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2012 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2012 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup DNA
@@ -24,13 +8,16 @@
  * for image masking in the compositor and sequencer.
  */
 
-#ifndef __DNA_MASK_TYPES_H__
-#define __DNA_MASK_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
 #include "DNA_curve_types.h"
 #include "DNA_defs.h"
 #include "DNA_listBase.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef struct Mask {
   ID id;
@@ -90,7 +77,7 @@ typedef struct MaskSplinePointUW {
 } MaskSplinePointUW;
 
 typedef struct MaskSplinePoint {
-  /** Actual point coordinates and it's handles . */
+  /** Actual point coordinates and its handles. */
   BezTriple bezt;
   char _pad[4];
   /** Number of uv feather values. */
@@ -128,7 +115,7 @@ typedef struct MaskLayerShape {
 
   /** U coordinate along spline segment and weight of this point. */
   float *data;
-  /** To ensure no buffer overruns's: alloc size is (tot_vert * MASK_OBJECT_SHAPE_ELEM_SIZE). */
+  /** To ensure no buffer overrun's: alloc size is `(tot_vert * MASK_OBJECT_SHAPE_ELEM_SIZE)`. */
   int tot_vert;
   /** Different flags of this point. */
   int frame;
@@ -170,8 +157,8 @@ typedef struct MaskLayer {
 
   /** For animation. */
   char flag;
-  /** Matching 'Object' flag of the same name - eventually use in the outliner . */
-  char restrictflag;
+  /** Matching 'Object' flag of the same name - eventually use in the outliner. */
+  char visibility_flag;
 } MaskLayer;
 
 /* MaskParent->flag */
@@ -203,14 +190,15 @@ enum {
   MASK_SPLINE_OFFSET_SMOOTH = 1,
 };
 
-/* ob->restrictflag */
-#define MASK_RESTRICT_VIEW (1 << 0)
-#define MASK_RESTRICT_SELECT (1 << 1)
-#define MASK_RESTRICT_RENDER (1 << 2)
+/* MaskLayer->visibility_flag */
+#define MASK_HIDE_VIEW (1 << 0)
+#define MASK_HIDE_SELECT (1 << 1)
+#define MASK_HIDE_RENDER (1 << 2)
 
 /* SpaceClip->mask_draw_flag */
-#define MASK_DRAWFLAG_SMOOTH (1 << 0)
+/* #define MASK_DRAWFLAG_SMOOTH_DEPRECATED (1 << 0) */ /* Deprecated */
 #define MASK_DRAWFLAG_OVERLAY (1 << 1)
+#define MASK_DRAWFLAG_SPLINE (1 << 2)
 
 /* copy of eSpaceImage_UVDT */
 /* SpaceClip->mask_draw_type */
@@ -222,10 +210,10 @@ enum {
 };
 
 /* MaskSpaceInfo->overlay_mode */
-enum {
+typedef enum eMaskOverlayMode {
   MASK_OVERLAY_ALPHACHANNEL = 0,
   MASK_OVERLAY_COMBINED = 1,
-};
+} eMaskOverlayMode;
 
 /* masklay->blend */
 enum {
@@ -265,4 +253,6 @@ enum {
   MASK_ANIMF_EXPAND = (1 << 4),
 };
 
-#endif /* __DNA_MASK_TYPES_H__ */
+#ifdef __cplusplus
+}
+#endif

@@ -1,20 +1,6 @@
-#
-# Copyright 2011-2019 Blender Foundation
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-
-# <pep8 compliant>
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2011-2022 Blender Foundation
+from __future__ import annotations
 
 import bpy
 from bpy.types import Operator
@@ -44,40 +30,10 @@ class CYCLES_OT_use_shading_nodes(Operator):
         return {'FINISHED'}
 
 
-class CYCLES_OT_add_aov(bpy.types.Operator):
-    """Add an AOV pass"""
-    bl_idname="cycles.add_aov"
-    bl_label="Add AOV"
-
-    def execute(self, context):
-        view_layer = context.view_layer
-        cycles_view_layer = view_layer.cycles
-
-        cycles_view_layer.aovs.add()
-
-        view_layer.update_render_passes()
-        return {'FINISHED'}
-
-
-class CYCLES_OT_remove_aov(bpy.types.Operator):
-    """Remove an AOV pass"""
-    bl_idname="cycles.remove_aov"
-    bl_label="Remove AOV"
-
-    def execute(self, context):
-        view_layer = context.view_layer
-        cycles_view_layer = view_layer.cycles
-
-        cycles_view_layer.aovs.remove(cycles_view_layer.active_aov)
-
-        view_layer.update_render_passes()
-        return {'FINISHED'}
-
-
 class CYCLES_OT_denoise_animation(Operator):
     "Denoise rendered animation sequence using current scene and view " \
-    "layer settings. Requires denoising data passes and output to " \
-    "OpenEXR multilayer files"
+        "layer settings. Requires denoising data passes and output to " \
+        "OpenEXR multilayer files"
     bl_idname = "cycles.denoise_animation"
     bl_label = "Denoise Animation"
 
@@ -159,7 +115,7 @@ class CYCLES_OT_denoise_animation(Operator):
 
 class CYCLES_OT_merge_images(Operator):
     "Combine OpenEXR multilayer images rendered with different sample " \
-    "ranges into one image with reduced noise"
+        "ranges into one image with reduced noise"
     bl_idname = "cycles.merge_images"
     bl_label = "Merge Images"
 
@@ -197,11 +153,10 @@ class CYCLES_OT_merge_images(Operator):
 
 classes = (
     CYCLES_OT_use_shading_nodes,
-    CYCLES_OT_add_aov,
-    CYCLES_OT_remove_aov,
     CYCLES_OT_denoise_animation,
     CYCLES_OT_merge_images
 )
+
 
 def register():
     from bpy.utils import register_class

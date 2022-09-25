@@ -1,68 +1,39 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_GAUSSIANALPHAXBLUROPERATION_H__
-#define __COM_GAUSSIANALPHAXBLUROPERATION_H__
-#include "COM_BlurBaseOperation.h"
-#include "COM_NodeOperation.h"
+#pragma once
 
-class GaussianAlphaXBlurOperation : public BlurBaseOperation {
+#include "COM_GaussianAlphaBlurBaseOperation.h"
+
+namespace blender::compositor {
+
+/* TODO(manzanilla): everything to be removed with tiled implementation except the constructor. */
+class GaussianAlphaXBlurOperation : public GaussianAlphaBlurBaseOperation {
  private:
-  float *m_gausstab;
-  float *m_distbuf_inv;
-  int m_falloff; /* falloff for distbuf_inv */
-  bool m_do_subtract;
-  int m_filtersize;
-  void updateGauss();
+  void update_gauss();
 
  public:
   GaussianAlphaXBlurOperation();
 
   /**
-   * \brief the inner loop of this program
+   * \brief The inner loop of this operation.
    */
-  void executePixel(float output[4], int x, int y, void *data);
+  void execute_pixel(float output[4], int x, int y, void *data) override;
 
   /**
    * \brief initialize the execution
    */
-  void initExecution();
+  void init_execution() override;
 
   /**
    * \brief Deinitialize the execution
    */
-  void deinitExecution();
+  void deinit_execution() override;
 
-  void *initializeTileData(rcti *rect);
-  bool determineDependingAreaOfInterest(rcti *input,
-                                        ReadBufferOperation *readOperation,
-                                        rcti *output);
-
-  /**
-   * Set subtract for Dilate/Erode functionality
-   */
-  void setSubtract(bool subtract)
-  {
-    this->m_do_subtract = subtract;
-  }
-  void setFalloff(int falloff)
-  {
-    this->m_falloff = falloff;
-  }
+  void *initialize_tile_data(rcti *rect) override;
+  bool determine_depending_area_of_interest(rcti *input,
+                                            ReadBufferOperation *read_operation,
+                                            rcti *output) override;
 };
-#endif
+
+}  // namespace blender::compositor

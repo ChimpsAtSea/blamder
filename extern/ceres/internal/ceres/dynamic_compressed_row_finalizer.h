@@ -33,14 +33,15 @@
 
 #include "ceres/casts.h"
 #include "ceres/dynamic_compressed_row_sparse_matrix.h"
+#include "ceres/internal/export.h"
 
 namespace ceres {
 namespace internal {
 
-struct DynamicCompressedRowJacobianFinalizer {
+struct CERES_NO_EXPORT DynamicCompressedRowJacobianFinalizer {
   void operator()(SparseMatrix* base_jacobian, int num_parameters) {
-    DynamicCompressedRowSparseMatrix* jacobian =
-      down_cast<DynamicCompressedRowSparseMatrix*>(base_jacobian);
+    auto* jacobian =
+        down_cast<DynamicCompressedRowSparseMatrix*>(base_jacobian);
     jacobian->Finalize(num_parameters);
   }
 };

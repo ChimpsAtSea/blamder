@@ -2,7 +2,7 @@
 # Configuration of clang-format
 # =============================
 #
-# Tested to work with versions: 6 to 8.
+# Tested to work with versions: 8 to 11.
 
 # This causes parameters on continuations to align to the opening brace.
 #
@@ -161,6 +161,7 @@ PenaltyBreakString: 1000000
 # "^\s+[A-Z][A-Z0-9_]+\s*\([^\n]*\)\n\s*\{"
 ForEachMacros:
   - BEGIN_ANIMFILTER_SUBCHANNELS
+  - BKE_pbvh_vertex_iter_begin
   - BLI_FOREACH_SPARSE_RANGE
   - BLI_SMALLSTACK_ITER_BEGIN
   - BMO_ITER
@@ -179,6 +180,7 @@ ForEachMacros:
   - CTX_DATA_BEGIN_WITH_ID
   - DEG_OBJECT_ITER_BEGIN
   - DEG_OBJECT_ITER_FOR_RENDER_ENGINE_BEGIN
+  - DRW_ENABLED_ENGINE_ITER
   - DRIVER_TARGETS_LOOPER_BEGIN
   - DRIVER_TARGETS_USED_LOOPER_BEGIN
   - FOREACH_BASE_IN_EDIT_MODE_BEGIN
@@ -203,6 +205,7 @@ ForEachMacros:
   - FOREACH_SCENE_COLLECTION_BEGIN
   - FOREACH_SCENE_OBJECT_BEGIN
   - FOREACH_SELECTED_BASE_BEGIN
+  - FOREACH_SELECTED_BEZT_BEGIN
   - FOREACH_SELECTED_EDITABLE_OBJECT_BEGIN
   - FOREACH_SELECTED_OBJECT_BEGIN
   - FOREACH_TRANS_DATA_CONTAINER
@@ -238,6 +241,7 @@ ForEachMacros:
   - LISTBASE_FOREACH_BACKWARD
   - LISTBASE_FOREACH_MUTABLE
   - LISTBASE_FOREACH_BACKWARD_MUTABLE
+  - LISTBASE_FOREACH_INDEX
   - MAN_ITER_AXES_BEGIN
   - NODE_INSTANCE_HASH_ITER
   - NODE_SOCKET_TYPES_BEGIN
@@ -252,14 +256,21 @@ ForEachMacros:
   - RNA_STRUCT_BEGIN_SKIP_RNA_TYPE
   - SCULPT_VERTEX_DUPLICATES_AND_NEIGHBORS_ITER_BEGIN
   - SCULPT_VERTEX_NEIGHBORS_ITER_BEGIN
-  - SEQP_BEGIN
-  - SEQ_BEGIN
+  - SEQ_ALL_BEGIN
+  - SEQ_ITERATOR_FOREACH
   - SURFACE_QUAD_ITER_BEGIN
   - foreach
   - ED_screen_areas_iter
+  - SLOT_PROBING_BEGIN
+  - SET_SLOT_PROBING_BEGIN
+  - MAP_SLOT_PROBING_BEGIN
+  - VECTOR_SET_SLOT_PROBING_BEGIN
+  - WL_ARRAY_FOR_EACH
 
-# Use once we bump the minimum version to version 8.
-# # Without this string literals that in-line 'STRINGIFY' behave strangely (a bug?).
-# StatementMacros:
-#   - PyObject_VAR_HEAD
-#   - STRINGIFY
+StatementMacros:
+  - PyObject_HEAD
+  - PyObject_VAR_HEAD
+  - ccl_gpu_kernel_postfix
+
+MacroBlockBegin: "^BSDF_CLOSURE_CLASS_BEGIN$"
+MacroBlockEnd: "^BSDF_CLOSURE_CLASS_END$"

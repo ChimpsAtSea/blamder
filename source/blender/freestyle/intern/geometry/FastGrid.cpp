@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -40,7 +26,7 @@ void FastGrid::clear()
     }
   }
   delete[] _cells;
-  _cells = NULL;
+  _cells = nullptr;
   _cells_size = 0;
 
   Grid::clear();
@@ -62,7 +48,7 @@ Cell *FastGrid::getCell(const Vec3u &p)
          << " " << _cells_size << endl;
   }
 #endif
-  BLI_assert(_cells || ("_cells is a null pointer"));
+  BLI_assert_msg(_cells, "_cells is a null pointer");
   BLI_assert((_cells_nb[0] * (p[2] * _cells_nb[1] + p[1]) + p[0]) < _cells_size);
   BLI_assert(p[0] < _cells_nb[0]);
   BLI_assert(p[1] < _cells_nb[1]);
@@ -72,7 +58,7 @@ Cell *FastGrid::getCell(const Vec3u &p)
 
 void FastGrid::fillCell(const Vec3u &p, Cell &cell)
 {
-  BLI_assert(_cells || ("_cells is a null pointer"));
+  BLI_assert_msg(_cells, "_cells is a null pointer");
   BLI_assert((_cells_nb[0] * (p[2] * _cells_nb[1] + p[1]) + p[0]) < _cells_size);
   BLI_assert(p[0] < _cells_nb[0]);
   BLI_assert(p[1] < _cells_nb[1]);

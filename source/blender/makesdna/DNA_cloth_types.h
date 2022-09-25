@@ -1,30 +1,17 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2006 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2006 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_CLOTH_TYPES_H__
-#define __DNA_CLOTH_TYPES_H__
+#pragma once
 
 #include "DNA_defs.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /**
  * This struct contains all the global data required to run a simulation.
@@ -33,13 +20,13 @@
  * Mass-Spring Model to Describe Rigid Cloth Behavior by Xavier Provot.
  *
  * I've tried to keep similar, if not exact names for the variables as
- * are presented in the paper.  Where I've changed the concept slightly,
- * as in stepsPerFrame compared to the time step in the paper, I've used
+ * are presented in the paper. Where I've changed the concept slightly,
+ * as in `stepsPerFrame` compared to the time step in the paper, I've used
  * variables with different names to minimize confusion.
  */
 
 typedef struct ClothSimSettings {
-  /** UNUSED atm. */
+  /** UNUSED. */
   struct LinkNode *cache;
   /** See SB. */
   float mingoal;
@@ -49,7 +36,7 @@ typedef struct ClothSimSettings {
   float Cvi;
   /** Gravity/external force vector. */
   float gravity[3];
-  /** This is the duration of our time step, computed..   */
+  /** This is the duration of our time step, computed. */
   float dt;
   /** The mass of the entire cloth. */
   float mass;
@@ -75,9 +62,9 @@ typedef struct ClothSimSettings {
   float time_scale;
   /** See SB. */
   float maxgoal;
-  /** Scaling of effector forces (see softbody_calc_forces)..*/
+  /** Scaling of effector forces (see #softbody_calc_forces). */
   float eff_force_scale;
-  /** Scaling of effector wind (see softbody_calc_forces)..   */
+  /** Scaling of effector wind (see #softbody_calc_forces). */
   float eff_wind_scale;
   float sim_time_old;
   float defgoal;
@@ -101,16 +88,22 @@ typedef struct ClothSimSettings {
   float shrink_max;
 
   /* Air pressure */
-  /* The uniform pressure that is constanty applied to the mesh. Can be negative */
+  /** The uniform pressure that is constantly applied to the mesh. Can be negative. */
   float uniform_pressure_force;
-  /* User set volume. This is the volume the mesh wants to expand to (the equilibrium volume). */
+  /** User set volume. This is the volume the mesh wants to expand to (the equilibrium volume). */
   float target_volume;
-  /* The scaling factor to apply to the actual pressure.
-     pressure=( (current_volume/target_volume) - 1 + uniform_pressure_force) *
-     pressure_factor */
+  /**
+   * The scaling factor to apply to the actual pressure.
+   * `pressure = ((current_volume/target_volume) - 1 + uniform_pressure_force) * pressure_factor`
+   */
   float pressure_factor;
+  /**
+   * Density of the fluid inside or outside the object
+   * for use in the hydro-static pressure gradient.
+   */
+  float fluid_density;
   short vgroup_pressure;
-  char _pad7[2];
+  char _pad7[6];
 
   /* XXX various hair stuff
    * should really be separate, this struct is a horrible mess already
@@ -132,7 +125,7 @@ typedef struct ClothSimSettings {
   short solver_type;
   /** Vertex group for scaling bending stiffness. */
   short vgroup_bend;
-  /** Optional vertexgroup name for assigning weight..*/
+  /** Optional vertexgroup name for assigning weight. */
   short vgroup_mass;
   /** Vertex group for scaling structural stiffness. */
   short vgroup_struct;
@@ -160,9 +153,9 @@ typedef struct ClothSimSettings {
   /** Mechanical damping of shear springs. */
   float shear_damp;
 
-  /** The maximum lenght an internal spring can have during creation. */
+  /** The maximum length an internal spring can have during creation. */
   float internal_spring_max_length;
-  /** How much the interal spring can diverge from the vertex normal during creation. */
+  /** How much the internal spring can diverge from the vertex normal during creation. */
   float internal_spring_max_diversion;
   /** Vertex group for scaling structural stiffness. */
   short vgroup_intern;
@@ -174,6 +167,41 @@ typedef struct ClothSimSettings {
   char _pad0[4];
 
 } ClothSimSettings;
+
+/* SIMULATION FLAGS: goal flags, etc. */
+/* These are the bits used in SimSettings.flags. */
+typedef enum {
+  /** Object is only collision object, no cloth simulation is done. */
+  CLOTH_SIMSETTINGS_FLAG_COLLOBJ = (1 << 2),
+  /** DEPRECATED, for versioning only. */
+  CLOTH_SIMSETTINGS_FLAG_GOAL = (1 << 3),
+  /** True if tearing is enabled. */
+  CLOTH_SIMSETTINGS_FLAG_TEARING = (1 << 4),
+  /** True if pressure sim is enabled. */
+  CLOTH_SIMSETTINGS_FLAG_PRESSURE = (1 << 5),
+  /** Use the user defined target volume. */
+  CLOTH_SIMSETTINGS_FLAG_PRESSURE_VOL = (1 << 6),
+  /** True if internal spring generation is enabled. */
+  CLOTH_SIMSETTINGS_FLAG_INTERNAL_SPRINGS = (1 << 7),
+  /** DEPRECATED, for versioning only. */
+  CLOTH_SIMSETTINGS_FLAG_SCALING = (1 << 8),
+  /** Require internal springs to be created between points with opposite normals. */
+  CLOTH_SIMSETTINGS_FLAG_INTERNAL_SPRINGS_NORMAL = (1 << 9),
+  /** Edit cache in edit-mode. */
+  /* CLOTH_SIMSETTINGS_FLAG_CCACHE_EDIT = (1 << 12), */ /* UNUSED */
+  /** Don't allow spring compression. */
+  CLOTH_SIMSETTINGS_FLAG_RESIST_SPRING_COMPRESS = (1 << 13),
+  /** Pull ends of loose edges together. */
+  CLOTH_SIMSETTINGS_FLAG_SEW = (1 << 14),
+  /** Make simulation respect deformations in the base object. */
+  CLOTH_SIMSETTINGS_FLAG_DYNAMIC_BASEMESH = (1 << 15),
+} CLOTH_SIMSETTINGS_FLAGS;
+
+/* ClothSimSettings.bending_model. */
+typedef enum {
+  CLOTH_BENDING_LINEAR = 0,
+  CLOTH_BENDING_ANGULAR = 1,
+} CLOTH_BENDING_MODEL;
 
 typedef struct ClothCollSettings {
   /** E.g. pointer to temp memory for collisions. */
@@ -199,13 +227,23 @@ typedef struct ClothCollSettings {
   char _pad[4];
   /** Only use colliders from this group of objects. */
   struct Collection *group;
-  /** Vgroup to paint which vertices are used for self collisions. */
+  /** Vgroup to paint which vertices are not used for self collisions. */
   short vgroup_selfcol;
-  char _pad2[6];
+  /** Vgroup to paint which vertices are not used for object collisions. */
+  short vgroup_objcol;
+  char _pad2[4];
   /** Impulse clamp for object collisions. */
   float clamp;
   /** Impulse clamp for self collisions. */
   float self_clamp;
 } ClothCollSettings;
 
+/* COLLISION FLAGS */
+typedef enum {
+  CLOTH_COLLSETTINGS_FLAG_ENABLED = (1 << 1), /* enables cloth - object collisions */
+  CLOTH_COLLSETTINGS_FLAG_SELF = (1 << 2),    /* enables selfcollisions */
+} CLOTH_COLLISIONSETTINGS_FLAGS;
+
+#ifdef __cplusplus
+}
 #endif

@@ -31,6 +31,8 @@
 #ifndef CERES_INTERNAL_TRUST_REGION_STEP_EVALUATOR_H_
 #define CERES_INTERNAL_TRUST_REGION_STEP_EVALUATOR_H_
 
+#include "ceres/internal/export.h"
+
 namespace ceres {
 namespace internal {
 
@@ -56,7 +58,7 @@ namespace internal {
 // The parameter max_consecutive_nonmonotonic_steps controls the
 // window size used by the step selection algorithm to accept
 // non-monotonic steps. Setting this parameter to zero, recovers the
-// classic montonic descent algorithm.
+// classic monotonic descent algorithm.
 //
 // Based on algorithm 10.1.2 (page 357) of "Trust Region
 // Methods" by Conn Gould & Toint, or equations 33-40 of
@@ -74,7 +76,7 @@ namespace internal {
 //   x = x + delta;
 //   step_evaluator->StepAccepted(cost, model_cost_change);
 // }
-class TrustRegionStepEvaluator {
+class CERES_NO_EXPORT TrustRegionStepEvaluator {
  public:
   // initial_cost is as the name implies the cost of the starting
   // state of the trust region minimizer.
@@ -82,7 +84,7 @@ class TrustRegionStepEvaluator {
   // max_consecutive_nonmonotonic_steps controls the window size used
   // by the step selection algorithm to accept non-monotonic
   // steps. Setting this parameter to zero, recovers the classic
-  // montonic descent algorithm.
+  // monotonic descent algorithm.
   TrustRegionStepEvaluator(double initial_cost,
                            int max_consecutive_nonmonotonic_steps);
 

@@ -1,23 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 import bpy
 from bpy.types import Menu, Panel, UIList
 from bl_ui.utils import PresetPanel
@@ -25,8 +6,8 @@ from bl_ui.utils import PresetPanel
 from bpy.app.translations import pgettext_tip as tip_
 
 
-class RENDER_PT_presets(PresetPanel, Panel):
-    bl_label = "Render Presets"
+class RENDER_PT_format_presets(PresetPanel, Panel):
+    bl_label = "Format Presets"
     preset_subdir = "render"
     preset_operator = "script.execute_preset"
     preset_add_operator = "render.preset_add"
@@ -56,21 +37,21 @@ class RenderOutputButtonsPanel:
         return (context.engine in cls.COMPAT_ENGINES)
 
 
-class RENDER_PT_dimensions(RenderOutputButtonsPanel, Panel):
-    bl_label = "Dimensions"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+class RENDER_PT_format(RenderOutputButtonsPanel, Panel):
+    bl_label = "Format"
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     _frame_rate_args_prev = None
     _preset_class = None
 
     def draw_header_preset(self, _context):
-        RENDER_PT_presets.draw_panel_header(self.layout)
+        RENDER_PT_format_presets.draw_panel_header(self.layout)
 
     @staticmethod
     def _draw_framerate_label(*args):
         # avoids re-creating text string each draw
-        if RENDER_PT_dimensions._frame_rate_args_prev == args:
-            return RENDER_PT_dimensions._frame_rate_ret
+        if RENDER_PT_format._frame_rate_args_prev == args:
+            return RENDER_PT_format._frame_rate_ret
 
         fps, fps_base, preset_label = args
 
@@ -80,7 +61,7 @@ class RENDER_PT_dimensions(RenderOutputButtonsPanel, Panel):
             fps_rate = round(fps / fps_base, 2)
 
         # TODO: Change the following to iterate over existing presets
-        custom_framerate = (fps_rate not in {23.98, 24, 25, 29.97, 30, 50, 59.94, 60})
+        custom_framerate = (fps_rate not in {23.98, 24, 25, 29.97, 30, 50, 59.94, 60, 120, 240})
 
         if custom_framerate is True:
             fps_label_text = tip_("Custom (%.4g fps)") % fps_rate
@@ -89,17 +70,17 @@ class RENDER_PT_dimensions(RenderOutputButtonsPanel, Panel):
             fps_label_text = tip_("%.4g fps") % fps_rate
             show_framerate = (preset_label == "Custom")
 
-        RENDER_PT_dimensions._frame_rate_args_prev = args
-        RENDER_PT_dimensions._frame_rate_ret = args = (fps_label_text, show_framerate)
+        RENDER_PT_format._frame_rate_args_prev = args
+        RENDER_PT_format._frame_rate_ret = args = (fps_label_text, show_framerate)
         return args
 
     @staticmethod
     def draw_framerate(layout, rd):
-        if RENDER_PT_dimensions._preset_class is None:
-            RENDER_PT_dimensions._preset_class = bpy.types.RENDER_MT_framerate_presets
+        if RENDER_PT_format._preset_class is None:
+            RENDER_PT_format._preset_class = bpy.types.RENDER_MT_framerate_presets
 
-        args = rd.fps, rd.fps_base, RENDER_PT_dimensions._preset_class.bl_label
-        fps_label_text, show_framerate = RENDER_PT_dimensions._draw_framerate_label(*args)
+        args = rd.fps, rd.fps_base, RENDER_PT_format._preset_class.bl_label
+        fps_label_text, show_framerate = RENDER_PT_format._draw_framerate_label(*args)
 
         layout.menu("RENDER_MT_framerate_presets", text=fps_label_text)
 
@@ -113,8 +94,7 @@ class RENDER_PT_dimensions(RenderOutputButtonsPanel, Panel):
         layout.use_property_split = True
         layout.use_property_decorate = False  # No animation.
 
-        scene = context.scene
-        rd = scene.render
+        rd = context.scene.render
 
         col = layout.column(align=True)
         col.prop(rd, "resolution_x", text="Resolution X")
@@ -131,20 +111,32 @@ class RENDER_PT_dimensions(RenderOutputButtonsPanel, Panel):
         sub.active = rd.use_border
         sub.prop(rd, "use_crop_to_border")
 
+        col = layout.column(heading="Frame Rate")
+        self.draw_framerate(col, rd)
+
+
+class RENDER_PT_frame_range(RenderOutputButtonsPanel, Panel):
+    bl_label = "Frame Range"
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        scene = context.scene
+
         col = layout.column(align=True)
         col.prop(scene, "frame_start", text="Frame Start")
         col.prop(scene, "frame_end", text="End")
         col.prop(scene, "frame_step", text="Step")
 
-        col = layout.column(heading="Frame Rate")
-        self.draw_framerate(col, rd)
 
-
-class RENDER_PT_frame_remapping(RenderOutputButtonsPanel, Panel):
-    bl_label = "Time Remapping"
-    bl_parent_id = "RENDER_PT_dimensions"
+class RENDER_PT_time_stretching(RenderOutputButtonsPanel, Panel):
+    bl_label = "Time Stretching"
+    bl_parent_id = "RENDER_PT_frame_range"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -161,7 +153,7 @@ class RENDER_PT_frame_remapping(RenderOutputButtonsPanel, Panel):
 class RENDER_PT_post_processing(RenderOutputButtonsPanel, Panel):
     bl_label = "Post Processing"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -179,7 +171,7 @@ class RENDER_PT_post_processing(RenderOutputButtonsPanel, Panel):
 class RENDER_PT_stamp(RenderOutputButtonsPanel, Panel):
     bl_label = "Metadata"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -205,12 +197,15 @@ class RENDER_PT_stamp(RenderOutputButtonsPanel, Panel):
         col.prop(rd, "use_stamp_marker", text="Marker")
         col.prop(rd, "use_stamp_filename", text="Filename")
 
+        if rd.use_sequencer:
+            col.prop(rd, "use_stamp_sequencer_strip", text="Strip Name")
+
 
 class RENDER_PT_stamp_note(RenderOutputButtonsPanel, Panel):
     bl_label = "Note"
     bl_parent_id = "RENDER_PT_stamp"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw_header(self, context):
         rd = context.scene.render
@@ -230,7 +225,7 @@ class RENDER_PT_stamp_burn(RenderOutputButtonsPanel, Panel):
     bl_label = "Burn Into Image"
     bl_parent_id = "RENDER_PT_stamp"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw_header(self, context):
         rd = context.scene.render
@@ -254,7 +249,7 @@ class RENDER_PT_stamp_burn(RenderOutputButtonsPanel, Panel):
 
 class RENDER_PT_output(RenderOutputButtonsPanel, Panel):
     bl_label = "Output"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -283,7 +278,7 @@ class RENDER_PT_output(RenderOutputButtonsPanel, Panel):
 class RENDER_PT_output_views(RenderOutputButtonsPanel, Panel):
     bl_label = "Views"
     bl_parent_id = "RENDER_PT_output"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -299,11 +294,46 @@ class RENDER_PT_output_views(RenderOutputButtonsPanel, Panel):
         layout.template_image_views(rd.image_settings)
 
 
+class RENDER_PT_output_color_management(RenderOutputButtonsPanel, Panel):
+    bl_label = "Color Management"
+    bl_options = {'DEFAULT_CLOSED'}
+    bl_parent_id = "RENDER_PT_output"
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
+
+    def draw(self, context):
+        scene = context.scene
+        image_settings = scene.render.image_settings
+
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False  # No animation.
+
+        layout.row().prop(image_settings, "color_management", text=" ", expand=True)
+
+        flow = layout.grid_flow(row_major=True, columns=0, even_columns=False, even_rows=False, align=True)
+
+        if image_settings.color_management == 'OVERRIDE':
+            owner = image_settings
+        else:
+            owner = scene
+            flow.enabled = False
+
+        col = flow.column()
+
+        if image_settings.has_linear_colorspace:
+            if hasattr(owner, 'linear_colorspace_settings'):
+                col.prop(owner.linear_colorspace_settings, "name", text="Color Space")
+        else:
+            col.prop(owner.display_settings, "display_device")
+            col.separator()
+            col.template_colormanaged_view_settings(owner, "view_settings")
+
+
 class RENDER_PT_encoding(RenderOutputButtonsPanel, Panel):
     bl_label = "Encoding"
     bl_parent_id = "RENDER_PT_output"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw_header_preset(self, _context):
         RENDER_PT_ffmpeg_presets.draw_panel_header(self.layout)
@@ -328,7 +358,7 @@ class RENDER_PT_encoding(RenderOutputButtonsPanel, Panel):
 class RENDER_PT_encoding_video(RenderOutputButtonsPanel, Panel):
     bl_label = "Video"
     bl_parent_id = "RENDER_PT_encoding"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -392,7 +422,7 @@ class RENDER_PT_encoding_video(RenderOutputButtonsPanel, Panel):
 class RENDER_PT_encoding_audio(RenderOutputButtonsPanel, Panel):
     bl_label = "Audio"
     bl_parent_id = "RENDER_PT_encoding"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -411,6 +441,8 @@ class RENDER_PT_encoding_audio(RenderOutputButtonsPanel, Panel):
             layout.prop(ffmpeg, "audio_codec", text="Audio Codec")
 
         if ffmpeg.audio_codec != 'NONE':
+            layout.prop(ffmpeg, "audio_channels")
+            layout.prop(ffmpeg, "audio_mixrate", text="Sample Rate")
             layout.prop(ffmpeg, "audio_bitrate")
             layout.prop(ffmpeg, "audio_volume", slider=True)
 
@@ -432,7 +464,7 @@ class RENDER_UL_renderviews(UIList):
 
 class RENDER_PT_stereoscopy(RenderOutputButtonsPanel, Panel):
     bl_label = "Stereoscopy"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw_header(self, context):
@@ -476,14 +508,16 @@ class RENDER_PT_stereoscopy(RenderOutputButtonsPanel, Panel):
 
 
 classes = (
-    RENDER_PT_presets,
+    RENDER_PT_format_presets,
     RENDER_PT_ffmpeg_presets,
     RENDER_MT_framerate_presets,
-    RENDER_PT_dimensions,
-    RENDER_PT_frame_remapping,
+    RENDER_PT_format,
+    RENDER_PT_frame_range,
+    RENDER_PT_time_stretching,
     RENDER_PT_stereoscopy,
     RENDER_PT_output,
     RENDER_PT_output_views,
+    RENDER_PT_output_color_management,
     RENDER_PT_encoding,
     RENDER_PT_encoding_video,
     RENDER_PT_encoding_audio,

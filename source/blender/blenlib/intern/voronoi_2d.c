@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2012 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2012 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -83,7 +67,9 @@ static void voronoi_insertEvent(VoronoiProcess *process, VoronoiEvent *event)
 }
 
 /* edge */
-static VoronoiEdge *voronoiEdge_new(float start[2], float left[2], float right[2])
+static VoronoiEdge *voronoiEdge_new(const float start[2],
+                                    const float left[2],
+                                    const float right[2])
 {
   VoronoiEdge *edge = MEM_callocN(sizeof(VoronoiEdge), "voronoi edge");
 
@@ -118,7 +104,7 @@ static VoronoiParabola *voronoiParabola_new(void)
   return parabola;
 }
 
-static VoronoiParabola *voronoiParabola_newSite(float site[2])
+static VoronoiParabola *voronoiParabola_newSite(const float site[2])
 {
   VoronoiParabola *parabola = MEM_callocN(sizeof(VoronoiParabola), "voronoi parabola site");
 
@@ -213,7 +199,7 @@ static void voronoiParabola_setRight(VoronoiParabola *parabola, VoronoiParabola 
   right->parent = parabola;
 }
 
-static float voronoi_getY(VoronoiProcess *process, float p[2], float x)
+static float voronoi_getY(VoronoiProcess *process, const float p[2], float x)
 {
   float ly = process->current_y;
 
@@ -775,7 +761,7 @@ static void voronoi_addTriangle(
     *r_triangles = MEM_reallocN(*r_triangles, sizeof(int[3]) * (*r_triangles_total + 1));
   }
   else {
-    *r_triangles = MEM_callocN(sizeof(int[3]), "trianglulation triangles");
+    *r_triangles = MEM_callocN(sizeof(int[3]), "triangulation triangles");
   }
 
   triangle = (int *)&(*r_triangles)[(*r_triangles_total)];

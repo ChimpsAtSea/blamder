@@ -1,28 +1,13 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  */
 
-#ifndef __GHOST_TYPES_H__
-#define __GHOST_TYPES_H__
+#pragma once
+
+#include <stdint.h>
 
 #ifdef WITH_CXX_GUARDEDALLOC
 #  include "MEM_guardedalloc.h"
@@ -57,12 +42,17 @@ GHOST_DECLARE_HANDLE(GHOST_EventConsumerHandle);
 GHOST_DECLARE_HANDLE(GHOST_ContextHandle);
 GHOST_DECLARE_HANDLE(GHOST_XrContextHandle);
 
-typedef char GHOST_TInt8;
-typedef unsigned char GHOST_TUns8;
-typedef short GHOST_TInt16;
-typedef unsigned short GHOST_TUns16;
-typedef int GHOST_TInt32;
-typedef unsigned int GHOST_TUns32;
+typedef void (*GHOST_TBacktraceFn)(void *file_handle);
+
+/**
+ * A reference to cursor bitmap data.
+ */
+typedef struct {
+  /** `RGBA` bytes. */
+  const uint8_t *data;
+  int data_size[2];
+  int hot_spot[2];
+} GHOST_CursorBitmapRef;
 
 typedef struct {
   int flags;
@@ -78,14 +68,6 @@ typedef enum GHOST_DialogOptions {
   GHOST_DialogWarning = (1 << 0),
   GHOST_DialogError = (1 << 1),
 } GHOST_DialogOptions;
-
-#ifdef _MSC_VER
-typedef __int64 GHOST_TInt64;
-typedef unsigned __int64 GHOST_TUns64;
-#else
-typedef long long GHOST_TInt64;
-typedef unsigned long long GHOST_TUns64;
-#endif
 
 typedef void *GHOST_TUserDataPtr;
 
@@ -106,7 +88,9 @@ typedef enum {
 
 typedef enum {
   GHOST_kTabletAutomatic = 0,
-  GHOST_kTabletNative,
+  /* Show as Windows Ink to users to match "Use Windows Ink" in tablet utilities,
+   * but we use the dependent Windows Pointer API. */
+  GHOST_kTabletWinPointer,
   GHOST_kTabletWintab,
 } GHOST_TTabletAPI;
 
@@ -139,8 +123,8 @@ typedef enum {
   GHOST_kModifierKeyLeftControl,
   GHOST_kModifierKeyRightControl,
   GHOST_kModifierKeyOS,
-  GHOST_kModifierKeyNumMasks
-} GHOST_TModifierKeyMask;
+  GHOST_kModifierKeyNum
+} GHOST_TModifierKey;
 
 typedef enum {
   GHOST_kWindowStateNormal = 0,
@@ -151,6 +135,13 @@ typedef enum {
   // GHOST_kWindowStateModified,
   // GHOST_kWindowStateUnModified,
 } GHOST_TWindowState;
+
+typedef enum {
+  GHOST_kConsoleWindowStateHide = 0,
+  GHOST_kConsoleWindowStateShow,
+  GHOST_kConsoleWindowStateToggle,
+  GHOST_kConsoleWindowStateHideForNonConsoleLaunch
+} GHOST_TConsoleWindowState;
 
 typedef enum { GHOST_kWindowOrderTop = 0, GHOST_kWindowOrderBottom } GHOST_TWindowOrder;
 
@@ -163,29 +154,30 @@ typedef enum {
 } GHOST_TDrawingContextType;
 
 typedef enum {
-  GHOST_kButtonMaskLeft = 0,
+  GHOST_kButtonMaskNone,
+  GHOST_kButtonMaskLeft,
   GHOST_kButtonMaskMiddle,
   GHOST_kButtonMaskRight,
   GHOST_kButtonMaskButton4,
   GHOST_kButtonMaskButton5,
-  /* Trackballs and programmable buttons */
+  /* Trackballs and programmable buttons. */
   GHOST_kButtonMaskButton6,
   GHOST_kButtonMaskButton7,
-  GHOST_kButtonNumMasks
-} GHOST_TButtonMask;
+  GHOST_kButtonNum
+} GHOST_TButton;
 
 typedef enum {
   GHOST_kEventUnknown = 0,
 
-  GHOST_kEventCursorMove,  /// Mouse move event
-  GHOST_kEventButtonDown,  /// Mouse button event
-  GHOST_kEventButtonUp,    /// Mouse button event
-  GHOST_kEventWheel,       /// Mouse wheel event
-  GHOST_kEventTrackpad,    /// Trackpad event
+  GHOST_kEventCursorMove, /* Mouse move event. */
+  GHOST_kEventButtonDown, /* Mouse button event. */
+  GHOST_kEventButtonUp,   /* Mouse button event. */
+  GHOST_kEventWheel,      /* Mouse wheel event. */
+  GHOST_kEventTrackpad,   /* Trackpad event. */
 
 #ifdef WITH_INPUT_NDOF
-  GHOST_kEventNDOFMotion,  /// N degree of freedom device motion event
-  GHOST_kEventNDOFButton,  /// N degree of freedom device button event
+  GHOST_kEventNDOFMotion, /* N degree of freedom device motion event. */
+  GHOST_kEventNDOFButton, /* N degree of freedom device button event. */
 #endif
 
   GHOST_kEventKeyDown,
@@ -207,8 +199,8 @@ typedef enum {
   GHOST_kEventDraggingExited,
   GHOST_kEventDraggingDropDone,
 
-  GHOST_kEventOpenMainFile,  // Needed for Cocoa to open double-clicked .blend file at startup
-  GHOST_kEventNativeResolutionChange,  // Needed for Cocoa when window moves to other display
+  GHOST_kEventOpenMainFile, /* Needed for Cocoa to open double-clicked .blend file at startup. */
+  GHOST_kEventNativeResolutionChange, /* Needed for Cocoa when window moves to other display. */
 
   GHOST_kEventTimer,
 
@@ -281,7 +273,7 @@ typedef enum {
   GHOST_kKeyPeriod = '.',
   GHOST_kKeySlash = '/',
 
-  // Number keys
+  /* Number keys. */
   GHOST_kKey0 = '0',
   GHOST_kKey1,
   GHOST_kKey2,
@@ -296,7 +288,7 @@ typedef enum {
   GHOST_kKeySemicolon = ';',
   GHOST_kKeyEqual = '=',
 
-  // Character keys
+  /* Character keys. */
   GHOST_kKeyA = 'A',
   GHOST_kKeyB,
   GHOST_kKeyC,
@@ -335,9 +327,9 @@ typedef enum {
   GHOST_kKeyRightControl,
   GHOST_kKeyLeftAlt,
   GHOST_kKeyRightAlt,
-  GHOST_kKeyOS,      // Command key on Apple, Windows key(s) on Windows
-  GHOST_kKeyGrLess,  // German PC only!
-  GHOST_kKeyApp,     /* Also known as menu key. */
+  GHOST_kKeyOS,     /* Command key on Apple, Windows key(s) on Windows. */
+  GHOST_kKeyGrLess, /* German PC only! */
+  GHOST_kKeyApp,    /* Also known as menu key. */
 
   GHOST_kKeyCapsLock,
   GHOST_kKeyNumLock,
@@ -358,7 +350,7 @@ typedef enum {
   GHOST_kKeyUpPage,
   GHOST_kKeyDownPage,
 
-  // Numpad keys
+  /* Numpad keys. */
   GHOST_kKeyNumpad0,
   GHOST_kKeyNumpad1,
   GHOST_kKeyNumpad2,
@@ -376,7 +368,7 @@ typedef enum {
   GHOST_kKeyNumpadAsterisk,
   GHOST_kKeyNumpadSlash,
 
-  // Function keys
+  /* Function keys. */
   GHOST_kKeyF1,
   GHOST_kKeyF2,
   GHOST_kKeyF3,
@@ -402,7 +394,7 @@ typedef enum {
   GHOST_kKeyF23,
   GHOST_kKeyF24,
 
-  // Multimedia keypad buttons
+  /* Multimedia keypad buttons. */
   GHOST_kKeyMediaPlay,
   GHOST_kKeyMediaStop,
   GHOST_kKeyMediaFirst,
@@ -416,38 +408,43 @@ typedef enum {
   GHOST_kGrabNormal,
   /** Wrap the mouse location to prevent limiting screen bounds. */
   GHOST_kGrabWrap,
-  /** Hide the mouse while grabbing and restore the original location on release (numbuts). */
+  /**
+   * Hide the mouse while grabbing and restore the original location on release
+   * (used for number buttons and some other draggable UI elements).
+   */
   GHOST_kGrabHide,
 } GHOST_TGrabCursorMode;
 
+#define GHOST_GRAB_NEEDS_SOFTWARE_CURSOR_FOR_WARP(grab) ((grab) == GHOST_kGrabWrap)
+
 typedef enum {
   /** Axis that cursor grab will wrap. */
-  GHOST_kGrabAxisNone = 0,
+  GHOST_kAxisNone = 0,
   GHOST_kAxisX = (1 << 0),
-  GHOST_kGrabAxisY = (1 << 1),
+  GHOST_kAxisY = (1 << 1),
 } GHOST_TAxisFlag;
 
 typedef void *GHOST_TEventDataPtr;
 
 typedef struct {
   /** The x-coordinate of the cursor position. */
-  GHOST_TInt32 x;
+  int32_t x;
   /** The y-coordinate of the cursor position. */
-  GHOST_TInt32 y;
+  int32_t y;
   /** Associated tablet data. */
   GHOST_TabletData tablet;
 } GHOST_TEventCursorData;
 
 typedef struct {
   /** The mask of the mouse button. */
-  GHOST_TButtonMask button;
+  GHOST_TButton button;
   /** Associated tablet data. */
   GHOST_TabletData tablet;
 } GHOST_TEventButtonData;
 
 typedef struct {
   /** Displacement of a mouse wheel. */
-  GHOST_TInt32 z;
+  int32_t z;
 } GHOST_TEventWheelData;
 
 typedef enum {
@@ -463,27 +460,29 @@ typedef struct {
   /** The event subtype */
   GHOST_TTrackpadEventSubTypes subtype;
   /** The x-location of the trackpad event */
-  GHOST_TInt32 x;
+  int32_t x;
   /** The y-location of the trackpad event */
-  GHOST_TInt32 y;
+  int32_t y;
   /** The x-delta or value of the trackpad event */
-  GHOST_TInt32 deltaX;
+  int32_t deltaX;
   /** The y-delta (currently only for scroll subtype) of the trackpad event */
-  GHOST_TInt32 deltaY;
+  int32_t deltaY;
+  /** The delta is inverted from the device due to system preferences. */
+  char isDirectionInverted;
 } GHOST_TEventTrackpadData;
 
 typedef enum {
   GHOST_kDragnDropTypeUnknown = 0,
-  GHOST_kDragnDropTypeFilenames, /*Array of strings representing file names (full path) */
-  GHOST_kDragnDropTypeString,    /* Unformatted text UTF-8 string */
-  GHOST_kDragnDropTypeBitmap     /*Bitmap image data */
+  GHOST_kDragnDropTypeFilenames, /* Array of strings representing file names (full path). */
+  GHOST_kDragnDropTypeString,    /* Unformatted text UTF-8 string. */
+  GHOST_kDragnDropTypeBitmap     /* Bitmap image data. */
 } GHOST_TDragnDropTypes;
 
 typedef struct {
   /** The x-coordinate of the cursor position. */
-  GHOST_TInt32 x;
+  int32_t x;
   /** The y-coordinate of the cursor position. */
-  GHOST_TInt32 y;
+  int32_t y;
   /** The dropped item type */
   GHOST_TDragnDropTypes dataType;
   /** The "dropped content" */
@@ -502,13 +501,11 @@ typedef struct {
   int target_start;
   /** Represents the position of the end of the selection */
   int target_end;
-  /** custom temporal data */
-  GHOST_TUserDataPtr tmp;
 } GHOST_TEventImeData;
 
 typedef struct {
   int count;
-  GHOST_TUns8 **strings;
+  uint8_t **strings;
 } GHOST_TStringArray;
 
 typedef enum {
@@ -522,18 +519,23 @@ typedef enum {
 #ifdef WITH_INPUT_NDOF
 typedef struct {
   /** N-degree of freedom device data v3 [GSoC 2010] */
-  // Each component normally ranges from -1 to +1, but can exceed that.
-  // These use blender standard view coordinates, with positive rotations being CCW about the axis.
-  float tx, ty, tz;  // translation
-  float rx, ry, rz;  // rotation:
-  // axis = (rx,ry,rz).normalized
-  // amount = (rx,ry,rz).magnitude [in revolutions, 1.0 = 360 deg]
-  float dt;                  // time since previous NDOF Motion event
-  GHOST_TProgress progress;  // Starting, InProgress or Finishing (for modal handlers)
+  /* Each component normally ranges from -1 to +1, but can exceed that.
+   * These use blender standard view coordinates,
+   * with positive rotations being CCW about the axis. */
+  /* translation: */
+  float tx, ty, tz;
+  /* rotation:
+   * - `axis = (rx,ry,rz).normalized`
+   * - `amount = (rx,ry,rz).magnitude` [in revolutions, 1.0 = 360 deg]. */
+  float rx, ry, rz;
+  /** Time since previous NDOF Motion event */
+  float dt;
+  /** Starting, #GHOST_kInProgress or #GHOST_kFinishing (for modal handlers) */
+  GHOST_TProgress progress;
 } GHOST_TEventNDOFMotionData;
 
 typedef enum { GHOST_kPress, GHOST_kRelease } GHOST_TButtonAction;
-// good for mouse or other buttons too, hmmm?
+/* Good for mouse or other buttons too? */
 
 typedef struct {
   GHOST_TButtonAction action;
@@ -545,55 +547,71 @@ typedef struct {
   /** The key code. */
   GHOST_TKey key;
 
-  /* ascii / utf8: both should always be set when possible,
-   * - ascii may be '\0' however if the user presses a non ascii key
-   * - unicode may not be set if the system has no unicode support
-   *
-   * These values are intended to be used as follows.
-   * For text input use unicode when available, fallback to ascii.
-   * For areas where unicode is not needed, number input for example, always
-   * use ascii, unicode is ignored - campbell.
-   */
-  /** The ascii code for the key event ('\0' if none). */
-  char ascii;
-  /** The unicode character. if the length is 6, not NULL terminated if all 6 are set */
+  /** The unicode character. if the length is 6, not NULL terminated if all 6 are set. */
   char utf8_buf[6];
 
-  /** Generated by auto-repeat. */
+  /**
+   * Enabled when the key is held (auto-repeat).
+   * In this case press events are sent without a corresponding release/up event.
+   *
+   * All back-ends must set this variable for correct behavior regarding repeatable keys.
+   */
   char is_repeat;
 } GHOST_TEventKeyData;
 
+typedef enum {
+  GHOST_kUserSpecialDirDesktop,
+  GHOST_kUserSpecialDirDocuments,
+  GHOST_kUserSpecialDirDownloads,
+  GHOST_kUserSpecialDirMusic,
+  GHOST_kUserSpecialDirPictures,
+  GHOST_kUserSpecialDirVideos,
+  GHOST_kUserSpecialDirCaches,
+  /* Can be extended as needed. */
+} GHOST_TUserSpecialDirTypes;
+
 typedef struct {
   /** Number of pixels on a line. */
-  GHOST_TUns32 xPixels;
+  uint32_t xPixels;
   /** Number of lines. */
-  GHOST_TUns32 yPixels;
-  /** Numberof bits per pixel. */
-  GHOST_TUns32 bpp;
+  uint32_t yPixels;
+  /** Number of bits per pixel. */
+  uint32_t bpp;
   /** Refresh rate (in Hertz). */
-  GHOST_TUns32 frequency;
+  uint32_t frequency;
 } GHOST_DisplaySetting;
+
+typedef enum {
+  /** Axis that cursor grab will wrap. */
+  GHOST_kDebugDefault = (1 << 1),
+  GHOST_kDebugWintab = (1 << 2),
+} GHOST_TDebugFlags;
+
+typedef struct {
+  int flags;
+} GHOST_Debug;
 
 #ifdef _WIN32
 typedef void *GHOST_TEmbedderWindowID;
 #endif  // _WIN32
 
 #ifndef _WIN32
-// I can't use "Window" from "<X11/Xlib.h>" because it conflits with Window defined in winlay.h
+/* I can't use "Window" from `X11/Xlib.h`
+ * because it conflicts with Window defined in `winlay.h`. */
 typedef int GHOST_TEmbedderWindowID;
 #endif  // _WIN32
 
 /**
  * A timer task callback routine.
- * \param task The timer task object.
- * \param time The current time.
+ * \param task: The timer task object.
+ * \param time: Time since this timer started (in milliseconds).
  */
 #ifdef __cplusplus
 class GHOST_ITimerTask;
-typedef void (*GHOST_TimerProcPtr)(GHOST_ITimerTask *task, GHOST_TUns64 time);
+typedef void (*GHOST_TimerProcPtr)(GHOST_ITimerTask *task, uint64_t time);
 #else
 struct GHOST_TimerTaskHandle__;
-typedef void (*GHOST_TimerProcPtr)(struct GHOST_TimerTaskHandle__ *task, GHOST_TUns64 time);
+typedef void (*GHOST_TimerProcPtr)(struct GHOST_TimerTaskHandle__ *task, uint64_t time);
 #endif
 
 #ifdef WITH_XR_OPENXR
@@ -601,9 +619,9 @@ typedef void (*GHOST_TimerProcPtr)(struct GHOST_TimerTaskHandle__ *task, GHOST_T
 struct GHOST_XrDrawViewInfo;
 struct GHOST_XrError;
 /**
- * The XR view (i.e. the OpenXR runtime) may require a different graphics library than OpenGL. An
- * offscreen texture of the viewport will then be drawn into using OpenGL, but the final texture
- * draw call will happen through another lib (say DirectX).
+ * The XR view (i.e. the OpenXR runtime) may require a different graphics library than OpenGL.
+ * An off-screen texture of the viewport will then be drawn into using OpenGL,
+ * but the final texture draw call will happen through another library (say DirectX).
  *
  * This enum defines the possible graphics bindings to attempt to enable.
  */
@@ -619,14 +637,18 @@ typedef enum GHOST_TXrGraphicsBinding {
 
 typedef void (*GHOST_XrErrorHandlerFn)(const struct GHOST_XrError *);
 
+typedef void (*GHOST_XrSessionCreateFn)(void);
 typedef void (*GHOST_XrSessionExitFn)(void *customdata);
+typedef void (*GHOST_XrCustomdataFreeFn)(void *customdata);
 
 typedef void *(*GHOST_XrGraphicsContextBindFn)(void);
 typedef void (*GHOST_XrGraphicsContextUnbindFn)(GHOST_ContextHandle graphics_context);
 typedef void (*GHOST_XrDrawViewFn)(const struct GHOST_XrDrawViewInfo *draw_view, void *customdata);
 
-/* An array of GHOST_TXrGraphicsBinding items defining the candidate bindings to use. The first
- * available candidate will be chosen, so order defines priority. */
+/**
+ * An array of #GHOST_TXrGraphicsBinding items defining the candidate bindings to use.
+ * The first available candidate will be chosen, so order defines priority.
+ */
 typedef const GHOST_TXrGraphicsBinding *GHOST_XrGraphicsBindingCandidates;
 
 typedef struct {
@@ -638,6 +660,11 @@ typedef struct {
 enum {
   GHOST_kXrContextDebug = (1 << 0),
   GHOST_kXrContextDebugTime = (1 << 1),
+#  ifdef WIN32
+  /* Needed to avoid issues with the SteamVR OpenGL graphics binding
+   * (use DirectX fallback instead). */
+  GHOST_kXrContextGpuNVIDIA = (1 << 2),
+#  endif
 };
 
 typedef struct {
@@ -650,9 +677,18 @@ typedef struct {
 typedef struct {
   GHOST_XrPose base_pose;
 
+  GHOST_XrSessionCreateFn create_fn;
   GHOST_XrSessionExitFn exit_fn;
   void *exit_customdata;
 } GHOST_XrSessionBeginInfo;
+
+/** Texture format for XR swapchain. */
+typedef enum GHOST_TXrSwapchainFormat {
+  GHOST_kXrSwapchainFormatRGBA8,
+  GHOST_kXrSwapchainFormatRGBA16,
+  GHOST_kXrSwapchainFormatRGBA16F,
+  GHOST_kXrSwapchainFormatRGB10_A2,
+} GHOST_TXrSwapchainFormat;
 
 typedef struct GHOST_XrDrawViewInfo {
   int ofsx, ofsy;
@@ -666,8 +702,13 @@ typedef struct GHOST_XrDrawViewInfo {
     float angle_up, angle_down;
   } fov;
 
-  /** Set if the buffer should be submitted with a srgb transfer applied. */
+  GHOST_TXrSwapchainFormat swapchain_format;
+  /** Set if the buffer should be submitted with a SRGB transfer applied. */
   char expects_srgb_buffer;
+
+  /** The view that this info represents. Not necessarily the "eye index" (e.g. for quad view
+   * systems, etc). */
+  char view_idx;
 } GHOST_XrDrawViewInfo;
 
 typedef struct GHOST_XrError {
@@ -676,6 +717,75 @@ typedef struct GHOST_XrError {
   void *customdata;
 } GHOST_XrError;
 
-#endif
+typedef struct GHOST_XrActionSetInfo {
+  const char *name;
 
-#endif  // __GHOST_TYPES_H__
+  GHOST_XrCustomdataFreeFn customdata_free_fn;
+  void *customdata; /* wmXrActionSet */
+} GHOST_XrActionSetInfo;
+
+/** XR action type. Enum values match those in OpenXR's
+ * XrActionType enum for consistency. */
+typedef enum GHOST_XrActionType {
+  GHOST_kXrActionTypeBooleanInput = 1,
+  GHOST_kXrActionTypeFloatInput = 2,
+  GHOST_kXrActionTypeVector2fInput = 3,
+  GHOST_kXrActionTypePoseInput = 4,
+  GHOST_kXrActionTypeVibrationOutput = 100,
+} GHOST_XrActionType;
+
+typedef struct GHOST_XrActionInfo {
+  const char *name;
+  GHOST_XrActionType type;
+  uint32_t count_subaction_paths;
+  const char **subaction_paths;
+  /** States for each subaction path. */
+  void *states;
+  /** Input thresholds/regions for each subaction path. */
+  float *float_thresholds;
+  int16_t *axis_flags;
+
+  GHOST_XrCustomdataFreeFn customdata_free_fn;
+  void *customdata; /* wmXrAction */
+} GHOST_XrActionInfo;
+
+typedef struct GHOST_XrActionBindingInfo {
+  const char *component_path;
+  float float_threshold;
+  int16_t axis_flag;
+  GHOST_XrPose pose;
+} GHOST_XrActionBindingInfo;
+
+typedef struct GHOST_XrActionProfileInfo {
+  const char *action_name;
+  const char *profile_path;
+  uint32_t count_subaction_paths;
+  const char **subaction_paths;
+  /** Bindings for each subaction path. */
+  const GHOST_XrActionBindingInfo *bindings;
+} GHOST_XrActionProfileInfo;
+
+typedef struct GHOST_XrControllerModelVertex {
+  float position[3];
+  float normal[3];
+} GHOST_XrControllerModelVertex;
+
+typedef struct GHOST_XrControllerModelComponent {
+  /** World space transform. */
+  float transform[4][4];
+  uint32_t vertex_offset;
+  uint32_t vertex_count;
+  uint32_t index_offset;
+  uint32_t index_count;
+} GHOST_XrControllerModelComponent;
+
+typedef struct GHOST_XrControllerModelData {
+  uint32_t count_vertices;
+  const GHOST_XrControllerModelVertex *vertices;
+  uint32_t count_indices;
+  const uint32_t *indices;
+  uint32_t count_components;
+  const GHOST_XrControllerModelComponent *components;
+} GHOST_XrControllerModelData;
+
+#endif /* WITH_XR_OPENXR */

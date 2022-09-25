@@ -1,19 +1,4 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 set(INC
   ../include
@@ -23,6 +8,7 @@ set(INC
   ../../blentranslation
   ../../bmesh
   ../../depsgraph
+  ../../functions
   ../../gpencil_modifiers
   ../../gpu
   ../../ikplugin
@@ -31,20 +17,21 @@ set(INC
   ../../makesrna
   ../../modifiers
   ../../python
+  ../../render
   ../../shader_fx
-  ../../render/extern/include
   ../../windowmanager
   ../../../../intern/clog
   ../../../../intern/glew-mx
   ../../../../intern/guardedalloc
-)
 
-set(INC_SYS
-  ${GLEW_INCLUDE_PATH}
+  # dna_type_offsets.h in BLO_read_write.h
+  ${CMAKE_BINARY_DIR}/source/blender/makesdna/intern
+  # RNA_prototypes.h
+  ${CMAKE_BINARY_DIR}/source/blender/makesrna
 )
 
 set(SRC
-  object_add.c
+  object_add.cc
   object_bake.c
   object_bake_api.c
   object_collection.c
@@ -56,15 +43,15 @@ set(SRC
   object_gpencil_modifier.c
   object_hook.c
   object_modes.c
-  object_modifier.c
+  object_modifier.cc
   object_ops.c
   object_random.c
   object_relations.c
-  object_remesh.c
+  object_remesh.cc
   object_select.c
   object_shader_fx.c
   object_shapekey.c
-  object_transform.c
+  object_transform.cc
   object_utils.c
   object_vgroup.c
   object_volume.c
@@ -81,18 +68,18 @@ set(LIB
   bf_windowmanager
 )
 
-add_definitions(${GL_DEFINITIONS})
 
 if(WITH_PYTHON)
   add_definitions(-DWITH_PYTHON)
 endif()
 
-if(WITH_INTERNATIONAL)
-  add_definitions(-DWITH_INTERNATIONAL)
-endif()
-
-if(WITH_NEW_OBJECT_TYPES)
-  add_definitions(-DWITH_NEW_OBJECT_TYPES)
+if(WITH_EXPERIMENTAL_FEATURES)
+  add_definitions(-DWITH_SIMULATION_DATABLOCK)
+  add_definitions(-DWITH_POINT_CLOUD)
 endif()
 
 blender_add_lib(bf_editor_object "${SRC}" "${INC}" "${INC_SYS}" "${LIB}")
+
+add_dependencies(bf_editor_object bf_dna)
+# RNA_prototypes.h
+add_dependencies(bf_editor_object bf_rna)

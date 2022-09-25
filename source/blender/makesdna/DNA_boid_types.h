@@ -1,30 +1,17 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 by Janne Karhu.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 by Janne Karhu. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_BOID_TYPES_H__
-#define __DNA_BOID_TYPES_H__
+#pragma once
 
 #include "DNA_listBase.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 typedef enum eBoidRuleType {
   eBoidRuleType_None = 0,
@@ -32,7 +19,7 @@ typedef enum eBoidRuleType {
   eBoidRuleType_Goal = 1,
   /** get away from assigned object or loudest assigned signal source */
   eBoidRuleType_Avoid = 2,
-  /** manoeuver to avoid collisions with other boids and deflector object in near future */
+  /** Maneuver to avoid collisions with other boids and deflector object in near future. */
   eBoidRuleType_AvoidCollision = 3,
   /** keep from going through other boids */
   eBoidRuleType_Separate = 4,
@@ -40,18 +27,18 @@ typedef enum eBoidRuleType {
   eBoidRuleType_Flock = 5,
   /** follow a boid or assigned object */
   eBoidRuleType_FollowLeader = 6,
-  /** maintain speed, flight level or wander*/
+  /** Maintain speed, flight level or wander. */
   eBoidRuleType_AverageSpeed = 7,
   /** go to closest enemy and attack when in range */
   eBoidRuleType_Fight = 8,
 #if 0
   /** go to enemy closest to target and attack when in range */
   eBoidRuleType_Protect = 9,
-  /** find a deflector move to it's other side from closest enemy */
+  /** find a deflector move to its other side from closest enemy */
   eBoidRuleType_Hide = 10,
   /** move along a assigned curve or closest curve in a group */
   eBoidRuleType_FollowPath = 11,
-  /** move next to a deflector object's in direction of it's tangent */
+  /** move next to a deflector object's in direction of its tangent */
   eBoidRuleType_FollowWall = 12,
 #endif
 } eBoidRuleType;
@@ -94,7 +81,8 @@ typedef struct BoidRuleFollowLeader {
 } BoidRuleFollowLeader;
 typedef struct BoidRuleAverageSpeed {
   BoidRule rule;
-  float wander, level, speed, rt;
+  float wander, level, speed;
+  char _pad0[4];
 } BoidRuleAverageSpeed;
 typedef struct BoidRuleFight {
   BoidRule rule;
@@ -175,7 +163,7 @@ typedef struct BoidState {
 //} BoidSignal;
 // typedef struct BoidSignalDefine {
 //  struct BoidSignalDefine *next, *prev;
-//  int id, rt;
+//  int id, _pad[4];
 //  char name[32];
 //} BoidSignalDefine;
 
@@ -224,4 +212,6 @@ typedef struct BoidSettings {
 //#define BOID_RULE_WITH_BOIDS      (1 << 4)        /* avoid collision */
 //#define BOID_RULE_WITH_DEFLECTORS (1 << 5)    /* avoid collision */
 
+#ifdef __cplusplus
+}
 #endif

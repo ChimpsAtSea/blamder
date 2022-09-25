@@ -1,27 +1,17 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_DYNAMICPAINT_TYPES_H__
-#define __DNA_DYNAMICPAINT_TYPES_H__
+#pragma once
 
 #include "DNA_listBase.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct PaintSurfaceData;
 
 /* surface format */
@@ -152,7 +142,7 @@ typedef struct DynamicPaintSurface {
 
 /* canvas flags */
 enum {
-  /** surface is already baking, so it wont get updated (loop) */
+  /** surface is already baking, so it won't get updated (loop) */
   MOD_DPAINT_BAKING = 1 << 1,
 };
 
@@ -237,6 +227,13 @@ enum {
 typedef struct DynamicPaintBrushSettings {
   /** For fast RNA access. */
   struct DynamicPaintModifierData *pmd;
+
+  /**
+   * \note Storing the particle system pointer here is very weak, as it prevents modifiers' data
+   * copying to be self-sufficient (extra external code needs to ensure the pointer remains valid
+   * when the modifier data is copied from one object to another). See e.g.
+   * `BKE_object_copy_particlesystems` or `BKE_object_copy_modifier`.
+   */
   struct ParticleSystem *psys;
 
   int flags;
@@ -263,4 +260,6 @@ typedef struct DynamicPaintBrushSettings {
   float max_velocity, smudge_strength;
 } DynamicPaintBrushSettings;
 
+#ifdef __cplusplus
+}
 #endif

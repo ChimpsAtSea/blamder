@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -37,13 +21,13 @@
 
 #include "transform.h"
 #include "transform_constraints.h"
-#include "transform_mode.h"
+#include "transform_convert.h"
 #include "transform_snap.h"
 
-/* -------------------------------------------------------------------- */
-/* Transform (EditBone (B-bone) width scaling) */
+#include "transform_mode.h"
 
-/** \name Transform B-bone width scaling
+/* -------------------------------------------------------------------- */
+/** \name Transform (EditBone B-Bone width scaling)
  * \{ */
 
 static void headerBoneSize(TransInfo *t, const float vec[3], char str[UI_MAX_DRAW_STR])
@@ -87,7 +71,10 @@ static void headerBoneSize(TransInfo *t, const float vec[3], char str[UI_MAX_DRA
   }
 }
 
-static void ElementBoneSize(TransInfo *t, TransDataContainer *tc, TransData *td, float mat[3][3])
+static void ElementBoneSize(TransInfo *t,
+                            TransDataContainer *tc,
+                            TransData *td,
+                            const float mat[3][3])
 {
   float tmat[3][3], smat[3][3], oldy;
   float sizemat[3][3];
@@ -120,8 +107,9 @@ static void applyBoneSize(TransInfo *t, const int UNUSED(mval[2]))
     float ratio = t->values[0];
 
     copy_v3_fl(t->values_final, ratio);
+    add_v3_v3(t->values_final, t->values_modal_offset);
 
-    snapGridIncrement(t, t->values_final);
+    transform_snap_increment(t, t->values_final);
 
     if (applyNumInput(&t->num, t->values_final)) {
       constraintNumInput(t, t->values_final);
@@ -132,9 +120,14 @@ static void applyBoneSize(TransInfo *t, const int UNUSED(mval[2]))
 
   if (t->con.applySize) {
     t->con.applySize(t, NULL, NULL, mat);
+    for (i = 0; i < 3; i++) {
+      if (!(t->con.mode & (CON_AXIS0 << i))) {
+        t->values_final[i] = 1.0f;
+      }
+    }
   }
 
-  copy_m3_m3(t->mat, mat);  // used in gizmo
+  copy_m3_m3(t->mat, mat); /* used in gizmo */
 
   headerBoneSize(t, t->values_final, str);
 
@@ -167,14 +160,14 @@ void initBoneSize(TransInfo *t)
   t->num.val_flag[1] |= NUM_NULL_ONE;
   t->num.val_flag[2] |= NUM_NULL_ONE;
   t->num.flag |= NUM_AFFECT_ALL;
-  t->snap[0] = 0.0f;
-  t->snap[1] = 0.1f;
-  t->snap[2] = t->snap[1] * 0.1f;
+  t->snap[0] = 0.1f;
+  t->snap[1] = t->snap[0] * 0.1f;
 
-  copy_v3_fl(t->num.val_inc, t->snap[1]);
+  copy_v3_fl(t->num.val_inc, t->snap[0]);
   t->num.unit_sys = t->scene->unit.system;
   t->num.unit_type[0] = B_UNIT_NONE;
   t->num.unit_type[1] = B_UNIT_NONE;
   t->num.unit_type[2] = B_UNIT_NONE;
 }
+
 /** \} */

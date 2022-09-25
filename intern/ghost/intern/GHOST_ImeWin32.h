@@ -1,30 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (c) 2010 The Chromium Authors. All rights reserved.
- * All rights reserved.
- *
- * The Original Code is: some of this file.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * The Original Code is Copyright 2010 The Chromium Authors. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  */
 
-#ifndef __GHOST_IME_H__
-#define __GHOST_IME_H__
+#pragma once
 
 #ifdef WITH_INPUT_IME
 
@@ -37,15 +18,18 @@
 #  include "GHOST_Rect.h"
 #  include <vector>
 
+/* MSDN LOCALE_SISO639LANGNAME states maximum length of 9, including terminating null. */
+#  define W32_ISO639_LEN 9
+
 class GHOST_EventIME : public GHOST_Event {
  public:
   /**
    * Constructor.
-   * \param msec  The time this event was generated.
-   * \param type  The type of key event.
-   * \param key   The key code of the key.
+   * \param msec: The time this event was generated.
+   * \param type: The type of key event.
+   * \param key: The key code of the key.
    */
-  GHOST_EventIME(GHOST_TUns64 msec, GHOST_TEventType type, GHOST_IWindow *window, void *customdata)
+  GHOST_EventIME(uint64_t msec, GHOST_TEventType type, GHOST_IWindow *window, void *customdata)
       : GHOST_Event(msec, type, window)
   {
     this->m_data = customdata;
@@ -89,7 +73,7 @@ class GHOST_EventIME : public GHOST_Event {
  *      An application CAN call ::DefWindowProc().
  * 2.5. WM_INPUTLANGCHANGE (0x0051)
  *      Call the functions listed below:
- *      - GHOST_ImeWin32::SetInputLanguage().
+ *      - GHOST_ImeWin32::UpdateInputLanguage().
  *      An application CAN call ::DefWindowProc().
  */
 
@@ -147,15 +131,19 @@ class GHOST_ImeWin32 {
     return is_composing_;
   }
 
-  /**
-   * Retrieves the input language from Windows and update it.
-   * Return values
-   *   * true
-   *     The given input language has IMEs.
-   *   * false
-   *     The given input language does not have IMEs.
-   */
-  bool SetInputLanguage();
+  /* Retrieve the input language from Windows and store it. */
+  void UpdateInputLanguage();
+
+  BOOL IsLanguage(const char name[W32_ISO639_LEN]);
+
+  /* Saves the current conversion status. */
+  void UpdateConversionStatus(HWND window_handle);
+
+  /* Is the IME currently in conversion mode? */
+  bool IsEnglishMode();
+
+  /* Checks a key whether IME has to do handling. */
+  bool IsImeKeyEvent(char ascii, GHOST_TKey key);
 
   /**
    * Create the IME windows, and allocate required resources for them.
@@ -297,17 +285,17 @@ class GHOST_ImeWin32 {
    * Disable the IME attached to the given window, i.e. prohibits any user-input
    * events from being dispatched to the IME.
    * In Chrome, this function is used when:
-   *   * a rendeder process sets its input focus to a password input.
+   *   * a renderer process sets its input focus to a password input.
    * Parameters
    *   * window_handle [in] (HWND)
    *     Represents the window handle of the caller.
    */
   void EndIME(HWND window_handle);
 
-  /* Updatg resultInfo and compInfo */
+  /** Update #resultInfo and #compInfo */
   void UpdateInfo(HWND window_handle);
 
-  /* disable ime when start up */
+  /** Disable IME when start up. */
   void CheckFirst(HWND window_handle);
 
   ImeComposition resultInfo, compInfo;
@@ -339,38 +327,14 @@ class GHOST_ImeWin32 {
    */
   bool is_composing_;
 
-  /**
-   * This value represents whether or not the current input context has IMEs.
-   * The following table shows the list of IME status:
-   *   Value  Description
-   *   false  The current input language does not have IMEs.
-   *   true   The current input language has IMEs.
-   */
-  bool ime_status_;
+  /* Abbreviated ISO 639-1 name of the input language, such as "en" for English. */
+  char language_[W32_ISO639_LEN];
 
-  /**
-   * The current input Language ID retrieved from Windows, which consists of:
-   *   * Primary Language ID (bit 0 to bit 9), which shows a natural language
-   *     (English, Korean, Chinese, Japanese, etc.) and;
-   *   * Sub-Language ID (bit 10 to bit 15), which shows a geometrical region
-   *     the language is spoken (For English, United States, United Kingdom,
-   *     Australia, Canada, etc.)
-   * The following list enumerates some examples for the Language ID:
-   *   * "en-US" (0x0409)
-   *     MAKELANGID(LANG_ENGLISH, SUBLANG_ENGLISH_US);
-   *   * "ko-KR" (0x0412)
-   *     MAKELANGID(LANG_KOREAN,  SUBLANG_KOREAN);
-   *   * "zh-TW" (0x0404)
-   *     MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_TRADITIONAL);
-   *   * "zh-CN" (0x0804)
-   *     MAKELANGID(LANG_CHINESE, SUBLANG_CHINESE_SIMPLIFIED);
-   *   * "ja-JP" (0x0411)
-   *     MAKELANGID(LANG_JAPANESE, SUBLANG_JAPANESE_JAPAN), etc.
-   *   (See <winnt.h> for other available values.)
-   * This Language ID is used for processing language-specific operations in
-   * IME functions.
-   */
-  LANGID input_language_id_;
+  /* Current Conversion Mode Values. Retrieved with ImmGetConversionStatus. */
+  DWORD conversion_modes_;
+
+  /* Current Sentence Mode. Retrieved with ImmGetConversionStatus. */
+  DWORD sentence_mode_;
 
   /**
    * Represents whether or not the current input context has created a system
@@ -388,4 +352,3 @@ class GHOST_ImeWin32 {
 };
 
 #endif  // WITH_INPUT_IME
-#endif  // __GHOST_IME_H__

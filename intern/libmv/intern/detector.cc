@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 #include "intern/detector.h"
 #include "intern/image.h"
@@ -34,7 +18,7 @@ struct libmv_Features {
 
 namespace {
 
-libmv_Features *libmv_featuresFromVector(
+libmv_Features* libmv_featuresFromVector(
     const libmv::vector<Feature>& features) {
   libmv_Features* libmv_features = LIBMV_STRUCT_NEW(libmv_Features, 1);
   int count = features.size();
@@ -50,12 +34,12 @@ libmv_Features *libmv_featuresFromVector(
   return libmv_features;
 }
 
-void libmv_convertDetectorOptions(libmv_DetectOptions *options,
-                                  DetectOptions *detector_options) {
+void libmv_convertDetectorOptions(libmv_DetectOptions* options,
+                                  DetectOptions* detector_options) {
   switch (options->detector) {
-#define LIBMV_CONVERT(the_detector) \
-  case LIBMV_DETECTOR_ ## the_detector:                 \
-    detector_options->type = DetectOptions::the_detector; \
+#define LIBMV_CONVERT(the_detector)                                            \
+  case LIBMV_DETECTOR_##the_detector:                                          \
+    detector_options->type = DetectOptions::the_detector;                      \
     break;
     LIBMV_CONVERT(FAST)
     LIBMV_CONVERT(MORAVEC)
@@ -72,7 +56,7 @@ void libmv_convertDetectorOptions(libmv_DetectOptions *options,
 
 }  // namespace
 
-libmv_Features *libmv_detectFeaturesByte(const unsigned char* image_buffer,
+libmv_Features* libmv_detectFeaturesByte(const unsigned char* image_buffer,
                                          int width,
                                          int height,
                                          int channels,
@@ -133,7 +117,7 @@ void libmv_getFeature(const libmv_Features* libmv_features,
                       double* y,
                       double* score,
                       double* size) {
-  Feature &feature = libmv_features->features[number];
+  Feature& feature = libmv_features->features[number];
   *x = feature.x;
   *y = feature.y;
   *score = feature.score;

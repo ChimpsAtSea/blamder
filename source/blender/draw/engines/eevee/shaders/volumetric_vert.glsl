@@ -1,5 +1,9 @@
 
+#pragma BLENDER_REQUIRE(common_view_lib.glsl)
+
 out vec4 vPos;
+
+RESOURCE_ID_VARYING
 
 void main()
 {
@@ -25,7 +29,61 @@ void main()
   vPos.z = float(t_id);
   vPos.w = 1.0;
 
-#ifdef USE_ATTR
-  pass_attr(vec3(0.0));
-#endif
+  PASS_RESOURCE_ID
+}
+
+/* Stubs */
+vec2 btdf_lut(float a, float b, float c)
+{
+  return vec2(0.0);
+}
+
+vec2 brdf_lut(float a, float b)
+{
+  return vec2(0.0);
+}
+
+vec3 F_brdf_multi_scatter(vec3 a, vec3 b, vec2 c)
+{
+  return vec3(0.0);
+}
+
+vec3 F_brdf_single_scatter(vec3 a, vec3 b, vec2 c)
+{
+  return vec3(0.0);
+}
+
+float F_eta(float a, float b)
+{
+  return 0.0;
+}
+
+vec3 coordinate_camera(vec3 P)
+{
+  return vec3(0.0);
+}
+
+vec3 coordinate_screen(vec3 P)
+{
+  return vec3(0.0);
+}
+
+vec3 coordinate_reflect(vec3 P, vec3 N)
+{
+  return vec3(0.0);
+}
+
+vec3 coordinate_incoming(vec3 P)
+{
+  return vec3(0.0);
+}
+
+float attr_load_temperature_post(float attr)
+{
+  return attr;
+}
+
+vec4 attr_load_color_post(vec4 attr)
+{
+  return attr;
 }

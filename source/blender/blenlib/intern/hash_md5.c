@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- * Copyright (C) 1995 Software Foundation, Inc.
- *
- * Written by Ulrich Drepper <drepper@gnu.ai.mit.edu>.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 1995 Free Software Foundation, Inc.
+ * Written by Ulrich Drepper <drepper@gnu.ai.mit.edu>. */
 
 /** \file
  * \ingroup bli
@@ -92,7 +77,7 @@ struct md5_ctx {
 
 /* This array contains the bytes used to pad the buffer to the next 64-byte boundary.
  * (RFC 1321, 3.1: Step 1) */
-static const unsigned char fillbuf[64] = {0x80, 0 /* , 0, 0, ...  */};
+static const unsigned char fillbuf[64] = {0x80, 0 /* , 0, 0, ... */};
 
 /**
  * Initialize structure containing state of computation.
@@ -136,7 +121,7 @@ static void md5_process_block(const void *buffer, size_t len, struct md5_ctx *ct
   md5_uint32 C = ctx->C;
   md5_uint32 D = ctx->D;
 
-  /* Process all bytes in the buffer with 64 bytes in each round of the loop.  */
+  /* Process all bytes in the buffer with 64 bytes in each round of the loop. */
   while (words < endp) {
     md5_uint32 *cwp = correct_words;
     md5_uint32 A_save = A;
@@ -158,10 +143,10 @@ static void md5_process_block(const void *buffer, size_t len, struct md5_ctx *ct
   (void)0
 
     /* Before we start, one word to the strange constants. They are defined in RFC 1321 as:
-     *     T[i] = (int) (4294967296.0 * fabs (sin (i))), i=1..64
+     *     `T[i] = (int) (4294967296.0 * fabs (sin (i))), i=1..64`
      */
 
-    /* Round 1.  */
+    /* Round 1. */
     OP(A, B, C, D, 7, 0xd76aa478);
     OP(D, A, B, C, 12, 0xe8c7b756);
     OP(C, D, A, B, 17, 0x242070db);
@@ -190,7 +175,7 @@ static void md5_process_block(const void *buffer, size_t len, struct md5_ctx *ct
   a += b; \
   (void)0
 
-    /* Round 2.  */
+    /* Round 2. */
     OP(FG, A, B, C, D, 1, 5, 0xf61e2562);
     OP(FG, D, A, B, C, 6, 9, 0xc040b340);
     OP(FG, C, D, A, B, 11, 14, 0x265e5a51);
@@ -208,7 +193,7 @@ static void md5_process_block(const void *buffer, size_t len, struct md5_ctx *ct
     OP(FG, C, D, A, B, 7, 14, 0x676f02d9);
     OP(FG, B, C, D, A, 12, 20, 0x8d2a4c8a);
 
-    /* Round 3.  */
+    /* Round 3. */
     OP(FH, A, B, C, D, 5, 4, 0xfffa3942);
     OP(FH, D, A, B, C, 8, 11, 0x8771f681);
     OP(FH, C, D, A, B, 11, 16, 0x6d9d6122);
@@ -226,7 +211,7 @@ static void md5_process_block(const void *buffer, size_t len, struct md5_ctx *ct
     OP(FH, C, D, A, B, 15, 16, 0x1fa27cf8);
     OP(FH, B, C, D, A, 2, 23, 0xc4ac5665);
 
-    /* Round 4.  */
+    /* Round 4. */
     OP(FI, A, B, C, D, 0, 6, 0xf4292244);
     OP(FI, D, A, B, C, 7, 10, 0x432aff97);
     OP(FI, C, D, A, B, 14, 15, 0xab9423a7);
@@ -246,14 +231,14 @@ static void md5_process_block(const void *buffer, size_t len, struct md5_ctx *ct
 
 #undef OP
 
-    /* Add the starting values of the context.  */
+    /* Add the starting values of the context. */
     A += A_save;
     B += B_save;
     C += C_save;
     D += D_save;
   }
 
-  /* Put checksum in context given as argument.  */
+  /* Put checksum in context given as argument. */
   ctx->A = A;
   ctx->B = B;
   ctx->C = C;
@@ -284,14 +269,9 @@ static void *md5_read_ctx(const struct md5_ctx *ctx, void *resbuf)
 
 /* Top level public functions. */
 
-/**
- * Compute MD5 message digest for bytes read from 'stream'.
- * The resulting message digest number will be written into the 16 bytes beginning at 'resblock'.
- * \return Non-zero if an error occurred.
- */
 int BLI_hash_md5_stream(FILE *stream, void *resblock)
 {
-#define BLOCKSIZE 4096 /* Important: must be a multiple of 64. */
+#define BLOCKSIZE 4096 /* IMPORTANT: must be a multiple of 64. */
   struct md5_ctx ctx;
   md5_uint32 len[2];
   char buffer[BLOCKSIZE + 72];
@@ -330,12 +310,12 @@ int BLI_hash_md5_stream(FILE *stream, void *resblock)
       ++len[1];
     }
 
-    /* If end of file is reached, end the loop.  */
+    /* If end of file is reached, end the loop. */
     if (n == 0) {
       break;
     }
 
-    /* Process buffer with BLOCKSIZE bytes. Note that BLOCKSIZE % 64 == 0. */
+    /* Process buffer with BLOCKSIZE bytes. Note that `BLOCKSIZE % 64 == 0`. */
     md5_process_block(buffer, BLOCKSIZE, &ctx);
   }
 
@@ -343,7 +323,7 @@ int BLI_hash_md5_stream(FILE *stream, void *resblock)
    * 'fillbuf' contains the needed bits. */
   memcpy(&buffer[sum], fillbuf, 64);
 
-  /* Compute amount of padding bytes needed. Alignment is done to (N + PAD) % 64 == 56.
+  /* Compute amount of padding bytes needed. Alignment is done to `(N + PAD) % 64 == 56`.
    * There is always at least one byte padded, i.e. if the alignment is correctly aligned,
    * 64 padding bytes are added.
    */
@@ -354,19 +334,14 @@ int BLI_hash_md5_stream(FILE *stream, void *resblock)
   *(md5_uint32 *)&buffer[sum + pad] = SWAP(len[0] << 3);
   *(md5_uint32 *)&buffer[sum + pad + 4] = SWAP((len[1] << 3) | (len[0] >> 29));
 
-  /* Process last bytes.  */
+  /* Process last bytes. */
   md5_process_block(buffer, sum + pad + 8, &ctx);
 
-  /* Construct result in desired memory.  */
+  /* Construct result in desired memory. */
   md5_read_ctx(&ctx, resblock);
   return 0;
 }
 
-/**
- * Compute MD5 message digest for 'len' bytes beginning at 'buffer'.
- * The result is always in little endian byte order,
- * so that a byte-wise output yields to the wanted ASCII representation of the message digest.
- */
 void *BLI_hash_md5_buffer(const char *buffer, size_t len, void *resblock)
 {
   struct md5_ctx ctx;
@@ -374,15 +349,15 @@ void *BLI_hash_md5_buffer(const char *buffer, size_t len, void *resblock)
   size_t blocks = len & ~63;
   size_t pad, rest;
 
-  /* Initialize the computation context.  */
+  /* Initialize the computation context. */
   md5_init_ctx(&ctx);
 
-  /* Process whole buffer but last len % 64 bytes.  */
+  /* Process whole buffer but last len % 64 bytes. */
   md5_process_block(buffer, blocks, &ctx);
 
-  /* REST bytes are not processed yet.  */
+  /* REST bytes are not processed yet. */
   rest = len - blocks;
-  /* Copy to own buffer.  */
+  /* Copy to own buffer. */
   memcpy(restbuf, &buffer[blocks], rest);
   /* Append needed fill bytes at end of buffer.
    * We can copy 64 bytes because the buffer is always big enough. */

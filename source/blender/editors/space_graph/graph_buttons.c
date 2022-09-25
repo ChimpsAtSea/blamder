@@ -1,24 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spgraph
+ *
+ * Graph editor space & buttons.
  */
 
 #include <float.h>
@@ -55,6 +41,8 @@
 #include "WM_types.h"
 
 #include "RNA_access.h"
+#include "RNA_path.h"
+#include "RNA_prototypes.h"
 
 #include "ED_anim_api.h"
 #include "ED_keyframing.h"
@@ -64,15 +52,15 @@
 #include "UI_interface.h"
 #include "UI_resources.h"
 
-#include "graph_intern.h"  // own include
-
-/* ******************* graph editor space & buttons ************** */
+#include "graph_intern.h" /* own include */
 
 #define B_REDR 1
 
-/* -------------- */
+/* -------------------------------------------------------------------- */
+/** \name Internal Utilities
+ * \{ */
 
-static int graph_panel_context(const bContext *C, bAnimListElem **ale, FCurve **fcu)
+static bool graph_panel_context(const bContext *C, bAnimListElem **ale, FCurve **fcu)
 {
   bAnimContext ac;
   bAnimListElem *elem = NULL;
@@ -83,13 +71,13 @@ static int graph_panel_context(const bContext *C, bAnimListElem **ale, FCurve **
    * There's no point showing empty panels?
    */
   if (ANIM_animdata_get_context(C, &ac) == 0) {
-    return 0;
+    return false;
   }
 
   /* try to find 'active' F-Curve */
   elem = get_active_fcurve_channel(&ac);
   if (elem == NULL) {
-    return 0;
+    return false;
   }
 
   if (fcu) {
@@ -102,7 +90,17 @@ static int graph_panel_context(const bContext *C, bAnimListElem **ale, FCurve **
     MEM_freeN(elem);
   }
 
-  return 1;
+  return true;
+}
+
+FCurve *ANIM_graph_context_fcurve(const bContext *C)
+{
+  FCurve *fcu;
+  if (!graph_panel_context(C, NULL, &fcu)) {
+    return NULL;
+  }
+
+  return fcu;
 }
 
 static bool graph_panel_poll(const bContext *C, PanelType *UNUSED(pt))
@@ -110,7 +108,11 @@ static bool graph_panel_poll(const bContext *C, PanelType *UNUSED(pt))
   return graph_panel_context(C, NULL, NULL);
 }
 
-/* -------------- */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Cursor Header
+ * \{ */
 
 static void graph_panel_cursor_header(const bContext *C, Panel *panel)
 {
@@ -161,9 +163,14 @@ static void graph_panel_cursor(const bContext *C, Panel *panel)
 
   sub = uiLayoutColumn(col, true);
   uiItemO(sub, IFACE_("Cursor to Selection"), ICON_NONE, "GRAPH_OT_frame_jump");
+  uiItemO(sub, IFACE_("Cursor Value to Selection"), ICON_NONE, "GRAPH_OT_snap_cursor_value");
 }
 
-/* ******************* active F-Curve ************** */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Active F-Curve
+ * \{ */
 
 static void graph_panel_properties(const bContext *C, Panel *panel)
 {
@@ -180,7 +187,7 @@ static void graph_panel_properties(const bContext *C, Panel *panel)
   }
 
   /* F-Curve pointer */
-  RNA_pointer_create(ale->id, &RNA_FCurve, fcu, &fcu_ptr);
+  RNA_pointer_create(ale->fcurve_owner_id, &RNA_FCurve, fcu, &fcu_ptr);
 
   /* user-friendly 'name' for F-Curve */
   col = uiLayoutColumn(layout, false);
@@ -232,41 +239,34 @@ static void graph_panel_properties(const bContext *C, Panel *panel)
   MEM_freeN(ale);
 }
 
-/* ******************* active Keyframe ************** */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Active Keyframe
+ * \{ */
 
 /* get 'active' keyframe for panel editing */
-static short get_active_fcurve_keyframe_edit(FCurve *fcu, BezTriple **bezt, BezTriple **prevbezt)
+static bool get_active_fcurve_keyframe_edit(const FCurve *fcu,
+                                            BezTriple **r_bezt,
+                                            BezTriple **r_prevbezt)
 {
-  BezTriple *b;
-  int i;
-
   /* zero the pointers */
-  *bezt = *prevbezt = NULL;
+  *r_bezt = *r_prevbezt = NULL;
 
-  /* sanity checks */
-  if ((fcu->bezt == NULL) || (fcu->totvert == 0)) {
-    return 0;
+  const int active_keyframe_index = BKE_fcurve_active_keyframe_index(fcu);
+  if (active_keyframe_index == FCURVE_ACTIVE_KEYFRAME_NONE) {
+    return false;
   }
 
-  /* find first selected keyframe for now, and call it the active one
-   * - this is a reasonable assumption, given that whenever anyone
-   *   wants to edit numerically, there is likely to only be 1 vert selected
-   */
-  for (i = 0, b = fcu->bezt; i < fcu->totvert; i++, b++) {
-    if (BEZT_ISSEL_ANY(b)) {
-      /* found
-       * - 'previous' is either the one before, of the keyframe itself (which is still fine)
-       *   XXX: we can just make this null instead if needed
-       */
-      *prevbezt = (i > 0) ? b - 1 : b;
-      *bezt = b;
+  /* The active keyframe should be selected. */
+  BLI_assert(BEZT_ISSEL_ANY(&fcu->bezt[active_keyframe_index]));
 
-      return 1;
-    }
-  }
+  *r_bezt = &fcu->bezt[active_keyframe_index];
+  /* Previous is either one before the active, or the point itself if it's the first. */
+  const int prev_index = max_ii(active_keyframe_index - 1, 0);
+  *r_prevbezt = &fcu->bezt[prev_index];
 
-  /* not found */
-  return 0;
+  return true;
 }
 
 /* update callback for active keyframe properties - base updates stuff */
@@ -278,7 +278,7 @@ static void graphedit_activekey_update_cb(bContext *UNUSED(C),
 
   /* make sure F-Curve and its handles are still valid after this editing */
   sort_time_fcurve(fcu);
-  calchandles_fcurve(fcu);
+  BKE_fcurve_handles_recalc(fcu);
 }
 
 /* update callback for active keyframe properties - handle-editing wrapper */
@@ -319,7 +319,7 @@ static void graphedit_activekey_left_handle_coord_cb(bContext *C, void *fcu_ptr,
   /* perform normal updates NOW */
   graphedit_activekey_handles_cb(C, fcu_ptr, bezt_ptr);
 
-  /* restore selection state so that no-one notices this hack */
+  /* restore selection state so that no one notices this hack */
   bezt->f1 = f1;
   bezt->f3 = f3;
 }
@@ -341,7 +341,7 @@ static void graphedit_activekey_right_handle_coord_cb(bContext *C, void *fcu_ptr
   /* perform normal updates NOW */
   graphedit_activekey_handles_cb(C, fcu_ptr, bezt_ptr);
 
-  /* restore selection state so that no-one notices this hack */
+  /* restore selection state so that no one notices this hack */
   bezt->f1 = f1;
   bezt->f3 = f3;
 }
@@ -364,7 +364,7 @@ static void graph_panel_key_properties(const bContext *C, Panel *panel)
   }
 
   block = uiLayoutGetBlock(layout);
-  /* UI_block_func_handle_set(block, do_graph_region_buttons, NULL); */
+  // UI_block_func_handle_set(block, do_graph_region_buttons, NULL);
   uiLayoutSetPropSep(layout, true);
   uiLayoutSetPropDecorate(layout, false);
 
@@ -376,7 +376,7 @@ static void graph_panel_key_properties(const bContext *C, Panel *panel)
     int unit = B_UNIT_NONE;
 
     /* RNA pointer to keyframe, to allow editing */
-    RNA_pointer_create(ale->id, &RNA_Keyframe, bezt, &bezt_ptr);
+    RNA_pointer_create(ale->fcurve_owner_id, &RNA_Keyframe, bezt, &bezt_ptr);
 
     /* get property that F-Curve affects, for some unit-conversion magic */
     RNA_id_pointer_create(ale->id, &id_ptr);
@@ -433,13 +433,14 @@ static void graph_panel_key_properties(const bContext *C, Panel *panel)
                       but_max_width,
                       UI_UNIT_Y,
                       &bezt_ptr,
-                      "co",
+                      "co_ui",
                       0,
                       0,
                       0,
-                      -1,
-                      -1,
+                      0,
+                      0,
                       NULL);
+      UI_but_func_set(but, graphedit_activekey_update_cb, fcu, bezt);
 
       uiItemL_respect_property_split(col, IFACE_("Value"), ICON_NONE);
       but = uiDefButR(block,
@@ -451,17 +452,15 @@ static void graph_panel_key_properties(const bContext *C, Panel *panel)
                       but_max_width,
                       UI_UNIT_Y,
                       &bezt_ptr,
-                      "co",
+                      "co_ui",
                       1,
                       0,
                       0,
-                      -1,
-                      -1,
+                      0,
+                      0,
                       NULL);
       UI_but_func_set(but, graphedit_activekey_update_cb, fcu, bezt);
       UI_but_unit_type_set(but, unit);
-
-      UI_but_func_set(but, graphedit_activekey_update_cb, fcu, bezt);
     }
 
     /* previous handle - only if previous was Bezier interpolation */
@@ -501,8 +500,8 @@ static void graph_panel_key_properties(const bContext *C, Panel *panel)
                       0,
                       0,
                       0,
-                      -1,
-                      -1,
+                      0,
+                      0,
                       NULL);
       UI_but_func_set(but, graphedit_activekey_left_handle_coord_cb, fcu, bezt);
 
@@ -520,8 +519,8 @@ static void graph_panel_key_properties(const bContext *C, Panel *panel)
                       1,
                       0,
                       0,
-                      -1,
-                      -1,
+                      0,
+                      0,
                       NULL);
       UI_but_func_set(but, graphedit_activekey_left_handle_coord_cb, fcu, bezt);
       UI_but_unit_type_set(but, unit);
@@ -565,8 +564,8 @@ static void graph_panel_key_properties(const bContext *C, Panel *panel)
                       0,
                       0,
                       0,
-                      -1,
-                      -1,
+                      0,
+                      0,
                       NULL);
       UI_but_func_set(but, graphedit_activekey_right_handle_coord_cb, fcu, bezt);
 
@@ -584,8 +583,8 @@ static void graph_panel_key_properties(const bContext *C, Panel *panel)
                       1,
                       0,
                       0,
-                      -1,
-                      -1,
+                      0,
+                      0,
                       NULL);
       UI_but_func_set(but, graphedit_activekey_right_handle_coord_cb, fcu, bezt);
       UI_but_unit_type_set(but, unit);
@@ -594,24 +593,28 @@ static void graph_panel_key_properties(const bContext *C, Panel *panel)
   else {
     if ((fcu->bezt == NULL) && (fcu->modifiers.first)) {
       /* modifiers only - so no keyframes to be active */
-      uiItemL(layout, IFACE_("F-Curve only has F-Modifiers"), ICON_NONE);
-      uiItemL(layout, IFACE_("See Modifiers panel below"), ICON_INFO);
+      uiItemL(layout, TIP_("F-Curve only has F-Modifiers"), ICON_NONE);
+      uiItemL(layout, TIP_("See Modifiers panel below"), ICON_INFO);
     }
     else if (fcu->fpt) {
       /* samples only */
       uiItemL(layout,
-              IFACE_("F-Curve doesn't have any keyframes as it only contains sampled points"),
+              TIP_("F-Curve doesn't have any keyframes as it only contains sampled points"),
               ICON_NONE);
     }
     else {
-      uiItemL(layout, IFACE_("No active keyframe on F-Curve"), ICON_NONE);
+      uiItemL(layout, TIP_("No active keyframe on F-Curve"), ICON_NONE);
     }
   }
 
   MEM_freeN(ale);
 }
 
-/* ******************* drivers ******************************** */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Drivers
+ * \{ */
 
 #define B_IPO_DEPCHANGE 10
 
@@ -655,7 +658,7 @@ static void do_graph_region_driver_buttons(bContext *C, void *id_v, int event)
   }
 
   /* default for now */
-  WM_event_add_notifier(C, NC_SCENE | ND_FRAME, scene);  // XXX could use better notifier
+  WM_event_add_notifier(C, NC_SCENE | ND_FRAME, scene); /* XXX could use better notifier */
 }
 
 /* callback to add a target variable to the active driver */
@@ -689,28 +692,30 @@ static void driver_dvar_invalid_name_query_cb(bContext *C, void *dvar_v, void *U
   DriverVar *dvar = (DriverVar *)dvar_v;
 
   if (dvar->flag & DVAR_FLAG_INVALID_EMPTY) {
-    uiItemL(layout, "It cannot be left blank", ICON_ERROR);
+    uiItemL(layout, TIP_("It cannot be left blank"), ICON_ERROR);
   }
   if (dvar->flag & DVAR_FLAG_INVALID_START_NUM) {
-    uiItemL(layout, "It cannot start with a number", ICON_ERROR);
+    uiItemL(layout, TIP_("It cannot start with a number"), ICON_ERROR);
   }
   if (dvar->flag & DVAR_FLAG_INVALID_START_CHAR) {
     uiItemL(layout,
-            "It cannot start with a special character,"
-            " including '$', '@', '!', '~', '+', '-', '_', '.', or ' '",
+            TIP_("It cannot start with a special character,"
+                 " including '$', '@', '!', '~', '+', '-', '_', '.', or ' '"),
             ICON_NONE);
   }
   if (dvar->flag & DVAR_FLAG_INVALID_HAS_SPACE) {
-    uiItemL(layout, "It cannot contain spaces (e.g. 'a space')", ICON_ERROR);
+    uiItemL(layout, TIP_("It cannot contain spaces (e.g. 'a space')"), ICON_ERROR);
   }
   if (dvar->flag & DVAR_FLAG_INVALID_HAS_DOT) {
-    uiItemL(layout, "It cannot contain dots (e.g. 'a.dot')", ICON_ERROR);
+    uiItemL(layout, TIP_("It cannot contain dots (e.g. 'a.dot')"), ICON_ERROR);
   }
   if (dvar->flag & DVAR_FLAG_INVALID_HAS_SPECIAL) {
-    uiItemL(layout, "It cannot contain special (non-alphabetical/numeric) characters", ICON_ERROR);
+    uiItemL(layout,
+            TIP_("It cannot contain special (non-alphabetical/numeric) characters"),
+            ICON_ERROR);
   }
   if (dvar->flag & DVAR_FLAG_INVALID_PY_KEYWORD) {
-    uiItemL(layout, "It cannot be a reserved keyword in Python", ICON_INFO);
+    uiItemL(layout, TIP_("It cannot be a reserved keyword in Python"), ICON_INFO);
   }
 
   UI_popup_menu_end(C, pup);
@@ -733,7 +738,7 @@ static bool graph_panel_drivers_poll(const bContext *C, PanelType *UNUSED(pt))
   SpaceGraph *sipo = CTX_wm_space_graph(C);
 
   if (sipo->mode != SIPO_MODE_DRIVERS) {
-    return 0;
+    return false;
   }
 
   return graph_panel_context(C, NULL, NULL);
@@ -923,7 +928,7 @@ static void graph_draw_driven_property_panel(uiLayout *layout, ID *id, FCurve *f
   uiItemL(row, id->name + 2, icon);
 
   /* -> user friendly 'name' for F-Curve/driver target */
-  uiItemL(row, "", ICON_SMALL_TRI_RIGHT_VEC);
+  uiItemL(row, "", ICON_RIGHTARROW);
   uiItemL(row, name, ICON_RNA);
 }
 
@@ -1131,7 +1136,7 @@ static void graph_draw_driver_settings_panel(uiLayout *layout,
                          0.0,
                          0.0,
                          TIP_("Invalid variable name, click here for details"));
-      UI_but_func_set(but, driver_dvar_invalid_name_query_cb, dvar, NULL);  // XXX: reports?
+      UI_but_func_set(but, driver_dvar_invalid_name_query_cb, dvar, NULL); /* XXX: reports? */
     }
 
     /* 1.3) remove button */
@@ -1319,17 +1324,32 @@ static void graph_panel_drivers_popover(const bContext *C, Panel *panel)
   uiItemO(layout, IFACE_("Show in Drivers Editor"), ICON_DRIVER, "SCREEN_OT_drivers_editor_show");
 }
 
-/* ******************* F-Modifiers ******************************** */
-/* All the drawing code is in editors/animation/fmodifier_ui.c */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name F-Curve Modifiers
+ *
+ * \note All the drawing code is in `editors/animation/fmodifier_ui.c`
+ * \{ */
 
 #define B_FMODIFIER_REDRAW 20
+/** The start of FModifier panels registered for the graph editor. */
+#define GRAPH_FMODIFIER_PANEL_PREFIX "GRAPH"
+
+static void graph_fmodifier_panel_id(void *fcm_link, char *r_name)
+{
+  FModifier *fcm = (FModifier *)fcm_link;
+  eFModifier_Types type = fcm->type;
+  const FModifierTypeInfo *fmi = get_fmodifier_typeinfo(type);
+  BLI_snprintf(r_name, BKE_ST_MAXNAME, "%s_PT_%s", GRAPH_FMODIFIER_PANEL_PREFIX, fmi->name);
+}
 
 static void do_graph_region_modifier_buttons(bContext *C, void *UNUSED(arg), int event)
 {
   switch (event) {
-    case B_FMODIFIER_REDRAW:  // XXX this should send depsgraph updates too
-      WM_event_add_notifier(
-          C, NC_ANIMATION, NULL);  // XXX need a notifier specially for F-Modifiers
+    case B_FMODIFIER_REDRAW: /* XXX this should send depsgraph updates too */
+      /* XXX: need a notifier specially for F-Modifiers */
+      WM_event_add_notifier(C, NC_ANIMATION, NULL);
       break;
   }
 }
@@ -1338,10 +1358,8 @@ static void graph_panel_modifiers(const bContext *C, Panel *panel)
 {
   bAnimListElem *ale;
   FCurve *fcu;
-  FModifier *fcm;
-  uiLayout *col, *row;
+  uiLayout *row;
   uiBlock *block;
-  bool active;
 
   if (!graph_panel_context(C, &ale, &fcu)) {
     return;
@@ -1366,19 +1384,16 @@ static void graph_panel_modifiers(const bContext *C, Panel *panel)
     uiItemO(row, "", ICON_PASTEDOWN, "GRAPH_OT_fmodifier_paste");
   }
 
-  active = !(fcu->flag & FCURVE_MOD_OFF);
-  /* draw each modifier */
-  for (fcm = fcu->modifiers.first; fcm; fcm = fcm->next) {
-    col = uiLayoutColumn(panel->layout, true);
-    uiLayoutSetActive(col, active);
-
-    ANIM_uiTemplate_fmodifier_draw(col, ale->fcurve_owner_id, &fcu->modifiers, fcm);
-  }
+  ANIM_fmodifier_panels(C, ale->fcurve_owner_id, &fcu->modifiers, graph_fmodifier_panel_id);
 
   MEM_freeN(ale);
 }
 
-/* ******************* general ******************************** */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Registration
+ * \{ */
 
 void graph_buttons_register(ARegionType *art)
 {
@@ -1420,7 +1435,7 @@ void graph_buttons_register(ARegionType *art)
   pt->poll = graph_panel_drivers_poll;
   BLI_addtail(&art->paneltypes, pt);
 
-  pt = MEM_callocN(sizeof(PanelType), "spacetype graph panel drivers pover");
+  pt = MEM_callocN(sizeof(PanelType), "spacetype graph panel drivers popover");
   strcpy(pt->idname, "GRAPH_PT_drivers_popover");
   strcpy(pt->label, N_("Add/Edit Driver"));
   strcpy(pt->category, "Drivers");
@@ -1437,9 +1452,13 @@ void graph_buttons_register(ARegionType *art)
   strcpy(pt->label, N_("Modifiers"));
   strcpy(pt->category, "Modifiers");
   strcpy(pt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
+  pt->flag = PANEL_TYPE_NO_HEADER;
   pt->draw = graph_panel_modifiers;
   pt->poll = graph_panel_poll;
   BLI_addtail(&art->paneltypes, pt);
+
+  ANIM_modifier_panels_register_graph_and_NLA(art, GRAPH_FMODIFIER_PANEL_PREFIX, graph_panel_poll);
+  ANIM_modifier_panels_register_graph_only(art, GRAPH_FMODIFIER_PANEL_PREFIX, graph_panel_poll);
 
   pt = MEM_callocN(sizeof(PanelType), "spacetype graph panel view");
   strcpy(pt->idname, "GRAPH_PT_view");
@@ -1450,3 +1469,5 @@ void graph_buttons_register(ARegionType *art)
   pt->draw_header = graph_panel_cursor_header;
   BLI_addtail(&art->paneltypes, pt);
 }
+
+/** \} */

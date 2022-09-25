@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_VIEW_MAP_TESSELATOR_H__
-#define __FREESTYLE_VIEW_MAP_TESSELATOR_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -57,17 +42,17 @@ class ViewMapTesselator {
   {
   }
 
-  /*! Builds a set of lines rep contained under a a NodeShape, itself contained under a NodeGroup
+  /** Builds a set of lines rep contained under a NodeShape, itself contained under a NodeGroup
    * from a ViewMap */
   NodeGroup *Tesselate(ViewMap *iViewMap);
 
-  /*! Builds a set of lines rep contained under a a NodeShape, itself contained under a NodeGroup
+  /** Builds a set of lines rep contained under a NodeShape, itself contained under a NodeGroup
    * from a set of view edges
    */
   template<class ViewEdgesIterator>
   NodeGroup *Tesselate(ViewEdgesIterator begin, ViewEdgesIterator end);
 
-  /*! Builds a set of lines rep contained among a NodeShape, from a WShape */
+  /** Builds a set of lines rep contained among a NodeShape, from a WShape */
   NodeGroup *Tesselate(WShape *iWShape);
 
   inline void setNature(Nature::EdgeNature iNature)
@@ -104,7 +89,7 @@ class ViewMapTesselator {
 #endif
 };
 
-/*! Class to tesselate the 2D projected silhouette */
+/** Class to tesselate the 2D projected silhouette */
 class ViewMapTesselator2D : public ViewMapTesselator {
  public:
   inline ViewMapTesselator2D() : ViewMapTesselator()
@@ -125,7 +110,7 @@ class ViewMapTesselator2D : public ViewMapTesselator {
 #endif
 };
 
-/*! Class to tesselate the 3D silhouette */
+/** Class to tesselate the 3D silhouette */
 class ViewMapTesselator3D : public ViewMapTesselator {
  public:
   inline ViewMapTesselator3D() : ViewMapTesselator()
@@ -225,5 +210,3 @@ NodeGroup *ViewMapTesselator::Tesselate(ViewEdgesIterator begin, ViewEdgesIterat
 }
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_VIEW_MAP_TESSELATOR_H__

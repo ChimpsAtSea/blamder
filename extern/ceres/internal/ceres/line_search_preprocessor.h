@@ -31,20 +31,23 @@
 #ifndef CERES_INTERNAL_LINE_SEARCH_PREPROCESSOR_H_
 #define CERES_INTERNAL_LINE_SEARCH_PREPROCESSOR_H_
 
+#include "ceres/internal/disable_warnings.h"
+#include "ceres/internal/export.h"
 #include "ceres/preprocessor.h"
 
 namespace ceres {
 namespace internal {
 
-class LineSearchPreprocessor : public Preprocessor {
+class CERES_NO_EXPORT LineSearchPreprocessor final : public Preprocessor {
  public:
-  virtual ~LineSearchPreprocessor();
-  virtual bool Preprocess(const Solver::Options& options,
-                          ProblemImpl* problem,
-                          PreprocessedProblem* preprocessed_problem);
+  bool Preprocess(const Solver::Options& options,
+                  ProblemImpl* problem,
+                  PreprocessedProblem* preprocessed_problem) final;
 };
 
 }  // namespace internal
 }  // namespace ceres
+
+#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_LINE_SEARCH_PREPROCESSOR_H_

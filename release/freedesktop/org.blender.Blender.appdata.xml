@@ -40,6 +40,179 @@
         </screenshot>
     </screenshots>
     <releases>
+        <release version="3.3" date="2022-09-07">
+            <description>
+                <p>New features:</p>
+                <ul>
+                    <li>New hair system</li>
+                    <li>Cycles Rendering on Intel Arc GPUs</li>
+                    <li>Grease Pencil Light and Shadow calculations</li>
+                    <li>Motion Tracker Image Plane Marker</li>
+                </ul>
+                <p>Enhancements:</p>
+                <ul>
+                    <li>Faster Line Art loading time</li>
+                    <li>Library Overrides improvements</li>
+                    <li>Massive performance gains importing large amounts of objects in USD, Alembic, and OBJ</li>
+                    <li>UV improvements</li>
+                    <li>Improved sculpting performance in EEVEE</li>
+                    <li>Cycles GPU rendering improvements for AMD GPUs and Apple Silicon</li>
+                </ul>
+            </description>
+        </release>
+        <release version="3.2" date="2022-06-08">
+            <description>
+                <p>New features:</p>
+                <ul>
+                    <li>Cycles Light Groups</li>
+                    <li>Cycles Shadow Caustics using Manifold Next Event Estimation</li>
+                    <li>New Tools and usability improvements for Polygon Painting</li>
+                    <li>More Geometry Nodes, including Duplicate Elements</li>
+                    <li>Asset Browser: Support for Asset Collections</li>
+                </ul>
+                <p>Enhancements:</p>
+                <ul>
+                    <li>Enhanced channels in the video sequencer</li>
+                    <li>Support for WebP format</li>
+                    <li>New experimental OBJ importer</li>
+                    <li>Motion Paths improvements</li>
+                    <li>Grease Pencil Envelope Modifier</li>
+                    <li>New Curve Pen Tool</li>
+                </ul>
+            </description>
+        </release>
+        <release version="3.1" date="2022-03-09">
+            <description>
+                <p>New features:</p>
+                <ul>
+                    <li>GPU acceleration for the Subdivision modifier</li>
+                    <li>Cycles Metal GPU backend, contributed by Apple</li>
+                    <li>Point Cloud rendering</li>
+                    <li>More Geometry Nodes, including extrude mesh</li>
+                </ul>
+                <p>Enhancements:</p>
+                <ul>
+                    <li>Faster and less memory usage in geometry nodes</li>
+                    <li>Grease Pencil Dilate/Contract fill</li>
+                    <li>Vertex Creasing support</li>
+                    <li>Faster .obj and .fbx export</li>
+                    <li>Image editor is able to handle large images</li>
+                    <li>Python 3.10</li>
+                    <li>User Interface updates</li>
+                </ul>
+            </description>
+        </release>
+        <release version="3.0" date="2021-12-03">
+            <description>
+                <p>New features:</p>
+                <ul>
+                    <li>Asset browser</li>
+                    <li>Geometry nodes fields</li>
+                    <li>Video editor thumbnail previews</li>
+                    <li>Transformation tools for video strips</li>
+                    <li>Virtual reality navigation</li>
+                    <li>Quicker save and better compression</li>
+                </ul>
+                <p>Enhancements:</p>
+                <ul>
+                    <li>Cycles performance and quality improvements</li>
+                    <li>About 100 new geometry nodes</li>
+                    <li>EEVEE attribute support</li>
+                    <li>User Interface updates</li>
+                    <li>OpenImageDenoise upgraded to 1.4</li>
+                    <li>Shadow terminator geometry offset</li>
+                    <li>Shadow catcher indirect and environment light support</li>
+                </ul>
+            </description>
+        </release>
+        <release version="2.93" date="2021-06-02">
+            <description>
+                <p>New features:</p>
+                <ul>
+                    <li>Mesh primitive nodes</li>
+                    <li>Line Art</li>
+                    <li>EEVEE Realistic depth of field and volumetrics</li>
+                    <li>Spreadsheet editor</li>
+                </ul>
+                <p>Enhancements:</p>
+                <ul>
+                    <li>Geometry nodes 22 new nodes and improved attribute search</li>
+                    <li>Mask loops, textures and patterns for sculpting</li>
+                    <li>Grease pencil interpolate refactored and SVG and PDF support</li>
+                    <li>Persistent Data rendering settings for Cycles</li>
+                    <li>Video Sequencer Editor auto-proxy system</li>
+                </ul>
+            </description>
+        </release>
+        <release version="2.92" date="2021-02-25">
+            <description>
+                <p>New features:</p>
+                <ul>
+                    <li>Geometry nodes</li>
+                    <li>EEVEE AOV and Cryptomatte support</li>
+                    <li>Grease pencil Bézier curves edit</li>
+                    <li>APIC fluid simulation method</li>
+                    <li>Add primitive tool</li>
+                </ul>
+                <p>Enhancements:</p>
+                <ul>
+                    <li>Silhouette, elastic snake and smearing for sculpting</li>
+                    <li>Grease pencil tracing image sequences support</li>
+                    <li>Sparse NanoVDB grid for volume</li>
+                    <li>OptiX hybrid rendering and new AO and bevel</li>
+                    <li>Viscosity settings for fluid simulation</li>
+                </ul>
+            </description>
+        </release>
+        <release version="2.91" date="2020-11-25">
+            <description>
+                <p>New features:</p>
+                <ul>
+                    <li>Volume modifiers</li>
+                    <li>Precise boolean</li>
+                    <li>Cloth brush collision</li>
+                    <li>Custom curve bevels</li>
+                    <li>Grease Pencil image tracer</li>
+                    <li>Property search and fuzzy search</li>
+                </ul>
+                <p>Enhancements:</p>
+                <ul>
+                    <li>Boundary and pose cloth brushes</li>
+                    <li>Material holdout for Grease Pencil</li>
+                    <li>Sculpting gestures</li>
+                    <li>Overrides resync and transform support</li>
+                    <li>Animation proxy conversion</li>
+                    <li>Compound shape collision</li>
+                    <li>Outliner collection colors</li>
+                    <li>Snappier F-Curves and seamless keyframe insertion</li>
+                </ul>
+            </description>
+        </release>
+        <release version="2.90" date="2020-08-31">
+            <description>
+                <p>New features:</p>
+                <ul>
+                    <li>Nishita sky texture for Cycles</li>
+                    <li>EEVEE motion blur</li>
+                    <li>Cloth filter</li>
+                    <li>Ocean modifier spray</li>
+                    <li>Correct face attributes modeling</li>
+                    <li>OpenVDB fluid integration with mantaflow</li>
+                    <li>Nuke lens distortion model for motion tracking</li>
+                </ul>
+                <p>Enhancements:</p>
+                <ul>
+                    <li>Intel Embree for faster motion blur in Cycles</li>
+                    <li>Viewport Intel OpenImageDenoise</li>
+                    <li>Shadow terminator offset setting</li>
+                    <li>NVLink support for CUDA and Optix</li>
+                    <li>Multires unsubdivide, rebuild and modes</li>
+                    <li>Pose brush transformations</li>
+                    <li>Correct face attributes modeling</li>
+                    <li>User interface improvements: new search, modifiers, headings, stats</li>
+                </ul>
+            </description>
+        </release>
         <release version="2.83" date="2020-06-03">
             <description>
                 <p>New features:</p>

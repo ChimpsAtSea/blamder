@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup GHOST
@@ -35,25 +21,25 @@ static bool GHOST_XrEventPollNext(XrInstance instance, XrEventDataBuffer &r_even
 
 GHOST_TSuccess GHOST_XrEventsHandle(GHOST_XrContextHandle xr_contexthandle)
 {
-  GHOST_XrContext *xr_context = (GHOST_XrContext *)xr_contexthandle;
-  XrEventDataBuffer event_buffer; /* Structure big enough to hold all possible events. */
-
-  if (xr_context == NULL) {
+  if (xr_contexthandle == nullptr) {
     return GHOST_kFailure;
   }
 
-  while (GHOST_XrEventPollNext(xr_context->getInstance(), event_buffer)) {
+  GHOST_XrContext &xr_context = *(GHOST_XrContext *)xr_contexthandle;
+  XrEventDataBuffer event_buffer; /* Structure big enough to hold all possible events. */
+
+  while (GHOST_XrEventPollNext(xr_context.getInstance(), event_buffer)) {
     XrEventDataBaseHeader *event = (XrEventDataBaseHeader *)&event_buffer;
 
     switch (event->type) {
       case XR_TYPE_EVENT_DATA_SESSION_STATE_CHANGED:
-        xr_context->handleSessionStateChange((XrEventDataSessionStateChanged *)event);
+        xr_context.handleSessionStateChange((XrEventDataSessionStateChanged &)*event);
         return GHOST_kSuccess;
       case XR_TYPE_EVENT_DATA_INSTANCE_LOSS_PENDING:
         GHOST_XrContextDestroy(xr_contexthandle);
         return GHOST_kSuccess;
       default:
-        if (xr_context->isDebugMode()) {
+        if (xr_context.isDebugMode()) {
           printf("Unhandled event: %i\n", event->type);
         }
         return GHOST_kFailure;

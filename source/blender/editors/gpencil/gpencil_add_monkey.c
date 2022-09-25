@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2017 Blender Foundation
- * This is a new part of Blender
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2017 Blender Foundation. */
 
 /** \file
  * \ingroup edgpencil
@@ -25,21 +9,40 @@
 #include "BLI_utildefines.h"
 
 #include "DNA_gpencil_types.h"
+#include "DNA_material_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
-#include "BKE_brush.h"
 #include "BKE_context.h"
 #include "BKE_gpencil.h"
 #include "BKE_gpencil_geom.h"
-#include "BKE_lib_id.h"
 #include "BKE_main.h"
 #include "BKE_material.h"
 
+#include "BLT_translation.h"
+
 #include "DEG_depsgraph.h"
-#include "DEG_depsgraph_query.h"
 
 #include "ED_gpencil.h"
+
+void ED_gpencil_stroke_init_data(bGPDstroke *gps,
+                                 const float *array,
+                                 const int totpoints,
+                                 const float mat[4][4])
+{
+  for (int i = 0; i < totpoints; i++) {
+    bGPDspoint *pt = &gps->points[i];
+    const int x = GP_PRIM_DATABUF_SIZE * i;
+
+    pt->x = array[x];
+    pt->y = array[x + 1];
+    pt->z = array[x + 2];
+    mul_m4_v3(mat, &pt->x);
+
+    pt->pressure = array[x + 3];
+    pt->strength = array[x + 4];
+  }
+}
 
 /* Definition of the most important info from a color */
 typedef struct ColorTemplate {
@@ -52,19 +55,8 @@ typedef struct ColorTemplate {
 static int gpencil_monkey_color(
     Main *bmain, Object *ob, const ColorTemplate *pct, bool stroke, bool fill)
 {
-  short *totcol = BKE_object_material_len_p(ob);
-  Material *ma = NULL;
-  for (short i = 0; i < *totcol; i++) {
-    ma = BKE_gpencil_material(ob, i + 1);
-    if (STREQ(ma->id.name, pct->name)) {
-      return i;
-    }
-  }
-
-  int idx;
-
-  /* create a new one */
-  ma = BKE_gpencil_object_material_new(bmain, ob, pct->name, &idx);
+  int index;
+  Material *ma = BKE_gpencil_object_material_ensure_by_name(bmain, ob, DATA_(pct->name), &index);
 
   copy_v4_v4(ma->gp_style->stroke_rgba, pct->line);
   srgb_to_linearrgb_v4(ma->gp_style->stroke_rgba, ma->gp_style->stroke_rgba);
@@ -83,7 +75,7 @@ static int gpencil_monkey_color(
     ma->gp_style->flag |= GP_MATERIAL_FILL_SHOW;
   }
 
-  return idx;
+  return index;
 }
 
 /* ***************************************************************** */
@@ -791,37 +783,37 @@ static const float data27[33 * GP_PRIM_DATABUF_SIZE] = {
 /* Monkey Color Data */
 
 static const ColorTemplate gp_monkey_pct_black = {
-    "Black",
+    N_("Black"),
     {0.0f, 0.0f, 0.0f, 1.0f},
     {0.0f, 0.0f, 0.0f, 0.0f},
 };
 
 static const ColorTemplate gp_monkey_pct_skin = {
-    "Skin",
+    N_("Skin"),
     {0.733f, 0.569f, 0.361f, 1.0f},
     {0.745f, 0.502f, 0.278f, 1.0f},
 };
 
 static const ColorTemplate gp_monkey_pct_skin_light = {
-    "Skin_Light",
+    N_("Skin_Light"),
     {0.914f, 0.827f, 0.635f, 1.0f},
     {0.913f, 0.828f, 0.637f, 0.0f},
 };
 
 static const ColorTemplate gp_monkey_pct_skin_shadow = {
-    "Skin_Shadow",
+    N_("Skin_Shadow"),
     {0.322f, 0.29f, 0.224f, 0.5f},
     {0.32f, 0.29f, 0.223f, 0.3f},
 };
 
 static const ColorTemplate gp_monkey_pct_eyes = {
-    "Eyes",
+    N_("Eyes"),
     {0.553f, 0.39f, 0.266f, 0.0f},
     {0.847f, 0.723f, 0.599f, 1.0f},
 };
 
 static const ColorTemplate gp_monkey_pct_pupils = {
-    "Pupils",
+    N_("Pupils"),
     {0.0f, 0.0f, 0.0f, 0.0f},
     {0.0f, 0.0f, 0.0f, 1.0f},
 };
@@ -829,7 +821,6 @@ static const ColorTemplate gp_monkey_pct_pupils = {
 /* ***************************************************************** */
 /* Monkey API */
 
-/* add a 2D Suzanne (original model created by Matias Mendiola) */
 void ED_gpencil_create_monkey(bContext *C, Object *ob, float mat[4][4])
 {
   Main *bmain = CTX_data_main(C);
@@ -850,126 +841,126 @@ void ED_gpencil_create_monkey(bContext *C, Object *ob, float mat[4][4])
 
   /* layers */
   /* NOTE: For now, we just add new layers, to make it easier to separate out old/new instances */
-  bGPDlayer *Fills = BKE_gpencil_layer_addnew(gpd, "Fills", false);
-  bGPDlayer *Lines = BKE_gpencil_layer_addnew(gpd, "Lines", true);
+  bGPDlayer *Fills = BKE_gpencil_layer_addnew(gpd, "Fills", false, false);
+  bGPDlayer *Lines = BKE_gpencil_layer_addnew(gpd, "Lines", true, false);
 
   /* frames */
   /* NOTE: No need to check for existing, as this will take care of it for us */
-  bGPDframe *frameFills = BKE_gpencil_frame_addnew(Fills, CFRA);
-  bGPDframe *frameLines = BKE_gpencil_frame_addnew(Lines, CFRA);
+  bGPDframe *frameFills = BKE_gpencil_frame_addnew(Fills, scene->r.cfra);
+  bGPDframe *frameLines = BKE_gpencil_frame_addnew(Lines, scene->r.cfra);
 
   /* generate strokes */
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin, 270, 75, false);
-  BKE_gpencil_stroke_add_points(gps, data0, 270, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data0, 270, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Shadow, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data1, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data1, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Shadow, 18, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data2, 18, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data2, 18, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Light, 64, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data3, 64, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data3, 64, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Light, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data4, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data4, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Light, 64, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data5, 64, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data5, 64, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Light, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data6, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data6, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Light, 18, 40, false);
-  BKE_gpencil_stroke_add_points(gps, data7, 18, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data7, 18, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Eyes, 49, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data8, 49, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data8, 49, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Shadow, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data9, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data9, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Eyes, 49, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data10, 49, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data10, 49, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Shadow, 18, 40, false);
-  BKE_gpencil_stroke_add_points(gps, data11, 18, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data11, 18, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameFills, color_Skin_Shadow, 18, 40, false);
-  BKE_gpencil_stroke_add_points(gps, data12, 18, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data12, 18, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data13, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data13, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data14, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data14, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 65, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data15, 65, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data15, 65, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 34, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data16, 34, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data16, 34, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data17, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data17, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 33, 40, false);
-  BKE_gpencil_stroke_add_points(gps, data18, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data18, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 34, 40, false);
-  BKE_gpencil_stroke_add_points(gps, data19, 34, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data19, 34, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data20, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data20, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 64, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data21, 64, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data21, 64, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Pupils, 26, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data22, 26, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data22, 26, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Pupils, 26, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data23, 26, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data23, 26, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data24, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data24, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 18, 40, false);
-  BKE_gpencil_stroke_add_points(gps, data25, 18, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data25, 18, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 18, 40, false);
-  BKE_gpencil_stroke_add_points(gps, data26, 18, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data26, 18, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   gps = BKE_gpencil_stroke_add(frameLines, color_Black, 33, 60, false);
-  BKE_gpencil_stroke_add_points(gps, data27, 33, mat);
-  BKE_gpencil_stroke_geometry_update(gps);
+  ED_gpencil_stroke_init_data(gps, data27, 33, mat);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 
   /* update depsgraph */
   DEG_id_tag_update(&gpd->id, ID_RECALC_TRANSFORM | ID_RECALC_GEOMETRY);

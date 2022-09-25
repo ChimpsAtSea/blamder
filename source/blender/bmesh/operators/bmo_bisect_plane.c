@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -50,7 +36,7 @@ void bmo_bisect_plane_exec(BMesh *bm, BMOperator *op)
   BMO_slot_vec_get(op->slots_in, "plane_no", plane_no);
 
   if (is_zero_v3(plane_no)) {
-    BMO_error_raise(bm, op, BMERR_MESH_ERROR, "Zero normal given");
+    BMO_error_raise(bm, op, BMO_ERROR_CANCEL, "Zero normal given");
     return;
   }
 
@@ -65,10 +51,10 @@ void bmo_bisect_plane_exec(BMesh *bm, BMOperator *op)
   BM_mesh_bisect_plane(bm, plane, use_snap_center, true, ELE_CUT, ELE_NEW, dist);
 
   if (clear_outer || clear_inner) {
-    /* Use an array of vertices because 'geom' contains both vers and edges that may use them.
-     * Removing a vert may remove and edge which is later checked by BMO_ITER.
-     * over-alloc the total possible vert count */
-    const int vert_arr_max = min_ii(bm->totvert, BMO_slot_buffer_count(op->slots_in, "geom"));
+    /* Use an array of vertices because 'geom' contains both verts and edges that may use them.
+     * Removing a vert may remove and edge which is later checked by #BMO_ITER.
+     * over-allocate the total possible vert count. */
+    const int vert_arr_max = min_ii(bm->totvert, BMO_slot_buffer_len(op->slots_in, "geom"));
     BMVert **vert_arr = MEM_mallocN(sizeof(*vert_arr) * (size_t)vert_arr_max, __func__);
     BMOIter siter;
     BMVert *v;

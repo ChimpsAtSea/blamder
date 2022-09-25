@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -30,7 +16,14 @@
 
 #ifdef RNA_RUNTIME
 
+#  include "BKE_idprop.h"
 #  include "WM_api.h"
+
+static IDProperty **rna_TimelineMarker_idprops(PointerRNA *ptr)
+{
+  TimeMarker *marker = ptr->data;
+  return &marker->prop;
+}
 
 static void rna_TimelineMarker_update(Main *UNUSED(bmain),
                                       Scene *UNUSED(scene),
@@ -50,6 +43,7 @@ static void rna_def_timeline_marker(BlenderRNA *brna)
   srna = RNA_def_struct(brna, "TimelineMarker", NULL);
   RNA_def_struct_sdna(srna, "TimeMarker");
   RNA_def_struct_ui_text(srna, "Marker", "Marker for noting points in the timeline");
+  RNA_def_struct_idprops_func(srna, "rna_TimelineMarker_idprops");
 
   /* String values */
   prop = RNA_def_property(srna, "name", PROP_STRING, PROP_NONE);

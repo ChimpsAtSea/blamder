@@ -33,7 +33,9 @@
 
 #include <map>
 #include <string>
-#include "ceres/internal/port.h"
+
+#include "ceres/internal/disable_warnings.h"
+#include "ceres/internal/export.h"
 #include "ceres/stringprintf.h"
 #include "glog/logging.h"
 
@@ -44,7 +46,7 @@ namespace internal {
 // OpenMP is available then the high precision openmp_get_wtime()
 // function is used. Otherwise on unixes, gettimeofday is used. The
 // granularity is in seconds on windows systems.
-double WallTimeInSeconds();
+CERES_NO_EXPORT double WallTimeInSeconds();
 
 // Log a series of events, recording for each event the time elapsed
 // since the last event and since the creation of the object.
@@ -70,19 +72,21 @@ double WallTimeInSeconds();
 //      Bar1:  time1  time1
 //      Bar2:  time2  time1 + time2;
 //     Total:  time3  time1 + time2 + time3;
-class EventLogger {
+class CERES_NO_EXPORT EventLogger {
  public:
   explicit EventLogger(const std::string& logger_name);
   ~EventLogger();
   void AddEvent(const std::string& event_name);
 
  private:
-  const double start_time_;
+  double start_time_;
   double last_event_time_;
   std::string events_;
 };
 
 }  // namespace internal
 }  // namespace ceres
+
+#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_WALL_TIME_H_

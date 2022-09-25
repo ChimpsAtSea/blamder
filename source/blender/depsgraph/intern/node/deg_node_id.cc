@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -23,8 +7,8 @@
 
 #include "intern/node/deg_node_id.h"
 
+#include <cstdio>
 #include <cstring> /* required for STREQ later on. */
-#include <stdio.h>
 
 #include "BLI_string.h"
 #include "BLI_utildefines.h"
@@ -41,7 +25,7 @@
 #include "intern/node/deg_node_factory.h"
 #include "intern/node/deg_node_time.h"
 
-namespace DEG {
+namespace blender::deg {
 
 const char *linkedStateAsString(eDepsNode_LinkedState_Type linked_state)
 {
@@ -53,7 +37,7 @@ const char *linkedStateAsString(eDepsNode_LinkedState_Type linked_state)
     case DEG_ID_LINKED_DIRECTLY:
       return "DIRECTLY";
   }
-  BLI_assert(!"Unhandled linked state, should never happen.");
+  BLI_assert_msg(0, "Unhandled linked state, should never happen.");
   return "UNKNOWN";
 }
 
@@ -66,22 +50,31 @@ bool IDNode::ComponentIDKey::operator==(const ComponentIDKey &other) const
   return type == other.type && STREQ(name, other.name);
 }
 
-/* Initialize 'id' node - from pointer data given. */
+uint64_t IDNode::ComponentIDKey::hash() const
+{
+  const int type_as_int = static_cast<int>(type);
+  return BLI_ghashutil_combine_hash(BLI_ghashutil_uinthash(type_as_int),
+                                    BLI_ghashutil_strhash_p(name));
+}
+
 void IDNode::init(const ID *id, const char *UNUSED(subdata))
 {
   BLI_assert(id != nullptr);
   /* Store ID-pointer. */
   id_type = GS(id->name);
   id_orig = (ID *)id;
+  id_orig_session_uuid = id->session_uuid;
   eval_flags = 0;
   previous_eval_flags = 0;
   customdata_masks = DEGCustomDataMeshMasks();
   previous_customdata_masks = DEGCustomDataMeshMasks();
   linked_state = DEG_ID_LINKED_INDIRECTLY;
-  is_directly_visible = true;
+  is_visible_on_build = true;
+  is_enabled_on_eval = true;
   is_collection_fully_expanded = false;
   has_base = false;
   is_user_modified = false;
+  id_cow_recalc_backup = 0;
 
   visible_components_mask = 0;
   previously_visible_components_mask = 0;
@@ -125,11 +118,11 @@ void IDNode::destroy()
   }
 
   for (ComponentNode *comp_node : components.values()) {
-    OBJECT_GUARDED_DELETE(comp_node, ComponentNode);
+    delete comp_node;
   }
 
   /* Free memory used by this CoW ID. */
-  if (id_cow != id_orig && id_cow != nullptr) {
+  if (!ELEM(id_cow, id_orig, nullptr)) {
     deg_free_copy_on_write_datablock(id_cow);
     MEM_freeN(id_cow);
     id_cow = nullptr;
@@ -146,8 +139,8 @@ string IDNode::identifier() const
   BLI_snprintf(orig_ptr, sizeof(orig_ptr), "%p", id_orig);
   BLI_snprintf(cow_ptr, sizeof(cow_ptr), "%p", id_cow);
   return string(nodeTypeAsString(type)) + " : " + name + " (orig: " + orig_ptr +
-         ", eval: " + cow_ptr + ", is_directly_visible " +
-         (is_directly_visible ? "true" : "false") + ")";
+         ", eval: " + cow_ptr + ", is_visible_on_build " +
+         (is_visible_on_build ? "true" : "false") + ")";
 }
 
 ComponentNode *IDNode::find_component(NodeType type, const char *name) const
@@ -196,7 +189,7 @@ IDComponentsMask IDNode::get_visible_components_mask() const
 {
   IDComponentsMask result = 0;
   for (ComponentNode *comp_node : components.values()) {
-    if (comp_node->affects_directly_visible) {
+    if (comp_node->possibly_affects_visible_id) {
       const int component_type_as_int = static_cast<int>(comp_node->type);
       BLI_assert(component_type_as_int < 64);
       result |= (1ULL << component_type_as_int);
@@ -205,4 +198,4 @@ IDComponentsMask IDNode::get_visible_components_mask() const
   return result;
 }
 
-}  // namespace DEG
+}  // namespace blender::deg

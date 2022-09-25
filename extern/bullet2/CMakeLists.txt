@@ -1,22 +1,15 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# The Original Code is Copyright (C) 2006, Blender Foundation
-# All rights reserved.
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2006 Blender Foundation. All rights reserved.
+
+# avoid noisy warnings
+if(CMAKE_COMPILER_IS_GNUCC OR CMAKE_C_COMPILER_ID MATCHES "Clang")
+  remove_cc_flag(
+    "-Wall"
+  )
+endif()
+
+# Use double precision to make simulations of small objects stable.
+add_definitions(-DBT_USE_DOUBLE_PRECISION)
 
 set(INC
   .
@@ -34,7 +27,6 @@ set(SRC
   src/BulletCollision/BroadphaseCollision/btDbvt.cpp
   src/BulletCollision/BroadphaseCollision/btDbvtBroadphase.cpp
   src/BulletCollision/BroadphaseCollision/btDispatcher.cpp
-  src/BulletCollision/BroadphaseCollision/btMultiSapBroadphase.cpp
   src/BulletCollision/BroadphaseCollision/btOverlappingPairCache.cpp
   src/BulletCollision/BroadphaseCollision/btQuantizedBvh.cpp
   src/BulletCollision/BroadphaseCollision/btSimpleBroadphase.cpp
@@ -82,12 +74,14 @@ set(SRC
   src/BulletCollision/CollisionShapes/btCylinderShape.cpp
   src/BulletCollision/CollisionShapes/btEmptyShape.cpp
   src/BulletCollision/CollisionShapes/btHeightfieldTerrainShape.cpp
+  src/BulletCollision/CollisionShapes/btMiniSDF.cpp
   src/BulletCollision/CollisionShapes/btMinkowskiSumShape.cpp
   src/BulletCollision/CollisionShapes/btMultiSphereShape.cpp
   src/BulletCollision/CollisionShapes/btMultimaterialTriangleMeshShape.cpp
   src/BulletCollision/CollisionShapes/btOptimizedBvh.cpp
   src/BulletCollision/CollisionShapes/btPolyhedralConvexShape.cpp
   src/BulletCollision/CollisionShapes/btScaledBvhTriangleMeshShape.cpp
+  src/BulletCollision/CollisionShapes/btSdfCollisionShape.cpp
   src/BulletCollision/CollisionShapes/btShapeHull.cpp
   src/BulletCollision/CollisionShapes/btSphereShape.cpp
   src/BulletCollision/CollisionShapes/btStaticPlaneShape.cpp
@@ -141,7 +135,6 @@ set(SRC
   src/BulletDynamics/ConstraintSolver/btSolve2LinearConstraint.cpp
   src/BulletDynamics/ConstraintSolver/btTypedConstraint.cpp
   src/BulletDynamics/ConstraintSolver/btUniversalConstraint.cpp
-  src/BulletDynamics/Dynamics/Bullet-C-API.cpp
   src/BulletDynamics/Dynamics/btDiscreteDynamicsWorld.cpp
   src/BulletDynamics/Dynamics/btRigidBody.cpp
   src/BulletDynamics/Dynamics/btSimpleDynamicsWorld.cpp
@@ -174,6 +167,7 @@ set(SRC
   src/LinearMath/btPolarDecomposition.cpp
   src/LinearMath/btQuickprof.cpp
   src/LinearMath/btSerializer.cpp
+  src/LinearMath/btSerializer64.cpp
   src/LinearMath/btVector3.cpp
 
   src/BulletCollision/BroadphaseCollision/btAxisSweep3.h
@@ -183,7 +177,6 @@ set(SRC
   src/BulletCollision/BroadphaseCollision/btDbvt.h
   src/BulletCollision/BroadphaseCollision/btDbvtBroadphase.h
   src/BulletCollision/BroadphaseCollision/btDispatcher.h
-  src/BulletCollision/BroadphaseCollision/btMultiSapBroadphase.h
   src/BulletCollision/BroadphaseCollision/btOverlappingPairCache.h
   src/BulletCollision/BroadphaseCollision/btOverlappingPairCallback.h
   src/BulletCollision/BroadphaseCollision/btQuantizedBvh.h
@@ -237,12 +230,14 @@ set(SRC
   src/BulletCollision/CollisionShapes/btEmptyShape.h
   src/BulletCollision/CollisionShapes/btHeightfieldTerrainShape.h
   src/BulletCollision/CollisionShapes/btMaterial.h
+  src/BulletCollision/CollisionShapes/btMiniSDF.h
   src/BulletCollision/CollisionShapes/btMinkowskiSumShape.h
   src/BulletCollision/CollisionShapes/btMultiSphereShape.h
   src/BulletCollision/CollisionShapes/btMultimaterialTriangleMeshShape.h
   src/BulletCollision/CollisionShapes/btOptimizedBvh.h
   src/BulletCollision/CollisionShapes/btPolyhedralConvexShape.h
   src/BulletCollision/CollisionShapes/btScaledBvhTriangleMeshShape.h
+  src/BulletCollision/CollisionShapes/btSdfCollisionShape.h
   src/BulletCollision/CollisionShapes/btShapeHull.h
   src/BulletCollision/CollisionShapes/btSphereShape.h
   src/BulletCollision/CollisionShapes/btStaticPlaneShape.h
@@ -404,7 +399,6 @@ set(SRC
 
   src/btBulletCollisionCommon.h
   src/btBulletDynamicsCommon.h
-  src/Bullet-C-Api.h
 )
 
 set(LIB
@@ -412,14 +406,15 @@ set(LIB
 
 if(CMAKE_COMPILER_IS_GNUCXX)
   # needed for gcc 4.6+
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fpermissive")
+  string(APPEND CMAKE_CXX_FLAGS " -fpermissive")
 endif()
 
 if(MSVC)
   # bullet is responsible for quite a few silly warnings
   # suppress all of them. Not great, but they really needed
   # to sort that out themselves.
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /W0")
+  remove_cc_flag("/W3")
+  add_c_flag("/W0")
 endif()
 
 blender_add_lib(extern_bullet "${SRC}" "${INC}" "${INC_SYS}" "${LIB}")

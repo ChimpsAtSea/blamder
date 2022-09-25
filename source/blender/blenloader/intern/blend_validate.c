@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup blenloader
@@ -23,7 +9,7 @@
  * \note Does not *fix* anything, only reports found errors.
  */
 
-#include <string.h>  // for strrchr strncmp strstr
+#include <string.h> /* for #strrchr #strncmp #strstr */
 
 #include "BLI_utildefines.h"
 
@@ -47,10 +33,6 @@
 
 #include "readfile.h"
 
-/**
- * Check (but do *not* fix) that all linked data-blocks are still valid
- * (i.e. pointing to the right library).
- */
 bool BLO_main_validate_libraries(Main *bmain, ReportList *reports)
 {
   ListBase mainlist;
@@ -60,17 +42,17 @@ bool BLO_main_validate_libraries(Main *bmain, ReportList *reports)
 
   blo_split_main(&mainlist, bmain);
 
-  ListBase *lbarray[MAX_LIBARRAY];
+  ListBase *lbarray[INDEX_ID_MAX];
   int i = set_listbasepointers(bmain, lbarray);
   while (i--) {
     for (ID *id = lbarray[i]->first; id != NULL; id = id->next) {
-      if (id->lib != NULL) {
+      if (ID_IS_LINKED(id)) {
         is_valid = false;
         BKE_reportf(reports,
                     RPT_ERROR,
                     "ID %s is in local database while being linked from library %s!",
                     id->name,
-                    id->lib->name);
+                    id->lib->filepath);
       }
     }
   }
@@ -82,15 +64,16 @@ bool BLO_main_validate_libraries(Main *bmain, ReportList *reports)
       continue;
     }
 
-    BKE_library_filepath_set(bmain, curlib, curlib->name);
-    BlendHandle *bh = BLO_blendhandle_from_file(curlib->filepath, reports);
+    BKE_library_filepath_set(bmain, curlib, curlib->filepath);
+    BlendFileReadReport bf_reports = {.reports = reports};
+    BlendHandle *bh = BLO_blendhandle_from_file(curlib->filepath_abs, &bf_reports);
 
     if (bh == NULL) {
       BKE_reportf(reports,
                   RPT_ERROR,
                   "Library ID %s not found at expected path %s!",
                   curlib->id.name,
-                  curlib->filepath);
+                  curlib->filepath_abs);
       continue;
     }
 
@@ -107,20 +90,20 @@ bool BLO_main_validate_libraries(Main *bmain, ReportList *reports)
                     RPT_ERROR,
                     "Library ID %s in library %s, this should not happen!",
                     id->name,
-                    curlib->name);
+                    curlib->filepath);
         continue;
       }
 
       int totnames = 0;
-      LinkNode *names = BLO_blendhandle_get_datablock_names(bh, GS(id->name), &totnames);
+      LinkNode *names = BLO_blendhandle_get_datablock_names(bh, GS(id->name), false, &totnames);
       for (; id != NULL; id = id->next) {
-        if (id->lib == NULL) {
+        if (!ID_IS_LINKED(id)) {
           is_valid = false;
           BKE_reportf(reports,
                       RPT_ERROR,
                       "ID %s has NULL lib pointer while being in library %s!",
                       id->name,
-                      curlib->name);
+                      curlib->filepath);
           continue;
         }
         if (id->lib != curlib) {
@@ -143,12 +126,12 @@ bool BLO_main_validate_libraries(Main *bmain, ReportList *reports)
                       RPT_ERROR,
                       "ID %s not found in library %s anymore!",
                       id->name,
-                      id->lib->name);
+                      id->lib->filepath);
           continue;
         }
       }
 
-      BLI_linklist_free(names, free);
+      BLI_linklist_freeN(names);
     }
 
     BLO_blendhandle_close(bh);
@@ -164,7 +147,6 @@ bool BLO_main_validate_libraries(Main *bmain, ReportList *reports)
   return is_valid;
 }
 
-/** Check (and fix if needed) that shape key's 'from' pointer is valid. */
 bool BLO_main_validate_shapekeys(Main *bmain, ReportList *reports)
 {
   ListBase *lb;
@@ -178,7 +160,7 @@ bool BLO_main_validate_shapekeys(Main *bmain, ReportList *reports)
       if (!BKE_key_idtype_support(GS(id->name))) {
         break;
       }
-      if (id->lib == NULL) {
+      if (!ID_IS_LINKED(id)) {
         /* We assume lib data is valid... */
         Key *shapekey = BKE_key_from_id(id);
         if (shapekey != NULL && shapekey->from != id) {
@@ -198,6 +180,21 @@ bool BLO_main_validate_shapekeys(Main *bmain, ReportList *reports)
   FOREACH_MAIN_LISTBASE_END;
 
   BKE_main_unlock(bmain);
+
+  /* NOTE: #BKE_id_delete also locks `bmain`, so we need to do this loop outside of the lock here.
+   */
+  LISTBASE_FOREACH_MUTABLE (Key *, shapekey, &bmain->shapekeys) {
+    if (shapekey->from != NULL) {
+      continue;
+    }
+
+    BKE_reportf(reports,
+                RPT_ERROR,
+                "Shapekey %s has an invalid 'from' pointer (%p), it will be deleted",
+                shapekey->id.name,
+                shapekey->from);
+    BKE_id_delete(bmain, shapekey);
+  }
 
   return is_valid;
 }

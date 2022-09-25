@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # see "cmake --help-policy CMP0003"
 # So library linking is more sane
@@ -16,7 +17,7 @@ cmake_minimum_required(VERSION 3.5)
 
 project(GhostMultiTest)
 
-list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/../../..//build_files/cmake/Modules")
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/../../../build_files/cmake/Modules")
 
 set(WITH_GUARDEDALLOC ON)
 
@@ -233,8 +234,8 @@ else()
   set(GLEW_INCLUDE_PATH "${CMAKE_SOURCE_DIR}/extern/glew/include")
 endif()
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${PLATFORM_CFLAGS}")
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${PLATFORM_CFLAGS}")
+string(APPEND CMAKE_C_FLAGS " ${PLATFORM_CFLAGS}")
+string(APPEND CMAKE_CXX_FLAGS " ${PLATFORM_CFLAGS}")
 
 # -----------------------------------------------------------------------------
 # Executables
@@ -292,7 +293,7 @@ target_link_libraries(multitest_c
   guardedalloc_lib
   wcwidth_lib
   ${OPENGL_gl_LIBRARY}
-  ${FREETYPE_LIBRARY}
+  ${FREETYPE_LIBRARIES} ${BROTLI_LIBRARIES}
   ${ZLIB_LIBRARIES}
   ${CMAKE_DL_LIBS}
   ${PLATFORM_LINKLIBS}

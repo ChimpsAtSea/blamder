@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup spview3d
@@ -23,19 +9,9 @@
  * including library assets & non-mesh types.
  */
 
-#include "BLI_math_vector.h"
 #include "MEM_guardedalloc.h"
 
-#include "DNA_collection_types.h"
-#include "DNA_object_types.h"
-#include "DNA_scene_types.h"
-#include "DNA_vfont_types.h"
-
-#include "BLI_math.h"
-#include "BLI_utildefines.h"
-
 #include "BKE_context.h"
-#include "BKE_main.h"
 
 #include "RNA_access.h"
 #include "RNA_define.h"
@@ -43,25 +19,26 @@
 
 #include "WM_api.h"
 #include "WM_toolsystem.h"
-#include "WM_types.h"
 
-#include "ED_gizmo_library.h"
 #include "ED_gizmo_utils.h"
 #include "ED_screen.h"
 #include "ED_space_api.h"
-#include "ED_transform.h"
-#include "ED_transform_snap_object_context.h"
 #include "ED_view3d.h"
 
 #include "UI_resources.h"
 
-#include "GPU_batch.h"
 #include "GPU_immediate.h"
-#include "GPU_state.h"
 
 #include "view3d_intern.h"
 
 static const char *view3d_gzgt_placement_id = "VIEW3D_GGT_placement";
+
+/**
+ * Dot products below this will be considered view aligned.
+ * In this case we can't usefully project the mouse cursor onto the plane,
+ * so use a fall-back plane instead.
+ */
+static const float eps_view_align = 1e-2f;
 
 /* -------------------------------------------------------------------- */
 /** \name Local Types
@@ -80,10 +57,14 @@ enum ePlace_Origin {
   PLACE_ORIGIN_CENTER = 2,
 };
 
-enum ePlace_Depth {
-  PLACE_DEPTH_SURFACE = 1,
-  PLACE_DEPTH_CURSOR_PLANE = 2,
-  PLACE_DEPTH_CURSOR_VIEW = 3,
+enum ePlace_Aspect {
+  PLACE_ASPECT_FREE = 1,
+  PLACE_ASPECT_FIXED = 2,
+};
+
+enum ePlace_SnapTo {
+  PLACE_SNAP_TO_GEOMETRY = 1,
+  PLACE_SNAP_TO_DEFAULT = 2,
 };
 
 struct InteractivePlaceData {
@@ -100,18 +81,59 @@ struct InteractivePlaceData {
 
   /** Primary & secondary steps. */
   struct {
-    bool is_centered;
-    bool is_fixed_aspect;
+    /**
+     * When centered, drag out the shape from the center.
+     * Toggling the setting flips the value from it's initial state.
+     */
+    bool is_centered, is_centered_init;
+    /**
+     * When fixed, constrain the X/Y aspect for the initial #STEP_BASE drag.
+     * For #STEP_DEPTH match the maximum X/Y dimension.
+     * Toggling the setting flips the value from it's initial state.
+     */
+    bool is_fixed_aspect, is_fixed_aspect_init;
     float plane[4];
     float co_dst[3];
+
+    /**
+     * We can't project the mouse cursor onto `plane`,
+     * in this case #view3d_win_to_3d_on_plane_maybe_fallback is used.
+     *
+     * - For #STEP_BASE we're drawing from the side, where the X/Y axis can't be projected.
+     * - For #STEP_DEPTH we're drawing from the top (2D), where the depth can't be projected.
+     */
+    bool is_degenerate_view_align;
+    /**
+     * When view aligned, use a diagonal offset (cavalier projection)
+     * to give user feedback about the depth being set.
+     *
+     * Currently this is only used for orthogonal views since perspective views
+     * nearly always show some depth, even when view aligned.
+     *
+     * - Drag to the bottom-left to move away from the view.
+     * - Drag to the top-right to move towards the view.
+     */
+    float degenerate_diagonal[3];
+    /**
+     * Corrected for display, so what's shown on-screen doesn't loop to be reversed
+     * in relation to cursor-motion.
+     */
+    float degenerate_diagonal_display[3];
+
+    /**
+     * Index into `matrix_orient` which is degenerate.
+     */
+    int degenerate_axis;
+
   } step[2];
+
+  /** When we can't project onto the real plane, use this in it's place. */
+  float view_plane[4];
 
   float matrix_orient[3][3];
   int orient_axis;
 
-  /** The tool option, if we start centered, invert toggling behavior. */
-  bool is_centered_init;
-
+  V3DSnapCursorState *snap_state;
   bool use_snap, is_snap_found, is_snap_invert;
   float snap_co[3];
 
@@ -132,8 +154,7 @@ struct InteractivePlaceData {
   /** When activated without a tool. */
   bool wait_for_input;
 
-  /** Optional snap gizmo, needed for snapping. */
-  wmGizmo *snap_gizmo;
+  enum ePlace_SnapTo snap_to;
 };
 
 /** \} */
@@ -142,17 +163,88 @@ struct InteractivePlaceData {
 /** \name Internal Utilities
  * \{ */
 
-/* On-screen snap distance. */
-#define MVAL_MAX_PX_DIST 12.0f
-
-static bool idp_snap_point_from_gizmo(wmGizmo *gz, float r_location[3])
+/**
+ * Convenience wrapper to avoid duplicating arguments.
+ */
+static bool view3d_win_to_3d_on_plane_maybe_fallback(const ARegion *region,
+                                                     const float plane[4],
+                                                     const float mval[2],
+                                                     const float *plane_fallback,
+                                                     float r_out[3])
 {
-  if (gz->state & WM_GIZMO_STATE_HIGHLIGHT) {
-    PropertyRNA *prop_location = RNA_struct_find_property(gz->ptr, "location");
-    RNA_property_float_get_array(gz->ptr, prop_location, r_location);
-    return true;
+  RegionView3D *rv3d = region->regiondata;
+  bool do_clip = rv3d->is_persp;
+  if (plane_fallback != NULL) {
+    return ED_view3d_win_to_3d_on_plane_with_fallback(
+        region, plane, mval, do_clip, plane_fallback, r_out);
   }
-  return false;
+  return ED_view3d_win_to_3d_on_plane(region, plane, mval, do_clip, r_out);
+}
+
+/**
+ * Return the index of \a dirs with the largest dot product compared to \a dir_test.
+ */
+static int dot_v3_array_find_max_index(const float dirs[][3],
+                                       const int dirs_len,
+                                       const float dir_test[3],
+                                       bool is_signed)
+{
+  int index_found = -1;
+  float dot_best = -1.0f;
+  for (int i = 0; i < dirs_len; i++) {
+    float dot_test = dot_v3v3(dirs[i], dir_test);
+    if (is_signed == false) {
+      dot_test = fabsf(dot_test);
+    }
+    if ((index_found == -1) || (dot_test > dot_best)) {
+      dot_best = dot_test;
+      index_found = i;
+    }
+  }
+  return index_found;
+}
+
+static UNUSED_FUNCTION_WITH_RETURN_TYPE(wmGizmoGroup *,
+                                        idp_gizmogroup_from_region)(ARegion *region)
+{
+  wmGizmoMap *gzmap = region->gizmo_map;
+  return gzmap ? WM_gizmomap_group_find(gzmap, view3d_gzgt_placement_id) : NULL;
+}
+
+/**
+ * Calculate 3D view incremental (grid) snapping.
+ *
+ * \note This could be moved to a public function.
+ */
+static bool idp_snap_calc_incremental(
+    Scene *scene, View3D *v3d, ARegion *region, const float co_relative[3], float co[3])
+{
+  if ((scene->toolsettings->snap_mode & SCE_SNAP_MODE_INCREMENT) == 0) {
+    return false;
+  }
+
+  const float grid_size = ED_view3d_grid_view_scale(scene, v3d, region, NULL);
+  if (UNLIKELY(grid_size == 0.0f)) {
+    return false;
+  }
+
+  if (scene->toolsettings->snap_flag & SCE_SNAP_ABS_GRID) {
+    co_relative = NULL;
+  }
+
+  if (co_relative != NULL) {
+    sub_v3_v3(co, co_relative);
+  }
+  mul_v3_fl(co, 1.0f / grid_size);
+  co[0] = roundf(co[0]);
+  co[1] = roundf(co[1]);
+  co[2] = roundf(co[2]);
+  mul_v3_fl(co, grid_size);
+  if (co_relative != NULL) {
+    add_v3_v3(co, co_relative);
+  }
+
+  return true;
 }
 
 /** \} */
@@ -161,7 +253,7 @@ static bool idp_snap_point_from_gizmo(wmGizmo *gz, float r_location[3])
 /** \name Primitive Drawing (Cube, Cone, Cylinder...)
  * \{ */
 
-static void draw_line_loop(float coords[][3], int coords_len, const float color[4])
+static void draw_line_loop(const float coords[][3], int coords_len, const float color[4])
 {
   GPUVertFormat *format = immVertexFormat();
   uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
@@ -173,11 +265,9 @@ static void draw_line_loop(float coords[][3], int coords_len, const float color[
     GPU_vertbuf_attr_set(vert, pos, i, coords[i]);
   }
 
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
   GPUBatch *batch = GPU_batch_create_ex(GPU_PRIM_LINE_LOOP, vert, NULL, GPU_BATCH_OWNS_VBO);
   GPU_batch_program_set_builtin(batch, GPU_SHADER_3D_POLYLINE_UNIFORM_COLOR);
-
-  GPU_batch_bind(batch);
 
   GPU_batch_uniform_4fv(batch, "color", color);
 
@@ -188,13 +278,11 @@ static void draw_line_loop(float coords[][3], int coords_len, const float color[
 
   GPU_batch_draw(batch);
 
-  GPU_batch_program_use_end(batch);
-
   GPU_batch_discard(batch);
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 }
 
-static void draw_line_pairs(float coords_a[][3],
+static void draw_line_pairs(const float coords_a[][3],
                             float coords_b[][3],
                             int coords_len,
                             const float color[4])
@@ -210,11 +298,9 @@ static void draw_line_pairs(float coords_a[][3],
     GPU_vertbuf_attr_set(vert, pos, (i * 2) + 1, coords_b[i]);
   }
 
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
   GPUBatch *batch = GPU_batch_create_ex(GPU_PRIM_LINES, vert, NULL, GPU_BATCH_OWNS_VBO);
   GPU_batch_program_set_builtin(batch, GPU_SHADER_3D_POLYLINE_UNIFORM_COLOR);
-
-  GPU_batch_bind(batch);
 
   GPU_batch_uniform_4fv(batch, "color", color);
 
@@ -225,10 +311,8 @@ static void draw_line_pairs(float coords_a[][3],
 
   GPU_batch_draw(batch);
 
-  GPU_batch_program_use_end(batch);
-
   GPU_batch_discard(batch);
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 }
 
 static void draw_line_bounds(const BoundBox *bounds, const float color[4])
@@ -236,7 +320,7 @@ static void draw_line_bounds(const BoundBox *bounds, const float color[4])
   GPUVertFormat *format = immVertexFormat();
   uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
 
-  int edges[12][2] = {
+  const int edges[12][2] = {
       /* First side. */
       {0, 1},
       {1, 2},
@@ -262,11 +346,9 @@ static void draw_line_bounds(const BoundBox *bounds, const float color[4])
     GPU_vertbuf_attr_set(vert, pos, j++, bounds->vec[edges[i][1]]);
   }
 
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
   GPUBatch *batch = GPU_batch_create_ex(GPU_PRIM_LINES, vert, NULL, GPU_BATCH_OWNS_VBO);
   GPU_batch_program_set_builtin(batch, GPU_SHADER_3D_POLYLINE_UNIFORM_COLOR);
-
-  GPU_batch_bind(batch);
 
   GPU_batch_uniform_4fv(batch, "color", color);
 
@@ -277,10 +359,8 @@ static void draw_line_bounds(const BoundBox *bounds, const float color[4])
 
   GPU_batch_draw(batch);
 
-  GPU_batch_program_use_end(batch);
-
   GPU_batch_discard(batch);
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 }
 
 static bool calc_bbox(struct InteractivePlaceData *ipd, BoundBox *bounds)
@@ -324,7 +404,7 @@ static bool calc_bbox(struct InteractivePlaceData *ipd, BoundBox *bounds)
     delta_a[x_axis] = 0.0f;
     delta_b[y_axis] = 0.0f;
 
-    /* Assign here in case secondary  */
+    /* Assign here in case secondary. */
     fixed_aspect_dimension = max_ff(fabsf(delta_a[y_axis]), fabsf(delta_b[x_axis]));
 
     if (ipd->step[0].is_fixed_aspect) {
@@ -350,11 +430,12 @@ static bool calc_bbox(struct InteractivePlaceData *ipd, BoundBox *bounds)
     /* Use a copy in case aspect was applied to the quad. */
     float base_co_dst[3];
     copy_v3_v3(base_co_dst, quad_base[2]);
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < ARRAY_SIZE(quad_base); i++) {
       sub_v3_v3(quad_base[i], base_co_dst);
       mul_v3_fl(quad_base[i], 2.0f);
       add_v3_v3(quad_base[i], base_co_dst);
     }
+    fixed_aspect_dimension *= 2.0f;
   }
 
   /* *** Secondary *** */
@@ -374,10 +455,18 @@ static bool calc_bbox(struct InteractivePlaceData *ipd, BoundBox *bounds)
   }
 
   if (ipd->step[1].is_centered) {
-    for (int i = 0; i < ARRAY_SIZE(quad_base); i++) {
-      sub_v3_v3(quad_base[i], delta_local);
+    float temp_delta[3];
+    if (ipd->step[1].is_fixed_aspect) {
+      mul_v3_v3fl(temp_delta, delta_local, 0.5f);
     }
-    mul_v3_fl(delta_local, 2.0f);
+    else {
+      copy_v3_v3(temp_delta, delta_local);
+      mul_v3_fl(delta_local, 2.0f);
+    }
+
+    for (int i = 0; i < ARRAY_SIZE(quad_base); i++) {
+      sub_v3_v3(quad_base[i], temp_delta);
+    }
   }
 
   if ((ipd->step_index == STEP_DEPTH) &&
@@ -402,10 +491,10 @@ static bool calc_bbox(struct InteractivePlaceData *ipd, BoundBox *bounds)
   return true;
 }
 
-static void draw_circle_in_quad(const float v1[2],
-                                const float v2[2],
-                                const float v3[2],
-                                const float v4[2],
+static void draw_circle_in_quad(const float v1[3],
+                                const float v2[3],
+                                const float v3[3],
+                                const float v4[3],
                                 const int resolution,
                                 const float color[4])
 {
@@ -422,7 +511,7 @@ static void draw_circle_in_quad(const float v1[2],
     float theta = ((2.0f * M_PI) * ((float)i / (float)resolution)) + 0.01f;
     float x = cosf(theta);
     float y = sinf(theta);
-    float pt[2] = {x, y};
+    const float pt[2] = {x, y};
     float w[4];
     barycentric_weights_v2_quad(UNPACK4(quad), pt, w);
 
@@ -445,12 +534,50 @@ static void draw_circle_in_quad(const float v1[2],
 
 static void draw_primitive_view_impl(const struct bContext *C,
                                      struct InteractivePlaceData *ipd,
-                                     const float color[4])
+                                     const float color[4],
+                                     int flatten_axis)
 {
   UNUSED_VARS(C);
 
   BoundBox bounds;
   calc_bbox(ipd, &bounds);
+
+  /* Use cavalier projection, since it maps the scale usefully to the cursor. */
+  if (flatten_axis == STEP_BASE) {
+    /* Calculate the plane that would be defined by the side of the cube vertices
+     * if the plane had any volume. */
+
+    float no[3];
+
+    cross_v3_v3v3(
+        no, ipd->matrix_orient[ipd->orient_axis], ipd->matrix_orient[(ipd->orient_axis + 1) % 3]);
+
+    RegionView3D *rv3d = ipd->region->regiondata;
+    copy_v3_v3(no, rv3d->viewinv[2]);
+    normalize_v3(no);
+
+    float base_plane[4];
+
+    plane_from_point_normal_v3(base_plane, bounds.vec[0], no);
+
+    /* Offset all vertices even though we only need to offset the half of them.
+     * This is harmless as `dist` will be zero for the `base_plane` aligned side of the cube. */
+    for (int i = 0; i < ARRAY_SIZE(bounds.vec); i++) {
+      const float dist = dist_signed_to_plane_v3(bounds.vec[i], base_plane);
+      madd_v3_v3fl(bounds.vec[i], base_plane, -dist);
+      madd_v3_v3fl(bounds.vec[i], ipd->step[STEP_BASE].degenerate_diagonal_display, dist);
+    }
+  }
+
+  if (flatten_axis == STEP_DEPTH) {
+    const float *base_plane = ipd->step[0].plane;
+    for (int i = 0; i < 4; i++) {
+      const float dist = dist_signed_to_plane_v3(bounds.vec[i + 4], base_plane);
+      madd_v3_v3fl(bounds.vec[i + 4], base_plane, -dist);
+      madd_v3_v3fl(bounds.vec[i + 4], ipd->step[STEP_DEPTH].degenerate_diagonal_display, dist);
+    }
+  }
+
   draw_line_bounds(&bounds, color);
 
   if (ipd->primitive_type == PLACE_PRIMITIVE_TYPE_CUBE) {
@@ -513,25 +640,62 @@ static void draw_primitive_view(const struct bContext *C, ARegion *UNUSED(region
   UI_GetThemeColor3fv(TH_GIZMO_PRIMARY, color);
 
   const bool use_depth = !XRAY_ENABLED(ipd->v3d);
-  const bool depth_test_enabled = GPU_depth_test_enabled();
+  const eGPUDepthTest depth_test_enabled = GPU_depth_test_get();
 
   if (use_depth) {
-    GPU_depth_test(false);
+    GPU_depth_test(GPU_DEPTH_NONE);
     color[3] = 0.15f;
-    draw_primitive_view_impl(C, ipd, color);
+    draw_primitive_view_impl(C, ipd, color, -1);
+  }
+
+  /* Show a flattened projection if the current step is aligned to the view. */
+  if (ipd->step[ipd->step_index].is_degenerate_view_align) {
+    const RegionView3D *rv3d = ipd->region->regiondata;
+    if (!rv3d->is_persp) {
+      draw_primitive_view_impl(C, ipd, color, ipd->step_index);
+    }
   }
 
   if (use_depth) {
-    GPU_depth_test(true);
+    GPU_depth_test(GPU_DEPTH_LESS_EQUAL);
   }
   color[3] = 1.0f;
-  draw_primitive_view_impl(C, ipd, color);
+  draw_primitive_view_impl(C, ipd, color, -1);
 
   if (use_depth) {
     if (depth_test_enabled == false) {
-      GPU_depth_test(false);
+      GPU_depth_test(GPU_DEPTH_NONE);
     }
   }
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Calculate The Initial Placement Plane
+ *
+ * Use by both the operator and placement cursor.
+ * \{ */
+
+static bool view3d_interactive_add_calc_snap(bContext *UNUSED(C),
+                                             const wmEvent *UNUSED(event),
+                                             float r_co_src[3],
+                                             float r_matrix_orient[3][3],
+                                             bool *r_is_enabled,
+                                             bool *r_is_snap_invert)
+{
+  V3DSnapCursorData *snap_data = ED_view3d_cursor_snap_data_get();
+  copy_v3_v3(r_co_src, snap_data->loc);
+  if (r_matrix_orient) {
+    copy_m3_m3(r_matrix_orient, snap_data->plane_omat);
+  }
+  if (r_is_enabled) {
+    *r_is_enabled = snap_data->is_enabled;
+  }
+  if (r_is_snap_invert) {
+    *r_is_snap_invert = snap_data->is_snap_invert;
+  }
+  return snap_data->snap_elem != SCE_SNAP_MODE_NONE;
 }
 
 /** \} */
@@ -540,39 +704,140 @@ static void draw_primitive_view(const struct bContext *C, ARegion *UNUSED(region
 /** \name Add Object Modal Operator
  * \{ */
 
-/**
- *
- *  */
 static void view3d_interactive_add_begin(bContext *C, wmOperator *op, const wmEvent *event)
 {
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
 
-  const int plane_axis = RNA_enum_get(op->ptr, "plane_axis");
-  const enum ePlace_Depth plane_depth = RNA_enum_get(op->ptr, "plane_depth");
-  const enum ePlace_Origin plane_origin = RNA_enum_get(op->ptr, "plane_origin");
+  const int plane_axis = snap_state->plane_axis;
+  const enum ePlace_SnapTo snap_to = RNA_enum_get(op->ptr, "snap_target");
+
+  const enum ePlace_Origin plane_origin[2] = {
+      RNA_enum_get(op->ptr, "plane_origin_base"),
+      RNA_enum_get(op->ptr, "plane_origin_depth"),
+  };
+  const enum ePlace_Aspect plane_aspect[2] = {
+      RNA_enum_get(op->ptr, "plane_aspect_base"),
+      RNA_enum_get(op->ptr, "plane_aspect_depth"),
+  };
 
   struct InteractivePlaceData *ipd = op->customdata;
 
-  RegionView3D *rv3d = ipd->region->regiondata;
-
   ipd->launch_event = WM_userdef_event_type_from_keymap_type(event->type);
 
-  ED_transform_calc_orientation_from_type(C, ipd->matrix_orient);
+  V3DSnapCursorState *snap_state_new = ED_view3d_cursor_snap_active();
+  if (snap_state_new) {
+    ipd->snap_state = snap_state = snap_state_new;
 
-  ipd->orient_axis = plane_axis;
-  ipd->is_centered_init = (plane_origin == PLACE_ORIGIN_CENTER);
-  ipd->step[0].is_centered = ipd->is_centered_init;
-  ipd->step[1].is_centered = ipd->is_centered_init;
-  ipd->step_index = STEP_BASE;
+    /* For drag events, update the location since it will be set from the drag-start.
+     * This is needed as cursor-drawing doesn't deal with drag events and will use
+     * the current cursor location instead of the drag-start. */
+    if (event->val == KM_CLICK_DRAG) {
+      /* Set this flag so snapping always updated. */
+      int mval[2];
+      WM_event_drag_start_mval(event, ipd->region, mval);
+      int flag_orig = snap_state_new->flag;
+      snap_state_new->flag |= V3D_SNAPCURSOR_TOGGLE_ALWAYS_TRUE;
 
-  /* Assign snap gizmo which is may be used as part of the tool. */
-  {
-    wmGizmoMap *gzmap = ipd->region->gizmo_map;
-    wmGizmoGroup *gzgroup = gzmap ? WM_gizmomap_group_find(gzmap, view3d_gzgt_placement_id) : NULL;
-    if ((gzgroup != NULL) && gzgroup->gizmos.first) {
-      ipd->snap_gizmo = gzgroup->gizmos.first;
+      /* Be sure to also compute the #V3DSnapCursorData.plane_omat. */
+      snap_state->draw_plane = true;
+
+      ED_view3d_cursor_snap_data_update(snap_state_new, C, mval[0], mval[1]);
+      snap_state_new->flag = flag_orig;
     }
   }
 
+  snap_state->draw_point = true;
+  snap_state->draw_plane = true;
+  ipd->is_snap_found =
+      view3d_interactive_add_calc_snap(
+          C, event, ipd->co_src, ipd->matrix_orient, &ipd->use_snap, &ipd->is_snap_invert) != 0;
+
+  snap_state->draw_plane = false;
+  ED_view3d_cursor_snap_prevpoint_set(snap_state, ipd->co_src);
+
+  ipd->orient_axis = plane_axis;
+  for (int i = 0; i < 2; i++) {
+    ipd->step[i].is_centered_init = (plane_origin[i] == PLACE_ORIGIN_CENTER);
+    ipd->step[i].is_centered = ipd->step[i].is_centered_init;
+
+    ipd->step[i].is_fixed_aspect_init = (plane_aspect[i] == PLACE_ASPECT_FIXED);
+    ipd->step[i].is_fixed_aspect = ipd->step[i].is_fixed_aspect_init;
+  }
+
+  ipd->step_index = STEP_BASE;
+  ipd->snap_to = snap_to;
+
+  plane_from_point_normal_v3(ipd->step[0].plane, ipd->co_src, ipd->matrix_orient[plane_axis]);
+
+  copy_v3_v3(ipd->step[0].co_dst, ipd->co_src);
+
+  {
+    RegionView3D *rv3d = ipd->region->regiondata;
+    const float view_axis_dot = fabsf(dot_v3v3(rv3d->viewinv[2], ipd->matrix_orient[plane_axis]));
+    ipd->step[STEP_BASE].is_degenerate_view_align = view_axis_dot < eps_view_align;
+    ipd->step[STEP_DEPTH].is_degenerate_view_align = fabsf(view_axis_dot - 1.0f) < eps_view_align;
+
+    float view_axis[3];
+    normalize_v3_v3(view_axis, rv3d->viewinv[2]);
+    plane_from_point_normal_v3(ipd->view_plane, ipd->co_src, view_axis);
+  }
+
+  if (ipd->step[STEP_BASE].is_degenerate_view_align ||
+      ipd->step[STEP_DEPTH].is_degenerate_view_align) {
+    RegionView3D *rv3d = ipd->region->regiondata;
+    float axis_view[3];
+    add_v3_v3v3(axis_view, rv3d->viewinv[0], rv3d->viewinv[1]);
+    normalize_v3(axis_view);
+
+    /* Setup fallback axes. */
+    for (int i = 0; i < 2; i++) {
+      if (ipd->step[i].is_degenerate_view_align) {
+        const int degenerate_axis =
+            (i == STEP_BASE) ?
+                /* For #STEP_BASE find the orient axis that align to the view. */
+                dot_v3_array_find_max_index(ipd->matrix_orient, 3, rv3d->viewinv[2], false) :
+                /* For #STEP_DEPTH the orient axis is always view aligned when degenerate. */
+                ipd->orient_axis;
+
+        float axis_fallback[4][3];
+        const int x_axis = (degenerate_axis + 1) % 3;
+        const int y_axis = (degenerate_axis + 2) % 3;
+
+        /* Assign 4x diagonal axes, find which one is closest to the viewport diagonal
+         * bottom left to top right, for a predictable direction from a user perspective. */
+        add_v3_v3v3(axis_fallback[0], ipd->matrix_orient[x_axis], ipd->matrix_orient[y_axis]);
+        sub_v3_v3v3(axis_fallback[1], ipd->matrix_orient[x_axis], ipd->matrix_orient[y_axis]);
+        negate_v3_v3(axis_fallback[2], axis_fallback[0]);
+        negate_v3_v3(axis_fallback[3], axis_fallback[1]);
+
+        const int axis_best = dot_v3_array_find_max_index(axis_fallback, 4, axis_view, true);
+        normalize_v3_v3(ipd->step[i].degenerate_diagonal, axis_fallback[axis_best]);
+        ipd->step[i].degenerate_axis = degenerate_axis;
+
+        /* `degenerate_view_plane_fallback` is used to map cursor motion from a view aligned
+         * plane back onto the view aligned plane.
+         *
+         * The dot product check below ensures cursor motion
+         * isn't inverted from a user perspective. */
+        const bool degenerate_axis_is_flip = dot_v3v3(ipd->matrix_orient[degenerate_axis],
+                                                      ((i == STEP_BASE) ?
+                                                           ipd->step[i].degenerate_diagonal :
+                                                           rv3d->viewinv[2])) < 0.0f;
+
+        copy_v3_v3(ipd->step[i].degenerate_diagonal_display, ipd->step[i].degenerate_diagonal);
+        if (degenerate_axis_is_flip) {
+          negate_v3(ipd->step[i].degenerate_diagonal_display);
+        }
+      }
+    }
+  }
+
+  ipd->draw_handle_view = ED_region_draw_cb_activate(
+      ipd->region->type, draw_primitive_view, ipd, REGION_DRAW_POST_VIEW);
+
+  ED_region_tag_redraw(ipd->region);
+
+  /* Setup the primitive type. */
   {
     PropertyRNA *prop = RNA_struct_find_property(op->ptr, "primitive_type");
     if (RNA_property_is_set(op->ptr, prop)) {
@@ -601,99 +866,12 @@ static void view3d_interactive_add_begin(bContext *C, wmOperator *op, const wmEv
       }
       else {
         /* If the user runs this as an operator they should set the 'primitive_type',
-         * however running from operator search will end up at this point.  */
+         * however running from operator search will end up at this point. */
         ipd->primitive_type = PLACE_PRIMITIVE_TYPE_CUBE;
         ipd->use_tool = false;
       }
     }
   }
-
-  UNUSED_VARS(C, event);
-
-  ipd->draw_handle_view = ED_region_draw_cb_activate(
-      ipd->region->type, draw_primitive_view, ipd, REGION_DRAW_POST_VIEW);
-
-  ED_region_tag_redraw(ipd->region);
-
-  plane_from_point_normal_v3(
-      ipd->step[0].plane, ipd->scene->cursor.location, ipd->matrix_orient[ipd->orient_axis]);
-
-  const float mval_fl[2] = {UNPACK2(event->mval)};
-
-  const bool is_snap_found = ipd->snap_gizmo ?
-                                 idp_snap_point_from_gizmo(ipd->snap_gizmo, ipd->co_src) :
-                                 false;
-  ipd->is_snap_invert = ipd->snap_gizmo ? ED_gizmotypes_snap_3d_invert_snap_get(ipd->snap_gizmo) :
-                                          false;
-  {
-    const ToolSettings *ts = ipd->scene->toolsettings;
-    ipd->use_snap = (ipd->is_snap_invert == !(ts->snap_flag & SCE_SNAP));
-  }
-
-  if (is_snap_found) {
-    /* pass */
-  }
-  else {
-    bool use_depth_fallback = true;
-    if (plane_depth == PLACE_DEPTH_CURSOR_VIEW) {
-      /* View plane. */
-      ED_view3d_win_to_3d(
-          ipd->v3d, ipd->region, ipd->scene->cursor.location, mval_fl, ipd->co_src);
-      use_depth_fallback = false;
-    }
-    else if (plane_depth == PLACE_DEPTH_SURFACE) {
-      SnapObjectContext *snap_context =
-          (ipd->snap_gizmo ? ED_gizmotypes_snap_3d_context_ensure(
-                                 ipd->scene, ipd->region, ipd->v3d, ipd->snap_gizmo) :
-                             NULL);
-      if ((snap_context != NULL) &&
-          ED_transform_snap_object_project_view3d(snap_context,
-                                                  CTX_data_ensure_evaluated_depsgraph(C),
-                                                  SCE_SNAP_MODE_FACE,
-                                                  &(const struct SnapObjectParams){
-                                                      .snap_select = SNAP_ALL,
-                                                      .use_object_edit_cage = true,
-                                                  },
-                                                  mval_fl,
-                                                  NULL,
-                                                  NULL,
-                                                  ipd->co_src,
-                                                  NULL)) {
-        use_depth_fallback = false;
-      }
-    }
-
-    /* Use as fallback to surface. */
-    if (use_depth_fallback || (plane_depth == PLACE_DEPTH_CURSOR_PLANE)) {
-      /* Cursor plane. */
-      float plane[4];
-      plane_from_point_normal_v3(
-          plane, ipd->scene->cursor.location, ipd->matrix_orient[ipd->orient_axis]);
-      if (ED_view3d_win_to_3d_on_plane(ipd->region, plane, mval_fl, false, ipd->co_src)) {
-        use_depth_fallback = false;
-      }
-      /* Even if the calculation works, it's possible the point found is behind the view. */
-      if (rv3d->is_persp) {
-        float dir[3];
-        sub_v3_v3v3(dir, rv3d->viewinv[3], ipd->co_src);
-        if (dot_v3v3(dir, rv3d->viewinv[2]) < ipd->v3d->clip_start) {
-          use_depth_fallback = true;
-        }
-      }
-    }
-
-    if (use_depth_fallback) {
-      float co_depth[3];
-      /* Fallback to view center. */
-      negate_v3_v3(co_depth, rv3d->ofs);
-      ED_view3d_win_to_3d(ipd->v3d, ipd->region, co_depth, mval_fl, ipd->co_src);
-    }
-  }
-
-  plane_from_point_normal_v3(
-      ipd->step[0].plane, ipd->co_src, ipd->matrix_orient[ipd->orient_axis]);
-
-  copy_v3_v3(ipd->step[0].co_dst, ipd->co_src);
 }
 
 static int view3d_interactive_add_invoke(bContext *C, wmOperator *op, const wmEvent *event)
@@ -729,6 +907,7 @@ static void view3d_interactive_add_exit(bContext *C, wmOperator *op)
   UNUSED_VARS(C);
 
   struct InteractivePlaceData *ipd = op->customdata;
+  ED_view3d_cursor_snap_deactive(ipd->snap_state);
 
   ED_region_draw_cb_exit(ipd->region->type, ipd->draw_handle_view);
 
@@ -763,7 +942,7 @@ void viewplace_modal_keymap(wmKeyConfig *keyconf)
       {0, NULL, 0, NULL, NULL},
   };
 
-  const char *keymap_name = "View3D Placement Modal Map";
+  const char *keymap_name = "View3D Placement Modal";
   wmKeyMap *keymap = WM_modalkeymap_find(keyconf, keymap_name);
 
   /* This function is called for each space-type, only needs to add map once. */
@@ -795,7 +974,8 @@ static int view3d_interactive_add_modal(bContext *C, wmOperator *op, const wmEve
         ATTR_FALLTHROUGH;
       }
       case PLACE_MODAL_FIXED_ASPECT_OFF: {
-        ipd->step[ipd->step_index].is_fixed_aspect = is_fallthrough;
+        ipd->step[ipd->step_index].is_fixed_aspect =
+            is_fallthrough ^ ipd->step[ipd->step_index].is_fixed_aspect_init;
         do_redraw = true;
         break;
       }
@@ -804,7 +984,8 @@ static int view3d_interactive_add_modal(bContext *C, wmOperator *op, const wmEve
         ATTR_FALLTHROUGH;
       }
       case PLACE_MODAL_PIVOT_CENTER_OFF: {
-        ipd->step[ipd->step_index].is_centered = is_fallthrough;
+        ipd->step[ipd->step_index].is_centered = is_fallthrough ^
+                                                 ipd->step[ipd->step_index].is_centered_init;
         do_redraw = true;
         break;
       }
@@ -821,13 +1002,18 @@ static int view3d_interactive_add_modal(bContext *C, wmOperator *op, const wmEve
       }
     }
   }
-
-  if (ELEM(event->type, EVT_ESCKEY, RIGHTMOUSE)) {
-    view3d_interactive_add_exit(C, op);
-    return OPERATOR_CANCELLED;
-  }
-  else if (event->type == MOUSEMOVE) {
-    do_cursor_update = true;
+  else {
+    switch (event->type) {
+      case EVT_ESCKEY:
+      case RIGHTMOUSE: {
+        view3d_interactive_add_exit(C, op);
+        return OPERATOR_CANCELLED;
+      }
+      case MOUSEMOVE: {
+        do_cursor_update = true;
+        break;
+      }
+    }
   }
 
   if (ipd->wait_for_input) {
@@ -844,15 +1030,23 @@ static int view3d_interactive_add_modal(bContext *C, wmOperator *op, const wmEve
   if (ipd->step_index == STEP_BASE) {
     if (ELEM(event->type, ipd->launch_event, LEFTMOUSE)) {
       if (event->val == KM_RELEASE) {
+        ED_view3d_cursor_snap_prevpoint_set(ipd->snap_state, ipd->co_src);
+
         /* Set secondary plane. */
 
         /* Create normal. */
         {
           RegionView3D *rv3d = region->regiondata;
-          float no_temp[3];
-          float no[3];
-          cross_v3_v3v3(no_temp, ipd->step[0].plane, rv3d->viewinv[2]);
-          cross_v3_v3v3(no, no_temp, ipd->step[0].plane);
+          float no[3], no_temp[3];
+
+          if (ipd->step[STEP_DEPTH].is_degenerate_view_align) {
+            cross_v3_v3v3(no_temp, ipd->step[0].plane, ipd->step[STEP_DEPTH].degenerate_diagonal);
+            cross_v3_v3v3(no, no_temp, ipd->step[0].plane);
+          }
+          else {
+            cross_v3_v3v3(no_temp, ipd->step[0].plane, rv3d->viewinv[2]);
+            cross_v3_v3v3(no, no_temp, ipd->step[0].plane);
+          }
           normalize_v3(no);
 
           plane_from_point_normal_v3(ipd->step[1].plane, ipd->step[0].co_dst, no);
@@ -861,9 +1055,13 @@ static int view3d_interactive_add_modal(bContext *C, wmOperator *op, const wmEve
         copy_v3_v3(ipd->step[1].co_dst, ipd->step[0].co_dst);
         ipd->step_index = STEP_DEPTH;
 
-        /* Keep these values from the previous step. */
-        ipd->step[1].is_centered = ipd->step[0].is_centered;
-        ipd->step[1].is_fixed_aspect = ipd->step[0].is_fixed_aspect;
+        /* Use the toggle from the previous step. */
+        if (ipd->step[0].is_centered != ipd->step[0].is_centered_init) {
+          ipd->step[1].is_centered = !ipd->step[1].is_centered;
+        }
+        if (ipd->step[0].is_fixed_aspect != ipd->step[0].is_fixed_aspect_init) {
+          ipd->step[1].is_fixed_aspect = !ipd->step[1].is_fixed_aspect;
+        }
       }
     }
   }
@@ -902,6 +1100,8 @@ static int view3d_interactive_add_modal(bContext *C, wmOperator *op, const wmEve
         const int cube_verts[3] = {3, 1, 4};
         for (int i = 0; i < 3; i++) {
           scale[i] = len_v3v3(bounds.vec[0], bounds.vec[cube_verts[i]]);
+          /* Primitives have size 2 by default, compensate for this here. */
+          scale[i] /= 2.0f;
         }
 
         wmOperatorType *ot = NULL;
@@ -936,7 +1136,28 @@ static int view3d_interactive_add_modal(bContext *C, wmOperator *op, const wmEve
           RNA_float_set_array(&op_props, "rotation", rotation);
           RNA_float_set_array(&op_props, "location", location);
           RNA_float_set_array(&op_props, "scale", scale);
-          WM_operator_name_call_ptr(C, ot, WM_OP_EXEC_DEFAULT, &op_props);
+
+          /* Always use the defaults here since desired bounds have been set interactively, it does
+           * not make sense to use a different values from a previous command. */
+          if (ipd->primitive_type == PLACE_PRIMITIVE_TYPE_CUBE) {
+            RNA_float_set(&op_props, "size", 2.0f);
+          }
+          if (ELEM(ipd->primitive_type,
+                   PLACE_PRIMITIVE_TYPE_CYLINDER,
+                   PLACE_PRIMITIVE_TYPE_SPHERE_UV,
+                   PLACE_PRIMITIVE_TYPE_SPHERE_ICO)) {
+            RNA_float_set(&op_props, "radius", 1.0f);
+          }
+          if (ELEM(
+                  ipd->primitive_type, PLACE_PRIMITIVE_TYPE_CYLINDER, PLACE_PRIMITIVE_TYPE_CONE)) {
+            RNA_float_set(&op_props, "depth", 2.0f);
+          }
+          if (ipd->primitive_type == PLACE_PRIMITIVE_TYPE_CONE) {
+            RNA_float_set(&op_props, "radius1", 1.0f);
+            RNA_float_set(&op_props, "radius2", 0.0f);
+          }
+
+          WM_operator_name_call_ptr(C, ot, WM_OP_EXEC_DEFAULT, &op_props, NULL);
           WM_operator_properties_free(&op_props);
         }
         else {
@@ -953,61 +1174,66 @@ static int view3d_interactive_add_modal(bContext *C, wmOperator *op, const wmEve
   }
 
   if (do_cursor_update) {
-    const float mval_fl[2] = {UNPACK2(event->mval)};
+    float mval_fl[2];
+    WM_event_drag_start_mval_fl(event, region, mval_fl);
 
     /* Calculate the snap location on mouse-move or when toggling snap. */
-    bool is_snap_found_prev = ipd->is_snap_found;
     ipd->is_snap_found = false;
     if (ipd->use_snap) {
-      if (ipd->snap_gizmo != NULL) {
-        ED_gizmotypes_snap_3d_toggle_set(ipd->snap_gizmo, ipd->use_snap);
-        if (ED_gizmotypes_snap_3d_update(ipd->snap_gizmo,
-                                         CTX_data_ensure_evaluated_depsgraph(C),
-                                         ipd->region,
-                                         ipd->v3d,
-                                         NULL,
-                                         mval_fl,
-                                         ipd->snap_co,
-                                         NULL)) {
-          ipd->is_snap_found = true;
-        }
-        ED_gizmotypes_snap_3d_toggle_clear(ipd->snap_gizmo);
-      }
-    }
-
-    /* Workaround because test_select doesn't run at the same time as the modal operator. */
-    if (is_snap_found_prev != ipd->is_snap_found) {
-      wmGizmoMap *gzmap = ipd->region->gizmo_map;
-      WM_gizmo_highlight_set(gzmap, ipd->is_snap_found ? ipd->snap_gizmo : NULL);
+      ipd->is_snap_found = view3d_interactive_add_calc_snap(
+          C, event, ipd->snap_co, NULL, NULL, NULL);
     }
 
     if (ipd->step_index == STEP_BASE) {
       if (ipd->is_snap_found) {
-        closest_to_plane_normalized_v3(ipd->step[0].co_dst, ipd->step[0].plane, ipd->snap_co);
+        closest_to_plane_normalized_v3(
+            ipd->step[STEP_BASE].co_dst, ipd->step[STEP_BASE].plane, ipd->snap_co);
       }
       else {
-        if (ED_view3d_win_to_3d_on_plane(
-                region, ipd->step[0].plane, mval_fl, false, ipd->step[0].co_dst)) {
+        if (view3d_win_to_3d_on_plane_maybe_fallback(
+                region,
+                ipd->step[STEP_BASE].plane,
+                mval_fl,
+                ipd->step[STEP_BASE].is_degenerate_view_align ? ipd->view_plane : NULL,
+                ipd->step[STEP_BASE].co_dst)) {
           /* pass */
+        }
+
+        if (ipd->use_snap && (ipd->snap_to == PLACE_SNAP_TO_DEFAULT)) {
+          if (idp_snap_calc_incremental(
+                  ipd->scene, ipd->v3d, ipd->region, ipd->co_src, ipd->step[STEP_BASE].co_dst)) {
+          }
         }
       }
     }
     else if (ipd->step_index == STEP_DEPTH) {
       if (ipd->is_snap_found) {
-        closest_to_plane_normalized_v3(ipd->step[1].co_dst, ipd->step[1].plane, ipd->snap_co);
+        closest_to_plane_normalized_v3(
+            ipd->step[STEP_DEPTH].co_dst, ipd->step[STEP_DEPTH].plane, ipd->snap_co);
       }
       else {
-        if (ED_view3d_win_to_3d_on_plane(
-                region, ipd->step[1].plane, mval_fl, false, ipd->step[1].co_dst)) {
+        if (view3d_win_to_3d_on_plane_maybe_fallback(
+                region,
+                ipd->step[STEP_DEPTH].plane,
+                mval_fl,
+                ipd->step[STEP_DEPTH].is_degenerate_view_align ? ipd->view_plane : NULL,
+                ipd->step[STEP_DEPTH].co_dst)) {
           /* pass */
+        }
+
+        if (ipd->use_snap && (ipd->snap_to == PLACE_SNAP_TO_DEFAULT)) {
+          if (idp_snap_calc_incremental(
+                  ipd->scene, ipd->v3d, ipd->region, ipd->co_src, ipd->step[STEP_DEPTH].co_dst)) {
+          }
         }
       }
 
       /* Correct the point so it's aligned with the 'ipd->step[0].co_dst'. */
       float close[3], delta[3];
-      closest_to_plane_normalized_v3(close, ipd->step[0].plane, ipd->step[1].co_dst);
-      sub_v3_v3v3(delta, close, ipd->step[0].co_dst);
-      sub_v3_v3(ipd->step[1].co_dst, delta);
+      closest_to_plane_normalized_v3(
+          close, ipd->step[STEP_BASE].plane, ipd->step[STEP_DEPTH].co_dst);
+      sub_v3_v3v3(delta, close, ipd->step[STEP_BASE].co_dst);
+      sub_v3_v3(ipd->step[STEP_DEPTH].co_dst, delta);
     }
     do_redraw = true;
   }
@@ -1025,6 +1251,98 @@ static bool view3d_interactive_add_poll(bContext *C)
   return ELEM(mode, CTX_MODE_OBJECT, CTX_MODE_EDIT_MESH);
 }
 
+static int idp_rna_plane_axis_get_fn(struct PointerRNA *UNUSED(ptr),
+                                     struct PropertyRNA *UNUSED(prop))
+{
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  return snap_state->plane_axis;
+}
+
+static void idp_rna_plane_axis_set_fn(struct PointerRNA *UNUSED(ptr),
+                                      struct PropertyRNA *UNUSED(prop),
+                                      int value)
+{
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  snap_state->plane_axis = (short)value;
+  ED_view3d_cursor_snap_state_default_set(snap_state);
+}
+
+static int idp_rna_plane_depth_get_fn(struct PointerRNA *UNUSED(ptr),
+                                      struct PropertyRNA *UNUSED(prop))
+{
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  return snap_state->plane_depth;
+}
+
+static void idp_rna_plane_depth_set_fn(struct PointerRNA *UNUSED(ptr),
+                                       struct PropertyRNA *UNUSED(prop),
+                                       int value)
+{
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  snap_state->plane_depth = value;
+  ED_view3d_cursor_snap_state_default_set(snap_state);
+}
+
+static int idp_rna_plane_orient_get_fn(struct PointerRNA *UNUSED(ptr),
+                                       struct PropertyRNA *UNUSED(prop))
+{
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  return snap_state->plane_orient;
+}
+
+static void idp_rna_plane_orient_set_fn(struct PointerRNA *UNUSED(ptr),
+                                        struct PropertyRNA *UNUSED(prop),
+                                        int value)
+{
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  snap_state->plane_orient = value;
+  ED_view3d_cursor_snap_state_default_set(snap_state);
+}
+
+static int idp_rna_snap_target_get_fn(struct PointerRNA *UNUSED(ptr),
+                                      struct PropertyRNA *UNUSED(prop))
+{
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  if (snap_state->snap_elem_force == SCE_SNAP_MODE_NONE) {
+    return PLACE_SNAP_TO_DEFAULT;
+  }
+
+  /* Make sure you keep a consistent #snap_mode. */
+  snap_state->snap_elem_force = SCE_SNAP_MODE_GEOM;
+  return PLACE_SNAP_TO_GEOMETRY;
+}
+
+static void idp_rna_snap_target_set_fn(struct PointerRNA *UNUSED(ptr),
+                                       struct PropertyRNA *UNUSED(prop),
+                                       int value)
+{
+  eSnapMode snap_mode = SCE_SNAP_MODE_NONE; /* #toolsettings->snap_mode. */
+  const enum ePlace_SnapTo snap_to = value;
+  if (snap_to == PLACE_SNAP_TO_GEOMETRY) {
+    snap_mode = SCE_SNAP_MODE_GEOM;
+  }
+
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  snap_state->snap_elem_force = snap_mode;
+  ED_view3d_cursor_snap_state_default_set(snap_state);
+}
+
+static bool idp_rna_use_plane_axis_auto_get_fn(struct PointerRNA *UNUSED(ptr),
+                                               struct PropertyRNA *UNUSED(prop))
+{
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  return snap_state->use_plane_axis_auto;
+}
+
+static void idp_rna_use_plane_axis_auto_set_fn(struct PointerRNA *UNUSED(ptr),
+                                               struct PropertyRNA *UNUSED(prop),
+                                               bool value)
+{
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_state_get();
+  snap_state->use_plane_axis_auto = value;
+  ED_view3d_cursor_snap_state_default_set(snap_state);
+}
+
 void VIEW3D_OT_interactive_add(struct wmOperatorType *ot)
 {
   /* identifiers */
@@ -1038,12 +1356,18 @@ void VIEW3D_OT_interactive_add(struct wmOperatorType *ot)
   ot->cancel = view3d_interactive_add_cancel;
   ot->poll = view3d_interactive_add_poll;
 
-  /* Note, let the operator we call handle undo and registering it's self. */
+  /* NOTE: let the operator we call handle undo and registering itself. */
   /* flags */
   ot->flag = 0;
 
   /* properties */
   PropertyRNA *prop;
+
+  /* WORKAROUND: properties with `_funcs_runtime` should not be saved in keymaps.
+   *             So reassign the #PROP_IDPROPERTY flag to trick the property as not being set.
+   *             (See #RNA_property_is_set). */
+  PropertyFlag unsalvageable = PROP_SKIP_SAVE | PROP_HIDDEN | PROP_PTR_NO_OWNERSHIP |
+                               PROP_IDPROPERTY;
 
   /* Normally not accessed directly, leave unset and check the active tool. */
   static const EnumPropertyItem primitive_type[] = {
@@ -1054,6 +1378,7 @@ void VIEW3D_OT_interactive_add(struct wmOperatorType *ot)
       {PLACE_PRIMITIVE_TYPE_SPHERE_ICO, "SPHERE_ICO", 0, "ICO Sphere", ""},
       {0, NULL, 0, NULL, NULL},
   };
+
   prop = RNA_def_property(ot->srna, "primitive_type", PROP_ENUM, PROP_NONE);
   RNA_def_property_ui_text(prop, "Primitive", "");
   RNA_def_property_enum_items(prop, primitive_type);
@@ -1063,42 +1388,112 @@ void VIEW3D_OT_interactive_add(struct wmOperatorType *ot)
   RNA_def_property_ui_text(prop, "Plane Axis", "The axis used for placing the base region");
   RNA_def_property_enum_default(prop, 2);
   RNA_def_property_enum_items(prop, rna_enum_axis_xyz_items);
-  RNA_def_property_flag(prop, PROP_SKIP_SAVE);
+  RNA_def_property_enum_funcs_runtime(
+      prop, idp_rna_plane_axis_get_fn, idp_rna_plane_axis_set_fn, NULL);
+  RNA_def_property_flag(prop, unsalvageable);
+
+  prop = RNA_def_boolean(ot->srna,
+                         "plane_axis_auto",
+                         false,
+                         "Auto Axis",
+                         "Select the closest axis when placing objects "
+                         "(surface overrides)");
+  RNA_def_property_boolean_funcs_runtime(
+      prop, idp_rna_use_plane_axis_auto_get_fn, idp_rna_use_plane_axis_auto_set_fn);
+  RNA_def_property_flag(prop, unsalvageable);
 
   static const EnumPropertyItem plane_depth_items[] = {
-      {PLACE_DEPTH_SURFACE,
+      {V3D_PLACE_DEPTH_SURFACE,
        "SURFACE",
        0,
        "Surface",
        "Start placing on the surface, using the 3D cursor position as a fallback"},
-      {PLACE_DEPTH_CURSOR_PLANE,
+      {V3D_PLACE_DEPTH_CURSOR_PLANE,
        "CURSOR_PLANE",
        0,
-       "3D Cursor Plane",
-       "Start placement using a point projected onto the selected axis at the 3D cursor position"},
-      {PLACE_DEPTH_CURSOR_VIEW,
+       "Cursor Plane",
+       "Start placement using a point projected onto the orientation axis "
+       "at the 3D cursor position"},
+      {V3D_PLACE_DEPTH_CURSOR_VIEW,
        "CURSOR_VIEW",
        0,
-       "3D Cursor View",
-       "Start placement using the mouse cursor projected onto the view plane"},
+       "Cursor View",
+       "Start placement using a point projected onto the view plane at the 3D cursor position"},
       {0, NULL, 0, NULL, NULL},
   };
   prop = RNA_def_property(ot->srna, "plane_depth", PROP_ENUM, PROP_NONE);
   RNA_def_property_ui_text(prop, "Position", "The initial depth used when placing the cursor");
-  RNA_def_property_enum_default(prop, PLACE_DEPTH_SURFACE);
+  RNA_def_property_enum_default(prop, V3D_PLACE_DEPTH_SURFACE);
   RNA_def_property_enum_items(prop, plane_depth_items);
-  RNA_def_property_flag(prop, PROP_SKIP_SAVE);
+  RNA_def_property_enum_funcs_runtime(
+      prop, idp_rna_plane_depth_get_fn, idp_rna_plane_depth_set_fn, NULL);
+  RNA_def_property_flag(prop, unsalvageable);
 
-  static const EnumPropertyItem origin_items[] = {
-      {PLACE_ORIGIN_BASE, "BASE", 0, "Base", "Start placing the corner position"},
-      {PLACE_ORIGIN_CENTER, "CENTER", 0, "Center", "Start placing the center position"},
+  static const EnumPropertyItem plane_orientation_items[] = {
+      {V3D_PLACE_ORIENT_SURFACE,
+       "SURFACE",
+       ICON_SNAP_NORMAL,
+       "Surface",
+       "Use the surface normal (using the transform orientation as a fallback)"},
+      {V3D_PLACE_ORIENT_DEFAULT,
+       "DEFAULT",
+       ICON_ORIENTATION_GLOBAL,
+       "Default",
+       "Use the current transform orientation"},
       {0, NULL, 0, NULL, NULL},
   };
-  prop = RNA_def_property(ot->srna, "plane_origin", PROP_ENUM, PROP_NONE);
-  RNA_def_property_ui_text(prop, "Origin", "The initial position for placement");
-  RNA_def_property_enum_default(prop, PLACE_ORIGIN_BASE);
-  RNA_def_property_enum_items(prop, origin_items);
-  RNA_def_property_flag(prop, PROP_SKIP_SAVE);
+  prop = RNA_def_property(ot->srna, "plane_orientation", PROP_ENUM, PROP_NONE);
+  RNA_def_property_ui_text(prop, "Orientation", "The initial depth used when placing the cursor");
+  RNA_def_property_enum_default(prop, V3D_PLACE_ORIENT_SURFACE);
+  RNA_def_property_enum_items(prop, plane_orientation_items);
+  RNA_def_property_enum_funcs_runtime(
+      prop, idp_rna_plane_orient_get_fn, idp_rna_plane_orient_set_fn, NULL);
+  RNA_def_property_flag(prop, unsalvageable);
+
+  static const EnumPropertyItem snap_to_items[] = {
+      {PLACE_SNAP_TO_GEOMETRY, "GEOMETRY", 0, "Geometry", "Snap to all geometry"},
+      {PLACE_SNAP_TO_DEFAULT, "DEFAULT", 0, "Default", "Use the current snap settings"},
+      {0, NULL, 0, NULL, NULL},
+  };
+  prop = RNA_def_property(ot->srna, "snap_target", PROP_ENUM, PROP_NONE);
+  RNA_def_property_ui_text(prop, "Snap to", "The target to use while snapping");
+  RNA_def_property_enum_default(prop, PLACE_SNAP_TO_GEOMETRY);
+  RNA_def_property_enum_items(prop, snap_to_items);
+  RNA_def_property_enum_funcs_runtime(
+      prop, idp_rna_snap_target_get_fn, idp_rna_snap_target_set_fn, NULL);
+  RNA_def_property_flag(prop, unsalvageable);
+
+  { /* Plane Origin. */
+    static const EnumPropertyItem items[] = {
+        {PLACE_ORIGIN_BASE, "EDGE", 0, "Edge", "Start placing the edge position"},
+        {PLACE_ORIGIN_CENTER, "CENTER", 0, "Center", "Start placing the center position"},
+        {0, NULL, 0, NULL, NULL},
+    };
+    const char *identifiers[2] = {"plane_origin_base", "plane_origin_depth"};
+    for (int i = 0; i < 2; i++) {
+      prop = RNA_def_property(ot->srna, identifiers[i], PROP_ENUM, PROP_NONE);
+      RNA_def_property_ui_text(prop, "Origin", "The initial position for placement");
+      RNA_def_property_enum_default(prop, PLACE_ORIGIN_BASE);
+      RNA_def_property_enum_items(prop, items);
+      RNA_def_property_flag(prop, PROP_SKIP_SAVE);
+    }
+  }
+
+  { /* Plane Aspect. */
+    static const EnumPropertyItem items[] = {
+        {PLACE_ASPECT_FREE, "FREE", 0, "Free", "Use an unconstrained aspect"},
+        {PLACE_ASPECT_FIXED, "FIXED", 0, "Fixed", "Use a fixed 1:1 aspect"},
+        {0, NULL, 0, NULL, NULL},
+    };
+    const char *identifiers[2] = {"plane_aspect_base", "plane_aspect_depth"};
+    for (int i = 0; i < 2; i++) {
+      prop = RNA_def_property(ot->srna, identifiers[i], PROP_ENUM, PROP_NONE);
+      RNA_def_property_ui_text(prop, "Aspect", "The initial aspect setting");
+      RNA_def_property_enum_default(prop, PLACE_ASPECT_FREE);
+      RNA_def_property_enum_items(prop, items);
+      RNA_def_property_flag(prop, PROP_SKIP_SAVE);
+    }
+  }
 
   /* When not accessed via a tool. */
   prop = RNA_def_boolean(ot->srna, "wait_for_input", true, "Wait for Input", "");
@@ -1114,25 +1509,21 @@ void VIEW3D_OT_interactive_add(struct wmOperatorType *ot)
  * we could show a placement plane here.
  * \{ */
 
+static void preview_plane_free_fn(void *customdata)
+{
+  V3DSnapCursorState *snap_state = customdata;
+  ED_view3d_cursor_snap_deactive(snap_state);
+}
+
 static void WIDGETGROUP_placement_setup(const bContext *UNUSED(C), wmGizmoGroup *gzgroup)
 {
-  wmGizmo *gizmo;
+  V3DSnapCursorState *snap_state = ED_view3d_cursor_snap_active();
+  if (snap_state) {
+    snap_state->gzgrp_type = gzgroup->type;
+    snap_state->draw_plane = true;
 
-  {
-    /* The gizmo snap has to be the first gizmo. */
-    const wmGizmoType *gzt_snap;
-    gzt_snap = WM_gizmotype_find("GIZMO_GT_snap_3d", true);
-    gizmo = WM_gizmo_new_ptr(gzt_snap, gzgroup, NULL);
-    RNA_enum_set(gizmo->ptr,
-                 "snap_elements_force",
-                 (SCE_SNAP_MODE_VERTEX | SCE_SNAP_MODE_EDGE | SCE_SNAP_MODE_FACE |
-                  /* SCE_SNAP_MODE_VOLUME | SCE_SNAP_MODE_GRID | SCE_SNAP_MODE_INCREMENT | */
-                  SCE_SNAP_MODE_EDGE_PERPENDICULAR | SCE_SNAP_MODE_EDGE_MIDPOINT));
-
-    WM_gizmo_set_color(gizmo, (float[4]){1.0f, 1.0f, 1.0f, 1.0f});
-
-    /* Don't handle any events, this is for display only. */
-    gizmo->flag |= WM_GIZMO_HIDDEN_KEYMAP;
+    gzgroup->customdata = snap_state;
+    gzgroup->customdata_free = preview_plane_free_fn;
   }
 }
 

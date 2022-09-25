@@ -1,22 +1,4 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENSE BLOCK *****
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # Global settings used by all scripts in this dir.
 # XXX Before any use of the tools in this dir, please make a copy of this file
@@ -30,7 +12,11 @@ import os
 import sys
 import types
 
-import bpy
+try:
+    import bpy
+except ModuleNotFoundError:
+    print("Could not import bpy, some features are not available when not run from Blender.")
+    bpy = None
 
 ###############################################################################
 # MISC
@@ -70,7 +56,7 @@ LANGUAGES = (
     (21, "Arabic (ﺔﻴﺑﺮﻌﻟﺍ)", "ar_EG"),
     (22, "Bulgarian (Български)", "bg_BG"),
     (23, "Greek (Ελληνικά)", "el_GR"),
-    (24, "Korean (한국 언어)", "ko_KR"),
+    (24, "Korean (한국어)", "ko_KR"),
     (25, "Nepali (नेपाली)", "ne_NP"),
     # Using the utf8 flipped form of Persian (فارسی).
     (26, "Persian (ﯽﺳﺭﺎﻓ)", "fa_IR"),
@@ -96,10 +82,13 @@ LANGUAGES = (
     (45, "Abkhaz (Аԥсуа бызшәа)", "ab"),
     (46, "Thai (ภาษาไทย)", "th_TH"),
     (47, "Slovak (Slovenčina)", "sk_SK"),
+    (48, "Georgian (ქართული)", "ka"),
 )
 
-# Default context, in py!
-DEFAULT_CONTEXT = bpy.app.translations.contexts.default
+# Default context, in py (keep in sync with `BLT_translation.h`)!
+if bpy is not None:
+    assert(bpy.app.translations.contexts.default == "*")
+DEFAULT_CONTEXT = "*"
 
 # Name of language file used by Blender to generate translations' menu.
 LANGUAGES_FILE = "languages"
@@ -189,7 +178,7 @@ DOMAIN = "blender"
 
 # Our own "gettext" stuff.
 # File type (ext) to parse.
-PYGETTEXT_ALLOWED_EXTS = {".c", ".cpp", ".cxx", ".hpp", ".hxx", ".h"}
+PYGETTEXT_ALLOWED_EXTS = {".c", ".cc", ".cpp", ".cxx", ".hh", ".hpp", ".hxx", ".h"}
 
 # Max number of contexts into a BLT_I18N_MSGID_MULTI_CTXT macro...
 PYGETTEXT_MAX_MULTI_CTXT = 16
@@ -200,6 +189,8 @@ PYGETTEXT_CONTEXTS_DEFSRC = os.path.join("source", "blender", "blentranslation",
 # Regex to extract contexts defined in BLT_translation.h
 # XXX Not full-proof, but should be enough here!
 PYGETTEXT_CONTEXTS = "#define\\s+(BLT_I18NCONTEXT_[A-Z_0-9]+)\\s+\"([^\"]*)\""
+
+# autopep8: off
 
 # Keywords' regex.
 # XXX Most unfortunately, we can't use named backreferences inside character sets,
@@ -257,13 +248,29 @@ PYGETTEXT_KEYWORDS = (() +
     tuple(("{}\\((?:[^\"',]+,){{3}}\\s*" + _msg_re + r"\s*\)").format(it)
           for it in ("BMO_error_raise",)) +
 
-    tuple(("{}\\((?:[^\"',]+,)\\s*" + _msg_re + r"\s*(?:\)|,)").format(it)
-          for it in ("modifier_setError",)) +
+    tuple(("{}\\((?:[^\"',]+,){{2}}\\s*" + _msg_re + r"\s*(?:\)|,)").format(it)
+          for it in ("BKE_modifier_set_error",)) +
+
+    # This one is a tad more risky, but in practice would not expect a name/uid string parameter
+    # (the second one in those functions) to ever have a comma in it, so think this is fine.
+    tuple(("{}\\((?:[^,]+,){{2}}\\s*" + _msg_re + r"\s*(?:\)|,)").format(it)
+          for it in ("modifier_subpanel_register", "gpencil_modifier_subpanel_register")) +
+
+    # bUnitDef unit names.
+    # NOTE: regex is a bit more complex than it would need too. Since the actual
+    # identifier (`B_UNIT_DEF_`) is at the end, if it's simpler/too general it
+    # becomes extremely slow to process some (unrelated) source files.
+    ((r"\{(?:(?:\s*\"[^\"',]+\"\s*,)|(?:\s*NULL\s*,)){4}\s*" +
+      _msg_re + r"\s*,(?:(?:\s*\"[^\"',]+\"\s*,)|(?:\s*NULL\s*,))(?:[^,]+,){2}"
+      + "\s*B_UNIT_DEF_[_A-Z]+\s*\}"),) +
 
     tuple((r"{}\(\s*" + _msg_re + r"\s*,\s*(?:" +
            r"\s*,\s*)?(?:".join(_ctxt_re_gen(i) for i in range(PYGETTEXT_MAX_MULTI_CTXT)) + r")?\s*\)").format(it)
           for it in ("BLT_I18N_MSGID_MULTI_CTXT",))
 )
+
+# autopep8: on
+
 
 # Check printf mismatches between msgid and msgstr.
 CHECK_PRINTF_FORMAT = (
@@ -295,6 +302,8 @@ WARN_MSGID_NOT_CAPITALIZED_ALLOWED = {
     "ascii",
     "author",                        # Addons' field. :/
     "bItasc",
+    "blender.org",
+    "color_index is invalid",
     "cos(A)",
     "cosh(A)",
     "dbl-",                          # Compacted for 'double', for keymap items.
@@ -309,6 +318,7 @@ WARN_MSGID_NOT_CAPITALIZED_ALLOWED = {
     "glTF 2.0 (.glb/.gltf)",
     "glTF Binary (.glb)",
     "glTF Embedded (.gltf)",
+    "glTF Original PBR data",
     "glTF Separate (.gltf + .bin + textures)",
     "invoke() needs to be called before execute()",
     "iScale",
@@ -327,6 +337,7 @@ WARN_MSGID_NOT_CAPITALIZED_ALLOWED = {
     "mp3",
     "normal",
     "ogg",
+    "oneAPI",
     "p0",
     "px",
     "re",
@@ -337,6 +348,8 @@ WARN_MSGID_NOT_CAPITALIZED_ALLOWED = {
     "sinh(A)",
     "sqrt(x*x+y*y+z*z)",
     "sRGB",
+    "sRGB display space",
+    "sRGB display space with Filmic view transform",
     "tan(A)",
     "tanh(A)",
     "utf-8",
@@ -347,7 +360,15 @@ WARN_MSGID_NOT_CAPITALIZED_ALLOWED = {
     "wav",
     "wmOwnerID '%s' not in workspace '%s'",
     "y",
+    "y = (Ax + B)",
     # Sub-strings.
+    "all",
+    "all and invert unselected",
+    "and AMD driver version 22.10 or newer",
+    "and AMD Radeon Pro 21.Q4 driver or newer",
+    "and Linux driver version xx.xx.23570 or newer",
+    "and NVIDIA driver version 470 or newer",
+    "and Windows driver version 101.1660 or newer",
     "available with",
     "brown fox",
     "can't save image while rendering",
@@ -365,25 +386,39 @@ WARN_MSGID_NOT_CAPITALIZED_ALLOWED = {
     "face data",
     "gimbal",
     "global",
+    "glTF Settings",
     "image file not found",
     "image format is read-only",
     "image path can't be written to",
     "in memory to enable editing!",
     "insufficient content",
+    "into",
     "jumps over",
     "left",
     "local",
+    "matrices", "no matrices",
     "multi-res modifier",
     "non-triangle face",
     "normal",
+    "or AMD with macOS 12.3 or newer",
+    "performance impact!",
+    "positions", "no positions",
+    "read",
+    "remove",
     "right",
+    "selected",
+    "selected and lock unselected",
+    "selected and unlock unselected",
     "the lazy dog",
+    "this legacy pose library to pose assets",
+    "to the top level of the tree",
     "unable to load movie clip",
     "unable to load text",
     "unable to open the file",
     "unknown error reading file",
     "unknown error stating file",
     "unknown error writing file",
+    "unselected",
     "unsupported font format",
     "unsupported format",
     "unsupported image format",
@@ -392,6 +427,8 @@ WARN_MSGID_NOT_CAPITALIZED_ALLOWED = {
     "verts only",
     "view",
     "virtual parents",
+    "which was replaced by the Asset Browser",
+    "write",
 }
 WARN_MSGID_NOT_CAPITALIZED_ALLOWED |= set(lng[2] for lng in LANGUAGES)
 
@@ -408,6 +445,7 @@ WARN_MSGID_END_POINT_ALLOWED = {
     "The program will now close.",
     "Your graphics card or driver has limited support. It may work, but with issues.",
     "Your graphics card or driver is not supported.",
+    "Invalid surface UVs on %d curves.",
 }
 
 PARSER_CACHE_HASH = 'sha1'
@@ -478,6 +516,9 @@ REL_GIT_I18N_PO_DIR = os.path.join("po")
 # The Blender source path to check for i18n macros (relative to SOURCE_DIR).
 REL_POTFILES_SOURCE_DIR = os.path.join("source")
 
+# Where to search for preset names (relative to SOURCE_DIR).
+REL_PRESETS_DIR = os.path.join("release", "scripts", "presets")
+
 # The template messages file (relative to I18N_DIR).
 REL_FILE_NAME_POT = os.path.join(REL_BRANCHES_DIR, DOMAIN + ".pot")
 
@@ -497,6 +538,7 @@ MO_FILE_NAME = DOMAIN + ".mo"
 # Where to search for py files that may contain ui strings (relative to one of the 'resource_path' of Blender).
 CUSTOM_PY_UI_FILES = [
     os.path.join("scripts", "startup", "bl_ui"),
+    os.path.join("scripts", "startup", "bl_operators"),
     os.path.join("scripts", "modules", "rna_prop_ui.py"),
 ]
 
@@ -597,12 +639,18 @@ class I18nSettings:
     def to_json(self):
         # Only save the diff from default i18n_settings!
         glob = globals()
-        export_dict = {uid: val for uid, val in self.__dict__.items() if _check_valid_data(uid, val) and glob.get(uid) != val}
+        export_dict = {
+            uid: val for uid, val in self.__dict__.items()
+            if _check_valid_data(uid, val) and glob.get(uid) != val
+        }
         return json.dumps(export_dict)
 
     def load(self, fname, reset=False):
+        reset = reset or fname is None
         if reset:
             self.__dict__ = {uid: data for uid, data in globals().items() if not uid.startswith("_")}
+        if fname is None:
+            return
         if isinstance(fname, str):
             if not os.path.isfile(fname):
                 # Assume it is already real JSon string...
@@ -629,6 +677,7 @@ class I18nSettings:
     GIT_I18N_ROOT = property(*(_gen_get_set_path("SOURCE_DIR", "REL_GIT_I18N_DIR")))
     GIT_I18N_PO_DIR = property(*(_gen_get_set_path("GIT_I18N_ROOT", "REL_GIT_I18N_PO_DIR")))
     POTFILES_SOURCE_DIR = property(*(_gen_get_set_path("SOURCE_DIR", "REL_POTFILES_SOURCE_DIR")))
+    PRESETS_DIR = property(*(_gen_get_set_path("SOURCE_DIR", "REL_PRESETS_DIR")))
     FILE_NAME_POT = property(*(_gen_get_set_path("I18N_DIR", "REL_FILE_NAME_POT")))
     MO_PATH_ROOT = property(*(_gen_get_set_path("I18N_DIR", "REL_MO_PATH_ROOT")))
     MO_PATH_TEMPLATE = property(*(_gen_get_set_path("I18N_DIR", "REL_MO_PATH_TEMPLATE")))

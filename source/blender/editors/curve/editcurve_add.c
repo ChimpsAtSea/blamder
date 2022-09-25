@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edcurve
@@ -69,25 +53,25 @@ static const char *get_curve_defname(int type)
   if ((type & CU_TYPE) == CU_BEZIER) {
     switch (stype) {
       case CU_PRIM_CURVE:
-        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "BezierCurve");
+        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "BezierCurve");
       case CU_PRIM_CIRCLE:
-        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "BezierCircle");
+        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "BezierCircle");
       case CU_PRIM_PATH:
-        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "CurvePath");
+        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "CurvePath");
       default:
-        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "Curve");
+        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "Curve");
     }
   }
   else {
     switch (stype) {
       case CU_PRIM_CURVE:
-        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "NurbsCurve");
+        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "NurbsCurve");
       case CU_PRIM_CIRCLE:
-        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "NurbsCircle");
+        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "NurbsCircle");
       case CU_PRIM_PATH:
-        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "NurbsPath");
+        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "NurbsPath");
       default:
-        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "Curve");
+        return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "Curve");
     }
   }
 }
@@ -98,17 +82,19 @@ static const char *get_surf_defname(int type)
 
   switch (stype) {
     case CU_PRIM_CURVE:
-      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "SurfCurve");
+      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "SurfCurve");
     case CU_PRIM_CIRCLE:
-      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "SurfCircle");
+      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "SurfCircle");
     case CU_PRIM_PATCH:
-      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "SurfPatch");
+      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "SurfPatch");
+    case CU_PRIM_TUBE:
+      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "SurfCylinder");
     case CU_PRIM_SPHERE:
-      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "SurfSphere");
+      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "SurfSphere");
     case CU_PRIM_DONUT:
-      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "SurfTorus");
+      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "SurfTorus");
     default:
-      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE, "Surface");
+      return CTX_DATA_(BLT_I18NCONTEXT_ID_CURVE_LEGACY, "Surface");
   }
 }
 
@@ -127,7 +113,7 @@ Nurb *ED_curve_add_nurbs_primitive(
   float fac;
   int a, b;
   const float grid = 1.0f;
-  const int cutype = (type & CU_TYPE);  // poly, bezier, nurbs, etc
+  const int cutype = (type & CU_TYPE); /* poly, bezier, nurbs, etc */
   const int stype = (type & CU_PRIMITIVE);
 
   unit_m4(umat);
@@ -141,7 +127,7 @@ Nurb *ED_curve_add_nurbs_primitive(
   BKE_nurbList_flag_set(editnurb, SELECT, false);
 
   /* these types call this function to return a Nurb */
-  if (stype != CU_PRIM_TUBE && stype != CU_PRIM_DONUT) {
+  if (!ELEM(stype, CU_PRIM_TUBE, CU_PRIM_DONUT)) {
     nu = (Nurb *)MEM_callocN(sizeof(Nurb), "addNurbprim");
     nu->type = cutype;
     nu->resolu = cu->resolu;
@@ -153,7 +139,7 @@ Nurb *ED_curve_add_nurbs_primitive(
       nu->resolu = cu->resolu;
       if (cutype == CU_BEZIER) {
         nu->pntsu = 2;
-        nu->bezt = (BezTriple *)MEM_callocN(2 * sizeof(BezTriple), "addNurbprim1");
+        nu->bezt = (BezTriple *)MEM_callocN(sizeof(BezTriple) * nu->pntsu, "addNurbprim1");
         bezt = nu->bezt;
         bezt->h1 = bezt->h2 = HD_ALIGN;
         bezt->f1 = bezt->f2 = bezt->f3 = SELECT;
@@ -190,7 +176,7 @@ Nurb *ED_curve_add_nurbs_primitive(
         nu->pntsu = 4;
         nu->pntsv = 1;
         nu->orderu = 4;
-        nu->bp = (BPoint *)MEM_callocN(sizeof(BPoint) * 4, "addNurbprim3");
+        nu->bp = (BPoint *)MEM_callocN(sizeof(BPoint) * nu->pntsu, "addNurbprim3");
 
         bp = nu->bp;
         for (a = 0; a < 4; a++, bp++) {
@@ -227,7 +213,7 @@ Nurb *ED_curve_add_nurbs_primitive(
       nu->orderu = 5;
       nu->flagu = CU_NURB_ENDPOINT; /* endpoint */
       nu->resolu = cu->resolu;
-      nu->bp = (BPoint *)MEM_callocN(sizeof(BPoint) * 5, "addNurbprim3");
+      nu->bp = (BPoint *)MEM_callocN(sizeof(BPoint) * nu->pntsu, "addNurbprim3");
 
       bp = nu->bp;
       for (a = 0; a < 5; a++, bp++) {
@@ -262,7 +248,7 @@ Nurb *ED_curve_add_nurbs_primitive(
 
       if (cutype == CU_BEZIER) {
         nu->pntsu = 4;
-        nu->bezt = (BezTriple *)MEM_callocN(sizeof(BezTriple) * 4, "addNurbprim1");
+        nu->bezt = (BezTriple *)MEM_callocN(sizeof(BezTriple) * nu->pntsu, "addNurbprim1");
         nu->flagu = CU_NURB_CYCLIC;
         bezt = nu->bezt;
 
@@ -306,9 +292,9 @@ Nurb *ED_curve_add_nurbs_primitive(
       else if (cutype == CU_NURBS) { /* nurb */
         nu->pntsu = 8;
         nu->pntsv = 1;
-        nu->orderu = 4;
-        nu->bp = (BPoint *)MEM_callocN(sizeof(BPoint) * 8, "addNurbprim6");
-        nu->flagu = CU_NURB_CYCLIC;
+        nu->orderu = 3;
+        nu->bp = (BPoint *)MEM_callocN(sizeof(BPoint) * nu->pntsu, "addNurbprim6");
+        nu->flagu = CU_NURB_CYCLIC | CU_NURB_BEZIER | CU_NURB_ENDPOINT;
         bp = nu->bp;
 
         for (a = 0; a < 8; a++) {
@@ -322,7 +308,7 @@ Nurb *ED_curve_add_nurbs_primitive(
             bp->vec[2] += 0.25f * nurbcircle[a][1] * grid;
           }
           if (a & 1) {
-            bp->vec[3] = 0.25 * M_SQRT2;
+            bp->vec[3] = 0.5 * M_SQRT2;
           }
           else {
             bp->vec[3] = 1.0;
@@ -356,7 +342,7 @@ Nurb *ED_curve_add_nurbs_primitive(
             bp->vec[0] += fac * grid;
             fac = (float)b - 1.5f;
             bp->vec[1] += fac * grid;
-            if ((a == 1 || a == 2) && (b == 1 || b == 2)) {
+            if ((ELEM(a, 1, 2)) && (ELEM(b, 1, 2))) {
               bp->vec[2] += grid;
             }
             mul_m4_v3(mat, bp->vec);
@@ -380,10 +366,10 @@ Nurb *ED_curve_add_nurbs_primitive(
 
         mul_mat3_m4_v3(mat, vec);
 
-        ed_editnurb_translate_flag(editnurb, SELECT, vec);
+        ed_editnurb_translate_flag(editnurb, SELECT, vec, CU_IS_2D(cu));
         ed_editnurb_extrude_flag(cu->editnurb, SELECT);
         mul_v3_fl(vec, -2.0f);
-        ed_editnurb_translate_flag(editnurb, SELECT, vec);
+        ed_editnurb_translate_flag(editnurb, SELECT, vec, CU_IS_2D(cu));
 
         BLI_remlink(editnurb, nu);
 
@@ -397,8 +383,8 @@ Nurb *ED_curve_add_nurbs_primitive(
       break;
     case CU_PRIM_SPHERE: /* sphere */
       if (cutype == CU_NURBS) {
-        float tmp_cent[3] = {0.f, 0.f, 0.f};
-        float tmp_vec[3] = {0.f, 0.f, 1.f};
+        const float tmp_cent[3] = {0.0f, 0.0f, 0.0f};
+        const float tmp_vec[3] = {0.0f, 0.0f, 1.0f};
 
         nu->pntsu = 5;
         nu->pntsv = 1;
@@ -406,7 +392,7 @@ Nurb *ED_curve_add_nurbs_primitive(
         nu->resolu = cu->resolu;
         nu->resolv = cu->resolv;
         nu->flag = CU_SMOOTH;
-        nu->bp = (BPoint *)MEM_callocN(sizeof(BPoint) * 5, "addNurbprim6");
+        nu->bp = (BPoint *)MEM_callocN(sizeof(BPoint) * nu->pntsu, "addNurbprim6");
         nu->flagu = 0;
         bp = nu->bp;
 
@@ -423,7 +409,7 @@ Nurb *ED_curve_add_nurbs_primitive(
           mul_m4_v3(mat, bp->vec);
           bp++;
         }
-        nu->flagu = CU_NURB_BEZIER;
+        nu->flagu = CU_NURB_BEZIER | CU_NURB_ENDPOINT;
         BKE_nurb_knot_calc_u(nu);
 
         BLI_addtail(editnurb, nu); /* temporal for spin */
@@ -431,7 +417,7 @@ Nurb *ED_curve_add_nurbs_primitive(
         if (newob && (U.flag & USER_ADD_VIEWALIGNED) == 0) {
           ed_editnurb_spin(umat, NULL, obedit, tmp_vec, tmp_cent);
         }
-        else if ((U.flag & USER_ADD_VIEWALIGNED)) {
+        else if (U.flag & USER_ADD_VIEWALIGNED) {
           ed_editnurb_spin(viewmat, NULL, obedit, zvec, mat[3]);
         }
         else {
@@ -451,8 +437,8 @@ Nurb *ED_curve_add_nurbs_primitive(
       break;
     case CU_PRIM_DONUT: /* torus */
       if (cutype == CU_NURBS) {
-        float tmp_cent[3] = {0.f, 0.f, 0.f};
-        float tmp_vec[3] = {0.f, 0.f, 1.f};
+        const float tmp_cent[3] = {0.0f, 0.0f, 0.0f};
+        const float tmp_vec[3] = {0.0f, 0.0f, 1.0f};
 
         xzproj = 1;
         nu = ED_curve_add_nurbs_primitive(C, obedit, mat, CU_NURBS | CU_PRIM_CIRCLE, 0);
@@ -466,7 +452,7 @@ Nurb *ED_curve_add_nurbs_primitive(
         if (newob && (U.flag & USER_ADD_VIEWALIGNED) == 0) {
           ed_editnurb_spin(umat, NULL, obedit, tmp_vec, tmp_cent);
         }
-        else if ((U.flag & USER_ADD_VIEWALIGNED)) {
+        else if (U.flag & USER_ADD_VIEWALIGNED) {
           ed_editnurb_spin(viewmat, NULL, obedit, zvec, mat[3]);
         }
         else {
@@ -485,22 +471,20 @@ Nurb *ED_curve_add_nurbs_primitive(
       break;
 
     default: /* should never happen */
-      BLI_assert(!"invalid nurbs type");
+      BLI_assert_msg(0, "invalid nurbs type");
       return NULL;
   }
 
   BLI_assert(nu != NULL);
 
   if (nu) { /* should always be set */
-    if ((obedit->type != OB_SURF) && ((cu->flag & CU_3D) == 0)) {
-      nu->flag |= CU_2D;
-    }
-
     nu->flag |= CU_SMOOTH;
     cu->actnu = BLI_listbase_count(editnurb);
     cu->actvert = CU_ACT_NONE;
 
-    BKE_nurb_test_2d(nu);
+    if (CU_IS_2D(cu)) {
+      BKE_nurb_project_2d(nu);
+    }
   }
 
   return nu;
@@ -508,13 +492,15 @@ Nurb *ED_curve_add_nurbs_primitive(
 
 static int curvesurf_prim_add(bContext *C, wmOperator *op, int type, int isSurf)
 {
-  Object *obedit = CTX_data_edit_object(C);
+  struct Main *bmain = CTX_data_main(C);
+  Scene *scene = CTX_data_scene(C);
+  ViewLayer *view_layer = CTX_data_view_layer(C);
+  Object *obedit = OBEDIT_FROM_VIEW_LAYER(view_layer);
   ListBase *editnurb;
   Nurb *nu;
   bool newob = false;
   bool enter_editmode;
   ushort local_view_bits;
-  float dia;
   float loc[3], rot[3];
   float mat[4][4];
 
@@ -526,15 +512,14 @@ static int curvesurf_prim_add(bContext *C, wmOperator *op, int type, int isSurf)
   }
 
   if (!isSurf) { /* adding curve */
-    if (obedit == NULL || obedit->type != OB_CURVE) {
+    if (obedit == NULL || obedit->type != OB_CURVES_LEGACY) {
       const char *name = get_curve_defname(type);
       Curve *cu;
 
-      obedit = ED_object_add_type(C, OB_CURVE, name, loc, rot, true, local_view_bits);
+      obedit = ED_object_add_type(C, OB_CURVES_LEGACY, name, loc, rot, true, local_view_bits);
       newob = true;
 
       cu = (Curve *)obedit->data;
-      cu->flag |= CU_DEFORM_FILL;
 
       if (type & CU_PRIM_PATH) {
         cu->flag |= CU_PATH | CU_3D;
@@ -555,9 +540,10 @@ static int curvesurf_prim_add(bContext *C, wmOperator *op, int type, int isSurf)
     }
   }
 
-  ED_object_new_primitive_matrix(C, obedit, loc, rot, mat);
-  dia = RNA_float_get(op->ptr, "radius");
-  mul_mat3_m4_fl(mat, dia);
+  float radius = RNA_float_get(op->ptr, "radius");
+  float scale[3];
+  copy_v3_fl(scale, radius);
+  ED_object_new_primitive_matrix(C, obedit, loc, rot, scale, mat);
 
   nu = ED_curve_add_nurbs_primitive(C, obedit, mat, type, newob);
   editnurb = object_editcurve_get(obedit);
@@ -565,7 +551,7 @@ static int curvesurf_prim_add(bContext *C, wmOperator *op, int type, int isSurf)
 
   /* userdef */
   if (newob && !enter_editmode) {
-    ED_object_editmode_exit(C, EM_FREEDATA);
+    ED_object_editmode_exit_ex(bmain, scene, obedit, EM_FREEDATA);
   }
 
   WM_event_add_notifier(C, NC_OBJECT | ND_DRAW, obedit);

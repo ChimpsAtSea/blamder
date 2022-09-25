@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -63,7 +49,7 @@ static void bm_vert_boundary_tangent(
   float tvec_a[3], tvec_b[3];
 
   /* get 2 boundary edges, there should only _be_ 2,
-   * in case there are more - results wont be valid of course */
+   * in case there are more - results won't be valid of course */
   BM_ITER_ELEM (e_iter, &iter, v, BM_EDGES_OF_VERT) {
     if (BM_elem_flag_test(e_iter, BM_ELEM_TAG)) {
       if (e_a == NULL) {
@@ -77,7 +63,7 @@ static void bm_vert_boundary_tangent(
   }
 
   if (e_a && e_b) {
-    /* note, with an incorrectly flushed selection this can crash */
+    /* NOTE: with an incorrectly flushed selection this can crash. */
     l_a = bm_edge_tag_faceloop(e_a);
     l_b = bm_edge_tag_faceloop(e_b);
 
@@ -142,22 +128,16 @@ static bool bm_loop_is_radial_boundary(BMLoop *l_first)
   if (l == l_first) {
     return true; /* a real boundary */
   }
-  else {
-    do {
-      if (BM_elem_flag_test(l->f, BM_ELEM_TAG)) {
-        return false;
-      }
-    } while ((l = l->radial_next) != l_first);
-  }
+
+  do {
+    if (BM_elem_flag_test(l->f, BM_ELEM_TAG)) {
+      return false;
+    }
+  } while ((l = l->radial_next) != l_first);
+
   return true;
 }
 
-/**
- * \param defgrp_index: Vertex group index, -1 for no vertex groups.
- *
- * \note All edge tags must be cleared.
- * \note Behavior matches MOD_solidify.c
- */
 void BM_mesh_wireframe(BMesh *bm,
                        const float offset,
                        const float offset_fac,
@@ -195,7 +175,7 @@ void BM_mesh_wireframe(BMesh *bm,
   BMVert **verts_neg = MEM_mallocN(sizeof(BMVert *) * totvert_orig, __func__);
   BMVert **verts_pos = MEM_mallocN(sizeof(BMVert *) * totvert_orig, __func__);
 
-  /* will over-alloc, but makes for easy lookups by index to keep aligned  */
+  /* Will over-alloc, but makes for easy lookups by index to keep aligned. */
   BMVert **verts_boundary = use_boundary ? MEM_mallocN(sizeof(BMVert *) * totvert_orig, __func__) :
                                            NULL;
 

@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_PYTHON_INTERPRETER_H__
-#define __FREESTYLE_PYTHON_INTERPRETER_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -34,7 +19,6 @@ extern "C" {
 #include "MEM_guardedalloc.h"
 
 // soc
-extern "C" {
 #include "DNA_text_types.h"
 
 #include "BKE_context.h"
@@ -44,10 +28,9 @@ extern "C" {
 #include "BKE_report.h"
 #include "BKE_text.h"
 
-#include "BPY_extern.h"
+#include "BPY_extern_run.h"
 
 #include "bpy_capi_utils.h"
-}
 
 namespace Freestyle {
 
@@ -71,12 +54,12 @@ class PythonInterpreter : public Interpreter {
     BKE_reports_clear(reports);
     char *fn = const_cast<char *>(filename.c_str());
 #if 0
-    bool ok = BPY_execute_filepath(_context, fn, reports);
+    bool ok = BPY_run_filepath(_context, fn, reports);
 #else
     bool ok;
-    Text *text = BKE_text_load(&_freestyle_bmain, fn, G_MAIN->name);
+    Text *text = BKE_text_load(&_freestyle_bmain, fn, G_MAIN->filepath);
     if (text) {
-      ok = BPY_execute_text(_context, text, reports, false);
+      ok = BPY_run_text(_context, text, reports, false);
       BKE_id_delete(&_freestyle_bmain, text);
     }
     else {
@@ -105,8 +88,9 @@ class PythonInterpreter : public Interpreter {
 
     BKE_reports_clear(reports);
 
-    if (!BPY_execute_string(_context, NULL, str.c_str())) {
+    if (!BPY_run_string_eval(_context, NULL, str.c_str())) {
       BPy_errors_to_report(reports);
+      PyErr_Clear();
       cerr << "\nError executing Python script from PythonInterpreter::interpretString" << endl;
       cerr << "Name: " << name << endl;
       cerr << "Errors: " << endl;
@@ -125,7 +109,7 @@ class PythonInterpreter : public Interpreter {
 
     BKE_reports_clear(reports);
 
-    if (!BPY_execute_text(_context, text, reports, false)) {
+    if (!BPY_run_text(_context, text, reports, false)) {
       cerr << "\nError executing Python script from PythonInterpreter::interpretText" << endl;
       cerr << "Name: " << name << endl;
       cerr << "Errors: " << endl;
@@ -149,5 +133,3 @@ class PythonInterpreter : public Interpreter {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_PYTHON_INTERPRETER_H__

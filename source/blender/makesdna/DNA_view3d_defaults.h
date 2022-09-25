@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_VIEW3D_DEFAULTS_H__
-#define __DNA_VIEW3D_DEFAULTS_H__
+#pragma once
 
 /* Struct members on own line. */
 /* clang-format off */
@@ -52,7 +37,10 @@
 #define _DNA_DEFAULT_View3DOverlay \
   { \
     .wireframe_threshold = 1.0f, \
+    .wireframe_opacity = 1.0f, \
     .xray_alpha_bone = 0.5f, \
+    .bone_wire_alpha = 1.0f, \
+    .fade_alpha = 0.40f, \
     .texture_paint_mode_opacity = 1.0f, \
     .weight_paint_mode_opacity = 1.0f, \
     .vertex_paint_mode_opacity = 1.0f, \
@@ -69,6 +57,8 @@
  \
     .gpencil_paper_opacity = 0.5f, \
     .gpencil_grid_opacity = 0.9f, \
+    .gpencil_vertex_paint_opacity = 1.0f, \
+    .normals_constant_screen_size = 7.0f, \
   }
 
 #define _DNA_DEFAULT_View3DCursor \
@@ -114,5 +104,3 @@
 /** \} */
 
 /* clang-format on */
-
-#endif /* __DNA_VIEW3D_DEFAULTS_H__ */

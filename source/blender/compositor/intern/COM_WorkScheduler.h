@@ -1,66 +1,30 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_WORKSCHEDULER_H__
-#define __COM_WORKSCHEDULER_H__
+#pragma once
 
-#include "COM_ExecutionGroup.h"
+#ifdef WITH_CXX_GUARDEDALLOC
+#  include "MEM_guardedalloc.h"
+#endif
 
-#include "BLI_threads.h"
+namespace blender::compositor {
 
-#include "COM_Device.h"
-#include "COM_WorkPackage.h"
-#include "COM_defines.h"
+struct WorkPackage;
+
+class CompositorContext;
 
 /** \brief the workscheduler
  * \ingroup execution
  */
-class WorkScheduler {
-
-#if COM_CURRENT_THREADING_MODEL == COM_TM_QUEUE
-  /**
-   * \brief are we being stopped.
-   */
-  static bool isStopping();
-
-  /**
-   * \brief main thread loop for cpudevices
-   * inside this loop new work is queried and being executed
-   */
-  static void *thread_execute_cpu(void *data);
-
-  /**
-   * \brief main thread loop for gpudevices
-   * inside this loop new work is queried and being executed
-   */
-  static void *thread_execute_gpu(void *data);
-#endif
- public:
+struct WorkScheduler {
   /**
    * \brief schedule a chunk of a group to be calculated.
    * An execution group schedules a chunk in the WorkScheduler
-   * when ExecutionGroup.isOpenCL is set the work will be handled by a OpenCLDevice
+   * when ExecutionGroup.get_flags().open_cl is set the work will be handled by a OpenCLDevice
    * otherwise the work is scheduled for an CPUDevice
    * \see ExecutionGroup.execute
-   * \param group: the execution group
-   * \param chunkNumber: the number of the chunk in the group to be executed
    */
-  static void schedule(ExecutionGroup *group, int chunkNumber);
+  static void schedule(WorkPackage *package);
 
   /**
    * \brief initialize the WorkScheduler
@@ -88,7 +52,7 @@ class WorkScheduler {
    * for every device a thread is created.
    * \see initialize Initialization and query of the number of devices
    */
-  static void start(CompositorContext &context);
+  static void start(const CompositorContext &context);
 
   /**
    * \brief stop the execution
@@ -106,9 +70,11 @@ class WorkScheduler {
    * \brief Are there OpenCL capable GPU devices initialized?
    * the result of this method is stored in the CompositorContext
    * A node can generate a different operation tree when OpenCLDevices exists.
-   * \see CompositorContext.getHasActiveOpenCLDevices
+   * \see CompositorContext.get_has_active_opencl_devices
    */
-  static bool hasGPUDevices();
+  static bool has_gpu_devices();
+
+  static int get_num_cpu_threads();
 
   static int current_thread_id();
 
@@ -117,4 +83,4 @@ class WorkScheduler {
 #endif
 };
 
-#endif /* __COM_WORKSCHEDULER_H__ */
+}  // namespace blender::compositor

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -20,8 +6,7 @@
  * BMesh inline iterator functions.
  */
 
-#ifndef __BMESH_ITERATORS_INLINE_H__
-#define __BMESH_ITERATORS_INLINE_H__
+#pragma once
 
 /* inline here optimizes out the switch statement when called with
  * constant values (which is very common), nicer for loop-in-loop situations */
@@ -189,18 +174,18 @@ BLI_INLINE void BM_iter_parallel(BMesh *bm,
                                  const char itype,
                                  TaskParallelMempoolFunc func,
                                  void *userdata,
-                                 const bool use_threading)
+                                 const TaskParallelSettings *settings)
 {
   /* inlining optimizes out this switch when called with the defined type */
   switch ((BMIterType)itype) {
     case BM_VERTS_OF_MESH:
-      BLI_task_parallel_mempool(bm->vpool, userdata, func, use_threading);
+      BLI_task_parallel_mempool(bm->vpool, userdata, func, settings);
       break;
     case BM_EDGES_OF_MESH:
-      BLI_task_parallel_mempool(bm->epool, userdata, func, use_threading);
+      BLI_task_parallel_mempool(bm->epool, userdata, func, settings);
       break;
     case BM_FACES_OF_MESH:
-      BLI_task_parallel_mempool(bm->fpool, userdata, func, use_threading);
+      BLI_task_parallel_mempool(bm->fpool, userdata, func, settings);
       break;
     default:
       /* should never happen */
@@ -210,5 +195,3 @@ BLI_INLINE void BM_iter_parallel(BMesh *bm,
 }
 
 #endif /* __BLI_TASK_H__ */
-
-#endif /* __BMESH_ITERATORS_INLINE_H__ */

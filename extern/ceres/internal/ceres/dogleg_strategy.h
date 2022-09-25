@@ -31,6 +31,8 @@
 #ifndef CERES_INTERNAL_DOGLEG_STRATEGY_H_
 #define CERES_INTERNAL_DOGLEG_STRATEGY_H_
 
+#include "ceres/internal/disable_warnings.h"
+#include "ceres/internal/export.h"
 #include "ceres/linear_solver.h"
 #include "ceres/trust_region_strategy.h"
 
@@ -52,21 +54,19 @@ namespace internal {
 // DoglegStrategy follows the approach by Shultz, Schnabel, Byrd.
 // This finds the exact optimum over the two-dimensional subspace
 // spanned by the two Dogleg vectors.
-class DoglegStrategy : public TrustRegionStrategy {
+class CERES_NO_EXPORT DoglegStrategy final : public TrustRegionStrategy {
  public:
   explicit DoglegStrategy(const TrustRegionStrategy::Options& options);
-  virtual ~DoglegStrategy() {}
 
   // TrustRegionStrategy interface
-  virtual Summary ComputeStep(const PerSolveOptions& per_solve_options,
-                              SparseMatrix* jacobian,
-                              const double* residuals,
-                              double* step);
-  virtual void StepAccepted(double step_quality);
-  virtual void StepRejected(double step_quality);
-  virtual void StepIsInvalid();
-
-  virtual double Radius() const;
+  Summary ComputeStep(const PerSolveOptions& per_solve_options,
+                      SparseMatrix* jacobian,
+                      const double* residuals,
+                      double* step) final;
+  void StepAccepted(double step_quality) final;
+  void StepRejected(double step_quality) final;
+  void StepIsInvalid() override;
+  double Radius() const final;
 
   // These functions are predominantly for testing.
   Vector gradient() const { return gradient_; }
@@ -76,8 +76,8 @@ class DoglegStrategy : public TrustRegionStrategy {
   Matrix subspace_B() const { return subspace_B_; }
 
  private:
-  typedef Eigen::Matrix<double, 2, 1, Eigen::DontAlign> Vector2d;
-  typedef Eigen::Matrix<double, 2, 2, Eigen::DontAlign> Matrix2d;
+  using Vector2d = Eigen::Matrix<double, 2, 1, Eigen::DontAlign>;
+  using Matrix2d = Eigen::Matrix<double, 2, 2, Eigen::DontAlign>;
 
   LinearSolver::Summary ComputeGaussNewtonStep(
       const PerSolveOptions& per_solve_options,
@@ -103,7 +103,7 @@ class DoglegStrategy : public TrustRegionStrategy {
 
   // mu is used to scale the diagonal matrix used to make the
   // Gauss-Newton solve full rank. In each solve, the strategy starts
-  // out with mu = min_mu, and tries values upto max_mu. If the user
+  // out with mu = min_mu, and tries values up to max_mu. If the user
   // reports an invalid step, the value of mu_ is increased so that
   // the next solve starts with a stronger regularization.
   //
@@ -161,5 +161,7 @@ class DoglegStrategy : public TrustRegionStrategy {
 
 }  // namespace internal
 }  // namespace ceres
+
+#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_DOGLEG_STRATEGY_H_

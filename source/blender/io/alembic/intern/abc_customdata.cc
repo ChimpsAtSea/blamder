@@ -1,39 +1,26 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2016 Kévin Dietrich.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Kévin Dietrich. All rights reserved. */
 
 /** \file
  * \ingroup balembic
  */
 
 #include "abc_customdata.h"
+#include "abc_axis_conversion.h"
 
 #include <Alembic/AbcGeom/All.h>
 #include <algorithm>
 #include <unordered_map>
 
 #include "DNA_customdata_types.h"
+#include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 
 #include "BLI_math_base.h"
 #include "BLI_utildefines.h"
 
 #include "BKE_customdata.h"
+#include "BKE_mesh.h"
 
 /* NOTE: for now only UVs and Vertex Colors are supported for streaming.
  * Although Alembic only allows for a single UV layer per {I|O}Schema, and does
@@ -42,6 +29,7 @@
  * in the write code for the conventions. */
 
 using Alembic::AbcGeom::kFacevaryingScope;
+using Alembic::AbcGeom::kVaryingScope;
 using Alembic::AbcGeom::kVertexScope;
 
 using Alembic::Abc::C4fArraySample;
@@ -50,13 +38,19 @@ using Alembic::Abc::V2fArraySample;
 
 using Alembic::AbcGeom::OC4fGeomParam;
 using Alembic::AbcGeom::OV2fGeomParam;
+using Alembic::AbcGeom::OV3fGeomParam;
+namespace blender::io::alembic {
+
+/* ORCO, Generated Coordinates, and Reference Points ("Pref") are all terms for the same thing.
+ * Other applications (Maya, Houdini) write these to a property called "Pref". */
+static const std::string propNameOriginalCoordinates("Pref");
 
 static void get_uvs(const CDStreamConfig &config,
                     std::vector<Imath::V2f> &uvs,
                     std::vector<uint32_t> &uvidx,
-                    void *cd_data)
+                    const void *cd_data)
 {
-  MLoopUV *mloopuv_array = static_cast<MLoopUV *>(cd_data);
+  const MLoopUV *mloopuv_array = static_cast<const MLoopUV *>(cd_data);
 
   if (!mloopuv_array) {
     return;
@@ -67,21 +61,21 @@ static void get_uvs(const CDStreamConfig &config,
   MLoop *mloop = config.mloop;
 
   if (!config.pack_uvs) {
-    int cnt = 0;
+    int count = 0;
     uvidx.resize(config.totloop);
     uvs.resize(config.totloop);
 
     /* Iterate in reverse order to match exported polygons. */
     for (int i = 0; i < num_poly; i++) {
       MPoly &current_poly = polygons[i];
-      MLoopUV *loopuv = mloopuv_array + current_poly.loopstart + current_poly.totloop;
+      const MLoopUV *loopuv = mloopuv_array + current_poly.loopstart + current_poly.totloop;
 
-      for (int j = 0; j < current_poly.totloop; j++, cnt++) {
+      for (int j = 0; j < current_poly.totloop; j++, count++) {
         loopuv--;
 
-        uvidx[cnt] = cnt;
-        uvs[cnt][0] = loopuv->uv[0];
-        uvs[cnt][1] = loopuv->uv[1];
+        uvidx[count] = count;
+        uvs[count][0] = loopuv->uv[0];
+        uvs[count][1] = loopuv->uv[1];
       }
     }
   }
@@ -93,7 +87,7 @@ static void get_uvs(const CDStreamConfig &config,
     for (int i = 0; i < num_poly; i++) {
       MPoly &current_poly = polygons[i];
       MLoop *looppoly = mloop + current_poly.loopstart + current_poly.totloop;
-      MLoopUV *loopuv = mloopuv_array + current_poly.loopstart + current_poly.totloop;
+      const MLoopUV *loopuv = mloopuv_array + current_poly.loopstart + current_poly.totloop;
 
       for (int j = 0; j < current_poly.totloop; j++) {
         looppoly--;
@@ -131,7 +125,7 @@ const char *get_uv_sample(UVSample &sample, const CDStreamConfig &config, Custom
     return "";
   }
 
-  void *cd_data = CustomData_get_layer_n(data, CD_MLOOPUV, active_uvlayer);
+  const void *cd_data = CustomData_get_layer_n(data, CD_MLOOPUV, active_uvlayer);
 
   get_uvs(config, sample.uvs, sample.indices, cd_data);
 
@@ -145,7 +139,7 @@ const char *get_uv_sample(UVSample &sample, const CDStreamConfig &config, Custom
  */
 static void write_uv(const OCompoundProperty &prop,
                      CDStreamConfig &config,
-                     void *data,
+                     const void *data,
                      const char *name)
 {
   std::vector<uint32_t> indices;
@@ -167,36 +161,30 @@ static void write_uv(const OCompoundProperty &prop,
                                UInt32ArraySample(&indices.front(), indices.size()),
                                kFacevaryingScope);
   param.set(sample);
+  param.setTimeSampling(config.timesample_index);
 
   config.abc_uv_maps[uv_map_name] = param;
 }
 
-/* Convention to write Vertex Colors:
- * - C3fGeomParam/C4fGeomParam on the arbGeomParam
- * - set scope as vertex varying
- */
-static void write_mcol(const OCompoundProperty &prop,
-                       const CDStreamConfig &config,
-                       void *data,
-                       const char *name)
+static void get_cols(const CDStreamConfig &config,
+                     std::vector<Imath::C4f> &buffer,
+                     std::vector<uint32_t> &uvidx,
+                     const void *cd_data)
 {
   const float cscale = 1.0f / 255.0f;
-  MPoly *polys = config.mpoly;
-  MLoop *mloops = config.mloop;
-  MCol *cfaces = static_cast<MCol *>(data);
-
-  std::vector<Imath::C4f> buffer;
-  std::vector<uint32_t> indices;
+  const MPoly *polys = config.mpoly;
+  const MLoop *mloops = config.mloop;
+  const MCol *cfaces = static_cast<const MCol *>(cd_data);
 
   buffer.reserve(config.totvert);
-  indices.reserve(config.totvert);
+  uvidx.reserve(config.totvert);
 
   Imath::C4f col;
 
   for (int i = 0; i < config.totpoly; i++) {
-    MPoly *p = &polys[i];
-    MCol *cface = &cfaces[p->loopstart + p->totloop];
-    MLoop *mloop = &mloops[p->loopstart + p->totloop];
+    const MPoly *p = &polys[i];
+    const MCol *cface = &cfaces[p->loopstart + p->totloop];
+    const MLoop *mloop = &mloops[p->loopstart + p->totloop];
 
     for (int j = 0; j < p->totloop; j++) {
       cface--;
@@ -208,17 +196,76 @@ static void write_mcol(const OCompoundProperty &prop,
       col[3] = cface->b * cscale;
 
       buffer.push_back(col);
-      indices.push_back(buffer.size() - 1);
+      uvidx.push_back(buffer.size() - 1);
     }
   }
+}
 
-  OC4fGeomParam param(prop, name, true, kFacevaryingScope, 1);
+/* Convention to write Vertex Colors:
+ * - C3fGeomParam/C4fGeomParam on the arbGeomParam
+ * - set scope as vertex varying
+ */
+static void write_mcol(const OCompoundProperty &prop,
+                       CDStreamConfig &config,
+                       const void *data,
+                       const char *name)
+{
+  std::vector<uint32_t> indices;
+  std::vector<Imath::C4f> buffer;
+
+  get_cols(config, buffer, indices, data);
+
+  if (indices.empty() || buffer.empty()) {
+    return;
+  }
+
+  std::string vcol_name(name);
+  OC4fGeomParam param = config.abc_vertex_colors[vcol_name];
+
+  if (!param.valid()) {
+    param = OC4fGeomParam(prop, name, true, kFacevaryingScope, 1);
+  }
 
   OC4fGeomParam::Sample sample(C4fArraySample(&buffer.front(), buffer.size()),
                                UInt32ArraySample(&indices.front(), indices.size()),
                                kVertexScope);
 
   param.set(sample);
+  param.setTimeSampling(config.timesample_index);
+
+  config.abc_vertex_colors[vcol_name] = param;
+}
+
+void write_generated_coordinates(const OCompoundProperty &prop, CDStreamConfig &config)
+{
+  Mesh *mesh = config.mesh;
+  const void *customdata = CustomData_get_layer(&mesh->vdata, CD_ORCO);
+  if (customdata == nullptr) {
+    /* Data not available, so don't even bother creating an Alembic property for it. */
+    return;
+  }
+  const float(*orcodata)[3] = static_cast<const float(*)[3]>(customdata);
+
+  /* Convert 3D vertices from float[3] z=up to V3f y=up. */
+  std::vector<Imath::V3f> coords(config.totvert);
+  float orco_yup[3];
+  for (int vertex_idx = 0; vertex_idx < config.totvert; vertex_idx++) {
+    copy_yup_from_zup(orco_yup, orcodata[vertex_idx]);
+    coords[vertex_idx].setValue(orco_yup[0], orco_yup[1], orco_yup[2]);
+  }
+
+  /* ORCOs are always stored in the normalized 0..1 range in Blender, but Alembic stores them
+   * unnormalized, so we need to unnormalize (invert transform) them. */
+  BKE_mesh_orco_verts_transform(
+      mesh, reinterpret_cast<float(*)[3]>(coords.data()), mesh->totvert, true);
+
+  if (!config.abc_orco.valid()) {
+    /* Create the Alembic property and keep a reference so future frames can reuse it. */
+    config.abc_orco = OV3fGeomParam(prop, propNameOriginalCoordinates, false, kVertexScope, 1);
+  }
+
+  OV3fGeomParam::Sample sample(coords, kVertexScope);
+  config.abc_orco.set(sample);
 }
 
 void write_custom_data(const OCompoundProperty &prop,
@@ -226,7 +273,7 @@ void write_custom_data(const OCompoundProperty &prop,
                        CustomData *data,
                        int data_type)
 {
-  CustomDataType cd_data_type = static_cast<CustomDataType>(data_type);
+  eCustomDataType cd_data_type = static_cast<eCustomDataType>(data_type);
 
   if (!CustomData_has_layer(data, cd_data_type)) {
     return;
@@ -236,7 +283,7 @@ void write_custom_data(const OCompoundProperty &prop,
   const int tot_layers = CustomData_number_of_layers(data, cd_data_type);
 
   for (int i = 0; i < tot_layers; i++) {
-    void *cd_data = CustomData_get_layer_n(data, cd_data_type, i);
+    const void *cd_data = CustomData_get_layer_n(data, cd_data_type, i);
     const char *name = CustomData_get_layer_name(data, cd_data_type, i);
 
     if (cd_data_type == CD_MLOOPUV) {
@@ -247,7 +294,7 @@ void write_custom_data(const OCompoundProperty &prop,
 
       write_uv(prop, config, cd_data, name);
     }
-    else if (cd_data_type == CD_MLOOPCOL) {
+    else if (cd_data_type == CD_PROP_BYTE_COLOR) {
       write_mcol(prop, config, cd_data, name);
     }
   }
@@ -258,28 +305,35 @@ void write_custom_data(const OCompoundProperty &prop,
 using Alembic::Abc::C3fArraySamplePtr;
 using Alembic::Abc::C4fArraySamplePtr;
 using Alembic::Abc::PropertyHeader;
+using Alembic::Abc::UInt32ArraySamplePtr;
 
 using Alembic::AbcGeom::IC3fGeomParam;
 using Alembic::AbcGeom::IC4fGeomParam;
 using Alembic::AbcGeom::IV2fGeomParam;
+using Alembic::AbcGeom::IV3fGeomParam;
 
 static void read_uvs(const CDStreamConfig &config,
                      void *data,
+                     const AbcUvScope uv_scope,
                      const Alembic::AbcGeom::V2fArraySamplePtr &uvs,
-                     const Alembic::AbcGeom::UInt32ArraySamplePtr &indices)
+                     const UInt32ArraySamplePtr &indices)
 {
   MPoly *mpolys = config.mpoly;
+  MLoop *mloops = config.mloop;
   MLoopUV *mloopuvs = static_cast<MLoopUV *>(data);
 
   unsigned int uv_index, loop_index, rev_loop_index;
+
+  BLI_assert(uv_scope != ABC_UV_SCOPE_NONE);
+  const bool do_uvs_per_loop = (uv_scope == ABC_UV_SCOPE_LOOP);
 
   for (int i = 0; i < config.totpoly; i++) {
     MPoly &poly = mpolys[i];
     unsigned int rev_loop_offset = poly.loopstart + poly.totloop - 1;
 
     for (int f = 0; f < poly.totloop; f++) {
-      loop_index = poly.loopstart + f;
       rev_loop_index = rev_loop_offset - f;
+      loop_index = do_uvs_per_loop ? poly.loopstart + f : mloops[rev_loop_index].v;
       uv_index = (*indices)[loop_index];
       const Imath::V2f &uv = (*uvs)[uv_index];
 
@@ -327,7 +381,7 @@ static void read_custom_data_mcols(const std::string &iobject_full_name,
   if (IC3fGeomParam::matches(prop_header)) {
     IC3fGeomParam color_param(arbGeomParams, prop_header.getName());
     IC3fGeomParam::Sample sample;
-    BLI_assert(!strcmp("rgb", color_param.getInterpretation()));
+    BLI_assert(STREQ("rgb", color_param.getInterpretation()));
 
     color_param.getIndexed(sample, iss);
     is_facevarying = sample.getScope() == kFacevaryingScope &&
@@ -340,7 +394,7 @@ static void read_custom_data_mcols(const std::string &iobject_full_name,
   else if (IC4fGeomParam::matches(prop_header)) {
     IC4fGeomParam color_param(arbGeomParams, prop_header.getName());
     IC4fGeomParam::Sample sample;
-    BLI_assert(!strcmp("rgba", color_param.getInterpretation()));
+    BLI_assert(STREQ("rgba", color_param.getInterpretation()));
 
     color_param.getIndexed(sample, iss);
     is_facevarying = sample.getScope() == kFacevaryingScope &&
@@ -358,7 +412,7 @@ static void read_custom_data_mcols(const std::string &iobject_full_name,
 
   /* Read the vertex colors */
   void *cd_data = config.add_customdata_cb(
-      config.mesh, prop_header.getName().c_str(), CD_MLOOPCOL);
+      config.mesh, prop_header.getName().c_str(), CD_PROP_BYTE_COLOR);
   MCol *cfaces = static_cast<MCol *>(cd_data);
   MPoly *mpolys = config.mpoly;
   MLoop *mloops = config.mloop;
@@ -438,13 +492,66 @@ static void read_custom_data_uvs(const ICompoundProperty &prop,
   IV2fGeomParam::Sample sample;
   uv_param.getIndexed(sample, iss);
 
-  if (uv_param.getScope() != kFacevaryingScope) {
+  UInt32ArraySamplePtr uvs_indices = sample.getIndices();
+
+  const AbcUvScope uv_scope = get_uv_scope(uv_param.getScope(), config, uvs_indices);
+
+  if (uv_scope == ABC_UV_SCOPE_NONE) {
     return;
   }
 
   void *cd_data = config.add_customdata_cb(config.mesh, prop_header.getName().c_str(), CD_MLOOPUV);
 
-  read_uvs(config, cd_data, sample.getVals(), sample.getIndices());
+  read_uvs(config, cd_data, uv_scope, sample.getVals(), uvs_indices);
+}
+
+void read_generated_coordinates(const ICompoundProperty &prop,
+                                const CDStreamConfig &config,
+                                const Alembic::Abc::ISampleSelector &iss)
+{
+  if (!prop.valid() || prop.getPropertyHeader(propNameOriginalCoordinates) == nullptr) {
+    /* The ORCO property isn't there, so don't bother trying to process it. */
+    return;
+  }
+
+  IV3fGeomParam param(prop, propNameOriginalCoordinates);
+  if (!param.valid() || param.isIndexed()) {
+    /* Invalid or indexed coordinates aren't supported. */
+    return;
+  }
+  if (param.getScope() != kVertexScope) {
+    /* These are original vertex coordinates, so must be vertex-scoped. */
+    return;
+  }
+
+  IV3fGeomParam::Sample sample = param.getExpandedValue(iss);
+  Alembic::AbcGeom::V3fArraySamplePtr abc_orco = sample.getVals();
+  const size_t totvert = abc_orco.get()->size();
+  Mesh *mesh = config.mesh;
+
+  if (totvert != mesh->totvert) {
+    /* Either the data is somehow corrupted, or we have a dynamic simulation where only the ORCOs
+     * for the first frame were exported. */
+    return;
+  }
+
+  void *cd_data;
+  if (CustomData_has_layer(&mesh->vdata, CD_ORCO)) {
+    cd_data = CustomData_get_layer(&mesh->vdata, CD_ORCO);
+  }
+  else {
+    cd_data = CustomData_add_layer(&mesh->vdata, CD_ORCO, CD_CALLOC, nullptr, totvert);
+  }
+
+  float(*orcodata)[3] = static_cast<float(*)[3]>(cd_data);
+  for (int vertex_idx = 0; vertex_idx < totvert; ++vertex_idx) {
+    const Imath::V3f &abc_coords = (*abc_orco)[vertex_idx];
+    copy_zup_from_yup(orcodata[vertex_idx], abc_coords.getValue());
+  }
+
+  /* ORCOs are always stored in the normalized 0..1 range in Blender, but Alembic stores them
+   * unnormalized, so we need to normalize them. */
+  BKE_mesh_orco_verts_transform(mesh, orcodata, mesh->totvert, false);
 }
 
 void read_custom_data(const std::string &iobject_full_name,
@@ -457,7 +564,6 @@ void read_custom_data(const std::string &iobject_full_name,
   }
 
   int num_uvs = 0;
-  int num_colors = 0;
 
   const size_t num_props = prop.getNumProperties();
 
@@ -476,12 +582,28 @@ void read_custom_data(const std::string &iobject_full_name,
 
     /* Read vertex colors according to convention. */
     if (IC3fGeomParam::matches(prop_header) || IC4fGeomParam::matches(prop_header)) {
-      if (++num_colors > MAX_MCOL) {
-        continue;
-      }
-
       read_custom_data_mcols(iobject_full_name, prop, prop_header, config, iss);
       continue;
     }
   }
 }
+
+AbcUvScope get_uv_scope(const Alembic::AbcGeom::GeometryScope scope,
+                        const CDStreamConfig &config,
+                        const Alembic::AbcGeom::UInt32ArraySamplePtr &indices)
+{
+  if (scope == kFacevaryingScope && indices->size() == config.totloop) {
+    return ABC_UV_SCOPE_LOOP;
+  }
+
+  /* kVaryingScope is sometimes used for vertex scopes as the values vary across the vertices. To
+   * be sure, one has to check the size of the data against the number of vertices, as it could
+   * also be a varying attribute across the faces (i.e. one value per face). */
+  if ((ELEM(scope, kVaryingScope, kVertexScope)) && indices->size() == config.totvert) {
+    return ABC_UV_SCOPE_VERTEX;
+  }
+
+  return ABC_UV_SCOPE_NONE;
+}
+
+}  // namespace blender::io::alembic

@@ -32,7 +32,9 @@
 #define CERES_INTERNAL_REORDER_PROGRAM_H_
 
 #include <string>
-#include "ceres/internal/port.h"
+
+#include "ceres/internal/disable_warnings.h"
+#include "ceres/internal/export.h"
 #include "ceres/parameter_block_ordering.h"
 #include "ceres/problem_impl.h"
 #include "ceres/types.h"
@@ -43,17 +45,17 @@ namespace internal {
 class Program;
 
 // Reorder the parameter blocks in program using the ordering
-bool ApplyOrdering(const ProblemImpl::ParameterMap& parameter_map,
-                   const ParameterBlockOrdering& ordering,
-                   Program* program,
-                   std::string* error);
+CERES_NO_EXPORT bool ApplyOrdering(
+    const ProblemImpl::ParameterMap& parameter_map,
+    const ParameterBlockOrdering& ordering,
+    Program* program,
+    std::string* error);
 
 // Reorder the residuals for program, if necessary, so that the residuals
 // involving each E block occur together. This is a necessary condition for the
 // Schur eliminator, which works on these "row blocks" in the jacobian.
-bool LexicographicallyOrderResidualBlocks(int size_of_first_elimination_group,
-                                          Program* program,
-                                          std::string* error);
+CERES_NO_EXPORT bool LexicographicallyOrderResidualBlocks(
+    int size_of_first_elimination_group, Program* program, std::string* error);
 
 // Schur type solvers require that all parameter blocks eliminated
 // by the Schur eliminator occur before others and the residuals be
@@ -71,7 +73,7 @@ bool LexicographicallyOrderResidualBlocks(int size_of_first_elimination_group,
 //
 // Upon return, ordering contains the parameter block ordering that
 // was used to order the program.
-bool ReorderProgramForSchurTypeLinearSolver(
+CERES_NO_EXPORT bool ReorderProgramForSchurTypeLinearSolver(
     LinearSolverType linear_solver_type,
     SparseLinearAlgebraLibraryType sparse_linear_algebra_library_type,
     const ProblemImpl::ParameterMap& parameter_map,
@@ -89,13 +91,30 @@ bool ReorderProgramForSchurTypeLinearSolver(
 // fill-reducing ordering is available in the sparse linear algebra
 // library (SuiteSparse version >= 4.2.0) then the fill reducing
 // ordering will take it into account, otherwise it will be ignored.
-bool ReorderProgramForSparseNormalCholesky(
+CERES_NO_EXPORT bool ReorderProgramForSparseCholesky(
     SparseLinearAlgebraLibraryType sparse_linear_algebra_library_type,
     const ParameterBlockOrdering& parameter_block_ordering,
+    int start_row_block,
     Program* program,
     std::string* error);
+
+// Reorder the residual blocks in the program so that all the residual
+// blocks in bottom_residual_blocks are at the bottom. The return
+// value is the number of residual blocks in the program in "top" part
+// of the Program, i.e., the ones not included in
+// bottom_residual_blocks.
+//
+// This number can be different from program->NumResidualBlocks() -
+// bottom_residual_blocks.size() because we allow
+// bottom_residual_blocks to contain residual blocks not present in
+// the Program.
+CERES_NO_EXPORT int ReorderResidualBlocksByPartition(
+    const std::unordered_set<ResidualBlockId>& bottom_residual_blocks,
+    Program* program);
 
 }  // namespace internal
 }  // namespace ceres
 
-#endif  // CERES_INTERNAL_REORDER_PROGRAM_
+#include "ceres/internal/reenable_warnings.h"
+
+#endif  // CERES_INTERNAL_REORDER_PROGRAM_H_

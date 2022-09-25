@@ -1,26 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- * filter.c
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup imbuf
  */
+
+#include <math.h>
 
 #include "MEM_guardedalloc.h"
 
@@ -363,7 +348,7 @@ void IMB_mask_filter_extend(char *mask, int width, int height)
   MEM_freeN(temprect);
 }
 
-void IMB_mask_clear(ImBuf *ibuf, char *mask, int val)
+void IMB_mask_clear(ImBuf *ibuf, const char *mask, int val)
 {
   int x, y;
   if (ibuf->rect_float) {
@@ -394,9 +379,8 @@ static int filter_make_index(const int x, const int y, const int w, const int h)
   if (x < 0 || x >= w || y < 0 || y >= h) {
     return -1; /* return bad index */
   }
-  else {
-    return y * w + x;
-  }
+
+  return y * w + x;
 }
 
 static int check_pixel_assigned(
@@ -419,12 +403,6 @@ static int check_pixel_assigned(
   return res;
 }
 
-/**
- * if alpha is zero, it checks surrounding pixels and averages color. sets new alphas to 1.0
- *
- * When a mask is given, only effect pixels with a mask value of 1,
- * defined as #BAKE_MASK_MARGIN in rendercore.c
- * */
 void IMB_filter_extend(struct ImBuf *ibuf, char *mask, int filter)
 {
   const int width = ibuf->x;
@@ -528,7 +506,7 @@ void IMB_filter_extend(struct ImBuf *ibuf, char *mask, int filter)
               else {
                 for (c = 0; c < depth; c++) {
                   ((unsigned char *)dstbuf)[depth * index + c] =
-                      acc[c] > 255 ? 255 : (acc[c] < 0 ? 0 : ((unsigned char)(acc[c] + 0.5f)));
+                      acc[c] > 255 ? 255 : (acc[c] < 0 ? 0 : (unsigned char)roundf(acc[c]));
                 }
               }
 
@@ -556,7 +534,6 @@ void IMB_filter_extend(struct ImBuf *ibuf, char *mask, int filter)
   }
 }
 
-/* threadsafe version, only recreates existing maps */
 void IMB_remakemipmap(ImBuf *ibuf, int use_filter)
 {
   ImBuf *hbuf = ibuf;
@@ -593,7 +570,6 @@ void IMB_remakemipmap(ImBuf *ibuf, int use_filter)
   }
 }
 
-/* frees too (if there) and recreates new data */
 void IMB_makemipmap(ImBuf *ibuf, int use_filter)
 {
   ImBuf *hbuf = ibuf;

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2018 Blender Foundation.
+
 # - Find Embree library
 # Find the native Embree includes and library
 # This module defines
@@ -7,20 +10,6 @@
 #  EMBREE_ROOT_DIR, The base directory to search for Embree.
 #                        This can also be an environment variable.
 #  EMBREEFOUND, If false, do not try to use Embree.
-#
-# also defined, but not for general use are
-#  EMBREE_LIBRARY, where to find the Embree library.
-
-#=============================================================================
-# Copyright 2018 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
 
 # If EMBREE_ROOT_DIR was defined in the environment, use it.
 IF(NOT EMBREE_ROOT_DIR AND NOT $ENV{EMBREE_ROOT_DIR} STREQUAL "")
@@ -41,12 +30,17 @@ FIND_PATH(EMBREE_INCLUDE_DIR
     include
 )
 
+IF(NOT (("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "aarch64") OR (APPLE AND ("${CMAKE_OSX_ARCHITECTURES}" STREQUAL "arm64"))))
+  SET(_embree_SIMD_COMPONENTS
+    embree_sse42
+    embree_avx
+    embree_avx2
+  )
+ENDIF()
 
 SET(_embree_FIND_COMPONENTS
   embree3
-  embree_avx
-  embree_avx2
-  embree_sse42
+  ${_embree_SIMD_COMPONENTS}
   lexers
   math
   simd
@@ -66,29 +60,28 @@ FOREACH(COMPONENT ${_embree_FIND_COMPONENTS})
     PATH_SUFFIXES
       lib64 lib
     )
+  IF(NOT EMBREE_${UPPERCOMPONENT}_LIBRARY)
+    IF(EMBREE_EMBREE3_LIBRARY)
+      # If we can't find all the static libraries, try to fall back to the shared library if found.
+      # This allows building with a shared embree library
+      SET(_embree_LIBRARIES ${EMBREE_EMBREE3_LIBRARY})
+      BREAK()
+    ENDIF()
+  ENDIF()
   LIST(APPEND _embree_LIBRARIES "${EMBREE_${UPPERCOMPONENT}_LIBRARY}")
 ENDFOREACH()
 
 
-FIND_LIBRARY(EMBREE_LIBRARY
-  NAMES
-    libembree3
-  HINTS
-    ${_embree_SEARCH_DIRS}
-  PATH_SUFFIXES
-    lib64 lib
-)
-
 # handle the QUIETLY and REQUIRED arguments and set EMBREE_FOUND to TRUE if
 # all listed variables are TRUE
 INCLUDE(FindPackageHandleStandardArgs)
-FIND_PACKAGE_HANDLE_STANDARD_ARGS(EMBREE DEFAULT_MSG
+FIND_PACKAGE_HANDLE_STANDARD_ARGS(Embree DEFAULT_MSG
     _embree_LIBRARIES EMBREE_INCLUDE_DIR)
 
 IF(EMBREE_FOUND)
   SET(EMBREE_LIBRARIES ${_embree_LIBRARIES})
   SET(EMBREE_INCLUDE_DIRS ${EMBREE_INCLUDE_DIR})
-ENDIF(EMBREE_FOUND)
+ENDIF()
 
 MARK_AS_ADVANCED(
   EMBREE_INCLUDE_DIR

@@ -1,14 +1,14 @@
 
+#pragma BLENDER_REQUIRE(common_math_lib.glsl)
+#pragma BLENDER_REQUIRE(common_view_lib.glsl)
+
+uniform sampler2D colorBuffer;
+uniform depth2D depthBuffer;
 uniform sampler2D colorHistoryBuffer;
-uniform sampler2D velocityBuffer;
+
+uniform mat4 prevViewProjectionMatrix;
 
 out vec4 FragColor;
-
-vec4 safe_color(vec4 c)
-{
-  /* Clamp to avoid black square artifacts if a pixel goes NaN. */
-  return clamp(c, vec4(0.0), vec4(1e20)); /* 1e20 arbitrary. */
-}
 
 #ifdef USE_REPROJECTION
 
@@ -24,7 +24,7 @@ vec4 safe_color(vec4 c)
  */
 vec3 clip_to_aabb(vec3 color, vec3 minimum, vec3 maximum, vec3 average)
 {
-  /* note: only clips towards aabb center (but fast!) */
+  /* NOTE: only clips towards aabb center (but fast!) */
   vec3 center = 0.5 * (maximum + minimum);
   vec3 extents = 0.5 * (maximum - minimum);
   vec3 dist = color - center;
@@ -38,16 +38,19 @@ vec3 clip_to_aabb(vec3 color, vec3 minimum, vec3 maximum, vec3 average)
  */
 void main()
 {
-  ivec2 texel = ivec2(gl_FragCoord.xy);
-  vec2 motion = texelFetch(velocityBuffer, texel, 0).rg;
-
-  /* Decode from unsigned normalized 16bit texture. */
-  motion = motion * 2.0 - 1.0;
-
-  /* Compute pixel position in previous frame. */
   vec2 screen_res = vec2(textureSize(colorBuffer, 0).xy);
   vec2 uv = gl_FragCoord.xy / screen_res;
-  vec2 uv_history = uv - motion;
+  ivec2 texel = ivec2(gl_FragCoord.xy);
+
+  /* Compute pixel position in previous frame. */
+  float depth = textureLod(depthBuffer, uv, 0.0).r;
+  vec3 pos = get_world_space_from_depth(uv, depth);
+  vec2 uv_history = project_point(prevViewProjectionMatrix, pos).xy * 0.5 + 0.5;
+
+  /* HACK: Reject lookdev spheres from TAA reprojection. */
+  if (depth == 0.0) {
+    uv_history = uv;
+  }
 
   ivec2 texel_history = ivec2(uv_history * screen_res);
   vec4 color_history = textureLod(colorHistoryBuffer, uv_history, 0.0);
@@ -82,7 +85,7 @@ void main()
   color_history.rgb = clip_to_aabb(color_history.rgb, min_col.rgb, max_col.rgb, avg_col.rgb);
 
   /* Luminance weighting. */
-  /* TODO correct luminance */
+  /* TODO: correct luminance. */
   float lum0 = dot(color.rgb, vec3(0.333));
   float lum1 = dot(color_history.rgb, vec3(0.333));
   float diff = abs(lum0 - lum1) / max(lum0, max(lum1, 0.2));

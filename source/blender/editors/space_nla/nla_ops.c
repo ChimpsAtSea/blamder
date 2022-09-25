@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 Blender Foundation, Joshua Leung
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation, Joshua Leung. All rights reserved. */
 
 /** \file
  * \ingroup spnla
@@ -30,31 +14,26 @@
 #include "BKE_screen.h"
 
 #include "ED_anim_api.h"
-#include "ED_markers.h"
 #include "ED_screen.h"
-#include "ED_select_utils.h"
-#include "ED_transform.h"
+
+#include "RNA_access.h"
 
 #include "WM_api.h"
 #include "WM_types.h"
-
-#include "RNA_access.h"
 
 #include "nla_intern.h" /* own include */
 
 /* ************************** poll callbacks for operators **********************************/
 
-/* tweakmode is NOT enabled */
 bool nlaop_poll_tweakmode_off(bContext *C)
 {
   Scene *scene;
 
   /* for now, we check 2 things:
    * 1) active editor must be NLA
-   * 2) tweakmode is currently set as a 'per-scene' flag
+   * 2) tweak-mode is currently set as a 'per-scene' flag
    *    so that it will affect entire NLA data-sets,
-   *    but not all AnimData blocks will be in tweakmode for
-   *    various reasons
+   *    but not all AnimData blocks will be in tweak-mode for various reasons.
    */
   if (ED_operator_nla_active(C) == 0) {
     return 0;
@@ -68,17 +47,15 @@ bool nlaop_poll_tweakmode_off(bContext *C)
   return 1;
 }
 
-/* tweakmode IS enabled */
 bool nlaop_poll_tweakmode_on(bContext *C)
 {
   Scene *scene;
 
   /* for now, we check 2 things:
    * 1) active editor must be NLA
-   * 2) tweakmode is currently set as a 'per-scene' flag
+   * 2) tweak-mode is currently set as a 'per-scene' flag
    *    so that it will affect entire NLA data-sets,
-   *    but not all AnimData blocks will be in tweakmode for
-   *    various reasons
+   *    but not all AnimData blocks will be in tweak-mode for various reasons.
    */
   if (ED_operator_nla_active(C) == 0) {
     return 0;
@@ -92,7 +69,6 @@ bool nlaop_poll_tweakmode_on(bContext *C)
   return 1;
 }
 
-/* is tweakmode enabled - for use in NLA operator code */
 bool nlaedit_is_tweakmode_on(bAnimContext *ac)
 {
   if (ac && ac->scene) {
@@ -162,6 +138,28 @@ void nla_operatortypes(void)
   WM_operatortype_append(NLA_OT_fmodifier_add);
   WM_operatortype_append(NLA_OT_fmodifier_copy);
   WM_operatortype_append(NLA_OT_fmodifier_paste);
+}
+
+void ED_operatormacros_nla()
+{
+  wmOperatorType *ot;
+  wmOperatorTypeMacro *otmacro;
+
+  ot = WM_operatortype_append_macro("NLA_OT_duplicate_move",
+                                    "Duplicate",
+                                    "Duplicate selected strips and their Actions and move them",
+                                    OPTYPE_UNDO | OPTYPE_REGISTER);
+  otmacro = WM_operatortype_macro_define(ot, "NLA_OT_duplicate");
+  RNA_boolean_set(otmacro->ptr, "linked", false);
+  WM_operatortype_macro_define(ot, "TRANSFORM_OT_translate");
+
+  ot = WM_operatortype_append_macro("NLA_OT_duplicate_linked_move",
+                                    "Duplicate Linked",
+                                    "Duplicate selected strips and move them",
+                                    OPTYPE_UNDO | OPTYPE_REGISTER);
+  otmacro = WM_operatortype_macro_define(ot, "NLA_OT_duplicate");
+  RNA_boolean_set(otmacro->ptr, "linked", true);
+  WM_operatortype_macro_define(ot, "TRANSFORM_OT_translate");
 }
 
 /* ************************** registration - keymaps **********************************/

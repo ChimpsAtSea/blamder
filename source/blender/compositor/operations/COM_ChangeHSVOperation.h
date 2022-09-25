@@ -1,35 +1,22 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_CHANGEHSVOPERATION_H__
-#define __COM_CHANGEHSVOPERATION_H__
-#include "COM_MixOperation.h"
+#pragma once
+
+#include "COM_MultiThreadedOperation.h"
+
+namespace blender::compositor {
 
 /**
  * this program converts an input color to an output value.
  * it assumes we are in sRGB color space.
  */
-class ChangeHSVOperation : public NodeOperation {
+class ChangeHSVOperation : public MultiThreadedOperation {
  private:
-  SocketReader *m_inputOperation;
-  SocketReader *m_hueOperation;
-  SocketReader *m_saturationOperation;
-  SocketReader *m_valueOperation;
+  SocketReader *input_operation_;
+  SocketReader *hue_operation_;
+  SocketReader *saturation_operation_;
+  SocketReader *value_operation_;
 
  public:
   /**
@@ -37,12 +24,17 @@ class ChangeHSVOperation : public NodeOperation {
    */
   ChangeHSVOperation();
 
-  void initExecution();
-  void deinitExecution();
+  void init_execution() override;
+  void deinit_execution() override;
 
   /**
-   * the inner loop of this program
+   * The inner loop of this operation.
    */
-  void executePixelSampled(float output[4], float x, float y, PixelSampler sampler);
+  void execute_pixel_sampled(float output[4], float x, float y, PixelSampler sampler) override;
+
+  void update_memory_buffer_partial(MemoryBuffer *output,
+                                    const rcti &area,
+                                    Span<MemoryBuffer *> inputs) override;
 };
-#endif
+
+}  // namespace blender::compositor

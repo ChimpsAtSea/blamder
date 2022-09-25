@@ -1,28 +1,18 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-class MemoryProxy;
+#pragma once
 
-#ifndef __COM_MEMORYPROXY_H__
-#define __COM_MEMORYPROXY_H__
-#include "COM_ExecutionGroup.h"
-#include "COM_MemoryBuffer.h"
+#ifdef WITH_CXX_GUARDEDALLOC
+#  include "MEM_guardedalloc.h"
+#endif
 
+#include "COM_defines.h"
+
+namespace blender::compositor {
+
+/* Forward declarations. */
+class MemoryBuffer;
 class ExecutionGroup;
 class WriteBufferOperation;
 
@@ -37,32 +27,22 @@ class MemoryProxy {
   /**
    * \brief reference to the output operation of the executiongroup
    */
-  WriteBufferOperation *m_writeBufferOperation;
+  WriteBufferOperation *write_buffer_operation_;
 
   /**
    * \brief reference to the executor. the Execution group that can fill a chunk
    */
-  ExecutionGroup *m_executor;
-
-  /**
-   * \brief datatype of this MemoryProxy
-   */
-  /* DataType m_datatype; */ /* UNUSED */
-
-  /**
-   * \brief channel information of this buffer
-   */
-  /* ChannelInfo m_channelInfo[COM_NUMBER_OF_CHANNELS]; */ /* UNUSED */
+  ExecutionGroup *executor_;
 
   /**
    * \brief the allocated memory
    */
-  MemoryBuffer *m_buffer;
+  MemoryBuffer *buffer_;
 
   /**
    * \brief datatype of this MemoryProxy
    */
-  DataType m_datatype;
+  DataType datatype_;
 
  public:
   MemoryProxy(DataType type);
@@ -71,35 +51,35 @@ class MemoryProxy {
    * \brief set the ExecutionGroup that can be scheduled to calculate a certain chunk.
    * \param group: the ExecutionGroup to set
    */
-  void setExecutor(ExecutionGroup *executor)
+  void set_executor(ExecutionGroup *executor)
   {
-    this->m_executor = executor;
+    executor_ = executor;
   }
 
   /**
    * \brief get the ExecutionGroup that can be scheduled to calculate a certain chunk.
    */
-  ExecutionGroup *getExecutor()
+  ExecutionGroup *get_executor() const
   {
-    return this->m_executor;
+    return executor_;
   }
 
   /**
    * \brief set the WriteBufferOperation that is responsible for writing to this MemoryProxy
    * \param operation:
    */
-  void setWriteBufferOperation(WriteBufferOperation *operation)
+  void set_write_buffer_operation(WriteBufferOperation *operation)
   {
-    this->m_writeBufferOperation = operation;
+    write_buffer_operation_ = operation;
   }
 
   /**
    * \brief get the WriteBufferOperation that is responsible for writing to this MemoryProxy
    * \return WriteBufferOperation
    */
-  WriteBufferOperation *getWriteBufferOperation()
+  WriteBufferOperation *get_write_buffer_operation() const
   {
-    return this->m_writeBufferOperation;
+    return write_buffer_operation_;
   }
 
   /**
@@ -115,14 +95,14 @@ class MemoryProxy {
   /**
    * \brief get the allocated memory
    */
-  inline MemoryBuffer *getBuffer()
+  inline MemoryBuffer *get_buffer()
   {
-    return this->m_buffer;
+    return buffer_;
   }
 
-  inline DataType getDataType()
+  inline DataType get_data_type()
   {
-    return this->m_datatype;
+    return datatype_;
   }
 
 #ifdef WITH_CXX_GUARDEDALLOC
@@ -130,4 +110,4 @@ class MemoryProxy {
 #endif
 };
 
-#endif
+}  // namespace blender::compositor

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -51,33 +37,30 @@ static int bm_edge_length_cmp(const void *a_, const void *b_)
   const BMEdge *e_a = *(const void **)a_;
   const BMEdge *e_b = *(const void **)b_;
 
-  int e_a_concave = ((BM_elem_flag_test(e_a->v1, BM_ELEM_TAG)) &&
-                     (BM_elem_flag_test(e_a->v2, BM_ELEM_TAG)));
-  int e_b_concave = ((BM_elem_flag_test(e_b->v1, BM_ELEM_TAG)) &&
-                     (BM_elem_flag_test(e_b->v2, BM_ELEM_TAG)));
+  int e_a_concave = (BM_elem_flag_test(e_a->v1, BM_ELEM_TAG) &&
+                     BM_elem_flag_test(e_a->v2, BM_ELEM_TAG));
+  int e_b_concave = (BM_elem_flag_test(e_b->v1, BM_ELEM_TAG) &&
+                     BM_elem_flag_test(e_b->v2, BM_ELEM_TAG));
 
   /* merge edges between concave edges last since these
    * are most likely to remain and be the main dividers */
   if (e_a_concave < e_b_concave) {
     return -1;
   }
-  else if (e_a_concave > e_b_concave) {
+  if (e_a_concave > e_b_concave) {
     return 1;
   }
-  else {
-    /* otherwise shortest edges last */
-    const float e_a_len = BM_edge_calc_length_squared(e_a);
-    const float e_b_len = BM_edge_calc_length_squared(e_b);
-    if (e_a_len < e_b_len) {
-      return 1;
-    }
-    else if (e_a_len > e_b_len) {
-      return -1;
-    }
-    else {
-      return 0;
-    }
+
+  /* otherwise shortest edges last */
+  const float e_a_len = BM_edge_calc_length_squared(e_a);
+  const float e_b_len = BM_edge_calc_length_squared(e_b);
+  if (e_a_len < e_b_len) {
+    return 1;
   }
+  if (e_a_len > e_b_len) {
+    return -1;
+  }
+  return 0;
 }
 
 static bool bm_face_split_by_concave(BMesh *bm,

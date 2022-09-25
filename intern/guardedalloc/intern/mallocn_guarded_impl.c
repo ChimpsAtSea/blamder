@@ -1,29 +1,15 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
- * \ingroup MEM
+ * \ingroup intern_mem
  *
  * Guarded memory allocation, and boundary-write detection.
  */
 
 #include <stdarg.h>
+#include <stddef.h> /* offsetof */
+#include <stdio.h>  /* printf */
 #include <stdlib.h>
 #include <string.h> /* memcpy */
 #include <sys/types.h>
@@ -68,7 +54,7 @@
 #  define DEBUG_MEMCOUNTER_ERROR_VAL 0
 static int _mallocn_count = 0;
 
-/* breakpoint here */
+/* Break-point here. */
 static void memcount_raise(const char *name)
 {
   fprintf(stderr, "%s: memcount-leak, %d\n", name, _mallocn_count);
@@ -87,7 +73,7 @@ typedef struct localListBase {
   void *first, *last;
 } localListBase;
 
-/* note: keep this struct aligned (e.g., irix/gcc) - Hos */
+/* NOTE(@hos): keep this struct aligned (e.g., IRIX/GCC). */
 typedef struct MemHead {
   int tag1;
   size_t len;
@@ -96,9 +82,8 @@ typedef struct MemHead {
   const char *nextname;
   int tag2;
   short pad1;
-  short alignment; /* if non-zero aligned alloc was used
-                    * and alignment is stored here.
-                    */
+  /* if non-zero aligned allocation was used and alignment is stored here. */
+  short alignment;
 #ifdef DEBUG_MEMCOUNTER
   int _count;
 #endif
@@ -153,7 +138,7 @@ static const char *check_memlist(MemHead *memh);
 #define MEMTAG3 MAKE_ID('O', 'C', 'K', '!')
 #define MEMFREE MAKE_ID('F', 'R', 'E', 'E')
 
-#define MEMNEXT(x) ((MemHead *)(((char *)x) - ((char *)&(((MemHead *)0)->next))))
+#define MEMNEXT(x) ((MemHead *)(((char *)x) - offsetof(MemHead, next)))
 
 /* --------------------------------------------------------------------- */
 /* vars                                                                  */
@@ -198,10 +183,12 @@ print_error(const char *str, ...)
   va_end(ap);
   buf[sizeof(buf) - 1] = '\0';
 
-  if (error_callback)
+  if (error_callback) {
     error_callback(buf);
-  else
+  }
+  else {
     fputs(buf, stderr);
+  }
 }
 
 static pthread_mutex_t thread_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -247,9 +234,8 @@ size_t MEM_guarded_allocN_len(const void *vmemh)
     memh--;
     return memh->len;
   }
-  else {
-    return 0;
-  }
+
+  return 0;
 }
 
 void *MEM_guarded_dupallocN(const void *vmemh)
@@ -261,13 +247,16 @@ void *MEM_guarded_dupallocN(const void *vmemh)
     memh--;
 
 #ifndef DEBUG_MEMDUPLINAME
-    if (LIKELY(memh->alignment == 0))
+    if (LIKELY(memh->alignment == 0)) {
       newp = MEM_guarded_mallocN(memh->len, "dupli_alloc");
-    else
+    }
+    else {
       newp = MEM_guarded_mallocN_aligned(memh->len, (size_t)memh->alignment, "dupli_alloc");
+    }
 
-    if (newp == NULL)
+    if (newp == NULL) {
       return NULL;
+    }
 #else
     {
       MemHead *nmemh;
@@ -450,8 +439,9 @@ void *MEM_guarded_mallocN(size_t len, const char *str)
 
   if (LIKELY(memh)) {
     make_memhead_header(memh, len, str);
-    if (UNLIKELY(malloc_debug_memset && len))
+    if (UNLIKELY(malloc_debug_memset && len)) {
       memset(memh + 1, 255, len);
+    }
 
 #ifdef DEBUG_MEMCOUNTER
     if (_mallocn_count == DEBUG_MEMCOUNTER_ERROR_VAL)
@@ -522,8 +512,9 @@ void *MEM_guarded_mallocN_aligned(size_t len, size_t alignment, const char *str)
 
     make_memhead_header(memh, len, str);
     memh->alignment = (short)alignment;
-    if (UNLIKELY(malloc_debug_memset && len))
+    if (UNLIKELY(malloc_debug_memset && len)) {
       memset(memh + 1, 255, len);
+    }
 
 #ifdef DEBUG_MEMCOUNTER
     if (_mallocn_count == DEBUG_MEMCOUNTER_ERROR_VAL)
@@ -601,12 +592,14 @@ static int compare_len(const void *p1, const void *p2)
   const MemPrintBlock *pb1 = (const MemPrintBlock *)p1;
   const MemPrintBlock *pb2 = (const MemPrintBlock *)p2;
 
-  if (pb1->len < pb2->len)
+  if (pb1->len < pb2->len) {
     return 1;
-  else if (pb1->len == pb2->len)
+  }
+  if (pb1->len == pb2->len) {
     return 0;
-  else
-    return -1;
+  }
+
+  return -1;
 }
 
 void MEM_guarded_printmemlist_stats(void)
@@ -636,8 +629,9 @@ void MEM_guarded_printmemlist_stats(void)
   totpb = 0;
 
   membl = membase->first;
-  if (membl)
+  if (membl) {
     membl = MEMNEXT(membl);
+  }
 
   while (membl && pb) {
     pb->name = membl->name;
@@ -654,10 +648,12 @@ void MEM_guarded_printmemlist_stats(void)
     }
 #endif
 
-    if (membl->next)
+    if (membl->next) {
       membl = MEMNEXT(membl->next);
-    else
+    }
+    else {
       break;
+    }
   }
 
   /* sort by name and add together blocks with the same name */
@@ -669,7 +665,7 @@ void MEM_guarded_printmemlist_stats(void)
     if (a == b) {
       continue;
     }
-    else if (strcmp(printblock[a].name, printblock[b].name) == 0) {
+    if (strcmp(printblock[a].name, printblock[b].name) == 0) {
       printblock[b].len += printblock[a].len;
       printblock[b].items++;
     }
@@ -737,8 +733,9 @@ static void MEM_guarded_printmemlist_internal(int pydict)
   mem_lock_thread();
 
   membl = membase->first;
-  if (membl)
+  if (membl) {
     membl = MEMNEXT(membl);
+  }
 
   if (pydict) {
     print_error("# membase_debug.py\n");
@@ -771,10 +768,12 @@ static void MEM_guarded_printmemlist_internal(int pydict)
       print_memhead_backtrace(membl);
 #endif
     }
-    if (membl->next)
+    if (membl->next) {
       membl = MEMNEXT(membl->next);
-    else
+    }
+    else {
       break;
+    }
   }
   if (pydict) {
     print_error("]\n\n");
@@ -791,15 +790,18 @@ void MEM_guarded_callbackmemlist(void (*func)(void *))
   mem_lock_thread();
 
   membl = membase->first;
-  if (membl)
+  if (membl) {
     membl = MEMNEXT(membl);
+  }
 
   while (membl) {
     func(membl + 1);
-    if (membl->next)
+    if (membl->next) {
       membl = MEMNEXT(membl->next);
-    else
+    }
+    else {
       break;
+    }
   }
 
   mem_unlock_thread();
@@ -852,7 +854,7 @@ void MEM_guarded_freeN(void *vmemh)
 
   if (memh == NULL) {
     MemorY_ErroR("free", "attempt to free NULL pointer");
-    /* print_error(err_stream, "%d\n", (memh+4000)->tag1); */
+    // print_error(err_stream, "%d\n", (memh+4000)->tag1);
     return;
   }
 
@@ -879,6 +881,10 @@ void MEM_guarded_freeN(void *vmemh)
     memt = (MemTail *)(((char *)memh) + sizeof(MemHead) + memh->len);
     if (memt->tag3 == MEMTAG3) {
 
+      if (leak_detector_has_run) {
+        MemorY_ErroR(memh->name, free_after_leak_detection_message);
+      }
+
       memh->tag1 = MEMFREE;
       memh->tag2 = MEMFREE;
       memt->tag3 = MEMFREE;
@@ -890,24 +896,25 @@ void MEM_guarded_freeN(void *vmemh)
     MemorY_ErroR(memh->name, "end corrupt");
     name = check_memlist(memh);
     if (name != NULL) {
-      if (name != memh->name)
+      if (name != memh->name) {
         MemorY_ErroR(name, "is also corrupt");
+      }
     }
   }
   else {
     mem_lock_thread();
     name = check_memlist(memh);
     mem_unlock_thread();
-    if (name == NULL)
+    if (name == NULL) {
       MemorY_ErroR("free", "pointer not in memlist");
-    else
+    }
+    else {
       MemorY_ErroR(name, "error in header");
+    }
   }
 
   totblock--;
   /* here a DUMP should happen */
-
-  return;
 }
 
 /* --------------------------------------------------------------------- */
@@ -930,10 +937,12 @@ static void addtail(volatile localListBase *listbase, void *vlink)
   link->next = NULL;
   link->prev = listbase->last;
 
-  if (listbase->last)
+  if (listbase->last) {
     ((struct localLink *)listbase->last)->next = link;
-  if (listbase->first == NULL)
+  }
+  if (listbase->first == NULL) {
     listbase->first = link;
+  }
   listbase->last = link;
 }
 
@@ -950,15 +959,19 @@ static void remlink(volatile localListBase *listbase, void *vlink)
     return;
 #endif
 
-  if (link->next)
+  if (link->next) {
     link->next->prev = link->prev;
-  if (link->prev)
+  }
+  if (link->prev) {
     link->prev->next = link->next;
+  }
 
-  if (listbase->last == link)
+  if (listbase->last == link) {
     listbase->last = link->prev;
-  if (listbase->first == link)
+  }
+  if (listbase->first == link) {
     listbase->first = link->next;
+  }
 }
 
 static void rem_memblock(MemHead *memh)
@@ -966,10 +979,12 @@ static void rem_memblock(MemHead *memh)
   mem_lock_thread();
   remlink(membase, &memh->next);
   if (memh->prev) {
-    if (memh->next)
+    if (memh->next) {
       MEMNEXT(memh->prev)->nextname = MEMNEXT(memh->next)->name;
-    else
+    }
+    else {
       MEMNEXT(memh->prev)->nextname = NULL;
+    }
   }
   mem_unlock_thread();
 
@@ -981,8 +996,9 @@ static void rem_memblock(MemHead *memh)
     free((char *)memh->name);
 #endif
 
-  if (UNLIKELY(malloc_debug_memset && memh->len))
+  if (UNLIKELY(malloc_debug_memset && memh->len)) {
     memset(memh + 1, 255, memh->len);
+  }
   if (LIKELY(memh->alignment == 0)) {
     free(memh);
   }
@@ -1006,78 +1022,100 @@ static const char *check_memlist(MemHead *memh)
   const char *name;
 
   forw = membase->first;
-  if (forw)
+  if (forw) {
     forw = MEMNEXT(forw);
+  }
   forwok = NULL;
   while (forw) {
-    if (forw->tag1 != MEMTAG1 || forw->tag2 != MEMTAG2)
+    if (forw->tag1 != MEMTAG1 || forw->tag2 != MEMTAG2) {
       break;
+    }
     forwok = forw;
-    if (forw->next)
+    if (forw->next) {
       forw = MEMNEXT(forw->next);
-    else
+    }
+    else {
       forw = NULL;
+    }
   }
 
   back = (MemHead *)membase->last;
-  if (back)
+  if (back) {
     back = MEMNEXT(back);
+  }
   backok = NULL;
   while (back) {
-    if (back->tag1 != MEMTAG1 || back->tag2 != MEMTAG2)
+    if (back->tag1 != MEMTAG1 || back->tag2 != MEMTAG2) {
       break;
+    }
     backok = back;
-    if (back->prev)
+    if (back->prev) {
       back = MEMNEXT(back->prev);
-    else
+    }
+    else {
       back = NULL;
+    }
   }
 
-  if (forw != back)
+  if (forw != back) {
     return ("MORE THAN 1 MEMORYBLOCK CORRUPT");
+  }
 
   if (forw == NULL && back == NULL) {
     /* no wrong headers found then but in search of memblock */
 
     forw = membase->first;
-    if (forw)
+    if (forw) {
       forw = MEMNEXT(forw);
+    }
     forwok = NULL;
     while (forw) {
-      if (forw == memh)
+      if (forw == memh) {
         break;
-      if (forw->tag1 != MEMTAG1 || forw->tag2 != MEMTAG2)
+      }
+      if (forw->tag1 != MEMTAG1 || forw->tag2 != MEMTAG2) {
         break;
+      }
       forwok = forw;
-      if (forw->next)
+      if (forw->next) {
         forw = MEMNEXT(forw->next);
-      else
+      }
+      else {
         forw = NULL;
+      }
     }
-    if (forw == NULL)
+    if (forw == NULL) {
       return NULL;
+    }
 
     back = (MemHead *)membase->last;
-    if (back)
+    if (back) {
       back = MEMNEXT(back);
+    }
     backok = NULL;
     while (back) {
-      if (back == memh)
+      if (back == memh) {
         break;
-      if (back->tag1 != MEMTAG1 || back->tag2 != MEMTAG2)
+      }
+      if (back->tag1 != MEMTAG1 || back->tag2 != MEMTAG2) {
         break;
+      }
       backok = back;
-      if (back->prev)
+      if (back->prev) {
         back = MEMNEXT(back->prev);
-      else
+      }
+      else {
         back = NULL;
+      }
     }
   }
 
-  if (forwok)
+  if (forwok) {
     name = forwok->nextname;
-  else
+  }
+  else {
     name = "No name found";
+  }
 
   if (forw == memh) {
     /* to be sure but this block is removed from the list */
@@ -1107,7 +1145,7 @@ static const char *check_memlist(MemHead *memh)
     return ("Additional error in header");
   }
 
-  return (name);
+  return name;
 }
 
 size_t MEM_guarded_get_peak_memory(void)
@@ -1158,8 +1196,7 @@ const char *MEM_guarded_name_ptr(void *vmemh)
     memh--;
     return memh->name;
   }
-  else {
-    return "MEM_guarded_name_ptr(NULL)";
-  }
+
+  return "MEM_guarded_name_ptr(NULL)";
 }
 #endif /* NDEBUG */

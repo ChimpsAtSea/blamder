@@ -1,22 +1,6 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
+# SPDX-License-Identifier: GPL-2.0-or-later
+from __future__ import annotations
 
-# <pep8-80 compliant>
 import bpy
 from bpy.types import Operator
 
@@ -149,14 +133,14 @@ class AddTorus(Operator, object_utils.AddObjectHelper):
         default=12,
     )
     mode: EnumProperty(
-        name="Torus Dimensions",
+        name="Dimensions Mode",
         items=(
             ('MAJOR_MINOR', "Major/Minor",
              "Use the major/minor radii for torus dimensions"),
             ('EXT_INT', "Exterior/Interior",
              "Use the exterior/interior radii for torus dimensions"),
         ),
-        update=mode_update_callback,
+        update=AddTorus.mode_update_callback,
     )
     major_radius: FloatProperty(
         name="Major Radius",
@@ -204,47 +188,30 @@ class AddTorus(Operator, object_utils.AddObjectHelper):
     def draw(self, _context):
         layout = self.layout
 
-        col = layout.column(align=True)
-        col.prop(self, "generate_uvs")
-        col.separator()
-        col.prop(self, "align")
+        layout.use_property_split = True
+        layout.use_property_decorate = False
 
-        col = layout.column(align=True)
-        col.label(text="Location")
-        col.prop(self, "location", text="")
+        layout.separator()
 
-        col = layout.column(align=True)
-        col.label(text="Rotation")
-        col.prop(self, "rotation", text="")
+        layout.prop(self, "major_segments")
+        layout.prop(self, "minor_segments")
 
-        col = layout.column(align=True)
-        col.label(text="Major Segments")
-        col.prop(self, "major_segments", text="")
+        layout.separator()
 
-        col = layout.column(align=True)
-        col.label(text="Minor Segments")
-        col.prop(self, "minor_segments", text="")
-
-        col = layout.column(align=True)
-        col.label(text="Torus Dimensions")
-        col.row().prop(self, "mode", expand=True)
-
+        layout.prop(self, "mode")
         if self.mode == 'MAJOR_MINOR':
-            col = layout.column(align=True)
-            col.label(text="Major Radius")
-            col.prop(self, "major_radius", text="")
-
-            col = layout.column(align=True)
-            col.label(text="Minor Radius")
-            col.prop(self, "minor_radius", text="")
+            layout.prop(self, "major_radius")
+            layout.prop(self, "minor_radius")
         else:
-            col = layout.column(align=True)
-            col.label(text="Exterior Radius")
-            col.prop(self, "abso_major_rad", text="")
+            layout.prop(self, "abso_major_rad")
+            layout.prop(self, "abso_minor_rad")
 
-            col = layout.column(align=True)
-            col.label(text="Interior Radius")
-            col.prop(self, "abso_minor_rad", text="")
+        layout.separator()
+
+        layout.prop(self, "generate_uvs")
+        layout.prop(self, "align")
+        layout.prop(self, "location")
+        layout.prop(self, "rotation")
 
     def invoke(self, context, _event):
         object_utils.object_add_grid_scale_apply_operator(self, context)

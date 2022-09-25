@@ -1,26 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup GHOST
  * Declaration of GHOST_WindowSDL class.
  */
 
-#ifndef __GHOST_WINDOWSDL_H__
-#define __GHOST_WINDOWSDL_H__
+#pragma once
 
 #include "GHOST_SystemSDL.h"
 #include "GHOST_Window.h"
@@ -49,10 +34,10 @@ class GHOST_WindowSDL : public GHOST_Window {
  public:
   GHOST_WindowSDL(GHOST_SystemSDL *system,
                   const char *title,
-                  GHOST_TInt32 left,
-                  GHOST_TInt32 top,
-                  GHOST_TUns32 width,
-                  GHOST_TUns32 height,
+                  int32_t left,
+                  int32_t top,
+                  uint32_t width,
+                  uint32_t height,
                   GHOST_TWindowState state,
                   GHOST_TDrawingContextType type = GHOST_kDrawingContextTypeNone,
                   const bool stereoVisual = false,
@@ -86,7 +71,7 @@ class GHOST_WindowSDL : public GHOST_Window {
 
  protected:
   /**
-   * \param type  The type of rendering context create.
+   * \param type: The type of rendering context create.
    * \return Indication of success.
    */
   GHOST_Context *newDrawingContext(GHOST_TDrawingContextType type);
@@ -96,8 +81,8 @@ class GHOST_WindowSDL : public GHOST_Window {
   GHOST_TSuccess setWindowCursorShape(GHOST_TStandardCursor shape);
   GHOST_TSuccess hasCursorShape(GHOST_TStandardCursor shape);
 
-  GHOST_TSuccess setWindowCustomCursorShape(GHOST_TUns8 *bitmap,
-                                            GHOST_TUns8 *mask,
+  GHOST_TSuccess setWindowCustomCursorShape(uint8_t *bitmap,
+                                            uint8_t *mask,
                                             int sizex,
                                             int sizey,
                                             int hotX,
@@ -110,27 +95,21 @@ class GHOST_WindowSDL : public GHOST_Window {
 
   std::string getTitle() const;
 
-  GHOST_TSuccess setClientWidth(GHOST_TUns32 width);
+  GHOST_TSuccess setClientWidth(uint32_t width);
 
-  GHOST_TSuccess setClientHeight(GHOST_TUns32 height);
+  GHOST_TSuccess setClientHeight(uint32_t height);
 
-  GHOST_TSuccess setClientSize(GHOST_TUns32 width, GHOST_TUns32 height);
+  GHOST_TSuccess setClientSize(uint32_t width, uint32_t height);
 
-  void screenToClient(GHOST_TInt32 inX,
-                      GHOST_TInt32 inY,
-                      GHOST_TInt32 &outX,
-                      GHOST_TInt32 &outY) const;
+  void screenToClient(int32_t inX, int32_t inY, int32_t &outX, int32_t &outY) const;
 
-  void clientToScreen(GHOST_TInt32 inX,
-                      GHOST_TInt32 inY,
-                      GHOST_TInt32 &outX,
-                      GHOST_TInt32 &outY) const;
+  void clientToScreen(int32_t inX, int32_t inY, int32_t &outX, int32_t &outY) const;
 
   GHOST_TSuccess setState(GHOST_TWindowState state);
 
   GHOST_TWindowState getState() const;
 
-  GHOST_TSuccess setOrder(GHOST_TWindowOrder order)
+  GHOST_TSuccess setOrder(GHOST_TWindowOrder /*order*/)
   {
     // TODO
     return GHOST_kSuccess;
@@ -147,7 +126,5 @@ class GHOST_WindowSDL : public GHOST_Window {
     return GHOST_kFailure;
   }
 
-  GHOST_TUns16 getDPIHint();
+  uint16_t getDPIHint();
 };
-
-#endif  // __GHOST_WINDOWSDL_H__

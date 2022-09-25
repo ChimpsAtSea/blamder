@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spimage
@@ -24,8 +8,6 @@
 #include "DNA_gpencil_types.h"
 #include "DNA_image_types.h"
 #include "DNA_mask_types.h"
-#include "DNA_mesh_types.h"
-#include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
@@ -37,14 +19,10 @@
 
 #include "BKE_colortools.h"
 #include "BKE_context.h"
-#include "BKE_editmesh.h"
 #include "BKE_image.h"
-#include "BKE_layer.h"
 #include "BKE_lib_id.h"
-#include "BKE_material.h"
-#include "BKE_scene.h"
+#include "BKE_lib_remap.h"
 #include "BKE_screen.h"
-#include "BKE_workspace.h"
 
 #include "RNA_access.h"
 #include "RNA_define.h"
@@ -56,30 +34,24 @@
 
 #include "ED_image.h"
 #include "ED_mask.h"
-#include "ED_mesh.h"
 #include "ED_node.h"
 #include "ED_render.h"
 #include "ED_screen.h"
 #include "ED_space_api.h"
 #include "ED_transform.h"
+#include "ED_util.h"
 #include "ED_uvedit.h"
 
 #include "WM_api.h"
-#include "WM_message.h"
 #include "WM_types.h"
 
 #include "UI_interface.h"
 #include "UI_resources.h"
 #include "UI_view2d.h"
 
-#include "GPU_batch_presets.h"
-#include "GPU_framebuffer.h"
-#include "GPU_viewport.h"
-#include "image_intern.h"
+#include "DRW_engine.h"
 
-/* TODO(fclem) remove bad level calls */
-#include "../draw/DRW_engine.h"
-#include "wm_draw.h"
+#include "image_intern.h"
 
 /**************************** common state *****************************/
 
@@ -117,7 +89,7 @@ static void image_user_refresh_scene(const bContext *C, SpaceImage *sima)
 
 /* ******************** default callbacks for image space ***************** */
 
-static SpaceLink *image_new(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
+static SpaceLink *image_create(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
 {
   ARegion *region;
   SpaceImage *simage;
@@ -128,6 +100,7 @@ static SpaceLink *image_new(const ScrArea *UNUSED(area), const Scene *UNUSED(sce
   simage->lock = true;
   simage->flag = SI_SHOW_GPENCIL | SI_USE_ALPHA | SI_COORDFLOATS;
   simage->uv_opacity = 1.0f;
+  simage->overlay.flag = SI_OVERLAY_SHOW_OVERLAYS | SI_OVERLAY_SHOW_GRID_BACKGROUND;
 
   BKE_imageuser_default(&simage->iuser);
   simage->iuser.flag = IMA_SHOW_STEREO | IMA_ANIM_ALWAYS;
@@ -138,13 +111,7 @@ static SpaceLink *image_new(const ScrArea *UNUSED(area), const Scene *UNUSED(sce
   simage->tile_grid_shape[0] = 1;
   simage->tile_grid_shape[1] = 1;
 
-  /* tool header */
-  region = MEM_callocN(sizeof(ARegion), "tool header for image");
-
-  BLI_addtail(&simage->regionbase, region);
-  region->regiontype = RGN_TYPE_TOOL_HEADER;
-  region->alignment = (U.uiflag & USER_HEADER_BOTTOM) ? RGN_ALIGN_BOTTOM : RGN_ALIGN_TOP;
-  region->flag = RGN_FLAG_HIDDEN | RGN_FLAG_HIDDEN_BY_USER;
+  simage->custom_grid_subdiv = 10;
 
   /* header */
   region = MEM_callocN(sizeof(ARegion), "header for image");
@@ -152,6 +119,14 @@ static SpaceLink *image_new(const ScrArea *UNUSED(area), const Scene *UNUSED(sce
   BLI_addtail(&simage->regionbase, region);
   region->regiontype = RGN_TYPE_HEADER;
   region->alignment = (U.uiflag & USER_HEADER_BOTTOM) ? RGN_ALIGN_BOTTOM : RGN_ALIGN_TOP;
+
+  /* tool header */
+  region = MEM_callocN(sizeof(ARegion), "tool header for image");
+
+  BLI_addtail(&simage->regionbase, region);
+  region->regiontype = RGN_TYPE_TOOL_HEADER;
+  region->alignment = (U.uiflag & USER_HEADER_BOTTOM) ? RGN_ALIGN_BOTTOM : RGN_ALIGN_TOP;
+  region->flag = RGN_FLAG_HIDDEN | RGN_FLAG_HIDDEN_BY_USER;
 
   /* buttons/list view */
   region = MEM_callocN(sizeof(ARegion), "buttons for image");
@@ -212,6 +187,7 @@ static void image_operatortypes(void)
   WM_operatortype_append(IMAGE_OT_view_pan);
   WM_operatortype_append(IMAGE_OT_view_selected);
   WM_operatortype_append(IMAGE_OT_view_center_cursor);
+  WM_operatortype_append(IMAGE_OT_view_cursor_center);
   WM_operatortype_append(IMAGE_OT_view_zoom);
   WM_operatortype_append(IMAGE_OT_view_zoom_in);
   WM_operatortype_append(IMAGE_OT_view_zoom_out);
@@ -223,6 +199,7 @@ static void image_operatortypes(void)
 
   WM_operatortype_append(IMAGE_OT_new);
   WM_operatortype_append(IMAGE_OT_open);
+  WM_operatortype_append(IMAGE_OT_file_browse);
   WM_operatortype_append(IMAGE_OT_match_movie_length);
   WM_operatortype_append(IMAGE_OT_replace);
   WM_operatortype_append(IMAGE_OT_reload);
@@ -233,6 +210,7 @@ static void image_operatortypes(void)
   WM_operatortype_append(IMAGE_OT_pack);
   WM_operatortype_append(IMAGE_OT_unpack);
 
+  WM_operatortype_append(IMAGE_OT_flip);
   WM_operatortype_append(IMAGE_OT_invert);
   WM_operatortype_append(IMAGE_OT_resize);
 
@@ -263,13 +241,10 @@ static void image_keymap(struct wmKeyConfig *keyconf)
 }
 
 /* dropboxes */
-static bool image_drop_poll(bContext *C,
-                            wmDrag *drag,
-                            const wmEvent *event,
-                            const char **UNUSED(r_tooltip))
+static bool image_drop_poll(bContext *C, wmDrag *drag, const wmEvent *event)
 {
   ScrArea *area = CTX_wm_area(C);
-  if (ED_region_overlap_isect_any_xy(area, &event->x)) {
+  if (ED_region_overlap_isect_any_xy(area, event->xy)) {
     return false;
   }
   if (drag->type == WM_DRAG_PATH) {
@@ -281,7 +256,7 @@ static bool image_drop_poll(bContext *C,
   return false;
 }
 
-static void image_drop_copy(wmDrag *drag, wmDropBox *drop)
+static void image_drop_copy(bContext *UNUSED(C), wmDrag *drag, wmDropBox *drop)
 {
   /* copy drag path to properties */
   RNA_string_set(drop->ptr, "filepath", drag->path);
@@ -292,7 +267,7 @@ static void image_dropboxes(void)
 {
   ListBase *lb = WM_dropboxmap_find("Image", SPACE_IMAGE, 0);
 
-  WM_dropbox_add(lb, "IMAGE_OT_open", image_drop_poll, image_drop_copy);
+  WM_dropbox_add(lb, "IMAGE_OT_open", image_drop_poll, image_drop_copy, NULL, NULL);
 }
 
 /**
@@ -308,7 +283,7 @@ static void image_refresh(const bContext *C, ScrArea *area)
   ima = ED_space_image(sima);
   BKE_image_user_frame_calc(ima, &sima->iuser, scene->r.cfra);
 
-  /* check if we have to set the image from the editmesh */
+  /* Check if we have to set the image from the edit-mesh. */
   if (ima && (ima->source == IMA_SRC_VIEWER && sima->mode == SI_MODE_MASK)) {
     if (scene->nodetree) {
       Mask *mask = ED_space_image_get_mask(sima);
@@ -319,8 +294,11 @@ static void image_refresh(const bContext *C, ScrArea *area)
   }
 }
 
-static void image_listener(wmWindow *win, ScrArea *area, wmNotifier *wmn, Scene *UNUSED(scene))
+static void image_listener(const wmSpaceTypeListenerParams *params)
 {
+  wmWindow *win = params->window;
+  ScrArea *area = params->area;
+  wmNotifier *wmn = params->notifier;
   SpaceImage *sima = (SpaceImage *)area->spacedata.first;
 
   /* context changes */
@@ -338,6 +316,9 @@ static void image_listener(wmWindow *win, ScrArea *area, wmNotifier *wmn, Scene 
           ED_area_tag_redraw(area);
           break;
         case ND_MODE:
+          ED_paint_cursor_start(&params->scene->toolsettings->imapaint.paint,
+                                ED_image_tools_paint_poll);
+
           if (wmn->subtype == NS_EDITMODE_MESH) {
             ED_area_tag_refresh(area);
           }
@@ -369,10 +350,9 @@ static void image_listener(wmWindow *win, ScrArea *area, wmNotifier *wmn, Scene 
       }
       break;
     case NC_MASK: {
-      // Scene *scene = wmn->window->screen->scene;
-      /* ideally would check for: ED_space_image_check_show_maskedit(scene, sima)
-       * but we cant get the scene */
-      if (sima->mode == SI_MODE_MASK) {
+      ViewLayer *view_layer = WM_window_get_active_view_layer(win);
+      Object *obedit = OBEDIT_FROM_VIEW_LAYER(view_layer);
+      if (ED_space_image_check_show_maskedit(sima, obedit)) {
         switch (wmn->data) {
           case ND_SELECT:
             ED_area_tag_redraw(area);
@@ -443,25 +423,28 @@ static void image_listener(wmWindow *win, ScrArea *area, wmNotifier *wmn, Scene 
 
 const char *image_context_dir[] = {"edit_image", "edit_mask", NULL};
 
-static int image_context(const bContext *C, const char *member, bContextDataResult *result)
+static int /*eContextResult*/ image_context(const bContext *C,
+                                            const char *member,
+                                            bContextDataResult *result)
 {
   SpaceImage *sima = CTX_wm_space_image(C);
 
   if (CTX_data_dir(member)) {
     CTX_data_dir_set(result, image_context_dir);
+    /* TODO(sybren): return CTX_RESULT_OK; */
   }
   else if (CTX_data_equals(member, "edit_image")) {
     CTX_data_id_pointer_set(result, (ID *)ED_space_image(sima));
-    return 1;
+    return CTX_RESULT_OK;
   }
   else if (CTX_data_equals(member, "edit_mask")) {
     Mask *mask = ED_space_image_get_mask(sima);
     if (mask) {
       CTX_data_id_pointer_set(result, &mask->id);
     }
-    return true;
+    return CTX_RESULT_OK;
   }
-  return 0;
+  return CTX_RESULT_MEMBER_NOT_FOUND;
 }
 
 static void IMAGE_GGT_gizmo2d(wmGizmoGroupType *gzgt)
@@ -469,7 +452,7 @@ static void IMAGE_GGT_gizmo2d(wmGizmoGroupType *gzgt)
   gzgt->name = "UV Transform Gizmo";
   gzgt->idname = "IMAGE_GGT_gizmo2d";
 
-  gzgt->flag |= (WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP |
+  gzgt->flag |= (WM_GIZMOGROUPTYPE_DRAW_MODAL_EXCLUDE | WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP |
                  WM_GIZMOGROUPTYPE_DELAY_REFRESH_FOR_TWEAK);
 
   gzgt->gzmap_params.spaceid = SPACE_IMAGE;
@@ -483,7 +466,7 @@ static void IMAGE_GGT_gizmo2d_translate(wmGizmoGroupType *gzgt)
   gzgt->name = "UV Translate Gizmo";
   gzgt->idname = "IMAGE_GGT_gizmo2d_translate";
 
-  gzgt->flag |= (WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP |
+  gzgt->flag |= (WM_GIZMOGROUPTYPE_DRAW_MODAL_EXCLUDE | WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP |
                  WM_GIZMOGROUPTYPE_DELAY_REFRESH_FOR_TWEAK);
 
   gzgt->gzmap_params.spaceid = SPACE_IMAGE;
@@ -497,7 +480,7 @@ static void IMAGE_GGT_gizmo2d_resize(wmGizmoGroupType *gzgt)
   gzgt->name = "UV Transform Gizmo Resize";
   gzgt->idname = "IMAGE_GGT_gizmo2d_resize";
 
-  gzgt->flag |= (WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP |
+  gzgt->flag |= (WM_GIZMOGROUPTYPE_DRAW_MODAL_EXCLUDE | WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP |
                  WM_GIZMOGROUPTYPE_DELAY_REFRESH_FOR_TWEAK);
 
   gzgt->gzmap_params.spaceid = SPACE_IMAGE;
@@ -511,7 +494,7 @@ static void IMAGE_GGT_gizmo2d_rotate(wmGizmoGroupType *gzgt)
   gzgt->name = "UV Transform Gizmo Resize";
   gzgt->idname = "IMAGE_GGT_gizmo2d_rotate";
 
-  gzgt->flag |= (WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP |
+  gzgt->flag |= (WM_GIZMOGROUPTYPE_DRAW_MODAL_EXCLUDE | WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP |
                  WM_GIZMOGROUPTYPE_DELAY_REFRESH_FOR_TWEAK);
 
   gzgt->gzmap_params.spaceid = SPACE_IMAGE;
@@ -600,8 +583,8 @@ static void image_main_region_init(wmWindowManager *wm, ARegion *region)
 {
   wmKeyMap *keymap;
 
-  // image space manages own v2d
-  // UI_view2d_region_reinit(&region->v2d, V2D_COMMONVIEW_STANDARD, region->winx, region->winy);
+  /* NOTE: don't use `UI_view2d_region_reinit(&region->v2d, ...)`
+   * since the space clip manages own v2d in #image_main_region_set_view2d */
 
   /* mask polls mode */
   keymap = WM_keymap_ensure(wm->defaultconf, "Mask Editing", 0, 0);
@@ -631,89 +614,64 @@ static void image_main_region_draw(const bContext *C, ARegion *region)
 {
   /* draw entirely, view changes should be handled here */
   SpaceImage *sima = CTX_wm_space_image(C);
-  Object *obact = CTX_data_active_object(C);
   Object *obedit = CTX_data_edit_object(C);
   Depsgraph *depsgraph = CTX_data_expect_evaluated_depsgraph(C);
   Mask *mask = NULL;
-  bool show_uvedit = false;
-  bool show_curve = false;
   Scene *scene = CTX_data_scene(C);
-  ViewLayer *view_layer = CTX_data_view_layer(C);
   View2D *v2d = &region->v2d;
-  // View2DScrollers *scrollers;
-  float col[3];
-
-  /* XXX This is in order to draw UI batches with the DRW
-   * old context since we now use it for drawing the entire area. */
-  gpu_batch_presets_reset();
-
-  GPUViewport *viewport = region->draw_buffer->viewport;
-  DefaultFramebufferList *fbl = GPU_viewport_framebuffer_list_get(viewport);
-  GPU_framebuffer_bind(fbl->default_fb);
-  GPU_clear_color(0.0f, 0.0f, 0.0f, 0.0f);
-  GPU_clear(GPU_COLOR_BIT);
-
-  GPU_framebuffer_bind(fbl->overlay_fb);
+  Image *image = ED_space_image(sima);
+  const bool show_viewer = (image && image->source == IMA_SRC_VIEWER);
 
   /* XXX not supported yet, disabling for now */
   scene->r.scemode &= ~R_COMP_CROP;
-
-  /* clear and setup matrix */
-  UI_GetThemeColor3fv(TH_BACK, col);
-  srgb_to_linearrgb_v3_v3(col, col);
-  GPU_clear_color(col[0], col[1], col[2], 1.0f);
-  GPU_clear(GPU_COLOR_BIT);
-  GPU_depth_test(false);
 
   image_user_refresh_scene(C, sima);
 
   /* we set view2d from own zoom and offset each time */
   image_main_region_set_view2d(sima, region);
 
-  /* we draw image in pixelspace */
-  draw_image_main(C, region);
-
-  /* and uvs in 0.0-1.0 space */
-  UI_view2d_view_ortho(v2d);
-
-  ED_region_draw_cb_draw(C, region, REGION_DRAW_PRE_VIEW);
-
-  ED_uvedit_draw_main(sima, scene, view_layer, obedit, obact, depsgraph);
-
   /* check for mask (delay draw) */
-  if (ED_space_image_show_uvedit(sima, obedit)) {
-    show_uvedit = true;
-  }
-  else if (sima->mode == SI_MODE_MASK) {
+  if (!ED_space_image_show_uvedit(sima, obedit) && sima->mode == SI_MODE_MASK) {
     mask = ED_space_image_get_mask(sima);
   }
-  else if (ED_space_image_paint_curve(C)) {
-    show_curve = true;
+
+  if (show_viewer) {
+    BLI_thread_lock(LOCK_DRAW_IMAGE);
+  }
+  DRW_draw_view(C);
+  if (show_viewer) {
+    BLI_thread_unlock(LOCK_DRAW_IMAGE);
   }
 
-  ED_region_draw_cb_draw(C, region, REGION_DRAW_POST_VIEW);
+  draw_image_main_helpers(C, region);
 
-  if (sima->flag & SI_SHOW_GPENCIL) {
-    /* Grease Pencil too (in addition to UV's) */
-    draw_image_grease_pencil((bContext *)C, true);
+  /* Draw Meta data of the image isn't added to the DrawManager as it is
+   * used in other areas as well. */
+  if (sima->overlay.flag & SI_OVERLAY_SHOW_OVERLAYS && sima->flag & SI_DRAW_METADATA) {
+    void *lock;
+    /* `ED_space_image_get_zoom` temporarily locks the image, so this needs to be done before
+     * the image is locked when calling `ED_space_image_acquire_buffer`. */
+    float zoomx, zoomy;
+    ED_space_image_get_zoom(sima, region, &zoomx, &zoomy);
+    ImBuf *ibuf = ED_space_image_acquire_buffer(sima, &lock, 0);
+    if (ibuf) {
+      int x, y;
+      rctf frame;
+      BLI_rctf_init(&frame, 0.0f, ibuf->x, 0.0f, ibuf->y);
+      UI_view2d_view_to_region(&region->v2d, 0.0f, 0.0f, &x, &y);
+      ED_region_image_metadata_draw(x, y, ibuf, &frame, zoomx, zoomy);
+      ED_space_image_release_buffer(sima, ibuf, lock);
+    }
   }
 
   /* sample line */
+  UI_view2d_view_ortho(v2d);
   draw_image_sample_line(sima);
-
   UI_view2d_view_restore(C);
 
-  if (sima->flag & SI_SHOW_GPENCIL) {
-    /* draw Grease Pencil - screen space only */
-    draw_image_grease_pencil((bContext *)C, false);
-  }
-
   if (mask) {
-    Image *image = ED_space_image(sima);
-    int width, height, show_viewer;
+    int width, height;
     float aspx, aspy;
-
-    show_viewer = (image && image->source == IMA_SRC_VIEWER);
 
     if (show_viewer) {
       /* ED_space_image_get* will acquire image buffer which requires
@@ -732,9 +690,11 @@ static void image_main_region_draw(const bContext *C, ARegion *region)
     ED_mask_draw_region(depsgraph,
                         mask,
                         region,
-                        sima->mask_info.draw_flag,
+                        /* Mask overlay is drawn by image/overlay engine. */
+                        sima->mask_info.draw_flag & ~MASK_DRAWFLAG_OVERLAY,
                         sima->mask_info.draw_type,
                         sima->mask_info.overlay_mode,
+                        sima->mask_info.blend_factor,
                         width,
                         height,
                         aspx,
@@ -745,23 +705,16 @@ static void image_main_region_draw(const bContext *C, ARegion *region)
                         C);
   }
 
-  if (show_uvedit || mask || show_curve) {
-    UI_view2d_view_ortho(v2d);
-    ED_image_draw_cursor(region, sima->cursor);
-    UI_view2d_view_restore(C);
-  }
-
   WM_gizmomap_draw(region->gizmo_map, C, WM_GIZMOMAP_DRAWSTEP_2D);
-
   draw_image_cache(C, region);
 }
 
-static void image_main_region_listener(wmWindow *UNUSED(win),
-                                       ScrArea *area,
-                                       ARegion *region,
-                                       wmNotifier *wmn,
-                                       const Scene *UNUSED(scene))
+static void image_main_region_listener(const wmRegionListenerParams *params)
 {
+  ScrArea *area = params->area;
+  ARegion *region = params->region;
+  wmNotifier *wmn = params->notifier;
+
   /* context changes */
   switch (wmn->category) {
     case NC_GEOM:
@@ -837,9 +790,7 @@ static void image_buttons_region_layout(const bContext *C, ARegion *region)
       break;
   }
 
-  const bool vertical = true;
-  ED_region_panels_layout_ex(
-      C, region, &region->type->paneltypes, contexts_base, -1, vertical, NULL);
+  ED_region_panels_layout_ex(C, region, &region->type->paneltypes, contexts_base, NULL);
 }
 
 static void image_buttons_region_draw(const bContext *C, ARegion *region)
@@ -873,12 +824,11 @@ static void image_buttons_region_draw(const bContext *C, ARegion *region)
   ED_region_panels_draw(C, region);
 }
 
-static void image_buttons_region_listener(wmWindow *UNUSED(win),
-                                          ScrArea *UNUSED(area),
-                                          ARegion *region,
-                                          wmNotifier *wmn,
-                                          const Scene *UNUSED(scene))
+static void image_buttons_region_listener(const wmRegionListenerParams *params)
 {
+  ARegion *region = params->region;
+  wmNotifier *wmn = params->notifier;
+
   /* context changes */
   switch (wmn->category) {
     case NC_TEXTURE:
@@ -936,12 +886,11 @@ static void image_tools_region_draw(const bContext *C, ARegion *region)
   ED_region_panels(C, region);
 }
 
-static void image_tools_region_listener(wmWindow *UNUSED(win),
-                                        ScrArea *UNUSED(area),
-                                        ARegion *region,
-                                        wmNotifier *wmn,
-                                        const Scene *UNUSED(scene))
+static void image_tools_region_listener(const wmRegionListenerParams *params)
 {
+  ARegion *region = params->region;
+  wmNotifier *wmn = params->notifier;
+
   /* context changes */
   switch (wmn->category) {
     case NC_GPENCIL:
@@ -993,12 +942,11 @@ static void image_header_region_draw(const bContext *C, ARegion *region)
   ED_region_header(C, region);
 }
 
-static void image_header_region_listener(wmWindow *UNUSED(win),
-                                         ScrArea *UNUSED(area),
-                                         ARegion *region,
-                                         wmNotifier *wmn,
-                                         const Scene *UNUSED(scene))
+static void image_header_region_listener(const wmRegionListenerParams *params)
 {
+  ARegion *region = params->region;
+  wmNotifier *wmn = params->notifier;
+
   /* context changes */
   switch (wmn->category) {
     case NC_SCENE:
@@ -1025,29 +973,19 @@ static void image_header_region_listener(wmWindow *UNUSED(win),
   }
 }
 
-static void image_id_remap(ScrArea *UNUSED(area), SpaceLink *slink, ID *old_id, ID *new_id)
+static void image_id_remap(ScrArea *UNUSED(area),
+                           SpaceLink *slink,
+                           const struct IDRemapper *mappings)
 {
   SpaceImage *simg = (SpaceImage *)slink;
 
-  if (!ELEM(GS(old_id->name), ID_IM, ID_GD, ID_MSK)) {
+  if (!BKE_id_remapper_has_mapping_for(mappings, FILTER_ID_IM | FILTER_ID_GD | FILTER_ID_MSK)) {
     return;
   }
 
-  if ((ID *)simg->image == old_id) {
-    simg->image = (Image *)new_id;
-    id_us_ensure_real(new_id);
-  }
-
-  if ((ID *)simg->gpd == old_id) {
-    simg->gpd = (bGPdata *)new_id;
-    id_us_min(old_id);
-    id_us_plus(new_id);
-  }
-
-  if ((ID *)simg->mask_info.mask == old_id) {
-    simg->mask_info.mask = (Mask *)new_id;
-    id_us_ensure_real(new_id);
-  }
+  BKE_id_remapper_apply(mappings, (ID **)&simg->image, ID_REMAP_APPLY_ENSURE_REAL);
+  BKE_id_remapper_apply(mappings, (ID **)&simg->gpd, ID_REMAP_APPLY_UPDATE_REFCOUNT);
+  BKE_id_remapper_apply(mappings, (ID **)&simg->mask_info.mask, ID_REMAP_APPLY_ENSURE_REAL);
 }
 
 /**
@@ -1084,7 +1022,6 @@ static void image_space_subtype_item_extend(bContext *UNUSED(C),
 
 /**************************** spacetype *****************************/
 
-/* only called once, from space/spacetypes.c */
 void ED_spacetype_image(void)
 {
   SpaceType *st = MEM_callocN(sizeof(SpaceType), "spacetype image");
@@ -1093,7 +1030,7 @@ void ED_spacetype_image(void)
   st->spaceid = SPACE_IMAGE;
   strncpy(st->name, "Image", BKE_ST_MAXNAME);
 
-  st->new = image_new;
+  st->create = image_create;
   st->free = image_free;
   st->init = image_init;
   st->duplicate = image_duplicate;

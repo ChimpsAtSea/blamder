@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup editors
  */
 
-#ifndef __ED_TRANSFORM_H__
-#define __ED_TRANSFORM_H__
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -33,7 +16,6 @@ extern "C" {
 struct Object;
 struct bContext;
 struct wmKeyConfig;
-struct wmMsgBus;
 struct wmOperatorType;
 
 void ED_keymap_transform(struct wmKeyConfig *keyconf);
@@ -42,7 +24,7 @@ void transform_operatortypes(void);
 /* ******************** Macros & Prototypes *********************** */
 
 /* MODE AND NUMINPUT FLAGS */
-enum TfmMode {
+typedef enum {
   TFM_INIT = -1,
   TFM_DUMMY,
   TFM_TRANSLATION,
@@ -56,7 +38,8 @@ enum TfmMode {
   TFM_TILT,
   TFM_TRACKBALL,
   TFM_PUSHPULL,
-  TFM_CREASE,
+  TFM_EDGE_CREASE,
+  TFM_VERT_CREASE,
   TFM_MIRROR,
   TFM_BONESIZE,
   TFM_BONE_ENVELOPE,
@@ -79,30 +62,11 @@ enum TfmMode {
   TFM_BONE_ENVELOPE_DIST,
   TFM_NORMAL_ROTATION,
   TFM_GPENCIL_OPACITY,
-};
-
-/* TRANSFORM CONTEXTS */
-#define CTX_NONE 0
-#define CTX_TEXTURE (1 << 0)
-#define CTX_EDGE (1 << 1)
-#define CTX_NO_PET (1 << 2)
-#define CTX_NO_MIRROR (1 << 3)
-#define CTX_AUTOCONFIRM (1 << 4)
-#define CTX_MOVIECLIP (1 << 6)
-#define CTX_MASK (1 << 7)
-#define CTX_PAINT_CURVE (1 << 8)
-#define CTX_GPENCIL_STROKES (1 << 9)
-#define CTX_CURSOR (1 << 10)
-/** When transforming object's, adjust the object data so it stays in the same place. */
-#define CTX_OBMODE_XFORM_OBDATA (1 << 11)
-/** Transform object parents without moving their children. */
-#define CTX_OBMODE_XFORM_SKIP_CHILDREN (1 << 12)
-#define CTX_SCULPT (1 << 13)
+} eTfmMode;
 
 /* Standalone call to get the transformation center corresponding to the current situation
  * returns 1 if successful, 0 otherwise (usually means there's no selection)
- * (if 0 is returns, *vec is unmodified)
- * */
+ * (if false is returns, `cent3d` is unmodified). */
 bool calculateTransformCenter(struct bContext *C,
                               int centerMode,
                               float cent3d[3],
@@ -110,7 +74,6 @@ bool calculateTransformCenter(struct bContext *C,
 
 struct Object;
 struct Scene;
-struct wmGizmoGroup;
 struct wmGizmoGroupType;
 
 /* UNUSED */
@@ -121,19 +84,22 @@ struct TransformOrientation;
 struct bContext;
 
 void BIF_clearTransformOrientation(struct bContext *C);
-void BIF_removeTransformOrientation(struct bContext *C, struct TransformOrientation *ts);
+void BIF_removeTransformOrientation(struct bContext *C, struct TransformOrientation *target);
 void BIF_removeTransformOrientationIndex(struct bContext *C, int index);
 bool BIF_createTransformOrientation(struct bContext *C,
                                     struct ReportList *reports,
                                     const char *name,
-                                    const bool use_view,
-                                    const bool activate,
-                                    const bool overwrite);
-void BIF_selectTransformOrientation(struct bContext *C, struct TransformOrientation *ts);
+                                    bool use_view,
+                                    bool activate,
+                                    bool overwrite);
+void BIF_selectTransformOrientation(struct bContext *C, struct TransformOrientation *target);
 
-void ED_getTransformOrientationMatrix(const struct bContext *C,
-                                      float orientation_mat[3][3],
-                                      const short around);
+void ED_getTransformOrientationMatrix(struct ViewLayer *view_layer,
+                                      const struct View3D *v3d,
+                                      struct Object *ob,
+                                      struct Object *obedit,
+                                      short around,
+                                      float r_orientation_mat[3][3]);
 
 int BIF_countTransformOrientation(const struct bContext *C);
 
@@ -157,6 +123,7 @@ int BIF_countTransformOrientation(const struct bContext *C);
 #define P_GPENCIL_EDIT (1 << 13)
 #define P_CURSOR_EDIT (1 << 14)
 #define P_CLNOR_INVALIDATE (1 << 15)
+#define P_VIEW2D_EDGE_PAN (1 << 16)
 /* For properties performed when confirming the transformation. */
 #define P_POST_TRANSFORM (1 << 19)
 
@@ -164,20 +131,31 @@ void Transform_Properties(struct wmOperatorType *ot, int flags);
 
 /* *** transform_orientations.c *** */
 void ED_transform_calc_orientation_from_type(const struct bContext *C, float r_mat[3][3]);
-short ED_transform_calc_orientation_from_type_ex(const struct bContext *C,
-                                                 float r_mat[3][3],
-                                                 /* extra args */
-                                                 struct Scene *scene,
-                                                 struct RegionView3D *rv3d,
+/**
+ * \note The resulting matrix may not be orthogonal,
+ * callers that depend on `r_mat` to be orthogonal should use #orthogonalize_m3.
+ *
+ * A non orthogonal matrix may be returned when:
+ * - #V3D_ORIENT_GIMBAL the result won't be orthogonal unless the object has no rotation.
+ * - #V3D_ORIENT_LOCAL may contain shear from non-uniform scale in parent/child relationships.
+ * - #V3D_ORIENT_CUSTOM may have been created from #V3D_ORIENT_LOCAL.
+ */
+short ED_transform_calc_orientation_from_type_ex(const struct Scene *scene,
+                                                 struct ViewLayer *view_layer,
+                                                 const struct View3D *v3d,
+                                                 const struct RegionView3D *rv3d,
                                                  struct Object *ob,
                                                  struct Object *obedit,
-                                                 const short orientation_type,
-                                                 int orientation_index_custom,
-                                                 const int pivot_point);
+                                                 short orientation_index,
+                                                 int pivot_point,
+                                                 float r_mat[3][3]);
 
 /* transform gizmos */
 
 void VIEW3D_GGT_xform_gizmo(struct wmGizmoGroupType *gzgt);
+/**
+ * Only poll, flag & gzmap_params differ.
+ */
 void VIEW3D_GGT_xform_gizmo_context(struct wmGizmoGroupType *gzgt);
 void VIEW3D_GGT_xform_cage(struct wmGizmoGroupType *gzgt);
 void VIEW3D_GGT_xform_shear(struct wmGizmoGroupType *gzgt);
@@ -195,26 +173,50 @@ void ED_widgetgroup_gizmo2d_rotate_callbacks_set(struct wmGizmoGroupType *gzgt);
 
 struct TransformBounds {
   float center[3];      /* Center for transform widget. */
-  float min[3], max[3]; /* Boundbox of selection for transform widget. */
+  float min[3], max[3]; /* Bounding-box of selection for transform widget. */
 
   /* Normalized axis */
   float axis[3][3];
   float axis_min[3], axis_max[3];
+
+  /**
+   * When #TransformCalcParams.use_local_axis is used.
+   * This is the local space matrix the caller may need to access.
+   */
+  bool use_matrix_space;
+  float matrix_space[4][4];
 };
 
 struct TransformCalcParams {
   uint use_only_center : 1;
   uint use_local_axis : 1;
   /* Use 'Scene.orientation_type' when zero, otherwise subtract one and use. */
-  ushort orientation_type;
-  ushort orientation_index_custom;
+  ushort orientation_index;
 };
+/**
+ * Centroid, bound-box, of selection.
+ *
+ * Returns total items selected.
+ */
 int ED_transform_calc_gizmo_stats(const struct bContext *C,
                                   const struct TransformCalcParams *params,
                                   struct TransformBounds *tbounds);
 
+/**
+ * Iterates over all the strips and finds the closest snapping candidate of either \a frame_1 or \a
+ * frame_2. The closest snapping candidate will be the closest start or end frame of an existing
+ * strip.
+ * \returns True if there was anything to snap to.
+ */
+bool ED_transform_snap_sequencer_to_closest_strip_calc(struct Scene *scene,
+                                                       struct ARegion *region,
+                                                       int frame_1,
+                                                       int frame_2,
+                                                       int *r_snap_distance,
+                                                       float *r_snap_frame);
+
+void ED_draw_sequencer_snap_point(struct bContext *C, float snap_point);
+
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __ED_TRANSFORM_H__ */

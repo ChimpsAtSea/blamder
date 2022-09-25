@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -295,7 +279,7 @@ void BKE_colorband_init_from_table_rgba(ColorBand *coba,
                                         const int array_len,
                                         bool filter_samples)
 {
-  /* Note, we could use MAXCOLORBAND here, but results of re-sampling are nicer,
+  /* NOTE: we could use MAXCOLORBAND here, but results of re-sampling are nicer,
    * avoid different behavior when limit is hit. */
   if (array_len < 2) {
     /* No Re-sample, just de-duplicate. */
@@ -420,7 +404,7 @@ bool BKE_colorband_evaluate(const ColorBand *coba, float in, float out[4])
 
   cbd1 = coba->data;
 
-  /* Note: when ipotype >= COLBAND_INTERP_B_SPLINE,
+  /* NOTE: when ipotype >= COLBAND_INTERP_B_SPLINE,
    * we cannot do early-out with a constant color before first color stop and after last one,
    * because interpolation starts before and ends after those... */
   ipotype = (coba->color_mode == COLBAND_BLEND_RGB) ? coba->ipotype : COLBAND_INTERP_LINEAR;
@@ -485,12 +469,12 @@ bool BKE_colorband_evaluate(const ColorBand *coba, float in, float out[4])
       }
       else {
         /* was setting to 0.0 in 2.56 & previous, but this
-         * is incorrect for the last element, see [#26732] */
+         * is incorrect for the last element, see T26732. */
         fac = (a != coba->tot) ? 0.0f : 1.0f;
       }
 
       if (ELEM(ipotype, COLBAND_INTERP_B_SPLINE, COLBAND_INTERP_CARDINAL)) {
-        /* ipo from right to left: 3 2 1 0 */
+        /* Interpolate from right to left: `3 2 1 0`. */
         float t[4];
 
         if (a >= coba->tot - 1) {
@@ -587,7 +571,7 @@ static int vergcband(const void *a1, const void *a2)
   if (x1->pos > x2->pos) {
     return 1;
   }
-  else if (x1->pos < x2->pos) {
+  if (x1->pos < x2->pos) {
     return -1;
   }
   return 0;
@@ -620,18 +604,17 @@ CBData *BKE_colorband_element_add(struct ColorBand *coba, float position)
   if (coba->tot == MAXCOLORBAND) {
     return NULL;
   }
+
+  CBData *xnew;
+
+  xnew = &coba->data[coba->tot];
+  xnew->pos = position;
+
+  if (coba->tot != 0) {
+    BKE_colorband_evaluate(coba, position, &xnew->r);
+  }
   else {
-    CBData *xnew;
-
-    xnew = &coba->data[coba->tot];
-    xnew->pos = position;
-
-    if (coba->tot != 0) {
-      BKE_colorband_evaluate(coba, position, &xnew->r);
-    }
-    else {
-      zero_v4(&xnew->r);
-    }
+    zero_v4(&xnew->r);
   }
 
   coba->tot++;
@@ -642,24 +625,22 @@ CBData *BKE_colorband_element_add(struct ColorBand *coba, float position)
   return coba->data + coba->cur;
 }
 
-int BKE_colorband_element_remove(struct ColorBand *coba, int index)
+bool BKE_colorband_element_remove(struct ColorBand *coba, int index)
 {
-  int a;
-
   if (coba->tot < 2) {
-    return 0;
+    return false;
   }
 
   if (index < 0 || index >= coba->tot) {
-    return 0;
+    return false;
   }
 
   coba->tot--;
-  for (a = index; a < coba->tot; a++) {
+  for (int a = index; a < coba->tot; a++) {
     coba->data[a] = coba->data[a + 1];
   }
   if (coba->cur) {
     coba->cur--;
   }
-  return 1;
+  return true;
 }

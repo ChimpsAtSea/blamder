@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2012 by Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2012 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -139,10 +123,10 @@ BLI_INLINE void bicubic_interpolation(const unsigned char *byte_buffer,
 
       y1 = j + m;
       CLAMP(y1, 0, height - 1);
-      /* normally we could do this */
-      /* w = P(n-a) * P(b-m); */
-      /* except that would call P() 16 times per pixel therefor pow() 64 times,
-       * better precalc these */
+      /* Normally we could do this:
+       * `w = P(n-a) * P(b-m);`
+       * except that would call `P()` 16 times per pixel therefor `pow()` 64 times,
+       * better pre-calculate these. */
       w = wx * wy[m + 1];
 
       if (float_output) {
@@ -286,7 +270,7 @@ BLI_INLINE void bilinear_interpolation(const unsigned char *byte_buffer,
 
   if (float_output) {
     const float *row1, *row2, *row3, *row4;
-    float empty[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+    const float empty[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
     /* pixel value must be already wrapped, however values at boundaries may flip */
     if (wrap_x) {
@@ -517,7 +501,7 @@ void BLI_bilinear_interpolation_wrap_char(const unsigned char *buffer,
  * otherwise at high texture magnifications circular artifacts are visible. */
 #define EWA_MAXIDX 255
 const float EWA_WTS[EWA_MAXIDX + 1] = {
-    1.f,         0.990965f,   0.982f,      0.973105f,   0.96428f,    0.955524f,   0.946836f,
+    1.0f,        0.990965f,   0.982f,      0.973105f,   0.96428f,    0.955524f,   0.946836f,
     0.938216f,   0.929664f,   0.921178f,   0.912759f,   0.904405f,   0.896117f,   0.887893f,
     0.879734f,   0.871638f,   0.863605f,   0.855636f,   0.847728f,   0.839883f,   0.832098f,
     0.824375f,   0.816712f,   0.809108f,   0.801564f,   0.794079f,   0.786653f,   0.779284f,
@@ -553,7 +537,7 @@ const float EWA_WTS[EWA_MAXIDX + 1] = {
     0.0324175f,  0.0309415f,  0.029477f,   0.0280239f,  0.0265822f,  0.0251517f,  0.0237324f,
     0.0223242f,  0.020927f,   0.0195408f,  0.0181653f,  0.0168006f,  0.0154466f,  0.0141031f,
     0.0127701f,  0.0114476f,  0.0101354f,  0.00883339f, 0.00754159f, 0.00625989f, 0.00498819f,
-    0.00372644f, 0.00247454f, 0.00123242f, 0.f,
+    0.00372644f, 0.00247454f, 0.00123242f, 0.0f,
 };
 
 static void radangle2imp(float a2, float b2, float th, float *A, float *B, float *C, float *F)
@@ -567,10 +551,11 @@ static void radangle2imp(float a2, float b2, float th, float *A, float *B, float
   *F = a2 * b2;
 }
 
-/* all tests here are done to make sure possible overflows are hopefully minimized */
 void BLI_ewa_imp2radangle(
     float A, float B, float C, float F, float *a, float *b, float *th, float *ecc)
 {
+  /* NOTE: all tests here are done to make sure possible overflows are hopefully minimized. */
+
   if (F <= 1e-5f) { /* use arbitrary major radius, zero minor, infinite eccentricity */
     *a = sqrtf(A > C ? A : C);
     *b = 0.0f;
@@ -625,7 +610,7 @@ void BLI_ewa_filter(const int width,
    * Use a different radius based on interpolation switch,
    * just enough to anti-alias when interpolation is off,
    * and slightly larger to make result a bit smoother than bilinear interpolation when
-   * interpolation is on (minimum values: const float rmin = intpol ? 1.f : 0.5f;) */
+   * interpolation is on (minimum values: `const float rmin = intpol ? 1.0f : 0.5f;`) */
   const float rmin = (intpol ? 1.5625f : 0.765625f) / ff2;
   BLI_ewa_imp2radangle(A, B, C, F, &a, &b, &th, &ecc);
   if ((b2 = b * b) < rmin) {
@@ -655,7 +640,7 @@ void BLI_ewa_filter(const int width,
   v2 = (int)(ceilf(V0 + ve));
 
   /* sane clamping to avoid unnecessarily huge loops */
-  /* note: if eccentricity gets clamped (see above),
+  /* NOTE: if eccentricity gets clamped (see above),
    * the ue/ve limits can also be lowered accordingly
    */
   if (U0 - (float)u1 > EWA_MAXIDX) {
@@ -705,9 +690,9 @@ void BLI_ewa_filter(const int width,
     }
   }
 
-  /* d should hopefully never be zero anymore */
+  /* `d` should hopefully never be zero anymore. */
   d = 1.0f / d;
   mul_v3_fl(result, d);
-  /* clipping can be ignored if alpha used, texr->ta already includes filtered edge */
+  /* Clipping can be ignored if alpha used, `texr->trgba[3]` already includes filtered edge. */
   result[3] = use_alpha ? result[3] * d : 1.0f;
 }

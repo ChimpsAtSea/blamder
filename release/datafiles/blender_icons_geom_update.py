@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # This script updates icons from the BLEND file
 import os
@@ -6,10 +7,9 @@ import subprocess
 import sys
 
 
-def run(cmd):
+def run(cmd, *, env=None):
     print("   ", " ".join(cmd))
-    # Don't use check_call because asan causes nonzero exitcode :S
-    subprocess.call(cmd)
+    subprocess.check_call(cmd, env=env)
 
 
 def edit_text_file(filename, marker_begin, marker_end, content):
@@ -21,10 +21,10 @@ def edit_text_file(filename, marker_begin, marker_end, content):
     while data[marker_end_index - 1] in {'\t', ' '}:
         marker_end_index -= 1
     if marker_begin_index == -1:
-        print('Error: {!r} not found'.format(marker_begin))
+        print('Error: %r not found' % marker_begin)
         return
     if marker_end_index == -1:
-        print('Error: {!r} not found'.format(marker_end))
+        print('Error: %r not found' % marker_end)
         return
     marker_begin_index += len(marker_begin) + 1
     data_update = data[:marker_begin_index] + content + data[marker_end_index:]
@@ -73,7 +73,17 @@ for blend in icons_blend:
         "--group", "Export",
         "--output-dir", output_dir,
     )
-    run(cmd)
+
+    env = {}
+    # Developers may have ASAN enabled, avoid non-zero exit codes.
+    env["ASAN_OPTIONS"] = "exitcode=0:" + os.environ.get("ASAN_OPTIONS", "")
+    # These NEED to be set on windows for python to initialize properly.
+    if sys.platform[:3] == "win":
+        env["PATHEXT"] = os.environ.get("PATHEXT", "")
+        env["SystemDrive"] = os.environ.get("SystemDrive", "")
+        env["SystemRoot"] = os.environ.get("SystemRoot", "")
+
+    run(cmd, env=env)
     files_new = set(names_and_time_from_path(output_dir))
 
     icon_files.extend([

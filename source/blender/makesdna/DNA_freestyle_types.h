@@ -1,24 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2010 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2010 Blender Foundation. All rights reserved. */
 
-#ifndef __DNA_FREESTYLE_TYPES_H__
-#define __DNA_FREESTYLE_TYPES_H__
+#pragma once
 
 /** \file
  * \ingroup DNA
@@ -41,7 +24,7 @@ enum {
   FREESTYLE_RIDGES_AND_VALLEYS_FLAG = 1 << 1,
   FREESTYLE_MATERIAL_BOUNDARIES_FLAG = 1 << 2,
   FREESTYLE_FACE_SMOOTHNESS_FLAG = 1 << 3,
-  FREESTYLE_ADVANCED_OPTIONS_FLAG = 1 << 4,
+  /* FREESTYLE_ADVANCED_OPTIONS_FLAG = 1 << 4, */ /* UNUSED */
   FREESTYLE_CULLING = 1 << 5,
   FREESTYLE_VIEW_MAP_CACHE = 1 << 6,
   FREESTYLE_AS_RENDER_PASS = 1 << 7,
@@ -146,7 +129,7 @@ typedef struct FreestyleConfig {
   int flags;
   float sphere_radius;
   float dkr_epsilon;
-  /** In radians!. */
+  /** In radians. */
   float crease_angle;
 
   ListBase linesets;
@@ -155,5 +138,3 @@ typedef struct FreestyleConfig {
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __DNA_FREESTYLE_TYPES_H__ */

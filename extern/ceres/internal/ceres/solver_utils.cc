@@ -28,20 +28,27 @@
 //
 // Author: sameeragarwal@google.com (Sameer Agarwal)
 
+#include "ceres/solver_utils.h"
+
 #include <string>
 
 #include "Eigen/Core"
-#include "ceres/internal/port.h"
-#include "ceres/solver_utils.h"
+#include "ceres/internal/config.h"
+#include "ceres/internal/export.h"
 #include "ceres/version.h"
+#ifndef CERES_NO_CUDA
+#include "cuda_runtime.h"
+#endif  // CERES_NO_CUDA
 
 namespace ceres {
 namespace internal {
 
-#define CERES_EIGEN_VERSION                                          \
-  CERES_TO_STRING(EIGEN_WORLD_VERSION) "."                           \
-  CERES_TO_STRING(EIGEN_MAJOR_VERSION) "."                           \
+// clang-format off
+#define CERES_EIGEN_VERSION                 \
+  CERES_TO_STRING(EIGEN_WORLD_VERSION) "."  \
+  CERES_TO_STRING(EIGEN_MAJOR_VERSION) "."  \
   CERES_TO_STRING(EIGEN_MINOR_VERSION)
+// clang-format on
 
 std::string VersionString() {
   std::string value = std::string(CERES_VERSION_STRING);
@@ -61,6 +68,10 @@ std::string VersionString() {
   value += "-cxsparse-(" + std::string(CERES_CXSPARSE_VERSION) + ")";
 #endif
 
+#ifndef CERES_NO_ACCELERATE_SPARSE
+  value += "-acceleratesparse";
+#endif
+
 #ifdef CERES_USE_EIGEN_SPARSE
   value += "-eigensparse";
 #endif
@@ -77,6 +88,10 @@ std::string VersionString() {
 
 #ifdef CERES_NO_CUSTOM_BLAS
   value += "-no_custom_blas";
+#endif
+
+#ifndef CERES_NO_CUDA
+  value += "-cuda-(" + std::to_string(CUDART_VERSION) + ")";
 #endif
 
   return value;

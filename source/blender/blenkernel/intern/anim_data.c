@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 Blender Foundation, Joshua Leung
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation, Joshua Leung. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -31,6 +15,7 @@
 #include "BKE_fcurve.h"
 #include "BKE_fcurve_driver.h"
 #include "BKE_global.h"
+#include "BKE_idtype.h"
 #include "BKE_lib_id.h"
 #include "BKE_lib_query.h"
 #include "BKE_main.h"
@@ -41,6 +26,7 @@
 #include "DNA_ID.h"
 #include "DNA_anim_types.h"
 #include "DNA_light_types.h"
+#include "DNA_material_types.h"
 #include "DNA_node_types.h"
 #include "DNA_space_types.h"
 #include "DNA_windowmanager_types.h"
@@ -54,7 +40,10 @@
 
 #include "DEG_depsgraph.h"
 
+#include "BLO_read_write.h"
+
 #include "RNA_access.h"
+#include "RNA_path.h"
 
 #include "CLG_log.h"
 
@@ -65,45 +54,13 @@ static CLG_LogRef LOG = {"bke.anim_sys"};
 
 /* Getter/Setter -------------------------------------------- */
 
-/* Check if ID can have AnimData */
 bool id_type_can_have_animdata(const short id_type)
 {
-  /* Only some ID-blocks have this info for now */
-  /* TODO: finish adding this for the other blocktypes */
-  switch (id_type) {
-    /* has AnimData */
-    case ID_OB:
-    case ID_ME:
-    case ID_MB:
-    case ID_CU:
-    case ID_AR:
-    case ID_LT:
-    case ID_KE:
-    case ID_PA:
-    case ID_MA:
-    case ID_TE:
-    case ID_NT:
-    case ID_LA:
-    case ID_CA:
-    case ID_WO:
-    case ID_LS:
-    case ID_LP:
-    case ID_SPK:
-    case ID_SCE:
-    case ID_MC:
-    case ID_MSK:
-    case ID_GD:
-    case ID_CF:
-    case ID_HA:
-    case ID_PT:
-    case ID_VO:
-    case ID_SIM:
-      return true;
-
-    /* no AnimData */
-    default:
-      return false;
+  const IDTypeInfo *typeinfo = BKE_idtype_get_info_from_idcode(id_type);
+  if (typeinfo != NULL) {
+    return (typeinfo->flags & IDTYPE_FLAGS_NO_ANIMDATA) == 0;
   }
+  return false;
 }
 
 bool id_can_have_animdata(const ID *id)
@@ -116,35 +73,27 @@ bool id_can_have_animdata(const ID *id)
   return id_type_can_have_animdata(GS(id->name));
 }
 
-/* Get AnimData from the given ID-block. In order for this to work, we assume that
- * the AnimData pointer is stored immediately after the given ID-block in the struct,
- * as per IdAdtTemplate.
- */
-AnimData *BKE_animdata_from_id(ID *id)
+AnimData *BKE_animdata_from_id(const ID *id)
 {
-  /* only some ID-blocks have this info for now, so we cast the
-   * types that do to be of type IdAdtTemplate, and extract the
-   * AnimData that way
-   */
+  /* In order for this to work, we assume that the #AnimData pointer is stored
+   * immediately after the given ID-block in the struct, as per IdAdtTemplate. */
+
+  /* Only some ID-blocks have this info for now, so we cast the types that do
+   * to be of type IdAdtTemplate, and add the AnimData to it using the template. */
   if (id_can_have_animdata(id)) {
     IdAdtTemplate *iat = (IdAdtTemplate *)id;
     return iat->adt;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
-/* Add AnimData to the given ID-block. In order for this to work, we assume that
- * the AnimData pointer is stored immediately after the given ID-block in the struct,
- * as per IdAdtTemplate. Also note that
- */
-AnimData *BKE_animdata_add_id(ID *id)
+AnimData *BKE_animdata_ensure_id(ID *id)
 {
-  /* Only some ID-blocks have this info for now, so we cast the
-   * types that do to be of type IdAdtTemplate, and add the AnimData
-   * to it using the template
-   */
+  /* In order for this to work, we assume that the #AnimData pointer is stored
+   * immediately after the given ID-block in the struct, as per IdAdtTemplate. */
+
+  /* Only some ID-blocks have this info for now, so we cast the types that do
+   * to be of type IdAdtTemplate, and add the AnimData to it using the template. */
   if (id_can_have_animdata(id)) {
     IdAdtTemplate *iat = (IdAdtTemplate *)id;
 
@@ -161,75 +110,90 @@ AnimData *BKE_animdata_add_id(ID *id)
 
     return iat->adt;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
 /* Action Setter --------------------------------------- */
 
-/**
- * Called when user tries to change the active action of an AnimData block
- * (via RNA, Outliner, etc.)
- */
 bool BKE_animdata_set_action(ReportList *reports, ID *id, bAction *act)
 {
   AnimData *adt = BKE_animdata_from_id(id);
-  bool ok = false;
 
-  /* animdata validity check */
+  /* Animdata validity check. */
   if (adt == NULL) {
     BKE_report(reports, RPT_WARNING, "No AnimData to set action on");
-    return ok;
+    return false;
   }
 
-  /* active action is only editable when it is not a tweaking strip
-   * see rna_AnimData_action_editable() in rna_animation.c
-   */
-  if ((adt->flag & ADT_NLA_EDIT_ON) || (adt->actstrip) || (adt->tmpact)) {
-    /* cannot remove, otherwise things turn to custard */
+  if (adt->action == act) {
+    /* Don't bother reducing and increasing the user count when there is nothing changing. */
+    return true;
+  }
+
+  if (!BKE_animdata_action_editable(adt)) {
+    /* Cannot remove, otherwise things turn to custard. */
     BKE_report(reports, RPT_ERROR, "Cannot change action, as it is still being edited in NLA");
-    return ok;
+    return false;
   }
 
-  /* manage usercount for current action */
+  /* Reduce usercount for current action. */
   if (adt->action) {
     id_us_min((ID *)adt->action);
   }
 
-  /* assume that AnimData's action can in fact be edited... */
-  if (act) {
-    /* action must have same type as owner */
-    if (ELEM(act->idroot, 0, GS(id->name))) {
-      /* can set */
-      adt->action = act;
-      id_us_plus((ID *)adt->action);
-      ok = true;
-    }
-    else {
-      /* cannot set */
-      BKE_reportf(
-          reports,
-          RPT_ERROR,
-          "Could not set action '%s' onto ID '%s', as it does not have suitably rooted paths "
-          "for this purpose",
-          act->id.name + 2,
-          id->name);
-      /* ok = false; */
-    }
-  }
-  else {
-    /* just clearing the action... */
+  if (act == NULL) {
+    /* Just clearing the action. */
     adt->action = NULL;
-    ok = true;
+    return true;
   }
 
-  return ok;
+  /* Action must have same type as owner. */
+  if (!BKE_animdata_action_ensure_idroot(id, act)) {
+    /* Cannot set to this type. */
+    BKE_reportf(
+        reports,
+        RPT_ERROR,
+        "Could not set action '%s' onto ID '%s', as it does not have suitably rooted paths "
+        "for this purpose",
+        act->id.name + 2,
+        id->name);
+    return false;
+  }
+
+  adt->action = act;
+  id_us_plus((ID *)adt->action);
+
+  return true;
+}
+
+bool BKE_animdata_action_editable(const AnimData *adt)
+{
+  /* Active action is only editable when it is not a tweaking strip. */
+  const bool is_tweaking_strip = (adt->flag & ADT_NLA_EDIT_ON) || adt->actstrip != NULL ||
+                                 adt->tmpact != NULL;
+  return !is_tweaking_strip;
+}
+
+bool BKE_animdata_action_ensure_idroot(const ID *owner, bAction *action)
+{
+  const int idcode = GS(owner->name);
+
+  if (action == NULL) {
+    /* A NULL action is usable by any ID type. */
+    return true;
+  }
+
+  if (action->idroot == 0) {
+    /* First time this Action is assigned, lock it to this ID type. */
+    action->idroot = idcode;
+    return true;
+  }
+
+  return (action->idroot == idcode);
 }
 
 /* Freeing -------------------------------------------- */
 
-/* Free AnimData used by the nominated ID-block, and clear ID-block's AnimData pointer */
 void BKE_animdata_free(ID *id, const bool do_id_user)
 {
   /* Only some ID-blocks have this info for now, so we cast the
@@ -290,16 +254,14 @@ bool BKE_animdata_id_is_animated(const struct ID *id)
          !BLI_listbase_is_empty(&adt->overrides);
 }
 
-/** Callback used by lib_query to walk over all ID usages (mimics `foreach_id` callback of
- * `IDTypeInfo` structure). */
 void BKE_animdata_foreach_id(AnimData *adt, LibraryForeachIDData *data)
 {
   LISTBASE_FOREACH (FCurve *, fcu, &adt->drivers) {
-    BKE_fcurve_foreach_id(fcu, data);
+    BKE_LIB_FOREACHID_PROCESS_FUNCTION_CALL(data, BKE_fcurve_foreach_id(fcu, data));
   }
 
-  BKE_LIB_FOREACHID_PROCESS(data, adt->action, IDWALK_CB_USER);
-  BKE_LIB_FOREACHID_PROCESS(data, adt->tmpact, IDWALK_CB_USER);
+  BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, adt->action, IDWALK_CB_USER);
+  BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, adt->tmpact, IDWALK_CB_USER);
 
   LISTBASE_FOREACH (NlaTrack *, nla_track, &adt->nla_tracks) {
     LISTBASE_FOREACH (NlaStrip *, nla_strip, &nla_track->strips) {
@@ -310,12 +272,6 @@ void BKE_animdata_foreach_id(AnimData *adt, LibraryForeachIDData *data)
 
 /* Copying -------------------------------------------- */
 
-/**
- * Make a copy of the given AnimData - to be used when copying data-blocks.
- * \param flag: Control ID pointers management,
- * see LIB_ID_CREATE_.../LIB_ID_COPY_... flags in BKE_lib_id.h
- * \return The copied animdata.
- */
 AnimData *BKE_animdata_copy(Main *bmain, AnimData *adt, const int flag)
 {
   AnimData *dadt;
@@ -331,10 +287,23 @@ AnimData *BKE_animdata_copy(Main *bmain, AnimData *adt, const int flag)
 
   /* make a copy of action - at worst, user has to delete copies... */
   if (do_action) {
+    /* Recursive copy of 'real' IDs is a bit hairy. Even if do not want to deal with usercount
+     *  when copying ID's data itself, we still need to do so with sub-IDs, since those will not be
+     * handled by later 'update usercounts of used IDs' code as used e.g. at end of
+     * BKE_id_copy_ex().
+     * So in case we do copy the ID and its sub-IDs in bmain, silence the 'no usercount' flag for
+     * the sub-IDs copying.
+     * NOTE: This is a bit weak, as usually when it comes to recursive ID copy. Should work for
+     * now, but we may have to revisit this at some point and add a proper extra flag to deal with
+     * that situation. Or refactor completely the way we handle such recursion, by flattening it
+     * e.g. */
+    const int id_copy_flag = (flag & LIB_ID_CREATE_NO_MAIN) == 0 ?
+                                 flag & ~LIB_ID_CREATE_NO_USER_REFCOUNT :
+                                 flag;
     BLI_assert(bmain != NULL);
     BLI_assert(dadt->action == NULL || dadt->action != dadt->tmpact);
-    BKE_id_copy_ex(bmain, (ID *)dadt->action, (ID **)&dadt->action, flag);
-    BKE_id_copy_ex(bmain, (ID *)dadt->tmpact, (ID **)&dadt->tmpact, flag);
+    dadt->action = (bAction *)BKE_id_copy_ex(bmain, (ID *)dadt->action, NULL, id_copy_flag);
+    dadt->tmpact = (bAction *)BKE_id_copy_ex(bmain, (ID *)dadt->tmpact, NULL, id_copy_flag);
   }
   else if (do_id_user) {
     id_us_plus((ID *)dadt->action);
@@ -342,7 +311,7 @@ AnimData *BKE_animdata_copy(Main *bmain, AnimData *adt, const int flag)
   }
 
   /* duplicate NLA data */
-  BKE_nla_tracks_copy(bmain, &dadt->nla_tracks, &adt->nla_tracks, flag);
+  BKE_nla_tracks_copy_from_adt(bmain, dadt, adt, flag);
 
   /* duplicate drivers (F-Curves) */
   BKE_fcurves_copy(&dadt->drivers, &adt->drivers);
@@ -355,11 +324,6 @@ AnimData *BKE_animdata_copy(Main *bmain, AnimData *adt, const int flag)
   return dadt;
 }
 
-/**
- * \param flag: Control ID pointers management,
- * see LIB_ID_CREATE_.../LIB_ID_COPY_... flags in BKE_lib_id.h
- * \return true is successfully copied.
- */
 bool BKE_animdata_copy_id(Main *bmain, ID *id_to, ID *id_from, const int flag)
 {
   AnimData *adt;
@@ -379,28 +343,47 @@ bool BKE_animdata_copy_id(Main *bmain, ID *id_to, ID *id_from, const int flag)
   return true;
 }
 
-void BKE_animdata_copy_id_action(Main *bmain, ID *id, const bool set_newid)
+static void animdata_copy_id_action(Main *bmain,
+                                    ID *id,
+                                    const bool set_newid,
+                                    const bool do_linked_id)
 {
   AnimData *adt = BKE_animdata_from_id(id);
   if (adt) {
-    if (adt->action) {
+    if (adt->action && (do_linked_id || !ID_IS_LINKED(adt->action))) {
       id_us_min((ID *)adt->action);
-      adt->action = set_newid ? ID_NEW_SET(adt->action, BKE_action_copy(bmain, adt->action)) :
-                                BKE_action_copy(bmain, adt->action);
+      adt->action = set_newid ? ID_NEW_SET(adt->action, BKE_id_copy(bmain, &adt->action->id)) :
+                                BKE_id_copy(bmain, &adt->action->id);
     }
-    if (adt->tmpact) {
+    if (adt->tmpact && (do_linked_id || !ID_IS_LINKED(adt->tmpact))) {
       id_us_min((ID *)adt->tmpact);
-      adt->tmpact = set_newid ? ID_NEW_SET(adt->tmpact, BKE_action_copy(bmain, adt->tmpact)) :
-                                BKE_action_copy(bmain, adt->tmpact);
+      adt->tmpact = set_newid ? ID_NEW_SET(adt->tmpact, BKE_id_copy(bmain, &adt->tmpact->id)) :
+                                BKE_id_copy(bmain, &adt->tmpact->id);
     }
   }
   bNodeTree *ntree = ntreeFromID(id);
   if (ntree) {
-    BKE_animdata_copy_id_action(bmain, &ntree->id, set_newid);
+    animdata_copy_id_action(bmain, &ntree->id, set_newid, do_linked_id);
+  }
+  /* Note that collections are not animatable currently, so no need to handle scenes' master
+   * collection here. */
+}
+
+void BKE_animdata_copy_id_action(Main *bmain, ID *id)
+{
+  const bool is_id_liboverride = ID_IS_OVERRIDE_LIBRARY(id);
+  animdata_copy_id_action(bmain, id, false, !is_id_liboverride);
+}
+
+void BKE_animdata_duplicate_id_action(struct Main *bmain,
+                                      struct ID *id,
+                                      const eDupli_ID_Flags duplicate_flags)
+{
+  if (duplicate_flags & USER_DUP_ACT) {
+    animdata_copy_id_action(bmain, id, true, (duplicate_flags & USER_DUP_LINKED_ID) != 0);
   }
 }
 
-/* Merge copies of the data from the src AnimData into the destination AnimData */
 void BKE_animdata_merge_copy(
     Main *bmain, ID *dst_id, ID *src_id, eAnimData_MergeCopy_Modes action_mode, bool fix_drivers)
 {
@@ -412,7 +395,7 @@ void BKE_animdata_merge_copy(
     return;
   }
 
-  // TODO: we must unset all "tweakmode" flags
+  /* TODO: we must unset all "tweak-mode" flags. */
   if ((src->flag & ADT_NLA_EDIT_ON) || (dst->flag & ADT_NLA_EDIT_ON)) {
     CLOG_ERROR(
         &LOG,
@@ -423,8 +406,8 @@ void BKE_animdata_merge_copy(
   /* handle actions... */
   if (action_mode == ADT_MERGECOPY_SRC_COPY) {
     /* make a copy of the actions */
-    dst->action = BKE_action_copy(bmain, src->action);
-    dst->tmpact = BKE_action_copy(bmain, src->tmpact);
+    dst->action = (bAction *)BKE_id_copy(bmain, &src->action->id);
+    dst->tmpact = (bAction *)BKE_id_copy(bmain, &src->tmpact->id);
   }
   else if (action_mode == ADT_MERGECOPY_SRC_REF) {
     /* make a reference to it */
@@ -489,24 +472,43 @@ static bool animpath_matches_basepath(const char path[], const char basepath[])
   return (path && basepath) && STRPREFIX(path, basepath);
 }
 
+static void animpath_update_basepath(FCurve *fcu,
+                                     const char *old_basepath,
+                                     const char *new_basepath)
+{
+  BLI_assert(animpath_matches_basepath(fcu->rna_path, old_basepath));
+  if (STREQ(old_basepath, new_basepath)) {
+    return;
+  }
+
+  char *new_path = BLI_sprintfN("%s%s", new_basepath, fcu->rna_path + strlen(old_basepath));
+  MEM_freeN(fcu->rna_path);
+  fcu->rna_path = new_path;
+}
+
 /* Move F-Curves in src action to dst action, setting up all the necessary groups
  * for this to happen, but only if the F-Curves being moved have the appropriate
  * "base path".
  * - This is used when data moves from one data-block to another, causing the
  *   F-Curves to need to be moved over too
  */
-void action_move_fcurves_by_basepath(bAction *srcAct, bAction *dstAct, const char basepath[])
+static void action_move_fcurves_by_basepath(bAction *srcAct,
+                                            bAction *dstAct,
+                                            const char *src_basepath,
+                                            const char *dst_basepath)
 {
   FCurve *fcu, *fcn = NULL;
 
   /* sanity checks */
-  if (ELEM(NULL, srcAct, dstAct, basepath)) {
+  if (ELEM(NULL, srcAct, dstAct, src_basepath, dst_basepath)) {
     if (G.debug & G_DEBUG) {
       CLOG_ERROR(&LOG,
-                 "srcAct: %p, dstAct: %p, basepath: %p has insufficient info to work with",
+                 "srcAct: %p, dstAct: %p, src_basepath: %p, dst_basepath: %p has insufficient "
+                 "info to work with",
                  (void *)srcAct,
                  (void *)dstAct,
-                 (void *)basepath);
+                 (void *)src_basepath,
+                 (void *)dst_basepath);
     }
     return;
   }
@@ -524,7 +526,7 @@ void action_move_fcurves_by_basepath(bAction *srcAct, bAction *dstAct, const cha
     /* should F-Curve be moved over?
      * - we only need the start of the path to match basepath
      */
-    if (animpath_matches_basepath(fcu->rna_path, basepath)) {
+    if (animpath_matches_basepath(fcu->rna_path, src_basepath)) {
       bActionGroup *agrp = NULL;
 
       /* if grouped... */
@@ -545,6 +547,8 @@ void action_move_fcurves_by_basepath(bAction *srcAct, bAction *dstAct, const cha
 
       /* perform the migration now */
       action_groups_remove_channel(srcAct, fcu);
+
+      animpath_update_basepath(fcu, src_basepath, dst_basepath);
 
       if (agrp) {
         action_groups_add_channel(dstAct, agrp, fcu);
@@ -578,14 +582,25 @@ void action_move_fcurves_by_basepath(bAction *srcAct, bAction *dstAct, const cha
   }
 }
 
-/* Transfer the animation data from srcID to dstID where the srcID
- * animation data is based off "basepath", creating new AnimData and
- * associated data as necessary
- */
-void BKE_animdata_separate_by_basepath(Main *bmain, ID *srcID, ID *dstID, ListBase *basepaths)
+static void animdata_move_drivers_by_basepath(AnimData *srcAdt,
+                                              AnimData *dstAdt,
+                                              const char *src_basepath,
+                                              const char *dst_basepath)
+{
+  LISTBASE_FOREACH_MUTABLE (FCurve *, fcu, &srcAdt->drivers) {
+    if (animpath_matches_basepath(fcu->rna_path, src_basepath)) {
+      animpath_update_basepath(fcu, src_basepath, dst_basepath);
+      BLI_remlink(&srcAdt->drivers, fcu);
+      BLI_addtail(&dstAdt->drivers, fcu);
+
+      /* TODO: add depsgraph flushing calls? */
+    }
+  }
+}
+
+void BKE_animdata_transfer_by_basepath(Main *bmain, ID *srcID, ID *dstID, ListBase *basepaths)
 {
   AnimData *srcAdt = NULL, *dstAdt = NULL;
-  LinkData *ld;
 
   /* sanity checks */
   if (ELEM(NULL, srcID, dstID)) {
@@ -597,7 +612,7 @@ void BKE_animdata_separate_by_basepath(Main *bmain, ID *srcID, ID *dstID, ListBa
 
   /* get animdata from src, and create for destination (if needed) */
   srcAdt = BKE_animdata_from_id(srcID);
-  dstAdt = BKE_animdata_add_id(dstID);
+  dstAdt = BKE_animdata_ensure_id(dstID);
 
   if (ELEM(NULL, srcAdt, dstAdt)) {
     if (G.debug & G_DEBUG) {
@@ -612,6 +627,7 @@ void BKE_animdata_separate_by_basepath(Main *bmain, ID *srcID, ID *dstID, ListBa
      * and name it in a similar way so that it can be easily found again. */
     if (dstAdt->action == NULL) {
       dstAdt->action = BKE_action_add(bmain, srcAdt->action->id.name + 2);
+      BKE_animdata_action_ensure_idroot(dstID, dstAdt->action);
     }
     else if (dstAdt->action == srcAdt->action) {
       CLOG_WARN(&LOG,
@@ -624,86 +640,25 @@ void BKE_animdata_separate_by_basepath(Main *bmain, ID *srcID, ID *dstID, ListBa
       /* TODO: review this... */
       id_us_min(&dstAdt->action->id);
       dstAdt->action = BKE_action_add(bmain, dstAdt->action->id.name + 2);
+      BKE_animdata_action_ensure_idroot(dstID, dstAdt->action);
     }
 
     /* loop over base paths, trying to fix for each one... */
-    for (ld = basepaths->first; ld; ld = ld->next) {
-      const char *basepath = (const char *)ld->data;
-      action_move_fcurves_by_basepath(srcAdt->action, dstAdt->action, basepath);
+    LISTBASE_FOREACH (const AnimationBasePathChange *, basepath_change, basepaths) {
+      action_move_fcurves_by_basepath(srcAdt->action,
+                                      dstAdt->action,
+                                      basepath_change->src_basepath,
+                                      basepath_change->dst_basepath);
     }
   }
 
   /* drivers */
   if (srcAdt->drivers.first) {
-    FCurve *fcu, *fcn = NULL;
-
-    /* check each driver against all the base paths to see if any should go */
-    for (fcu = srcAdt->drivers.first; fcu; fcu = fcn) {
-      fcn = fcu->next;
-
-      /* try each basepath in turn, but stop on the first one which works */
-      for (ld = basepaths->first; ld; ld = ld->next) {
-        const char *basepath = (const char *)ld->data;
-
-        if (animpath_matches_basepath(fcu->rna_path, basepath)) {
-          /* just need to change lists */
-          BLI_remlink(&srcAdt->drivers, fcu);
-          BLI_addtail(&dstAdt->drivers, fcu);
-
-          /* TODO: add depsgraph flushing calls? */
-
-          /* can stop now, as moved already */
-          break;
-        }
-      }
+    LISTBASE_FOREACH (const AnimationBasePathChange *, basepath_change, basepaths) {
+      animdata_move_drivers_by_basepath(
+          srcAdt, dstAdt, basepath_change->src_basepath, basepath_change->dst_basepath);
     }
   }
-}
-
-/**
- * Temporary wrapper for driver operators for buttons to make it easier to create
- * such drivers by rerouting all paths through the active object instead so that
- * they will get picked up by the dependency system.
- *
- * \param C: Context pointer - for getting active data
- * \param[in,out] ptr: RNA pointer for property's data-block.
- * May be modified as result of path remapping.
- * \param prop: RNA definition of property to add for
- * \return MEM_alloc'd string representing the path to the property from the given #PointerRNA
- */
-char *BKE_animdata_driver_path_hack(bContext *C,
-                                    PointerRNA *ptr,
-                                    PropertyRNA *prop,
-                                    char *base_path)
-{
-  ID *id = ptr->owner_id;
-  ScrArea *area = CTX_wm_area(C);
-
-  /* get standard path which may be extended */
-  char *basepath = base_path ? base_path : RNA_path_from_ID_to_property(ptr, prop);
-  char *path = basepath; /* in case no remapping is needed */
-
-  /* Remapping will only be performed in the Properties Editor, as only this
-   * restricts the subspace of options to the 'active' data (a manageable state)
-   */
-  /* TODO: watch out for pinned context? */
-  if ((area) && (area->spacetype == SPACE_PROPERTIES)) {
-    Object *ob = CTX_data_active_object(C);
-
-    if (ob && id) {
-      /* TODO: after material textures were removed, this function serves
-       * no purpose anymore, but could be used again so was not removed. */
-
-      /* fix RNA pointer, as we've now changed the ID root by changing the paths */
-      if (basepath != path) {
-        /* rebase provided pointer so that it starts from object... */
-        RNA_pointer_create(&ob->id, ptr->type, ptr->data, ptr);
-      }
-    }
-  }
-
-  /* the path should now have been corrected for use */
-  return path;
 }
 
 /* Path Validation -------------------------------------------- */
@@ -772,10 +727,9 @@ static char *rna_path_rename_fix(ID *owner_id,
         MEM_freeN(oldpath);
         return newPath;
       }
-      else {
-        /* still couldn't resolve the path... so, might as well just leave it alone */
-        MEM_freeN(newPath);
-      }
+
+      /* still couldn't resolve the path... so, might as well just leave it alone */
+      MEM_freeN(newPath);
     }
   }
 
@@ -810,7 +764,7 @@ static bool fcurves_path_rename_fix(ID *owner_id,
     if (fcu->rna_path != old_path) {
       bActionGroup *agrp = fcu->grp;
       is_changed = true;
-      if ((agrp != NULL) && STREQ(oldName, agrp->name)) {
+      if (oldName != NULL && (agrp != NULL) && STREQ(oldName, agrp->name)) {
         BLI_strncpy(agrp->name, newName, sizeof(agrp->name));
       }
     }
@@ -891,8 +845,8 @@ static bool nlastrips_path_rename_fix(ID *owner_id,
       is_changed |= fcurves_path_rename_fix(
           owner_id, prefix, oldName, newName, oldKey, newKey, &strip->act->curves, verify_paths);
     }
-    /* Ignore own F-Curves, since those are local.  */
-    /* Check sub-strips (if metas) */
+    /* Ignore own F-Curves, since those are local. */
+    /* Check sub-strips (if meta-strips). */
     is_changed |= nlastrips_path_rename_fix(
         owner_id, prefix, oldName, newName, oldKey, newKey, &strip->strips, verify_paths);
   }
@@ -901,14 +855,6 @@ static bool nlastrips_path_rename_fix(ID *owner_id,
 
 /* Rename Sub-ID Entities in RNA Paths ----------------------- */
 
-/* Fix up the given RNA-Path
- *
- * This is just an external wrapper for the RNA-Path fixing function,
- * with input validity checks on top of the basic method.
- *
- * NOTE: it is assumed that the structure we're replacing is <prefix><["><name><"]>
- *       i.e. pose.bones["Bone"]
- */
 char *BKE_animsys_fix_rna_path_rename(ID *owner_id,
                                       char *old_path,
                                       const char *prefix,
@@ -937,8 +883,8 @@ char *BKE_animsys_fix_rna_path_rename(ID *owner_id,
     char *name_old_esc = BLI_array_alloca(name_old_esc, (name_old_len * 2) + 1);
     char *name_new_esc = BLI_array_alloca(name_new_esc, (name_new_len * 2) + 1);
 
-    BLI_strescape(name_old_esc, oldName, (name_old_len * 2) + 1);
-    BLI_strescape(name_new_esc, newName, (name_new_len * 2) + 1);
+    BLI_str_escape(name_old_esc, oldName, (name_old_len * 2) + 1);
+    BLI_str_escape(name_new_esc, newName, (name_new_len * 2) + 1);
     oldN = BLI_sprintfN("[\"%s\"]", name_old_esc);
     newN = BLI_sprintfN("[\"%s\"]", name_new_esc);
   }
@@ -964,14 +910,6 @@ char *BKE_animsys_fix_rna_path_rename(ID *owner_id,
   return result;
 }
 
-/* Fix all RNA_Paths in the given Action, relative to the given ID block
- *
- * This is just an external wrapper for the F-Curve fixing function,
- * with input validity checks on top of the basic method.
- *
- * NOTE: it is assumed that the structure we're replacing is <prefix><["><name><"]>
- *       i.e. pose.bones["Bone"]
- */
 void BKE_action_fix_paths_rename(ID *owner_id,
                                  bAction *act,
                                  const char *prefix,
@@ -996,8 +934,8 @@ void BKE_action_fix_paths_rename(ID *owner_id,
     char *name_old_esc = BLI_array_alloca(name_old_esc, (name_old_len * 2) + 1);
     char *name_new_esc = BLI_array_alloca(name_new_esc, (name_new_len * 2) + 1);
 
-    BLI_strescape(name_old_esc, oldName, (name_old_len * 2) + 1);
-    BLI_strescape(name_new_esc, newName, (name_new_len * 2) + 1);
+    BLI_str_escape(name_old_esc, oldName, (name_old_len * 2) + 1);
+    BLI_str_escape(name_new_esc, newName, (name_new_len * 2) + 1);
     oldN = BLI_sprintfN("[\"%s\"]", name_old_esc);
     newN = BLI_sprintfN("[\"%s\"]", name_new_esc);
   }
@@ -1015,10 +953,6 @@ void BKE_action_fix_paths_rename(ID *owner_id,
   MEM_freeN(newN);
 }
 
-/* Fix all RNA-Paths in the AnimData block used by the given ID block
- * NOTE: it is assumed that the structure we're replacing is <prefix><["><name><"]>
- *       i.e. pose.bones["Bone"]
- */
 void BKE_animdata_fix_paths_rename(ID *owner_id,
                                    AnimData *adt,
                                    ID *ref_id,
@@ -1044,8 +978,8 @@ void BKE_animdata_fix_paths_rename(ID *owner_id,
     char *name_old_esc = BLI_array_alloca(name_old_esc, (name_old_len * 2) + 1);
     char *name_new_esc = BLI_array_alloca(name_new_esc, (name_new_len * 2) + 1);
 
-    BLI_strescape(name_old_esc, oldName, (name_old_len * 2) + 1);
-    BLI_strescape(name_new_esc, newName, (name_new_len * 2) + 1);
+    BLI_str_escape(name_old_esc, oldName, (name_old_len * 2) + 1);
+    BLI_str_escape(name_new_esc, newName, (name_new_len * 2) + 1);
     oldN = BLI_sprintfN("[\"%s\"]", name_old_esc);
     newN = BLI_sprintfN("[\"%s\"]", name_new_esc);
   }
@@ -1122,7 +1056,7 @@ static bool nlastrips_path_remove_fix(const char *prefix, ListBase *strips)
       any_removed |= fcurves_path_remove_fix(prefix, &strip->act->curves);
     }
 
-    /* check sub-strips (if metas) */
+    /* Check sub-strips (if meta-strips). */
     any_removed |= nlastrips_path_remove_fix(prefix, &strip->strips);
   }
   return any_removed;
@@ -1190,7 +1124,7 @@ static void nlastrips_apply_all_curves_cb(ID *id, ListBase *strips, AllFCurvesCb
       fcurves_apply_cb(id, &strip->act->curves, wrapper->func, wrapper->user_data);
     }
 
-    /* check sub-strips (if metas) */
+    /* Check sub-strips (if meta-strips). */
     nlastrips_apply_all_curves_cb(id, &strip->strips, wrapper);
   }
 }
@@ -1227,7 +1161,6 @@ void BKE_fcurves_id_cb(ID *id, ID_FCurve_Edit_Callback func, void *user_data)
   }
 }
 
-/* apply the given callback function on all F-Curves attached to data in main database */
 void BKE_fcurves_main_cb(Main *bmain, ID_FCurve_Edit_Callback func, void *user_data)
 {
   /* Wrap F-Curve operation stuff to pass to the general AnimData-level func */
@@ -1239,7 +1172,6 @@ void BKE_fcurves_main_cb(Main *bmain, ID_FCurve_Edit_Callback func, void *user_d
 
 /* Whole Database Ops -------------------------------------------- */
 
-/* apply the given callback function on all data in main database */
 void BKE_animdata_main_cb(Main *bmain, ID_AnimData_Edit_Callback func, void *user_data)
 {
   ID *id;
@@ -1248,8 +1180,9 @@ void BKE_animdata_main_cb(Main *bmain, ID_AnimData_Edit_Callback func, void *use
 #define ANIMDATA_IDS_CB(first) \
   for (id = first; id; id = id->next) { \
     AnimData *adt = BKE_animdata_from_id(id); \
-    if (adt) \
+    if (adt) { \
       func(id, adt, user_data); \
+    } \
   } \
   (void)0
 
@@ -1260,11 +1193,13 @@ void BKE_animdata_main_cb(Main *bmain, ID_AnimData_Edit_Callback func, void *use
     NtId_Type *ntp = (NtId_Type *)id; \
     if (ntp->nodetree) { \
       AnimData *adt2 = BKE_animdata_from_id((ID *)ntp->nodetree); \
-      if (adt2) \
+      if (adt2) { \
         func(id, adt2, user_data); \
+      } \
     } \
-    if (adt) \
+    if (adt) { \
       func(id, adt, user_data); \
+    } \
   } \
   (void)0
 
@@ -1334,8 +1269,8 @@ void BKE_animdata_main_cb(Main *bmain, ID_AnimData_Edit_Callback func, void *use
   /* cache files */
   ANIMDATA_IDS_CB(bmain->cachefiles.first);
 
-  /* hairs */
-  ANIMDATA_IDS_CB(bmain->hairs.first);
+  /* Hair Curves. */
+  ANIMDATA_IDS_CB(bmain->hair_curves.first);
 
   /* pointclouds */
   ANIMDATA_IDS_CB(bmain->pointclouds.first);
@@ -1347,17 +1282,26 @@ void BKE_animdata_main_cb(Main *bmain, ID_AnimData_Edit_Callback func, void *use
   ANIMDATA_IDS_CB(bmain->simulations.first);
 }
 
-/* Fix all RNA-Paths throughout the database (directly access the Global.main version)
- * NOTE: it is assumed that the structure we're replacing is <prefix><["><name><"]>
- *      i.e. pose.bones["Bone"]
- */
-/* TODO: use BKE_animdata_main_cb for looping over all data  */
 void BKE_animdata_fix_paths_rename_all(ID *ref_id,
                                        const char *prefix,
                                        const char *oldName,
                                        const char *newName)
 {
   Main *bmain = G.main; /* XXX UGLY! */
+  BKE_animdata_fix_paths_rename_all_ex(bmain, ref_id, prefix, oldName, newName, 0, 0, 1);
+}
+
+void BKE_animdata_fix_paths_rename_all_ex(Main *bmain,
+                                          ID *ref_id,
+                                          const char *prefix,
+                                          const char *oldName,
+                                          const char *newName,
+                                          const int oldSubscript,
+                                          const int newSubscript,
+                                          const bool verify_paths)
+{
+  /* TODO: use BKE_animdata_main_cb for looping over all data. */
+
   ID *id;
 
   /* macro for less typing
@@ -1367,7 +1311,8 @@ void BKE_animdata_fix_paths_rename_all(ID *ref_id,
 #define RENAMEFIX_ANIM_IDS(first) \
   for (id = first; id; id = id->next) { \
     AnimData *adt = BKE_animdata_from_id(id); \
-    BKE_animdata_fix_paths_rename(id, adt, ref_id, prefix, oldName, newName, 0, 0, 1); \
+    BKE_animdata_fix_paths_rename( \
+        id, adt, ref_id, prefix, oldName, newName, oldSubscript, newSubscript, verify_paths); \
   } \
   (void)0
 
@@ -1378,10 +1323,18 @@ void BKE_animdata_fix_paths_rename_all(ID *ref_id,
     NtId_Type *ntp = (NtId_Type *)id; \
     if (ntp->nodetree) { \
       AnimData *adt2 = BKE_animdata_from_id((ID *)ntp->nodetree); \
-      BKE_animdata_fix_paths_rename( \
-          (ID *)ntp->nodetree, adt2, ref_id, prefix, oldName, newName, 0, 0, 1); \
+      BKE_animdata_fix_paths_rename((ID *)ntp->nodetree, \
+                                    adt2, \
+                                    ref_id, \
+                                    prefix, \
+                                    oldName, \
+                                    newName, \
+                                    oldSubscript, \
+                                    newSubscript, \
+                                    verify_paths); \
     } \
-    BKE_animdata_fix_paths_rename(id, adt, ref_id, prefix, oldName, newName, 0, 0, 1); \
+    BKE_animdata_fix_paths_rename( \
+        id, adt, ref_id, prefix, oldName, newName, oldSubscript, newSubscript, verify_paths); \
   } \
   (void)0
 
@@ -1445,8 +1398,8 @@ void BKE_animdata_fix_paths_rename_all(ID *ref_id,
   /* cache files */
   RENAMEFIX_ANIM_IDS(bmain->cachefiles.first);
 
-  /* hairs */
-  RENAMEFIX_ANIM_IDS(bmain->hairs.first);
+  /* Hair Curves. */
+  RENAMEFIX_ANIM_IDS(bmain->hair_curves.first);
 
   /* pointclouds */
   RENAMEFIX_ANIM_IDS(bmain->pointclouds.first);
@@ -1459,4 +1412,89 @@ void BKE_animdata_fix_paths_rename_all(ID *ref_id,
 
   /* scenes */
   RENAMEFIX_ANIM_NODETREE_IDS(bmain->scenes.first, Scene);
+}
+
+/* .blend file API -------------------------------------------- */
+
+void BKE_animdata_blend_write(BlendWriter *writer, struct AnimData *adt)
+{
+  /* firstly, just write the AnimData block */
+  BLO_write_struct(writer, AnimData, adt);
+
+  /* write drivers */
+  BKE_fcurve_blend_write(writer, &adt->drivers);
+
+  /* write overrides */
+  /* FIXME: are these needed? */
+  LISTBASE_FOREACH (AnimOverride *, aor, &adt->overrides) {
+    /* overrides consist of base data + rna_path */
+    BLO_write_struct(writer, AnimOverride, aor);
+    BLO_write_string(writer, aor->rna_path);
+  }
+
+  /* TODO: write the remaps (if they are needed). */
+
+  /* write NLA data */
+  BKE_nla_blend_write(writer, &adt->nla_tracks);
+}
+
+void BKE_animdata_blend_read_data(BlendDataReader *reader, AnimData *adt)
+{
+  /* NOTE: must have called BLO_read_data_address already before doing this... */
+  if (adt == NULL) {
+    return;
+  }
+
+  /* link drivers */
+  BLO_read_list(reader, &adt->drivers);
+  BKE_fcurve_blend_read_data(reader, &adt->drivers);
+  adt->driver_array = NULL;
+
+  /* link overrides */
+  /* TODO... */
+
+  /* link NLA-data */
+  BLO_read_list(reader, &adt->nla_tracks);
+  BKE_nla_blend_read_data(reader, &adt->nla_tracks);
+
+  /* relink active track/strip - even though strictly speaking this should only be used
+   * if we're in 'tweaking mode', we need to be able to have this loaded back for
+   * undo, but also since users may not exit tweak-mode before saving (T24535).
+   */
+  /* TODO: it's not really nice that anyone should be able to save the file in this
+   *       state, but it's going to be too hard to enforce this single case. */
+  BLO_read_data_address(reader, &adt->act_track);
+  BLO_read_data_address(reader, &adt->actstrip);
+}
+
+void BKE_animdata_blend_read_lib(BlendLibReader *reader, ID *id, AnimData *adt)
+{
+  if (adt == NULL) {
+    return;
+  }
+
+  /* link action data */
+  BLO_read_id_address(reader, id->lib, &adt->action);
+  BLO_read_id_address(reader, id->lib, &adt->tmpact);
+
+  /* link drivers */
+  BKE_fcurve_blend_read_lib(reader, id, &adt->drivers);
+
+  /* overrides don't have lib-link for now, so no need to do anything */
+
+  /* link NLA-data */
+  BKE_nla_blend_read_lib(reader, id, &adt->nla_tracks);
+}
+
+void BKE_animdata_blend_read_expand(struct BlendExpander *expander, AnimData *adt)
+{
+  /* own action */
+  BLO_expand(expander, adt->action);
+  BLO_expand(expander, adt->tmpact);
+
+  /* drivers - assume that these F-Curves have driver data to be in this list... */
+  BKE_fcurve_blend_read_expand(expander, &adt->drivers);
+
+  /* NLA data - referenced actions. */
+  BKE_nla_blend_read_expand(expander, &adt->nla_tracks);
 }

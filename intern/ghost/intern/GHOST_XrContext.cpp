@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup GHOST
@@ -20,9 +6,11 @@
  * Abstraction for XR (VR, AR, MR, ..) access via OpenXR.
  */
 
+#include <algorithm>
 #include <cassert>
 #include <sstream>
 #include <string>
+#include <string_view>
 
 #include "GHOST_Types.h"
 #include "GHOST_XrException.h"
@@ -54,11 +42,10 @@ void *GHOST_XrContext::s_error_handler_customdata = nullptr;
 
 /* -------------------------------------------------------------------- */
 /** \name Create, Initialize and Destruct
- *
  * \{ */
 
 GHOST_XrContext::GHOST_XrContext(const GHOST_XrContextCreateInfo *create_info)
-    : m_oxr(new OpenXRInstanceData()),
+    : m_oxr(std::make_unique<OpenXRInstanceData>()),
       m_debug(create_info->context_flag & GHOST_kXrContextDebug),
       m_debug_time(create_info->context_flag & GHOST_kXrContextDebugTime)
 {
@@ -85,21 +72,30 @@ void GHOST_XrContext::initialize(const GHOST_XrContextCreateInfo *create_info)
   initApiLayers();
   initExtensions();
   if (isDebugMode()) {
+    printSDKVersion();
     printAvailableAPILayersAndExtensionsInfo();
   }
 
-  m_gpu_binding_type = determineGraphicsBindingTypeToEnable(create_info);
+  /* Multiple graphics binding extensions can be enabled, but only one will actually be used
+   * (determined later on). */
+  const std::vector<GHOST_TXrGraphicsBinding> graphics_binding_types =
+      determineGraphicsBindingTypesToEnable(create_info);
 
   assert(m_oxr->instance == XR_NULL_HANDLE);
-  createOpenXRInstance();
+  createOpenXRInstance(graphics_binding_types);
   storeInstanceProperties();
+
+  /* Multiple bindings may be enabled. Now that we know the runtime in use, settle for one. */
+  m_gpu_binding_type = determineGraphicsBindingTypeToUse(graphics_binding_types, create_info);
+
   printInstanceInfo();
   if (isDebugMode()) {
     initDebugMessenger();
   }
 }
 
-void GHOST_XrContext::createOpenXRInstance()
+void GHOST_XrContext::createOpenXRInstance(
+    const std::vector<GHOST_TXrGraphicsBinding> &graphics_binding_types)
 {
   XrInstanceCreateInfo create_info = {XR_TYPE_INSTANCE_CREATE_INFO};
 
@@ -108,7 +104,7 @@ void GHOST_XrContext::createOpenXRInstance()
   create_info.applicationInfo.apiVersion = XR_CURRENT_API_VERSION;
 
   getAPILayersToEnable(m_enabled_layers);
-  getExtensionsToEnable(m_enabled_extensions);
+  getExtensionsToEnable(graphics_binding_types, m_enabled_extensions);
   create_info.enabledApiLayerCount = m_enabled_layers.size();
   create_info.enabledApiLayerNames = m_enabled_layers.data();
   create_info.enabledExtensionCount = m_enabled_extensions.size();
@@ -126,7 +122,9 @@ void GHOST_XrContext::storeInstanceProperties()
   const std::map<std::string, GHOST_TXrOpenXRRuntimeID> runtime_map = {
       {"Monado(XRT) by Collabora et al", OPENXR_RUNTIME_MONADO},
       {"Oculus", OPENXR_RUNTIME_OCULUS},
-      {"Windows Mixed Reality Runtime", OPENXR_RUNTIME_WMR}};
+      {"SteamVR/OpenXR", OPENXR_RUNTIME_STEAMVR},
+      {"Windows Mixed Reality Runtime", OPENXR_RUNTIME_WMR},
+      {"Varjo OpenXR Runtime", OPENXR_RUNTIME_VARJO}};
   decltype(runtime_map)::const_iterator runtime_map_iter;
 
   m_oxr->instance_properties.type = XR_TYPE_INSTANCE_PROPERTIES;
@@ -143,8 +141,17 @@ void GHOST_XrContext::storeInstanceProperties()
 
 /* -------------------------------------------------------------------- */
 /** \name Debug Printing
- *
  * \{ */
+
+void GHOST_XrContext::printSDKVersion()
+{
+  const XrVersion sdk_version = XR_CURRENT_API_VERSION;
+
+  printf("OpenXR SDK Version: %u.%u.%u\n",
+         XR_VERSION_MAJOR(sdk_version),
+         XR_VERSION_MINOR(sdk_version),
+         XR_VERSION_PATCH(sdk_version));
+}
 
 void GHOST_XrContext::printInstanceInfo()
 {
@@ -232,14 +239,13 @@ void GHOST_XrContext::initDebugMessenger()
 
 /* -------------------------------------------------------------------- */
 /** \name Error handling
- *
  * \{ */
 
 void GHOST_XrContext::dispatchErrorMessage(const GHOST_XrException *exception) const
 {
   GHOST_XrError error;
 
-  error.user_message = exception->m_msg;
+  error.user_message = exception->m_msg.data();
   error.customdata = s_error_handler_customdata;
 
   if (isDebugMode()) {
@@ -263,11 +269,10 @@ void GHOST_XrContext::setErrorHandler(GHOST_XrErrorHandlerFn handler_fn, void *c
 
 /* -------------------------------------------------------------------- */
 /** \name OpenXR API-Layers and Extensions
- *
  * \{ */
 
 /**
- * \param layer_name May be NULL for extensions not belonging to a specific layer.
+ * \param layer_name: May be NULL for extensions not belonging to a specific layer.
  */
 void GHOST_XrContext::initExtensionsEx(std::vector<XrExtensionProperties> &extensions,
                                        const char *layer_name)
@@ -326,7 +331,7 @@ void GHOST_XrContext::initApiLayers()
   }
 }
 
-static bool openxr_layer_is_available(const std::vector<XrApiLayerProperties> layers_info,
+static bool openxr_layer_is_available(const std::vector<XrApiLayerProperties> &layers_info,
                                       const std::string &layer_name)
 {
   for (const XrApiLayerProperties &layer_info : layers_info) {
@@ -338,8 +343,9 @@ static bool openxr_layer_is_available(const std::vector<XrApiLayerProperties> la
   return false;
 }
 
-static bool openxr_extension_is_available(const std::vector<XrExtensionProperties> extensions_info,
-                                          const std::string &extension_name)
+static bool openxr_extension_is_available(
+    const std::vector<XrExtensionProperties> &extensions_info,
+    const std::string_view &extension_name)
 {
   for (const XrExtensionProperties &ext_info : extensions_info) {
     if (ext_info.extensionName == extension_name) {
@@ -367,7 +373,7 @@ void GHOST_XrContext::getAPILayersToEnable(std::vector<const char *> &r_ext_name
 
   for (const std::string &layer : try_layers) {
     if (openxr_layer_is_available(m_oxr->layers, layer)) {
-      r_ext_names.push_back(layer.c_str());
+      r_ext_names.push_back(layer.data());
     }
   }
 }
@@ -392,32 +398,52 @@ static const char *openxr_ext_name_from_wm_gpu_binding(GHOST_TXrGraphicsBinding 
 /**
  * Gather an array of names for the extensions to enable.
  */
-void GHOST_XrContext::getExtensionsToEnable(std::vector<const char *> &r_ext_names)
+void GHOST_XrContext::getExtensionsToEnable(
+    const std::vector<GHOST_TXrGraphicsBinding> &graphics_binding_types,
+    std::vector<const char *> &r_ext_names)
 {
-  assert(m_gpu_binding_type != GHOST_kXrGraphicsUnknown);
-
-  const char *gpu_binding = openxr_ext_name_from_wm_gpu_binding(m_gpu_binding_type);
-  static std::vector<std::string> try_ext;
-
-  try_ext.clear();
+  std::vector<std::string_view> try_ext;
 
   /* Try enabling debug extension. */
-#ifndef WIN32
   if (isDebugMode()) {
     try_ext.push_back(XR_EXT_DEBUG_UTILS_EXTENSION_NAME);
   }
+
+  /* Interaction profile extensions. */
+  try_ext.push_back(XR_EXT_HP_MIXED_REALITY_CONTROLLER_EXTENSION_NAME);
+  try_ext.push_back(XR_HTC_VIVE_COSMOS_CONTROLLER_INTERACTION_EXTENSION_NAME);
+#ifdef XR_HTC_VIVE_FOCUS3_CONTROLLER_INTERACTION_EXTENSION_NAME
+  try_ext.push_back(XR_HTC_VIVE_FOCUS3_CONTROLLER_INTERACTION_EXTENSION_NAME);
+#endif
+  try_ext.push_back(XR_HUAWEI_CONTROLLER_INTERACTION_EXTENSION_NAME);
+
+  /* Controller model extension. */
+  try_ext.push_back(XR_MSFT_CONTROLLER_MODEL_EXTENSION_NAME);
+
+  /* Varjo quad view extension. */
+  try_ext.push_back(XR_VARJO_QUAD_VIEWS_EXTENSION_NAME);
+
+  /* Varjo foveated extension. */
+  try_ext.push_back(XR_VARJO_FOVEATED_RENDERING_EXTENSION_NAME);
+
+  r_ext_names.reserve(try_ext.size() + graphics_binding_types.size());
+
+  /* Add graphics binding extensions (may be multiple ones, we'll settle for one to use later, once
+   * we have more info about the runtime). */
+  for (GHOST_TXrGraphicsBinding type : graphics_binding_types) {
+    const char *gpu_binding = openxr_ext_name_from_wm_gpu_binding(type);
+    assert(openxr_extension_is_available(m_oxr->extensions, gpu_binding));
+    r_ext_names.push_back(gpu_binding);
+  }
+
+#if defined(WITH_GHOST_X11) && defined(WITH_GL_EGL)
+  assert(openxr_extension_is_available(m_oxr->extensions, XR_MNDX_EGL_ENABLE_EXTENSION_NAME));
+  r_ext_names.push_back(XR_MNDX_EGL_ENABLE_EXTENSION_NAME);
 #endif
 
-  r_ext_names.reserve(try_ext.size() + 1); /* + 1 for graphics binding extension. */
-
-  /* Add graphics binding extension. */
-  assert(gpu_binding);
-  assert(openxr_extension_is_available(m_oxr->extensions, gpu_binding));
-  r_ext_names.push_back(gpu_binding);
-
-  for (const std::string &ext : try_ext) {
+  for (const std::string_view &ext : try_ext) {
     if (openxr_extension_is_available(m_oxr->extensions, ext)) {
-      r_ext_names.push_back(ext.c_str());
+      r_ext_names.push_back(ext.data());
     }
   }
 }
@@ -426,9 +452,10 @@ void GHOST_XrContext::getExtensionsToEnable(std::vector<const char *> &r_ext_nam
  * Decide which graphics binding extension to use based on
  * #GHOST_XrContextCreateInfo.gpu_binding_candidates and available extensions.
  */
-GHOST_TXrGraphicsBinding GHOST_XrContext::determineGraphicsBindingTypeToEnable(
+std::vector<GHOST_TXrGraphicsBinding> GHOST_XrContext::determineGraphicsBindingTypesToEnable(
     const GHOST_XrContextCreateInfo *create_info)
 {
+  std::vector<GHOST_TXrGraphicsBinding> result;
   assert(create_info->gpu_binding_candidates != NULL);
   assert(create_info->gpu_binding_candidates_count > 0);
 
@@ -437,11 +464,39 @@ GHOST_TXrGraphicsBinding GHOST_XrContext::determineGraphicsBindingTypeToEnable(
     const char *ext_name = openxr_ext_name_from_wm_gpu_binding(
         create_info->gpu_binding_candidates[i]);
     if (openxr_extension_is_available(m_oxr->extensions, ext_name)) {
-      return create_info->gpu_binding_candidates[i];
+      result.push_back(create_info->gpu_binding_candidates[i]);
     }
   }
 
-  return GHOST_kXrGraphicsUnknown;
+  if (result.empty()) {
+    throw GHOST_XrException("No supported graphics binding found.");
+  }
+
+  return result;
+}
+
+GHOST_TXrGraphicsBinding GHOST_XrContext::determineGraphicsBindingTypeToUse(
+    const std::vector<GHOST_TXrGraphicsBinding> &enabled_types,
+    const GHOST_XrContextCreateInfo *create_info)
+{
+  /* Return the first working type. */
+  for (GHOST_TXrGraphicsBinding type : enabled_types) {
+#ifdef WIN32
+    /* The SteamVR OpenGL backend currently fails for NVIDIA GPU's. Disable it and allow falling
+     * back to the DirectX one. */
+    if ((m_runtime_id == OPENXR_RUNTIME_STEAMVR) && (type == GHOST_kXrGraphicsOpenGL) &&
+        ((create_info->context_flag & GHOST_kXrContextGpuNVIDIA) != 0)) {
+      continue;
+    }
+#else
+    ((void)create_info);
+#endif
+
+    assert(type != GHOST_kXrGraphicsUnknown);
+    return type;
+  }
+
+  throw GHOST_XrException("Failed to determine a graphics binding to use.");
 }
 
 /** \} */ /* OpenXR API-Layers and Extensions */
@@ -454,11 +509,12 @@ GHOST_TXrGraphicsBinding GHOST_XrContext::determineGraphicsBindingTypeToEnable(
 
 void GHOST_XrContext::startSession(const GHOST_XrSessionBeginInfo *begin_info)
 {
+  m_custom_funcs.session_create_fn = begin_info->create_fn;
   m_custom_funcs.session_exit_fn = begin_info->exit_fn;
   m_custom_funcs.session_exit_customdata = begin_info->exit_customdata;
 
   if (m_session == nullptr) {
-    m_session = std::unique_ptr<GHOST_XrSession>(new GHOST_XrSession(this));
+    m_session = std::make_unique<GHOST_XrSession>(*this);
   }
   m_session->start(begin_info);
 }
@@ -488,7 +544,7 @@ void GHOST_XrContext::drawSessionViews(void *draw_customdata)
 /**
  * Delegates event to session, allowing context to destruct the session if needed.
  */
-void GHOST_XrContext::handleSessionStateChange(const XrEventDataSessionStateChanged *lifecycle)
+void GHOST_XrContext::handleSessionStateChange(const XrEventDataSessionStateChanged &lifecycle)
 {
   if (m_session &&
       m_session->handleStateChangeEvent(lifecycle) == GHOST_XrSession::SESSION_DESTROY) {
@@ -503,6 +559,16 @@ void GHOST_XrContext::handleSessionStateChange(const XrEventDataSessionStateChan
  *
  * Public as in, exposed in the Ghost API.
  * \{ */
+
+GHOST_XrSession *GHOST_XrContext::getSession()
+{
+  return m_session.get();
+}
+
+const GHOST_XrSession *GHOST_XrContext::getSession() const
+{
+  return m_session.get();
+}
 
 void GHOST_XrContext::setGraphicsContextBindFuncs(GHOST_XrGraphicsContextBindFn bind_fn,
                                                   GHOST_XrGraphicsContextUnbindFn unbind_fn)
@@ -530,7 +596,6 @@ bool GHOST_XrContext::needsUpsideDownDrawing() const
 
 /* -------------------------------------------------------------------- */
 /** \name Ghost Internal Accessors and Mutators
- *
  * \{ */
 
 GHOST_TXrOpenXRRuntimeID GHOST_XrContext::getOpenXRRuntimeID() const
@@ -561,6 +626,13 @@ bool GHOST_XrContext::isDebugMode() const
 bool GHOST_XrContext::isDebugTimeMode() const
 {
   return m_debug_time;
+}
+
+bool GHOST_XrContext::isExtensionEnabled(const char *ext) const
+{
+  bool contains = std::find(m_enabled_extensions.begin(), m_enabled_extensions.end(), ext) !=
+                  m_enabled_extensions.end();
+  return contains;
 }
 
 /** \} */ /* Ghost Internal Accessors and Mutators */

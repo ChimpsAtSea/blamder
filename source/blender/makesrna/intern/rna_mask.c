@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -23,6 +9,7 @@
 
 #include "MEM_guardedalloc.h"
 
+#include "DNA_defaults.h"
 #include "DNA_mask_types.h"
 #include "DNA_object_types.h" /* SELECT */
 #include "DNA_scene_types.h"
@@ -84,7 +71,7 @@ static void rna_Mask_update_parent(Main *bmain, Scene *scene, PointerRNA *ptr)
           if (track) {
             MovieTrackingMarker *marker = BKE_tracking_marker_get(track, clip_framenr);
             float marker_pos_ofs[2], parmask_pos[2];
-            MovieClipUser user = {0};
+            MovieClipUser user = *DNA_struct_default_get(MovieClipUser);
 
             BKE_movieclip_user_set_frame(&user, scene->r.cfra);
 
@@ -115,7 +102,7 @@ static void rna_Mask_update_parent(Main *bmain, Scene *scene, PointerRNA *ptr)
   rna_Mask_update_data(bmain, scene, ptr);
 }
 
-/* note: this function exists only to avoid id refcounting */
+/* NOTE: this function exists only to avoid id refcounting. */
 static void rna_MaskParent_id_set(PointerRNA *ptr,
                                   PointerRNA value,
                                   struct ReportList *UNUSED(reports))
@@ -178,11 +165,11 @@ static void rna_Mask_layer_active_index_range(
   *softmax = *max;
 }
 
-static char *rna_MaskLayer_path(PointerRNA *ptr)
+static char *rna_MaskLayer_path(const PointerRNA *ptr)
 {
-  MaskLayer *masklay = (MaskLayer *)ptr->data;
+  const MaskLayer *masklay = (MaskLayer *)ptr->data;
   char name_esc[sizeof(masklay->name) * 2];
-  BLI_strescape(name_esc, masklay->name, sizeof(name_esc));
+  BLI_str_escape(name_esc, masklay->name, sizeof(name_esc));
   return BLI_sprintfN("layers[\"%s\"]", name_esc);
 }
 
@@ -396,7 +383,7 @@ static void rna_MaskSplinePoint_handle_right_type_set(PointerRNA *ptr, int value
   BKE_mask_calc_handle_point(spline, point);
 }
 
-/* ** API **  */
+/* ** API ** */
 
 static MaskLayer *rna_Mask_layers_new(Mask *mask, const char *name)
 {
@@ -505,7 +492,7 @@ static void rna_MaskSpline_points_add(ID *id, MaskSpline *spline, int count)
 
   if (!layer) {
     /* Shall not happen actually */
-    BLI_assert(!"No layer found for the spline");
+    BLI_assert_msg(0, "No layer found for the spline");
     return;
   }
 
@@ -631,11 +618,11 @@ static void rna_def_maskParent(BlenderRNA *brna)
   RNA_def_property_struct_type(prop, "ID");
   RNA_def_property_flag(prop, PROP_EDITABLE);
   // RNA_def_property_editable_func(prop, "rna_maskSpline_id_editable");
-  /* note: custom set function is ONLY to avoid rna setting a user for this. */
+  /* NOTE: custom set function is ONLY to avoid rna setting a user for this. */
   RNA_def_property_pointer_funcs(
       prop, NULL, "rna_MaskParent_id_set", "rna_MaskParent_id_typef", NULL);
   RNA_def_property_ui_text(
-      prop, "ID", "ID-block to which masking element would be parented to or to it's property");
+      prop, "ID", "ID-block to which masking element would be parented to or to its property");
   RNA_def_property_update(prop, 0, "rna_Mask_update_parent");
 
   prop = RNA_def_property(srna, "id_type", PROP_ENUM, PROP_NONE);
@@ -991,24 +978,24 @@ static void rna_def_mask_layer(BlenderRNA *brna)
 
   /* restrict */
   prop = RNA_def_property(srna, "hide", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, NULL, "restrictflag", MASK_RESTRICT_VIEW);
+  RNA_def_property_boolean_sdna(prop, NULL, "visibility_flag", MASK_HIDE_VIEW);
   RNA_def_property_ui_text(prop, "Restrict View", "Restrict visibility in the viewport");
   RNA_def_property_ui_icon(prop, ICON_RESTRICT_VIEW_OFF, -1);
   RNA_def_property_update(prop, NC_MASK | ND_DRAW, NULL);
 
   prop = RNA_def_property(srna, "hide_select", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, NULL, "restrictflag", MASK_RESTRICT_SELECT);
+  RNA_def_property_boolean_sdna(prop, NULL, "visibility_flag", MASK_HIDE_SELECT);
   RNA_def_property_ui_text(prop, "Restrict Select", "Restrict selection in the viewport");
   RNA_def_property_ui_icon(prop, ICON_RESTRICT_SELECT_OFF, -1);
   RNA_def_property_update(prop, NC_MASK | ND_DRAW, NULL);
 
   prop = RNA_def_property(srna, "hide_render", PROP_BOOLEAN, PROP_NONE);
-  RNA_def_property_boolean_sdna(prop, NULL, "restrictflag", MASK_RESTRICT_RENDER);
+  RNA_def_property_boolean_sdna(prop, NULL, "visibility_flag", MASK_HIDE_RENDER);
   RNA_def_property_ui_text(prop, "Restrict Render", "Restrict renderability");
   RNA_def_property_ui_icon(prop, ICON_RESTRICT_RENDER_OFF, -1);
   RNA_def_property_update(prop, NC_MASK | NA_EDITED, NULL);
 
-  /* select (for dopesheet)*/
+  /* Select (for dope-sheet). */
   prop = RNA_def_property(srna, "select", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flag", MASK_LAYERFLAG_SELECT);
   RNA_def_property_ui_text(prop, "Select", "Layer is selected for editing in the Dope Sheet");
@@ -1038,7 +1025,8 @@ static void rna_def_mask_layer(BlenderRNA *brna)
   RNA_def_property_enum_sdna(prop, NULL, "falloff");
   RNA_def_property_enum_items(prop, rna_enum_proportional_falloff_curve_only_items);
   RNA_def_property_ui_text(prop, "Falloff", "Falloff type the feather");
-  RNA_def_property_translation_context(prop, BLT_I18NCONTEXT_ID_CURVE); /* Abusing id_curve :/ */
+  RNA_def_property_translation_context(prop,
+                                       BLT_I18NCONTEXT_ID_CURVE_LEGACY); /* Abusing id_curve :/ */
   RNA_def_property_update(prop, NC_MASK | NA_EDITED, NULL);
 
   /* filling options */

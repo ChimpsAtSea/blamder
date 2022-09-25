@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import bpy
 from bpy.types import (
@@ -38,16 +20,16 @@ class PhysicButtonsPanel:
 def physics_add(layout, md, name, type, typeicon, toggles):
     row = layout.row(align=True)
     if md:
-        row.context_pointer_set("modifier", md)
         row.operator(
             "object.modifier_remove",
             text=name,
             text_ctxt=i18n_contexts.default,
             icon='X',
-        )
+        ).modifier = md.name
         if toggles:
-            row.prop(md, "show_render", text="")
             row.prop(md, "show_viewport", text="")
+            row.prop(md, "show_render", text="")
+        return row
     else:
         row.operator(
             "object.modifier_add",
@@ -68,14 +50,10 @@ def physics_add_special(layout, data, name, addop, removeop, typeicon):
 class PHYSICS_PT_add(PhysicButtonsPanel, Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
-
-        row = layout.row(align=True)
-        row.alignment = 'LEFT'
-        row.label(text="Enable physics for:")
 
         flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
 
@@ -83,13 +61,16 @@ class PHYSICS_PT_add(PhysicButtonsPanel, Panel):
 
         col = flow.column()
 
-        if obj.field.type == 'NONE':
+        if not obj.field or obj.field.type == 'NONE':
             col.operator("object.forcefield_toggle", text="Force Field", icon='FORCE_FORCE')
         else:
             col.operator("object.forcefield_toggle", text="Force Field", icon='X')
 
         if obj.type == 'MESH':
-            physics_add(col, context.collision, "Collision", 'COLLISION', 'MOD_PHYSICS', False)
+            row = physics_add(col, context.collision, "Collision", 'COLLISION', 'MOD_PHYSICS', False)
+            if row and obj.collision:
+                row.prop(obj.collision, "use", text="", icon='HIDE_OFF' if obj.collision.use else 'HIDE_ON')
+
             physics_add(col, context.cloth, "Cloth", 'CLOTH', 'MOD_CLOTH', True)
             physics_add(col, context.dynamic_paint, "Dynamic Paint", 'DYNAMIC_PAINT', 'MOD_DYNAMICPAINT', True)
 
@@ -126,6 +107,7 @@ def point_cache_ui(self, cache, enabled, cachetype):
     layout.context_pointer_set("point_cache", cache)
 
     is_saved = bpy.data.is_saved
+    is_liboverride = cache.id_data.override_library is not None
 
     # NOTE: TODO temporarily used until the animate properties are properly skipped.
     layout.use_property_decorate = False  # No animation (remove this later on).
@@ -221,14 +203,16 @@ def point_cache_ui(self, cache, enabled, cachetype):
         col = flow.column()
         col.active = can_bake
 
-        if cache.is_baked is True:
+        if is_liboverride and not cache.use_disk_cache:
+            col.operator("ptcache.bake", icon='ERROR', text="Bake (Disk Cache mandatory)")
+        elif cache.is_baked is True:
             col.operator("ptcache.free_bake", text="Delete Bake")
         else:
             col.operator("ptcache.bake", text="Bake").bake = True
 
         sub = col.row()
         sub.enabled = enabled
-        sub.operator("ptcache.bake", text="Calculate To Frame").bake = False
+        sub.operator("ptcache.bake", text="Calculate to Frame").bake = False
 
         sub = col.column()
         sub.enabled = enabled
@@ -237,7 +221,7 @@ def point_cache_ui(self, cache, enabled, cachetype):
         col = flow.column()
         col.operator("ptcache.bake_all", text="Bake All Dynamics").bake = True
         col.operator("ptcache.free_bake_all", text="Delete All Bakes")
-        col.operator("ptcache.bake_all", text="Update All To Frame").bake = False
+        col.operator("ptcache.bake_all", text="Update All to Frame").bake = False
 
 
 def effector_weights_ui(self, weights, weight_type):
@@ -330,6 +314,7 @@ def basic_force_field_settings_ui(self, field):
         col.prop(field, "use_gravity_falloff", text="Gravitation")
 
     col.prop(field, "use_absorption")
+    col.prop(field, "wind_factor")
 
 
 def basic_force_field_falloff_ui(self, field):
@@ -361,6 +346,7 @@ def basic_force_field_falloff_ui(self, field):
     sub.active = field.use_max_distance
     sub.prop(field, "distance_max", text="")
     row.prop_decorator(field, "distance_max")
+
 
 classes = (
     PHYSICS_PT_add,

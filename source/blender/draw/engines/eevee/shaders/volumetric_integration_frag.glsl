@@ -1,4 +1,6 @@
 
+#pragma BLENDER_REQUIRE(volumetric_lib.glsl)
+
 /* Based on Frosbite Unified Volumetric.
  * https://www.ea.com/frostbite/news/physically-based-unified-volumetric-rendering-in-frostbite */
 
@@ -9,11 +11,13 @@ uniform sampler3D volumeScattering; /* Result of the scatter step */
 uniform sampler3D volumeExtinction;
 
 #ifdef USE_VOLUME_OPTI
-uniform layout(binding = 0, r11f_g11f_b10f) writeonly restrict image3D finalScattering_img;
-uniform layout(binding = 1, r11f_g11f_b10f) writeonly restrict image3D finalTransmittance_img;
+uniform layout(r11f_g11f_b10f) writeonly restrict image3D finalScattering_img;
+uniform layout(r11f_g11f_b10f) writeonly restrict image3D finalTransmittance_img;
+
 vec3 finalScattering;
 vec3 finalTransmittance;
 #else
+
 flat in int slice;
 
 layout(location = 0) out vec3 finalScattering;
@@ -48,7 +52,7 @@ void main()
   ivec2 texco = ivec2(gl_FragCoord.xy);
 #endif
   for (int i = 0; i <= slice; i++) {
-    ivec3 volume_cell = ivec3(gl_FragCoord.xy, i);
+    ivec3 volume_cell = ivec3(ivec2(gl_FragCoord.xy), i);
 
     vec3 Lscat = texelFetch(volumeScattering, volume_cell, 0).rgb;
     vec3 s_extinction = texelFetch(volumeExtinction, volume_cell, 0).rgb;
@@ -66,7 +70,11 @@ void main()
     vec3 Tr = exp(-s_extinction * s_len);
 
     /* integrate along the current step segment */
-    Lscat = (Lscat - Lscat * Tr) / max(vec3(1e-8), s_extinction);
+    /* NOTE: Original calculation carries precision issues when compiling for AMD GPUs
+     * and running Metal. This version of the equation retains precision well for all
+     * macOS HW configurations. */
+    Lscat = (Lscat * (1.0f - Tr)) / max(vec3(1e-8), s_extinction);
+
     /* accumulate and also take into account the transmittance from previous steps */
     finalScattering += finalTransmittance * Lscat;
 

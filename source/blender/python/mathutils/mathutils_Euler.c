@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pymathutils
@@ -33,8 +19,79 @@
 
 #define EULER_SIZE 3
 
-/* ----------------------------------mathutils.Euler() ------------------- */
-/* makes a new euler for you to play with */
+/* -------------------------------------------------------------------- */
+/** \name Utilities
+ * \{ */
+
+/** Internal use, assume read callback is done. */
+static const char *euler_order_str(EulerObject *self)
+{
+  static const char order[][4] = {"XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX"};
+  return order[self->order - EULER_ORDER_XYZ];
+}
+
+short euler_order_from_string(const char *str, const char *error_prefix)
+{
+  if ((str[0] && str[1] && str[2] && str[3] == '\0')) {
+
+#ifdef __LITTLE_ENDIAN__
+#  define MAKE_ID3(a, b, c) (((a)) | ((b) << 8) | ((c) << 16))
+#else
+#  define MAKE_ID3(a, b, c) (((a) << 24) | ((b) << 16) | ((c) << 8))
+#endif
+
+    switch (*((const PY_INT32_T *)str)) {
+      case MAKE_ID3('X', 'Y', 'Z'):
+        return EULER_ORDER_XYZ;
+      case MAKE_ID3('X', 'Z', 'Y'):
+        return EULER_ORDER_XZY;
+      case MAKE_ID3('Y', 'X', 'Z'):
+        return EULER_ORDER_YXZ;
+      case MAKE_ID3('Y', 'Z', 'X'):
+        return EULER_ORDER_YZX;
+      case MAKE_ID3('Z', 'X', 'Y'):
+        return EULER_ORDER_ZXY;
+      case MAKE_ID3('Z', 'Y', 'X'):
+        return EULER_ORDER_ZYX;
+    }
+
+#undef MAKE_ID3
+  }
+
+  PyErr_Format(PyExc_ValueError, "%s: invalid euler order '%s'", error_prefix, str);
+  return -1;
+}
+
+/**
+ * \note #BaseMath_ReadCallback must be called beforehand.
+ */
+static PyObject *Euler_to_tuple_ex(EulerObject *self, int ndigits)
+{
+  PyObject *ret;
+  int i;
+
+  ret = PyTuple_New(EULER_SIZE);
+
+  if (ndigits >= 0) {
+    for (i = 0; i < EULER_SIZE; i++) {
+      PyTuple_SET_ITEM(ret, i, PyFloat_FromDouble(double_round((double)self->eul[i], ndigits)));
+    }
+  }
+  else {
+    for (i = 0; i < EULER_SIZE; i++) {
+      PyTuple_SET_ITEM(ret, i, PyFloat_FromDouble(self->eul[i]));
+    }
+  }
+
+  return ret;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: `__new__` / `mathutils.Euler()`
+ * \{ */
+
 static PyObject *Euler_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
 {
   PyObject *seq = NULL;
@@ -71,69 +128,11 @@ static PyObject *Euler_new(PyTypeObject *type, PyObject *args, PyObject *kwds)
   return Euler_CreatePyObject(eul, order, type);
 }
 
-/* internal use, assume read callback is done */
-static const char *euler_order_str(EulerObject *self)
-{
-  static const char order[][4] = {"XYZ", "XZY", "YXZ", "YZX", "ZXY", "ZYX"};
-  return order[self->order - EULER_ORDER_XYZ];
-}
+/** \} */
 
-short euler_order_from_string(const char *str, const char *error_prefix)
-{
-  if ((str[0] && str[1] && str[2] && str[3] == '\0')) {
-
-#ifdef __LITTLE_ENDIAN__
-#  define MAKE_ID3(a, b, c) (((a)) | ((b) << 8) | ((c) << 16))
-#else
-#  define MAKE_ID3(a, b, c) (((a) << 24) | ((b) << 16) | ((c) << 8))
-#endif
-
-    switch (*((PY_INT32_T *)str)) {
-      case MAKE_ID3('X', 'Y', 'Z'):
-        return EULER_ORDER_XYZ;
-      case MAKE_ID3('X', 'Z', 'Y'):
-        return EULER_ORDER_XZY;
-      case MAKE_ID3('Y', 'X', 'Z'):
-        return EULER_ORDER_YXZ;
-      case MAKE_ID3('Y', 'Z', 'X'):
-        return EULER_ORDER_YZX;
-      case MAKE_ID3('Z', 'X', 'Y'):
-        return EULER_ORDER_ZXY;
-      case MAKE_ID3('Z', 'Y', 'X'):
-        return EULER_ORDER_ZYX;
-    }
-
-#undef MAKE_ID3
-  }
-
-  PyErr_Format(PyExc_ValueError, "%s: invalid euler order '%s'", error_prefix, str);
-  return -1;
-}
-
-/* note: BaseMath_ReadCallback must be called beforehand */
-static PyObject *Euler_ToTupleExt(EulerObject *self, int ndigits)
-{
-  PyObject *ret;
-  int i;
-
-  ret = PyTuple_New(EULER_SIZE);
-
-  if (ndigits >= 0) {
-    for (i = 0; i < EULER_SIZE; i++) {
-      PyTuple_SET_ITEM(ret, i, PyFloat_FromDouble(double_round((double)self->eul[i], ndigits)));
-    }
-  }
-  else {
-    for (i = 0; i < EULER_SIZE; i++) {
-      PyTuple_SET_ITEM(ret, i, PyFloat_FromDouble(self->eul[i]));
-    }
-  }
-
-  return ret;
-}
-
-/* -----------------------------METHODS----------------------------
- * return a quaternion representation of the euler */
+/* -------------------------------------------------------------------- */
+/** \name Euler Methods
+ * \{ */
 
 PyDoc_STRVAR(Euler_to_quaternion_doc,
              ".. method:: to_quaternion()\n"
@@ -155,7 +154,6 @@ static PyObject *Euler_to_quaternion(EulerObject *self)
   return Quaternion_CreatePyObject(quat, NULL);
 }
 
-/* return a matrix representation of the euler */
 PyDoc_STRVAR(Euler_to_matrix_doc,
              ".. method:: to_matrix()\n"
              "\n"
@@ -293,9 +291,6 @@ static PyObject *Euler_make_compatible(EulerObject *self, PyObject *value)
   Py_RETURN_NONE;
 }
 
-/* ----------------------------Euler.rotate()-----------------------
- * return a copy of the euler */
-
 PyDoc_STRVAR(Euler_copy_doc,
              ".. function:: copy()\n"
              "\n"
@@ -322,8 +317,11 @@ static PyObject *Euler_deepcopy(EulerObject *self, PyObject *args)
   return Euler_copy(self);
 }
 
-/* ----------------------------print object (internal)--------------
- * print the object to screen */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: `__repr__` & `__str__`
+ * \{ */
 
 static PyObject *Euler_repr(EulerObject *self)
 {
@@ -333,7 +331,7 @@ static PyObject *Euler_repr(EulerObject *self)
     return NULL;
   }
 
-  tuple = Euler_ToTupleExt(self, -1);
+  tuple = Euler_to_tuple_ex(self, -1);
 
   ret = PyUnicode_FromFormat("Euler(%R, '%s')", tuple, euler_order_str(self));
 
@@ -362,6 +360,12 @@ static PyObject *Euler_str(EulerObject *self)
   return mathutils_dynstr_to_py(ds); /* frees ds */
 }
 #endif
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: Rich Compare
+ * \{ */
 
 static PyObject *Euler_richcmpr(PyObject *a, PyObject *b, int op)
 {
@@ -404,6 +408,12 @@ static PyObject *Euler_richcmpr(PyObject *a, PyObject *b, int op)
   return Py_INCREF_RET(res);
 }
 
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: Hash (`__hash__`)
+ * \{ */
+
 static Py_hash_t Euler_hash(EulerObject *self)
 {
   if (BaseMath_ReadCallback(self) == -1) {
@@ -417,15 +427,19 @@ static Py_hash_t Euler_hash(EulerObject *self)
   return mathutils_array_hash(self->eul, EULER_SIZE);
 }
 
-/* ---------------------SEQUENCE PROTOCOLS------------------------ */
-/* ----------------------------len(object)------------------------ */
-/* sequence length */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: Sequence Protocol
+ * \{ */
+
+/** Sequence length: `len(object)`. */
 static int Euler_len(EulerObject *UNUSED(self))
 {
   return EULER_SIZE;
 }
-/* ----------------------------object[]--------------------------- */
-/* sequence accessor (get) */
+
+/** Sequence accessor (get): `x = object[i]`. */
 static PyObject *Euler_item(EulerObject *self, int i)
 {
   if (i < 0) {
@@ -445,8 +459,8 @@ static PyObject *Euler_item(EulerObject *self, int i)
 
   return PyFloat_FromDouble(self->eul[i]);
 }
-/* ----------------------------object[]------------------------- */
-/* sequence accessor (set) */
+
+/** Sequence accessor (set): `object[i] = x`. */
 static int Euler_ass_item(EulerObject *self, int i, PyObject *value)
 {
   float f;
@@ -482,8 +496,8 @@ static int Euler_ass_item(EulerObject *self, int i, PyObject *value)
 
   return 0;
 }
-/* ----------------------------object[z:y]------------------------ */
-/* sequence slice (get) */
+
+/** Sequence slice accessor (get): `x = object[i:j]`. */
 static PyObject *Euler_slice(EulerObject *self, int begin, int end)
 {
   PyObject *tuple;
@@ -507,8 +521,8 @@ static PyObject *Euler_slice(EulerObject *self, int begin, int end)
 
   return tuple;
 }
-/* ----------------------------object[z:y]------------------------ */
-/* sequence slice (set) */
+
+/** Sequence slice accessor (set): `object[i:j] = x`. */
 static int Euler_ass_slice(EulerObject *self, int begin, int end, PyObject *seq)
 {
   int i, size;
@@ -545,6 +559,7 @@ static int Euler_ass_slice(EulerObject *self, int begin, int end, PyObject *seq)
   return 0;
 }
 
+/** Sequence generic subscript (get): `x = object[...]`. */
 static PyObject *Euler_subscript(EulerObject *self, PyObject *item)
 {
   if (PyIndex_Check(item)) {
@@ -558,7 +573,7 @@ static PyObject *Euler_subscript(EulerObject *self, PyObject *item)
     }
     return Euler_item(self, i);
   }
-  else if (PySlice_Check(item)) {
+  if (PySlice_Check(item)) {
     Py_ssize_t start, stop, step, slicelength;
 
     if (PySlice_GetIndicesEx(item, EULER_SIZE, &start, &stop, &step, &slicelength) < 0) {
@@ -568,21 +583,20 @@ static PyObject *Euler_subscript(EulerObject *self, PyObject *item)
     if (slicelength <= 0) {
       return PyTuple_New(0);
     }
-    else if (step == 1) {
+    if (step == 1) {
       return Euler_slice(self, start, stop);
     }
-    else {
-      PyErr_SetString(PyExc_IndexError, "slice steps not supported with eulers");
-      return NULL;
-    }
-  }
-  else {
-    PyErr_Format(
-        PyExc_TypeError, "euler indices must be integers, not %.200s", Py_TYPE(item)->tp_name);
+
+    PyErr_SetString(PyExc_IndexError, "slice steps not supported with eulers");
     return NULL;
   }
+
+  PyErr_Format(
+      PyExc_TypeError, "euler indices must be integers, not %.200s", Py_TYPE(item)->tp_name);
+  return NULL;
 }
 
+/** Sequence generic subscript (set): `object[...] = x`. */
 static int Euler_ass_subscript(EulerObject *self, PyObject *item, PyObject *value)
 {
   if (PyIndex_Check(item)) {
@@ -595,7 +609,7 @@ static int Euler_ass_subscript(EulerObject *self, PyObject *item, PyObject *valu
     }
     return Euler_ass_item(self, i, value);
   }
-  else if (PySlice_Check(item)) {
+  if (PySlice_Check(item)) {
     Py_ssize_t start, stop, step, slicelength;
 
     if (PySlice_GetIndicesEx(item, EULER_SIZE, &start, &stop, &step, &slicelength) < 0) {
@@ -605,30 +619,33 @@ static int Euler_ass_subscript(EulerObject *self, PyObject *item, PyObject *valu
     if (step == 1) {
       return Euler_ass_slice(self, start, stop, value);
     }
-    else {
-      PyErr_SetString(PyExc_IndexError, "slice steps not supported with euler");
-      return -1;
-    }
-  }
-  else {
-    PyErr_Format(
-        PyExc_TypeError, "euler indices must be integers, not %.200s", Py_TYPE(item)->tp_name);
+
+    PyErr_SetString(PyExc_IndexError, "slice steps not supported with euler");
     return -1;
   }
+
+  PyErr_Format(
+      PyExc_TypeError, "euler indices must be integers, not %.200s", Py_TYPE(item)->tp_name);
+  return -1;
 }
 
-/* -----------------PROTCOL DECLARATIONS-------------------------- */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: Sequence & Mapping Protocol Declarations
+ * \{ */
+
 static PySequenceMethods Euler_SeqMethods = {
-    (lenfunc)Euler_len,              /* sq_length */
-    (binaryfunc)NULL,                /* sq_concat */
-    (ssizeargfunc)NULL,              /* sq_repeat */
-    (ssizeargfunc)Euler_item,        /* sq_item */
-    (ssizessizeargfunc)NULL,         /* sq_slice, deprecated  */
-    (ssizeobjargproc)Euler_ass_item, /* sq_ass_item */
-    (ssizessizeobjargproc)NULL,      /* sq_ass_slice, deprecated */
-    (objobjproc)NULL,                /* sq_contains */
-    (binaryfunc)NULL,                /* sq_inplace_concat */
-    (ssizeargfunc)NULL,              /* sq_inplace_repeat */
+    (lenfunc)Euler_len,              /*sq_length*/
+    (binaryfunc)NULL,                /*sq_concat*/
+    (ssizeargfunc)NULL,              /*sq_repeat*/
+    (ssizeargfunc)Euler_item,        /*sq_item*/
+    (ssizessizeargfunc)NULL,         /*sq_slice(DEPRECATED)*/
+    (ssizeobjargproc)Euler_ass_item, /*sq_ass_item*/
+    (ssizessizeobjargproc)NULL,      /*sq_ass_slice(DEPRECATED)*/
+    (objobjproc)NULL,                /*sq_contains*/
+    (binaryfunc)NULL,                /*sq_inplace_concat*/
+    (ssizeargfunc)NULL,              /*sq_inplace_repeat*/
 };
 
 static PyMappingMethods Euler_AsMapping = {
@@ -637,7 +654,13 @@ static PyMappingMethods Euler_AsMapping = {
     (objobjargproc)Euler_ass_subscript,
 };
 
-/* euler axis, euler.x/y/z */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: Get/Set Item Implementation
+ * \{ */
+
+/* Euler axis: `euler.x/y/z`. */
 
 PyDoc_STRVAR(Euler_axis_doc, "Euler axis angle in radians.\n\n:type: float");
 static PyObject *Euler_axis_get(EulerObject *self, void *type)
@@ -650,7 +673,7 @@ static int Euler_axis_set(EulerObject *self, PyObject *value, void *type)
   return Euler_ass_item(self, POINTER_AS_INT(type), value);
 }
 
-/* rotation order */
+/* Euler rotation order: `euler.order`. */
 
 PyDoc_STRVAR(
     Euler_order_doc,
@@ -674,7 +697,7 @@ static int Euler_order_set(EulerObject *self, PyObject *value, void *UNUSED(clos
     return -1;
   }
 
-  if (((order_str = _PyUnicode_AsString(value)) == NULL) ||
+  if (((order_str = PyUnicode_AsUTF8(value)) == NULL) ||
       ((order = euler_order_from_string(order_str, "euler.order")) == -1)) {
     return -1;
   }
@@ -684,9 +707,12 @@ static int Euler_order_set(EulerObject *self, PyObject *value, void *UNUSED(clos
   return 0;
 }
 
-/*****************************************************************************/
-/* Python attributes get/set structure:                                      */
-/*****************************************************************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: Get/Set Item Definitions
+ * \{ */
+
 static PyGetSetDef Euler_getseters[] = {
     {"x", (getter)Euler_axis_get, (setter)Euler_axis_set, Euler_axis_doc, (void *)0},
     {"y", (getter)Euler_axis_get, (setter)Euler_axis_set, Euler_axis_doc, (void *)1},
@@ -703,11 +729,21 @@ static PyGetSetDef Euler_getseters[] = {
      (setter)NULL,
      BaseMathObject_is_frozen_doc,
      NULL},
+    {"is_valid",
+     (getter)BaseMathObject_is_valid_get,
+     (setter)NULL,
+     BaseMathObject_is_valid_doc,
+     NULL},
     {"owner", (getter)BaseMathObject_owner_get, (setter)NULL, BaseMathObject_owner_doc, NULL},
     {NULL, NULL, NULL, NULL, NULL} /* Sentinel */
 };
 
-/* -----------------------METHOD DEFINITIONS ---------------------- */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: Method Definitions
+ * \{ */
+
 static struct PyMethodDef Euler_methods[] = {
     {"zero", (PyCFunction)Euler_zero, METH_NOARGS, Euler_zero_doc},
     {"to_matrix", (PyCFunction)Euler_to_matrix, METH_NOARGS, Euler_to_matrix_doc},
@@ -724,7 +760,12 @@ static struct PyMethodDef Euler_methods[] = {
     {NULL, NULL, 0, NULL},
 };
 
-/* ------------------PY_OBECT DEFINITION-------------------------- */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: Python Object Definition
+ * \{ */
+
 PyDoc_STRVAR(
     euler_doc,
     ".. class:: Euler(angles, order='XYZ')\n"
@@ -788,6 +829,12 @@ PyTypeObject euler_Type = {
     NULL,                                                          /* tp_weaklist */
     NULL,                                                          /* tp_del */
 };
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Euler Type: C/API Constructors
+ * \{ */
 
 PyObject *Euler_CreatePyObject(const float eul[3], const short order, PyTypeObject *base_type)
 {
@@ -862,3 +909,5 @@ PyObject *Euler_CreatePyObject_cb(PyObject *cb_user,
 
   return (PyObject *)self;
 }
+
+/** \} */

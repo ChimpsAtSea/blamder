@@ -1,23 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
-#ifndef __BKE_SOUND_H__
-#define __BKE_SOUND_H__
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
+#pragma once
 
 /** \file
  * \ingroup bke
@@ -37,6 +20,7 @@ struct Depsgraph;
 struct Main;
 struct Sequence;
 struct bSound;
+struct SoundInfo;
 
 typedef struct SoundWaveform {
   int length;
@@ -62,8 +46,7 @@ struct bSound *BKE_sound_new_file_exists_ex(struct Main *bmain,
                                             bool *r_exists);
 struct bSound *BKE_sound_new_file_exists(struct Main *bmain, const char *filepath);
 
-// XXX unused currently
-#if 0
+#if 0 /* UNUSED */
 struct bSound *BKE_sound_new_buffer(struct Main *bmain, struct bSound *source);
 
 struct bSound *BKE_sound_new_limiter(struct Main *bmain,
@@ -96,13 +79,26 @@ typedef enum eSoundChannels {
 typedef struct SoundInfo {
   struct {
     eSoundChannels channels;
+    int samplerate;
   } specs;
   float length;
 } SoundInfo;
 
+typedef struct SoundStreamInfo {
+  double duration;
+  double start;
+} SoundStreamInfo;
+
 /* Get information about given sound. Returns truth on success., false if sound can not be loaded
  * or if the codes is not supported. */
 bool BKE_sound_info_get(struct Main *main, struct bSound *sound, SoundInfo *sound_info);
+
+/* Get information about given sound. Returns truth on success., false if sound can not be loaded
+ * or if the codes is not supported. */
+bool BKE_sound_stream_info_get(struct Main *main,
+                               const char *filepath,
+                               int stream,
+                               SoundStreamInfo *sound_info);
 
 #if defined(WITH_AUDASPACE)
 AUD_Device *BKE_sound_mixdown(const struct Scene *scene,
@@ -140,8 +136,12 @@ void BKE_sound_remove_scene_sound(struct Scene *scene, void *handle);
 
 void BKE_sound_mute_scene_sound(void *handle, char mute);
 
-void BKE_sound_move_scene_sound(
-    struct Scene *scene, void *handle, int startframe, int endframe, int frameskip);
+void BKE_sound_move_scene_sound(const struct Scene *scene,
+                                void *handle,
+                                int startframe,
+                                int endframe,
+                                int frameskip,
+                                double audio_offset);
 void BKE_sound_move_scene_sound_defaults(struct Scene *scene, struct Sequence *sequence);
 
 void BKE_sound_update_scene_sound(void *handle, struct bSound *sound);
@@ -194,5 +194,3 @@ void BKE_sound_evaluate(struct Depsgraph *depsgraph, struct Main *bmain, struct 
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __BKE_SOUND_H__ */

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /* Developers Note:
  *
@@ -60,7 +44,7 @@
 #include "GPU_init_exit.h"
 
 extern int datatoc_bfont_ttf_size;
-extern char datatoc_bfont_ttf[];
+extern char const datatoc_bfont_ttf[];
 
 typedef struct _LoggerWindow LoggerWindow;
 typedef struct _MultiTestApp MultiTestApp;
@@ -302,12 +286,12 @@ static void mainwindow_handle(void *priv, GHOST_EventHandle evt)
 
 /**/
 
-static void mainwindow_timer_proc(GHOST_TimerTaskHandle task, GHOST_TUns64 time)
+static void mainwindow_timer_proc(GHOST_TimerTaskHandle task, uint64_t time)
 {
   MainWindow *mw = GHOST_GetTimerTaskUserData(task);
   char buf[64];
 
-  sprintf(buf, "timer: %6.2f", (double)((GHOST_TInt64)time) / 1000);
+  sprintf(buf, "timer: %6.2f", (double)((int64_t)time) / 1000);
   mainwindow_log(mw, buf);
 }
 
@@ -318,20 +302,21 @@ MainWindow *mainwindow_new(MultiTestApp *app)
   GHOST_GLSettings glSettings = {0};
 
   win = GHOST_CreateWindow(sys,
+                           NULL,
                            "MultiTest:Main",
                            40,
                            40,
                            400,
                            400,
                            GHOST_kWindowStateNormal,
+                           false,
                            GHOST_kDrawingContextTypeOpenGL,
                            glSettings);
 
   if (win) {
     MainWindow *mw = MEM_callocN(sizeof(*mw), "mainwindow_new");
 
-    GLuint default_fb = GHOST_GetDefaultOpenGLFramebuffer(win);
-    mw->gpu_context = GPU_context_create(default_fb);
+    mw->gpu_context = GPU_context_create(win);
     GPU_init();
 
     mw->app = app;
@@ -440,7 +425,6 @@ static void loggerwindow_do_draw(LoggerWindow *lw)
 
   GHOST_ActivateWindowDrawingContext(lw->win);
   GPU_context_active_set(lw->gpu_context);
-  immActivate();
 
   glClearColor(1, 1, 1, 1);
   glClear(GL_COLOR_BUFFER_BIT);
@@ -570,25 +554,26 @@ LoggerWindow *loggerwindow_new(MultiTestApp *app)
 {
   GHOST_GLSettings glSettings = {0};
   GHOST_SystemHandle sys = multitestapp_get_system(app);
-  GHOST_TUns32 screensize[2];
+  uint32_t screensize[2];
   GHOST_WindowHandle win;
 
   GHOST_GetMainDisplayDimensions(sys, &screensize[0], &screensize[1]);
   win = GHOST_CreateWindow(sys,
+                           NULL,
                            "MultiTest:Logger",
                            40,
                            screensize[1] - 432,
                            800,
                            300,
                            GHOST_kWindowStateNormal,
+                           false,
                            GHOST_kDrawingContextTypeOpenGL,
                            glSettings);
 
   if (win) {
     LoggerWindow *lw = MEM_callocN(sizeof(*lw), "loggerwindow_new");
 
-    GLuint default_fb = GHOST_GetDefaultOpenGLFramebuffer(win);
-    lw->gpu_context = GPU_context_create(default_fb);
+    lw->gpu_context = GPU_context_create(win);
     GPU_init();
 
     int bbox[2][2];
@@ -700,11 +685,11 @@ static void extrawindow_do_key(ExtraWindow *ew, GHOST_TKey key, int press)
   }
 }
 
-static void extrawindow_spin_cursor(ExtraWindow *ew, GHOST_TUns64 time)
+static void extrawindow_spin_cursor(ExtraWindow *ew, uint64_t time)
 {
-  GHOST_TUns8 bitmap[16][2];
-  GHOST_TUns8 mask[16][2];
-  double ftime = (double)((GHOST_TInt64)time) / 1000;
+  uint8_t bitmap[16][2];
+  uint8_t mask[16][2];
+  double ftime = (double)((int64_t)time) / 1000;
   float angle = fmod(ftime, 1.0) * 3.1415 * 2;
   int i;
 
@@ -776,20 +761,21 @@ ExtraWindow *extrawindow_new(MultiTestApp *app)
   GHOST_WindowHandle win;
 
   win = GHOST_CreateWindow(sys,
+                           NULL,
                            "MultiTest:Extra",
                            500,
                            40,
                            400,
                            400,
                            GHOST_kWindowStateNormal,
+                           false,
                            GHOST_kDrawingContextTypeOpenGL,
                            glSettings);
 
   if (win) {
     ExtraWindow *ew = MEM_callocN(sizeof(*ew), "mainwindow_new");
 
-    GLuint default_fb = GHOST_GetDefaultOpenGLFramebuffer(win);
-    ew->gpu_context = GPU_context_create(default_fb);
+    ew->gpu_context = GPU_context_create(win);
     GPU_init();
 
     ew->app = app;
@@ -826,7 +812,7 @@ struct _MultiTestApp {
   int exit;
 };
 
-static int multitest_event_handler(GHOST_EventHandle evt, GHOST_TUserDataPtr data)
+static bool multitest_event_handler(GHOST_EventHandle evt, GHOST_TUserDataPtr data)
 {
   MultiTestApp *app = data;
   GHOST_WindowHandle win;
@@ -834,7 +820,7 @@ static int multitest_event_handler(GHOST_EventHandle evt, GHOST_TUserDataPtr dat
   win = GHOST_GetEventWindow(evt);
   if (win && !GHOST_ValidWindow(app->sys, win)) {
     loggerwindow_log(app->logger, "WARNING: bad event, non-valid window\n");
-    return 1;
+    return true;
   }
 
   if (win) {
@@ -859,7 +845,7 @@ static int multitest_event_handler(GHOST_EventHandle evt, GHOST_TUserDataPtr dat
     }
   }
 
-  return 1;
+  return true;
 }
 
 /**/
@@ -924,7 +910,7 @@ void multitestapp_exit(MultiTestApp *app)
 void multitestapp_run(MultiTestApp *app)
 {
   while (!app->exit) {
-    GHOST_ProcessEvents(app->sys, 1);
+    GHOST_ProcessEvents(app->sys, true);
     GHOST_DispatchEvents(app->sys);
   }
 }

@@ -1,29 +1,40 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_SDNA_TYPES_H__
-#define __DNA_SDNA_TYPES_H__
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct MemArena;
+
+#
+#
+typedef struct SDNA_StructMember {
+  /** This struct must not change, it's only a convenience view for raw data stored in SDNA. */
+
+  /** An index into SDNA->types. */
+  short type;
+  /** An index into SDNA->names. */
+  short name;
+} SDNA_StructMember;
+
+#
+#
+typedef struct SDNA_Struct {
+  /** This struct must not change, it's only a convenience view for raw data stored in SDNA. */
+
+  /** An index into SDNA->types. */
+  short type;
+  /** The amount of members in this struct. */
+  short members_len;
+  /** "Flexible array member" that contains information about all members of this struct. */
+  SDNA_StructMember members[];
+} SDNA_Struct;
 
 #
 #
@@ -52,14 +63,8 @@ typedef struct SDNA {
   /** Type lengths. */
   short *types_size;
 
-  /**
-   * sp = structs[a] is the address of a struct definition
-   * sp[0] is struct type number, sp[1] amount of members
-   *
-   * (sp[2], sp[3]), (sp[4], sp[5]), .. are the member
-   * type and name numbers respectively.
-   */
-  short **structs;
+  /** Information about structs and their members. */
+  SDNA_Struct **structs;
   /** Number of struct types. */
   int structs_len;
 
@@ -75,7 +80,7 @@ typedef struct SDNA {
     const char **names;
     /** Aligned with #SDNA.types, same pointers when unchanged. */
     const char **types;
-    /** A version of #SDNA.structs_map that uses #SDNA.alias.types for it's keys. */
+    /** A version of #SDNA.structs_map that uses #SDNA.alias.types for its keys. */
     struct GHash *structs_map;
   } alias;
 } SDNA;
@@ -91,15 +96,17 @@ typedef struct BHead {
 #
 typedef struct BHead4 {
   int code, len;
-  int old;
+  uint old;
   int SDNAnr, nr;
 } BHead4;
 #
 #
 typedef struct BHead8 {
   int code, len;
-  int64_t old;
+  uint64_t old;
   int SDNAnr, nr;
 } BHead8;
 
+#ifdef __cplusplus
+}
 #endif

@@ -1,20 +1,4 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 set(PNG_EXTRA_ARGS
   -DZLIB_LIBRARY=${LIBDIR}/zlib/lib/${ZLIB_LIBRARY}
@@ -22,10 +6,14 @@ set(PNG_EXTRA_ARGS
   -DPNG_STATIC=ON
 )
 
+if(BLENDER_PLATFORM_ARM)
+  set(PNG_EXTRA_ARGS ${PNG_EXTRA_ARGS} -DPNG_HARDWARE_OPTIMIZATIONS=ON -DPNG_ARM_NEON=on -DCMAKE_SYSTEM_PROCESSOR="aarch64")
+endif()
+
 ExternalProject_Add(external_png
-  URL ${PNG_URI}
+  URL file://${PACKAGE_DIR}/${PNG_FILE}
   DOWNLOAD_DIR ${DOWNLOAD_DIR}
-  URL_HASH SHA256=${PNG_HASH}
+  URL_HASH ${PNG_HASH_TYPE}=${PNG_HASH}
   PREFIX ${BUILD_DIR}/png
   CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${LIBDIR}/png ${DEFAULT_CMAKE_FLAGS} ${PNG_EXTRA_ARGS}
   INSTALL_DIR ${LIBDIR}/png

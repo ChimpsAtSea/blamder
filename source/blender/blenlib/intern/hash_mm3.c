@@ -1,19 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- * Copyright (C) 2018 Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2018 Blender Foundation. */
 
 /** \file
  * \ingroup bli
@@ -83,9 +69,9 @@ BLI_INLINE uint64_t fmix64(uint64_t k)
   return k;
 }
 
-uint32_t BLI_hash_mm3(const unsigned char *in, size_t len, uint32_t seed)
+uint32_t BLI_hash_mm3(const unsigned char *data, size_t len, uint32_t seed)
 {
-  const uint8_t *data = (const uint8_t *)in;
+  const uint8_t *in_data = (const uint8_t *)data;
   const int nblocks = len / 4;
 
   uint32_t h1 = seed;
@@ -95,7 +81,7 @@ uint32_t BLI_hash_mm3(const unsigned char *in, size_t len, uint32_t seed)
 
   /* body */
 
-  const uint32_t *blocks = (const uint32_t *)(data + nblocks * 4);
+  const uint32_t *blocks = (const uint32_t *)(in_data + nblocks * 4);
 
   for (int i = -nblocks; i; i++) {
     uint32_t k1 = getblock32(blocks, i);
@@ -111,7 +97,7 @@ uint32_t BLI_hash_mm3(const unsigned char *in, size_t len, uint32_t seed)
 
   /* tail */
 
-  const uint8_t *tail = (const uint8_t *)(data + nblocks * 4);
+  const uint8_t *tail = (const uint8_t *)(in_data + nblocks * 4);
 
   uint32_t k1 = 0;
 

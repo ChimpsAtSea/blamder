@@ -1,27 +1,14 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup GHOST
  */
 
-#ifndef __GHOST_IXRCONTEXT_H__
-#define __GHOST_IXRCONTEXT_H__
+#pragma once
 
 #include "GHOST_Types.h"
+
+class GHOST_XrSession;
 
 class GHOST_IXrContext {
  public:
@@ -32,6 +19,10 @@ class GHOST_IXrContext {
   virtual bool isSessionRunning() const = 0;
   virtual void drawSessionViews(void *draw_customdata) = 0;
 
+  /* Needed for the GHOST C api. */
+  virtual GHOST_XrSession *getSession() = 0;
+  virtual const GHOST_XrSession *getSession() const = 0;
+
   virtual void dispatchErrorMessage(const class GHOST_XrException *) const = 0;
 
   virtual void setGraphicsContextBindFuncs(GHOST_XrGraphicsContextBindFn bind_fn,
@@ -40,5 +31,3 @@ class GHOST_IXrContext {
 
   virtual bool needsUpsideDownDrawing() const = 0;
 };
-
-#endif  // __GHOST_IXRCONTEXT_H__

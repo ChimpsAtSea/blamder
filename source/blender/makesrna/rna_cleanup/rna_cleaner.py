@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 """
 This script is used to help cleaning RNA api.
@@ -229,7 +230,7 @@ def sort(props_list, sort_priority):
 
 
 def file_basename(input_filename):
-    # if needed will use os.path
+    # If needed will use `os.path`.
     if input_filename.endswith(".txt"):
         if input_filename.endswith("_work.txt"):
             base_filename = input_filename.replace("_work.txt", "")
@@ -277,7 +278,8 @@ def write_files(basename, props_list, props_length_max):
             indent = '#   '
         else:
             indent = '    '
-        rna += indent + '("%s", "%s", "%s", "%s", "%s"),\n' % tuple(props[2:5] + props[6:])  # description is already string formatted
+        # Description is already string formatted.
+        rna += indent + '("%s", "%s", "%s", "%s", "%s"),\n' % tuple(props[2:5] + props[6:])
         # py
         blanks = [' ' * (x[0] - x[1]) for x in zip(props_length_max, list(map(len, props)))]
         props = [('"%s"%s' if props[-1] != x[0] else "%s%s") % (x[0], x[1]) for x in zip(props, blanks)]
@@ -287,7 +289,7 @@ def write_files(basename, props_list, props_length_max):
     f_py.write("rna_api = [\n%s]\n" % py)
     f_rna.write("rna_api = [\n%s]\n" % rna)
 
-    # write useful py script, wont hurt
+    # write useful py script, won't hurt
     f_py.write("\n'''\n")
     f_py.write("for p_note, p_changed, p_class, p_from, p_to, p_check, p_type, p_desc in rna_api:\n")
     f_py.write("    print(p_to)\n")
@@ -321,7 +323,7 @@ def main():
 
 if __name__ == '__main__':
     import sys
-    if not sys.version.startswith("3"):
-        print("Incorrect python version, use python 3!")
+    if sys.version_info.major < 3:
+        print("Incorrect python version, use Python 3 or newer!")
     else:
         main()

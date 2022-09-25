@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2018, Blender Foundation
- * This is a new part of Blender
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2018 Blender Foundation. */
 
 /** \file
  * \ingroup edgpencil
@@ -31,11 +15,8 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "BLI_blenlib.h"
 #include "BLI_math.h"
 #include "BLI_utildefines.h"
-
-#include "BLT_translation.h"
 
 #include "DNA_armature_types.h"
 #include "DNA_gpencil_types.h"
@@ -83,7 +64,7 @@ static int gpencil_bone_looper(Object *ob,
 {
   /* We want to apply the function bone_func to every bone
    * in an armature -- feed bone_looper the first bone and
-   * a pointer to the bone_func and watch it go!. The int count
+   * a pointer to the bone_func and watch it go! The int count
    * can be useful for counting bones with a certain property
    * (e.g. skinnable)
    */
@@ -308,10 +289,10 @@ static void gpencil_add_verts_to_dgroups(
 
   /* create an array of root and tip positions transformed into
    * global coords */
-  root = MEM_callocN(numbones * sizeof(float) * 3, "root");
-  tip = MEM_callocN(numbones * sizeof(float) * 3, "tip");
-  selected = MEM_callocN(numbones * sizeof(int), "selected");
-  radsqr = MEM_callocN(numbones * sizeof(float), "radsqr");
+  root = MEM_callocN(sizeof(float[3]) * numbones, "root");
+  tip = MEM_callocN(sizeof(float[3]) * numbones, "tip");
+  selected = MEM_callocN(sizeof(int) * numbones, "selected");
+  radsqr = MEM_callocN(sizeof(float) * numbones, "radsqr");
 
   for (j = 0; j < numbones; j++) {
     bone = bonelist[j];
@@ -387,7 +368,7 @@ static void gpencil_add_verts_to_dgroups(
 
           /* loop groups and assign weight */
           for (j = 0; j < numbones; j++) {
-            int def_nr = BLI_findindex(&ob->defbase, dgrouplist[j]);
+            int def_nr = BLI_findindex(&gpd->vertex_group_names, dgrouplist[j]);
             if (def_nr < 0) {
               continue;
             }
@@ -428,7 +409,7 @@ static void gpencil_add_verts_to_dgroups(
         }
       }
 
-      /* if not multiedit, exit loop*/
+      /* If not multi-edit, exit loop. */
       if (!is_multiedit) {
         break;
       }
@@ -457,7 +438,7 @@ static void gpencil_object_vgroup_calc_from_armature(const bContext *C,
   bArmature *arm = ob_arm->data;
 
   /* always create groups */
-  const int defbase_tot = BLI_listbase_count(&ob->defbase);
+  const int defbase_tot = BKE_object_defgroup_count(ob);
   int defbase_add;
   /* Traverse the bone list, trying to create empty vertex
    * groups corresponding to the bone.
@@ -465,14 +446,14 @@ static void gpencil_object_vgroup_calc_from_armature(const bContext *C,
   defbase_add = gpencil_bone_looper(ob, arm->bonebase.first, NULL, vgroup_add_unique_bone_cb);
 
   if (defbase_add) {
-    /* its possible there are DWeight's outside the range of the current
-     * objects deform groups, in this case the new groups wont be empty */
+    /* It's possible there are DWeights outside the range of the current
+     * object's deform groups. In this case the new groups won't be empty */
     ED_vgroup_data_clamp_range(ob->data, defbase_tot);
   }
 
   if (mode == GP_ARMATURE_AUTO) {
     /* Traverse the bone list, trying to fill vertex groups
-     * with the corresponding vertice weights for which the
+     * with the corresponding vertex weights for which the
      * bone is closest.
      */
     gpencil_add_verts_to_dgroups(C, ob, ob_arm, ratio, decay);

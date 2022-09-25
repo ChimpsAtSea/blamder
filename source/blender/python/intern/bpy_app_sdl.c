@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
@@ -89,7 +75,7 @@ static PyObject *make_sdl_info(void)
     SDL_GetVersion(&version);
     sdl_available = true;
   }
-#  else  // WITH_SDL_DYNLOAD=OFF
+#  else /* WITH_SDL_DYNLOAD=OFF */
   sdl_available = true;
 #    if SDL_MAJOR_VERSION >= 2
   SDL_GetVersion(&version);
@@ -107,15 +93,15 @@ static PyObject *make_sdl_info(void)
   }
   SetObjItem(PyBool_FromLong(sdl_available));
 
-#else  // WITH_SDL=OFF
+#else /* WITH_SDL=OFF */
   SetObjItem(PyBool_FromLong(0));
   SetObjItem(PyC_Tuple_Pack_I32(0, 0, 0));
   SetStrItem("Unknown");
   SetObjItem(PyBool_FromLong(0));
 #endif
 
-  if (PyErr_Occurred()) {
-    Py_CLEAR(sdl_info);
+  if (UNLIKELY(PyErr_Occurred())) {
+    Py_DECREF(sdl_info);
     return NULL;
   }
 
@@ -137,7 +123,7 @@ PyObject *BPY_app_sdl_struct(void)
   BlenderAppSDLType.tp_init = NULL;
   BlenderAppSDLType.tp_new = NULL;
   BlenderAppSDLType.tp_hash = (hashfunc)
-      _Py_HashPointer; /* without this we can't do set(sys.modules) [#29635] */
+      _Py_HashPointer; /* without this we can't do set(sys.modules) T29635. */
 
   return ret;
 }

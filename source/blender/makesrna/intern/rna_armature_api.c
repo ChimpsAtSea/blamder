@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup RNA
@@ -44,7 +28,7 @@ static void rna_EditBone_align_roll(EditBone *ebo, float no[3])
   ebo->roll = ED_armature_ebone_roll_to_vector(ebo, no, false);
 }
 
-static float rna_Bone_do_envelope(Bone *bone, float *vec)
+static float rna_Bone_do_envelope(Bone *bone, float vec[3])
 {
   float scale = (bone->flag & BONE_MULT_VG_ENV) == BONE_MULT_VG_ENV ? bone->weight : 1.0f;
   return distfactor_to_bone(vec,
@@ -56,11 +40,11 @@ static float rna_Bone_do_envelope(Bone *bone, float *vec)
 }
 
 static void rna_Bone_convert_local_to_pose(Bone *bone,
-                                           float *r_matrix,
-                                           float *matrix,
-                                           float *matrix_local,
-                                           float *parent_matrix,
-                                           float *parent_matrix_local,
+                                           float r_matrix[16],
+                                           float matrix[16],
+                                           float matrix_local[16],
+                                           float parent_matrix[16],
+                                           float parent_matrix_local[16],
                                            bool invert)
 {
   BoneParentTransform bpt;
@@ -89,14 +73,14 @@ static void rna_Bone_convert_local_to_pose(Bone *bone,
   BKE_bone_parent_transform_apply(&bpt, (float(*)[4])matrix, (float(*)[4])r_matrix);
 }
 
-static void rna_Bone_MatrixFromAxisRoll(float *axis, float roll, float *r_matrix)
+static void rna_Bone_MatrixFromAxisRoll(float axis[3], float roll, float r_matrix[9])
 {
   vec_roll_to_mat3(axis, roll, (float(*)[3])r_matrix);
 }
 
-static void rna_Bone_AxisRollFromMatrix(float *matrix,
-                                        float *axis_override,
-                                        float *r_axis,
+static void rna_Bone_AxisRollFromMatrix(float matrix[9],
+                                        float axis_override[3],
+                                        float r_axis[3],
                                         float *r_roll)
 {
   float mat[3][3];
@@ -119,7 +103,7 @@ void RNA_api_armature_edit_bone(StructRNA *srna)
 
   func = RNA_def_function(srna, "align_roll", "rna_EditBone_align_roll");
   RNA_def_function_ui_description(func,
-                                  "Align the bone to a localspace roll so the Z axis "
+                                  "Align the bone to a local-space roll so the Z axis "
                                   "points in the direction of the vector given");
   parm = RNA_def_float_vector(
       func, "vector", 3, NULL, -FLT_MAX, FLT_MAX, "Vector", "", -FLT_MAX, FLT_MAX);
@@ -196,7 +180,9 @@ void RNA_api_bone(StructRNA *srna)
 
   func = RNA_def_function(srna, "AxisRollFromMatrix", "rna_Bone_AxisRollFromMatrix");
   RNA_def_function_ui_description(func,
-                                  "Convert a rotational matrix to the axis + roll representation");
+                                  "Convert a rotational matrix to the axis + roll representation. "
+                                  "Note that the resulting value of the roll may not be as "
+                                  "expected if the matrix has shear or negative determinant.");
   RNA_def_function_flag(func, FUNC_NO_SELF);
   parm = RNA_def_property(func, "matrix", PROP_FLOAT, PROP_MATRIX);
   RNA_def_property_multi_array(parm, 2, rna_matrix_dimsize_3x3);

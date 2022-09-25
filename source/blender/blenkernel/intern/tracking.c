@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -59,6 +43,7 @@
 #include "IMB_imbuf_types.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "libmv-capi.h"
 #include "tracking_private.h"
@@ -75,7 +60,9 @@ static struct {
   ListBase tracks;
 } tracking_clipboard;
 
-/*********************** Common functions *************************/
+/* --------------------------------------------------------------------
+ * Common functions.
+ */
 
 /* Free the whole list of tracks, list's head and tail are set to NULL. */
 static void tracking_tracks_free(ListBase *tracks)
@@ -160,11 +147,6 @@ static void tracking_dopesheet_free(MovieTrackingDopesheet *dopesheet)
   dopesheet->tot_channel = 0;
 }
 
-/* Free tracking structure, only frees structure contents
- * (if structure is allocated in heap, it shall be handled outside).
- *
- * All the pointers inside structure becomes invalid after this call.
- */
 void BKE_tracking_free(MovieTracking *tracking)
 {
   tracking_tracks_free(&tracking->tracks);
@@ -276,7 +258,6 @@ static void tracking_objects_copy(ListBase *objects_dst,
   }
 }
 
-/* Copy tracking structure content. */
 void BKE_tracking_copy(MovieTracking *tracking_dst,
                        const MovieTracking *tracking_src,
                        const int flag)
@@ -321,9 +302,6 @@ void BKE_tracking_copy(MovieTracking *tracking_dst,
   BLI_ghash_free(tracks_mapping, NULL, NULL);
 }
 
-/* Initialize motion tracking settings to default values,
- * used when new movie clip datablock is created.
- */
 void BKE_tracking_settings_init(MovieTracking *tracking)
 {
   tracking->camera.sensor_width = 35.0f;
@@ -338,6 +316,7 @@ void BKE_tracking_settings_init(MovieTracking *tracking)
   tracking->settings.default_weight = 1.0f;
   tracking->settings.dist = 1;
   tracking->settings.object_distance = 1;
+  tracking->settings.refine_camera_intrinsics = REFINE_NO_INTRINSICS;
 
   tracking->stabilization.scaleinf = 1.0f;
   tracking->stabilization.anchor_frame = 1;
@@ -357,10 +336,13 @@ void BKE_tracking_settings_init(MovieTracking *tracking)
   tracking->stabilization.filter = TRACKING_FILTER_BILINEAR;
   tracking->stabilization.flag |= TRACKING_SHOW_STAB_TRACKS;
 
-  BKE_tracking_object_add(tracking, "Camera");
+  /* Descending order of average error: tracks with the highest error are on top. */
+  tracking->dopesheet.sort_method = TRACKING_DOPE_SORT_AVERAGE_ERROR;
+  tracking->dopesheet.flag |= TRACKING_DOPE_SORT_INVERSE;
+
+  BKE_tracking_object_add(tracking, DATA_("Camera"));
 }
 
-/* Get list base of active object's tracks. */
 ListBase *BKE_tracking_get_active_tracks(MovieTracking *tracking)
 {
   MovieTrackingObject *object = BKE_tracking_object_get_active(tracking);
@@ -372,7 +354,6 @@ ListBase *BKE_tracking_get_active_tracks(MovieTracking *tracking)
   return &tracking->tracks;
 }
 
-/* Get list base of active object's plane tracks. */
 ListBase *BKE_tracking_get_active_plane_tracks(MovieTracking *tracking)
 {
   MovieTrackingObject *object = BKE_tracking_object_get_active(tracking);
@@ -384,7 +365,6 @@ ListBase *BKE_tracking_get_active_plane_tracks(MovieTracking *tracking)
   return &tracking->plane_tracks;
 }
 
-/* Get reconstruction data of active object. */
 MovieTrackingReconstruction *BKE_tracking_get_active_reconstruction(MovieTracking *tracking)
 {
   MovieTrackingObject *object = BKE_tracking_object_get_active(tracking);
@@ -392,9 +372,6 @@ MovieTrackingReconstruction *BKE_tracking_get_active_reconstruction(MovieTrackin
   return BKE_tracking_object_get_reconstruction(tracking, object);
 }
 
-/* Get transformation matrix for a given object which is used
- * for parenting motion tracker reconstruction to 3D world.
- */
 void BKE_tracking_get_camera_object_matrix(Object *camera_object, float mat[4][4])
 {
   BLI_assert(camera_object != NULL);
@@ -411,11 +388,6 @@ void BKE_tracking_get_camera_object_matrix(Object *camera_object, float mat[4][4
   BKE_object_where_is_calc_mat4(camera_object, mat);
 }
 
-/* Get projection matrix for camera specified by given tracking object
- * and frame number.
- *
- * NOTE: frame number should be in clip space, not scene space
- */
 void BKE_tracking_get_projection_matrix(MovieTracking *tracking,
                                         MovieTrackingObject *object,
                                         int framenr,
@@ -469,9 +441,10 @@ void BKE_tracking_get_projection_matrix(MovieTracking *tracking,
   }
 }
 
-/*********************** clipboard *************************/
+/* --------------------------------------------------------------------
+ * Clipboard.
+ */
 
-/* Free clipboard by freeing memory used by all tracks in it. */
 void BKE_tracking_clipboard_free(void)
 {
   MovieTrackingTrack *track = tracking_clipboard.tracks.first, *next_track;
@@ -488,7 +461,6 @@ void BKE_tracking_clipboard_free(void)
   BLI_listbase_clear(&tracking_clipboard.tracks);
 }
 
-/* Copy selected tracks from specified object to the clipboard. */
 void BKE_tracking_clipboard_copy_tracks(MovieTracking *tracking, MovieTrackingObject *object)
 {
   ListBase *tracksbase = BKE_tracking_object_get_tracks(tracking, object);
@@ -509,17 +481,11 @@ void BKE_tracking_clipboard_copy_tracks(MovieTracking *tracking, MovieTrackingOb
   }
 }
 
-/* Check whether there're any tracks in the clipboard. */
 bool BKE_tracking_clipboard_has_tracks(void)
 {
   return (BLI_listbase_is_empty(&tracking_clipboard.tracks) == false);
 }
 
-/* Paste tracks from clipboard to specified object.
- *
- * Names of new tracks in object are guaranteed to
- * be unique here.
- */
 void BKE_tracking_clipboard_paste_tracks(MovieTracking *tracking, MovieTrackingObject *object)
 {
   ListBase *tracksbase = BKE_tracking_object_get_tracks(tracking, object);
@@ -538,42 +504,18 @@ void BKE_tracking_clipboard_paste_tracks(MovieTracking *tracking, MovieTrackingO
   }
 }
 
-/*********************** Tracks *************************/
-
-/* Add new track to a specified tracks base.
- *
- * Coordinates are expected to be in normalized 0..1 space,
- * frame number is expected to be in clip space.
- *
- * Width and height are clip's dimension used to scale track's
- * pattern and search regions.
+/* --------------------------------------------------------------------
+ * Tracks.
  */
-MovieTrackingTrack *BKE_tracking_track_add(MovieTracking *tracking,
-                                           ListBase *tracksbase,
-                                           float x,
-                                           float y,
-                                           int framenr,
-                                           int width,
-                                           int height)
+
+MovieTrackingTrack *BKE_tracking_track_add_empty(MovieTracking *tracking, ListBase *tracks_list)
 {
-  MovieTrackingTrack *track;
-  MovieTrackingMarker marker;
-  MovieTrackingSettings *settings = &tracking->settings;
+  const MovieTrackingSettings *settings = &tracking->settings;
 
-  float half_pattern = (float)settings->default_pattern_size / 2.0f;
-  float half_search = (float)settings->default_search_size / 2.0f;
-  float pat[2], search[2];
-
-  pat[0] = half_pattern / (float)width;
-  pat[1] = half_pattern / (float)height;
-
-  search[0] = half_search / (float)width;
-  search[1] = half_search / (float)height;
-
-  track = MEM_callocN(sizeof(MovieTrackingTrack), "add_marker_exec track");
+  MovieTrackingTrack *track = MEM_callocN(sizeof(MovieTrackingTrack), "add_marker_exec track");
   strcpy(track->name, "Track");
 
-  /* fill track's settings from default settings */
+  /* Fill track's settings from default settings. */
   track->motion_model = settings->default_motion_model;
   track->minimum_correlation = settings->default_minimum_correlation;
   track->margin = settings->default_margin;
@@ -584,32 +526,53 @@ MovieTrackingTrack *BKE_tracking_track_add(MovieTracking *tracking,
   track->weight = settings->default_weight;
   track->weight_stab = settings->default_weight;
 
+  BLI_addtail(tracks_list, track);
+  BKE_tracking_track_unique_name(tracks_list, track);
+
+  return track;
+}
+
+MovieTrackingTrack *BKE_tracking_track_add(MovieTracking *tracking,
+                                           ListBase *tracksbase,
+                                           float x,
+                                           float y,
+                                           int framenr,
+                                           int width,
+                                           int height)
+{
+  const MovieTrackingSettings *settings = &tracking->settings;
+
+  MovieTrackingTrack *track = BKE_tracking_track_add_empty(tracking, tracksbase);
+  MovieTrackingMarker marker;
+
+  const float half_pattern_px = settings->default_pattern_size / 2.0f;
+  const float half_search_px = settings->default_search_size / 2.0f;
+
+  const float pattern_size[2] = {half_pattern_px / width, half_pattern_px / height};
+  const float search_size[2] = {half_search_px / width, half_search_px / height};
+
   memset(&marker, 0, sizeof(marker));
   marker.pos[0] = x;
   marker.pos[1] = y;
   marker.framenr = framenr;
 
-  marker.pattern_corners[0][0] = -pat[0];
-  marker.pattern_corners[0][1] = -pat[1];
+  marker.pattern_corners[0][0] = -pattern_size[0];
+  marker.pattern_corners[0][1] = -pattern_size[1];
 
-  marker.pattern_corners[1][0] = pat[0];
-  marker.pattern_corners[1][1] = -pat[1];
+  marker.pattern_corners[1][0] = pattern_size[0];
+  marker.pattern_corners[1][1] = -pattern_size[1];
 
   negate_v2_v2(marker.pattern_corners[2], marker.pattern_corners[0]);
   negate_v2_v2(marker.pattern_corners[3], marker.pattern_corners[1]);
 
-  copy_v2_v2(marker.search_max, search);
-  negate_v2_v2(marker.search_min, search);
+  copy_v2_v2(marker.search_max, search_size);
+  negate_v2_v2(marker.search_min, search_size);
 
   BKE_tracking_marker_insert(track, &marker);
-
-  BLI_addtail(tracksbase, track);
-  BKE_tracking_track_unique_name(tracksbase, track);
 
   return track;
 }
 
-/* Duplicate the specified track, result will no belong to any list. */
 MovieTrackingTrack *BKE_tracking_track_duplicate(MovieTrackingTrack *track)
 {
   MovieTrackingTrack *new_track;
@@ -630,10 +593,6 @@ MovieTrackingTrack *BKE_tracking_track_duplicate(MovieTrackingTrack *track)
   return new_track;
 }
 
-/* Ensure specified track has got unique name,
- * if it's not name of specified track will be changed
- * keeping names of all other tracks unchanged.
- */
 void BKE_tracking_track_unique_name(ListBase *tracksbase, MovieTrackingTrack *track)
 {
   BLI_uniquename(tracksbase,
@@ -644,11 +603,6 @@ void BKE_tracking_track_unique_name(ListBase *tracksbase, MovieTrackingTrack *tr
                  sizeof(track->name));
 }
 
-/* Free specified track, only frees contents of a structure
- * (if track is allocated in heap, it shall be handled outside).
- *
- * All the pointers inside track becomes invalid after this call.
- */
 void BKE_tracking_track_free(MovieTrackingTrack *track)
 {
   if (track->markers) {
@@ -656,11 +610,81 @@ void BKE_tracking_track_free(MovieTrackingTrack *track)
   }
 }
 
-/* Set flag for all specified track's areas.
- *
- * area - which part of marker should be selected. see TRACK_AREA_* constants.
- * flag - flag to be set for areas.
- */
+void BKE_tracking_track_first_last_frame_get(const MovieTrackingTrack *track,
+                                             int *r_first_frame,
+                                             int *r_last_frame)
+{
+  BLI_assert(track->markersnr > 0);
+  const int last_marker_index = track->markersnr - 1;
+  *r_first_frame = track->markers[0].framenr;
+  *r_last_frame = track->markers[last_marker_index].framenr;
+}
+
+void BKE_tracking_tracks_first_last_frame_minmax(/*const*/ MovieTrackingTrack **tracks,
+                                                 const int num_tracks,
+                                                 int *r_first_frame,
+                                                 int *r_last_frame)
+{
+  *r_first_frame = INT_MAX;
+  *r_last_frame = INT_MIN;
+  for (int i = 0; i < num_tracks; ++i) {
+    const struct MovieTrackingTrack *track = tracks[i];
+    int track_first_frame, track_last_frame;
+    BKE_tracking_track_first_last_frame_get(track, &track_first_frame, &track_last_frame);
+    *r_first_frame = min_ii(*r_first_frame, track_first_frame);
+    *r_last_frame = max_ii(*r_last_frame, track_last_frame);
+  }
+}
+
+int BKE_tracking_count_selected_tracks_in_list(const ListBase *tracks_list)
+{
+  int num_selected_tracks = 0;
+  LISTBASE_FOREACH (const MovieTrackingTrack *, track, tracks_list) {
+    if (TRACK_SELECTED(track)) {
+      ++num_selected_tracks;
+    }
+  }
+  return num_selected_tracks;
+}
+
+int BKE_tracking_count_selected_tracks_in_active_object(/*const*/ MovieTracking *tracking)
+{
+  ListBase *tracks_list = BKE_tracking_get_active_tracks(tracking);
+  return BKE_tracking_count_selected_tracks_in_list(tracks_list);
+}
+
+MovieTrackingTrack **BKE_tracking_selected_tracks_in_active_object(MovieTracking *tracking,
+                                                                   int *r_num_tracks)
+{
+  *r_num_tracks = 0;
+
+  ListBase *tracks_list = BKE_tracking_get_active_tracks(tracking);
+  if (tracks_list == NULL) {
+    return NULL;
+  }
+
+  /* Initialize input. */
+  const int num_selected_tracks = BKE_tracking_count_selected_tracks_in_active_object(tracking);
+  if (num_selected_tracks == 0) {
+    return NULL;
+  }
+
+  MovieTrackingTrack **source_tracks = MEM_malloc_arrayN(
+      num_selected_tracks, sizeof(MovieTrackingTrack *), "selected tracks array");
+  int source_track_index = 0;
+  LISTBASE_FOREACH (MovieTrackingTrack *, track, tracks_list) {
+    if (!TRACK_SELECTED(track)) {
+      continue;
+    }
+    source_tracks[source_track_index] = track;
+    ++source_track_index;
+  }
+
+  *r_num_tracks = num_selected_tracks;
+
+  return source_tracks;
+}
+
 void BKE_tracking_track_flag_set(MovieTrackingTrack *track, int area, int flag)
 {
   if (area == TRACK_AREA_NONE) {
@@ -678,11 +702,6 @@ void BKE_tracking_track_flag_set(MovieTrackingTrack *track, int area, int flag)
   }
 }
 
-/* Clear flag from all specified track's areas.
- *
- * area - which part of marker should be selected. see TRACK_AREA_* constants.
- * flag - flag to be cleared for areas.
- */
 void BKE_tracking_track_flag_clear(MovieTrackingTrack *track, int area, int flag)
 {
   if (area == TRACK_AREA_NONE) {
@@ -700,19 +719,11 @@ void BKE_tracking_track_flag_clear(MovieTrackingTrack *track, int area, int flag
   }
 }
 
-/* Check whether track has got marker at specified frame.
- *
- * NOTE: frame number should be in clip space, not scene space.
- */
 bool BKE_tracking_track_has_marker_at_frame(MovieTrackingTrack *track, int framenr)
 {
   return BKE_tracking_marker_get_exact(track, framenr) != NULL;
 }
 
-/* Check whether track has got enabled marker at specified frame.
- *
- * NOTE: frame number should be in clip space, not scene space.
- */
 bool BKE_tracking_track_has_enabled_marker_at_frame(MovieTrackingTrack *track, int framenr)
 {
   MovieTrackingMarker *marker = BKE_tracking_marker_get_exact(track, framenr);
@@ -720,79 +731,76 @@ bool BKE_tracking_track_has_enabled_marker_at_frame(MovieTrackingTrack *track, i
   return marker && (marker->flag & MARKER_DISABLED) == 0;
 }
 
-/* Clear track's path:
- *
- * - If action is TRACK_CLEAR_REMAINED path from ref_frame+1 up to
- *   end will be clear.
- *
- * - If action is TRACK_CLEAR_UPTO path from the beginning up to
- *   ref_frame-1 will be clear.
- *
- * - If action is TRACK_CLEAR_ALL only marker at frame ref_frame will remain.
- *
- * NOTE: frame number should be in clip space, not scene space
- */
-void BKE_tracking_track_path_clear(MovieTrackingTrack *track, int ref_frame, int action)
+static void path_clear_remained(MovieTrackingTrack *track, const int ref_frame)
 {
-  int a;
+  for (int a = 1; a < track->markersnr; a++) {
+    if (track->markers[a].framenr > ref_frame) {
+      track->markersnr = a;
+      track->markers = MEM_reallocN(track->markers,
+                                    sizeof(MovieTrackingMarker) * track->markersnr);
 
-  if (action == TRACK_CLEAR_REMAINED) {
-    a = 1;
-
-    while (a < track->markersnr) {
-      if (track->markers[a].framenr > ref_frame) {
-        track->markersnr = a;
-        track->markers = MEM_reallocN(track->markers,
-                                      sizeof(MovieTrackingMarker) * track->markersnr);
-
-        break;
-      }
-
-      a++;
-    }
-
-    if (track->markersnr) {
-      tracking_marker_insert_disabled(track, &track->markers[track->markersnr - 1], false, true);
+      break;
     }
   }
-  else if (action == TRACK_CLEAR_UPTO) {
-    a = track->markersnr - 1;
 
-    while (a >= 0) {
-      if (track->markers[a].framenr <= ref_frame) {
-        memmove(track->markers,
-                track->markers + a,
-                (track->markersnr - a) * sizeof(MovieTrackingMarker));
+  if (track->markersnr) {
+    tracking_marker_insert_disabled(track, &track->markers[track->markersnr - 1], false, true);
+  }
+}
 
-        track->markersnr = track->markersnr - a;
-        track->markers = MEM_reallocN(track->markers,
-                                      sizeof(MovieTrackingMarker) * track->markersnr);
+static void path_clear_up_to(MovieTrackingTrack *track, const int ref_frame)
+{
+  for (int a = track->markersnr - 1; a >= 0; a--) {
+    if (track->markers[a].framenr <= ref_frame) {
+      memmove(track->markers,
+              track->markers + a,
+              (track->markersnr - a) * sizeof(MovieTrackingMarker));
 
-        break;
-      }
+      track->markersnr = track->markersnr - a;
+      track->markers = MEM_reallocN(track->markers,
+                                    sizeof(MovieTrackingMarker) * track->markersnr);
 
-      a--;
-    }
-
-    if (track->markersnr) {
-      tracking_marker_insert_disabled(track, &track->markers[0], true, true);
+      break;
     }
   }
-  else if (action == TRACK_CLEAR_ALL) {
-    MovieTrackingMarker *marker, marker_new;
 
-    marker = BKE_tracking_marker_get(track, ref_frame);
-    marker_new = *marker;
-
-    MEM_freeN(track->markers);
-    track->markers = NULL;
-    track->markersnr = 0;
-
-    BKE_tracking_marker_insert(track, &marker_new);
-
-    tracking_marker_insert_disabled(track, &marker_new, true, true);
-    tracking_marker_insert_disabled(track, &marker_new, false, true);
+  if (track->markersnr) {
+    tracking_marker_insert_disabled(track, &track->markers[0], true, true);
   }
+}
+
+static void path_clear_all(MovieTrackingTrack *track, const int ref_frame)
+{
+  MovieTrackingMarker *marker, marker_new;
+
+  marker = BKE_tracking_marker_get(track, ref_frame);
+  marker_new = *marker;
+
+  MEM_freeN(track->markers);
+  track->markers = NULL;
+  track->markersnr = 0;
+
+  BKE_tracking_marker_insert(track, &marker_new);
+
+  tracking_marker_insert_disabled(track, &marker_new, true, true);
+  tracking_marker_insert_disabled(track, &marker_new, false, true);
+}
+
+void BKE_tracking_track_path_clear(MovieTrackingTrack *track,
+                                   const int ref_frame,
+                                   const eTrackClearAction action)
+{
+  switch (action) {
+    case TRACK_CLEAR_REMAINED:
+      path_clear_remained(track, ref_frame);
+      break;
+    case TRACK_CLEAR_UPTO:
+      path_clear_up_to(track, ref_frame);
+      break;
+    case TRACK_CLEAR_ALL:
+      path_clear_all(track, ref_frame);
+      break;
+  };
 }
 
 void BKE_tracking_tracks_join(MovieTracking *tracking,
@@ -907,6 +915,124 @@ void BKE_tracking_tracks_join(MovieTracking *tracking,
   MEM_freeN(markers);
 
   BKE_tracking_dopesheet_tag_update(tracking);
+}
+
+static void accumulate_marker(MovieTrackingMarker *dst_marker,
+                              const MovieTrackingMarker *src_marker)
+{
+  BLI_assert(dst_marker->framenr == src_marker->framenr);
+
+  if (src_marker->flag & MARKER_DISABLED) {
+    return;
+  }
+
+  add_v2_v2(dst_marker->pos, src_marker->pos);
+  for (int corner = 0; corner < 4; ++corner) {
+    add_v2_v2(dst_marker->pattern_corners[corner], src_marker->pattern_corners[corner]);
+  }
+  add_v2_v2(dst_marker->search_min, src_marker->search_min);
+  add_v2_v2(dst_marker->search_max, src_marker->search_max);
+
+  BLI_assert(is_finite_v2(src_marker->search_min));
+  BLI_assert(is_finite_v2(src_marker->search_max));
+
+  dst_marker->flag &= ~MARKER_DISABLED;
+  if ((src_marker->flag & MARKER_TRACKED) == 0) {
+    dst_marker->flag &= ~MARKER_TRACKED;
+  }
+}
+
+static void multiply_marker(MovieTrackingMarker *marker, const float multiplier)
+{
+  mul_v2_fl(marker->pos, multiplier);
+  for (int corner = 0; corner < 4; ++corner) {
+    mul_v2_fl(marker->pattern_corners[corner], multiplier);
+  }
+  mul_v2_fl(marker->search_min, multiplier);
+  mul_v2_fl(marker->search_max, multiplier);
+}
+
+/* Helper function for BKE_tracking_tracks_average which takes care of averaging fields of
+ * markers (position, patterns, ...). */
+static void tracking_average_markers(MovieTrackingTrack *dst_track,
+                                     /*const*/ MovieTrackingTrack **src_tracks,
+                                     const int num_src_tracks)
+{
+  /* Get global range of frames within which averaging would happen. */
+  int first_frame, last_frame;
+  BKE_tracking_tracks_first_last_frame_minmax(
+      src_tracks, num_src_tracks, &first_frame, &last_frame);
+  if (last_frame < first_frame) {
+    return;
+  }
+  const int num_frames = last_frame - first_frame + 1;
+
+  /* Allocate temporary array where averaging will happen into. */
+  MovieTrackingMarker *accumulator = MEM_calloc_arrayN(
+      num_frames, sizeof(MovieTrackingMarker), "tracks average accumulator");
+  int *counters = MEM_calloc_arrayN(num_frames, sizeof(int), "tracks accumulator counters");
+  for (int frame = first_frame; frame <= last_frame; ++frame) {
+    const int frame_index = frame - first_frame;
+    accumulator[frame_index].framenr = frame;
+    accumulator[frame_index].flag |= (MARKER_DISABLED | MARKER_TRACKED);
+  }
+
+  /* Accumulate track markers. */
+  for (int track_index = 0; track_index < num_src_tracks; ++track_index) {
+    /*const*/ MovieTrackingTrack *track = src_tracks[track_index];
+    for (int frame = first_frame; frame <= last_frame; ++frame) {
+      MovieTrackingMarker interpolated_marker;
+      if (!BKE_tracking_marker_get_interpolated(track, frame, &interpolated_marker)) {
+        continue;
+      }
+      const int frame_index = frame - first_frame;
+      accumulate_marker(&accumulator[frame_index], &interpolated_marker);
+      ++counters[frame_index];
+    }
+  }
+
+  /* Average and store the result. */
+  for (int frame = first_frame; frame <= last_frame; ++frame) {
+    /* Average. */
+    const int frame_index = frame - first_frame;
+    if (!counters[frame_index]) {
+      continue;
+    }
+    const float multiplier = 1.0f / (float)counters[frame_index];
+    multiply_marker(&accumulator[frame_index], multiplier);
+    /* Store the result. */
+    BKE_tracking_marker_insert(dst_track, &accumulator[frame_index]);
+  }
+
+  /* Free memory. */
+  MEM_freeN(accumulator);
+  MEM_freeN(counters);
+}
+
+/* Helper function for BKE_tracking_tracks_average which takes care of averaging fields of
+ * tracks (track for example, offset). */
+static void tracking_average_tracks(MovieTrackingTrack *dst_track,
+                                    /*const*/ MovieTrackingTrack **src_tracks,
+                                    const int num_src_tracks)
+{
+  /* TODO(sergey): Consider averaging weight, stabilization weight, maybe even bundle position. */
+  zero_v2(dst_track->offset);
+  for (int track_index = 0; track_index < num_src_tracks; track_index++) {
+    add_v2_v2(dst_track->offset, src_tracks[track_index]->offset);
+  }
+  mul_v2_fl(dst_track->offset, 1.0f / num_src_tracks);
+}
+
+void BKE_tracking_tracks_average(MovieTrackingTrack *dst_track,
+                                 /*const*/ MovieTrackingTrack **src_tracks,
+                                 const int num_src_tracks)
+{
+  if (num_src_tracks == 0) {
+    return;
+  }
+
+  tracking_average_markers(dst_track, src_tracks, num_src_tracks);
+  tracking_average_tracks(dst_track, src_tracks, num_src_tracks);
 }
 
 MovieTrackingTrack *BKE_tracking_track_get_named(MovieTracking *tracking,
@@ -1074,7 +1200,6 @@ static void track_mask_gpencil_layer_rasterize(int frame_width,
   }
 }
 
-/* Region is in pixel space, relative to marker's center. */
 float *tracking_track_get_mask_for_region(int frame_width,
                                           int frame_height,
                                           const float region_min[2],
@@ -1129,7 +1254,6 @@ float BKE_tracking_track_get_weight_for_marker(MovieClip *clip,
   return weight;
 }
 
-/* area - which part of marker should be selected. see TRACK_AREA_* constants */
 void BKE_tracking_track_select(ListBase *tracksbase,
                                MovieTrackingTrack *track,
                                int area,
@@ -1171,7 +1295,9 @@ void BKE_tracking_tracks_deselect_all(ListBase *tracksbase)
   }
 }
 
-/*********************** Marker *************************/
+/* --------------------------------------------------------------------
+ * Marker.
+ */
 
 MovieTrackingMarker *BKE_tracking_marker_insert(MovieTrackingTrack *track,
                                                 MovieTrackingMarker *marker)
@@ -1188,38 +1314,34 @@ MovieTrackingMarker *BKE_tracking_marker_insert(MovieTrackingTrack *track,
 
     return old_marker;
   }
-  else {
-    int a = track->markersnr;
 
-    /* find position in array where to add new marker */
-    while (a--) {
-      if (track->markers[a].framenr < marker->framenr) {
-        break;
-      }
+  int a = track->markersnr;
+
+  /* find position in array where to add new marker */
+  while (a--) {
+    if (track->markers[a].framenr < marker->framenr) {
+      break;
     }
-
-    track->markersnr++;
-
-    if (track->markers) {
-      track->markers = MEM_reallocN(track->markers,
-                                    sizeof(MovieTrackingMarker) * track->markersnr);
-    }
-    else {
-      track->markers = MEM_callocN(sizeof(MovieTrackingMarker), "MovieTracking markers");
-    }
-
-    /* shift array to "free" space for new marker */
-    memmove(track->markers + a + 2,
-            track->markers + a + 1,
-            (track->markersnr - a - 2) * sizeof(MovieTrackingMarker));
-
-    /* put new marker */
-    track->markers[a + 1] = *marker;
-
-    track->last_marker = a + 1;
-
-    return &track->markers[a + 1];
   }
+
+  track->markersnr++;
+
+  if (track->markers) {
+    track->markers = MEM_reallocN(track->markers, sizeof(MovieTrackingMarker) * track->markersnr);
+  }
+  else {
+    track->markers = MEM_callocN(sizeof(MovieTrackingMarker), "MovieTracking markers");
+  }
+
+  /* shift array to "free" space for new marker */
+  memmove(track->markers + a + 2,
+          track->markers + a + 1,
+          (track->markersnr - a - 2) * sizeof(MovieTrackingMarker));
+
+  /* put new marker */
+  track->markers[a + 1] = *marker;
+
+  return &track->markers[a + 1];
 }
 
 void BKE_tracking_marker_delete(MovieTrackingTrack *track, int framenr)
@@ -1249,110 +1371,87 @@ void BKE_tracking_marker_delete(MovieTrackingTrack *track, int framenr)
   }
 }
 
-void BKE_tracking_marker_clamp(MovieTrackingMarker *marker, int event)
+void BKE_tracking_marker_clamp_pattern_position(MovieTrackingMarker *marker)
 {
   float pat_min[2], pat_max[2];
-
   BKE_tracking_marker_pattern_minmax(marker, pat_min, pat_max);
 
-  if (event == CLAMP_PAT_DIM) {
-    for (int a = 0; a < 2; a++) {
-      /* search shouldn't be resized smaller than pattern */
-      marker->search_min[a] = min_ff(pat_min[a], marker->search_min[a]);
-      marker->search_max[a] = max_ff(pat_max[a], marker->search_max[a]);
-    }
-  }
-  else if (event == CLAMP_PAT_POS) {
-    float dim[2];
-
-    sub_v2_v2v2(dim, pat_max, pat_min);
-
-    for (int a = 0; a < 2; a++) {
-      /* pattern shouldn't be moved outside of search */
-      if (pat_min[a] < marker->search_min[a]) {
-        for (int b = 0; b < 4; b++) {
-          marker->pattern_corners[b][a] += marker->search_min[a] - pat_min[a];
-        }
+  for (int a = 0; a < 2; a++) {
+    if (pat_min[a] < marker->search_min[a]) {
+      for (int b = 0; b < 4; b++) {
+        marker->pattern_corners[b][a] += marker->search_min[a] - pat_min[a];
       }
-      if (pat_max[a] > marker->search_max[a]) {
-        for (int b = 0; b < 4; b++) {
-          marker->pattern_corners[b][a] -= pat_max[a] - marker->search_max[a];
-        }
+    }
+    if (pat_max[a] > marker->search_max[a]) {
+      for (int b = 0; b < 4; b++) {
+        marker->pattern_corners[b][a] -= pat_max[a] - marker->search_max[a];
       }
     }
   }
-  else if (event == CLAMP_SEARCH_DIM) {
-    for (int a = 0; a < 2; a++) {
-      /* search shouldn't be resized smaller than pattern */
-      marker->search_min[a] = min_ff(pat_min[a], marker->search_min[a]);
-      marker->search_max[a] = max_ff(pat_max[a], marker->search_max[a]);
-    }
+}
+
+void BKE_tracking_marker_clamp_search_size(MovieTrackingMarker *marker)
+{
+  float pat_min[2], pat_max[2];
+  BKE_tracking_marker_pattern_minmax(marker, pat_min, pat_max);
+
+  for (int a = 0; a < 2; a++) {
+    marker->search_min[a] = min_ff(pat_min[a], marker->search_min[a]);
+    marker->search_max[a] = max_ff(pat_max[a], marker->search_max[a]);
   }
-  else if (event == CLAMP_SEARCH_POS) {
-    float dim[2];
+}
 
-    sub_v2_v2v2(dim, marker->search_max, marker->search_min);
+void BKE_tracking_marker_clamp_search_position(MovieTrackingMarker *marker)
+{
+  float pat_min[2], pat_max[2];
+  BKE_tracking_marker_pattern_minmax(marker, pat_min, pat_max);
 
-    for (int a = 0; a < 2; a++) {
-      /* search shouldn't be moved inside pattern */
-      if (marker->search_min[a] > pat_min[a]) {
-        marker->search_min[a] = pat_min[a];
-        marker->search_max[a] = marker->search_min[a] + dim[a];
-      }
-      if (marker->search_max[a] < pat_max[a]) {
-        marker->search_max[a] = pat_max[a];
-        marker->search_min[a] = marker->search_max[a] - dim[a];
-      }
+  float dim[2];
+  sub_v2_v2v2(dim, marker->search_max, marker->search_min);
+
+  for (int a = 0; a < 2; a++) {
+    if (marker->search_min[a] > pat_min[a]) {
+      marker->search_min[a] = pat_min[a];
+      marker->search_max[a] = marker->search_min[a] + dim[a];
+    }
+    if (marker->search_max[a] < pat_max[a]) {
+      marker->search_max[a] = pat_max[a];
+      marker->search_min[a] = marker->search_max[a] - dim[a];
     }
   }
 }
 
 MovieTrackingMarker *BKE_tracking_marker_get(MovieTrackingTrack *track, int framenr)
 {
-  int a = track->markersnr - 1;
+  const int num_markers = track->markersnr;
 
-  if (!track->markersnr) {
+  if (num_markers == 0) {
+    BLI_assert_msg(0, "Detected degenerated track, should never happen.");
     return NULL;
   }
 
-  /* approximate pre-first framenr marker with first marker */
-  if (framenr < track->markers[0].framenr) {
-    return &track->markers[0];
-  }
+  int left_boundary = 0;
+  int right_boundary = num_markers;
+  while (left_boundary < right_boundary) {
+    const int median_index = (left_boundary + right_boundary) / 2;
+    MovieTrackingMarker *marker = &track->markers[median_index];
 
-  if (track->last_marker < track->markersnr) {
-    a = track->last_marker;
-  }
-
-  if (track->markers[a].framenr <= framenr) {
-    while (a < track->markersnr && track->markers[a].framenr <= framenr) {
-      if (track->markers[a].framenr == framenr) {
-        track->last_marker = a;
-
-        return &track->markers[a];
-      }
-      a++;
+    if (marker->framenr == framenr) {
+      return marker;
     }
 
-    /* if there's no marker for exact position, use nearest marker from left side */
-    return &track->markers[a - 1];
-  }
-  else {
-    while (a >= 0 && track->markers[a].framenr >= framenr) {
-      if (track->markers[a].framenr == framenr) {
-        track->last_marker = a;
-
-        return &track->markers[a];
-      }
-
-      a--;
+    if (marker->framenr < framenr) {
+      left_boundary = median_index + 1;
     }
-
-    /* if there's no marker for exact position, use nearest marker from left side */
-    return &track->markers[a];
+    else {
+      BLI_assert(marker->framenr > framenr);
+      right_boundary = median_index - 1;
+    }
   }
 
-  return NULL;
+  const int closest_index = clamp_i(right_boundary, 0, num_markers - 1);
+
+  return &track->markers[closest_index];
 }
 
 MovieTrackingMarker *BKE_tracking_marker_get_exact(MovieTrackingTrack *track, int framenr)
@@ -1381,6 +1480,84 @@ MovieTrackingMarker *BKE_tracking_marker_ensure(MovieTrackingTrack *track, int f
   }
 
   return marker;
+}
+
+static const MovieTrackingMarker *get_usable_marker_for_interpolation(
+    struct MovieTrackingTrack *track,
+    const MovieTrackingMarker *anchor_marker,
+    const int direction)
+{
+  BLI_assert(ELEM(direction, -1, 1));
+
+  const MovieTrackingMarker *last_marker = track->markers + track->markersnr - 1;
+  const MovieTrackingMarker *current_marker = anchor_marker;
+
+  while (current_marker >= track->markers && current_marker <= last_marker) {
+    if ((current_marker->flag & MARKER_DISABLED) == 0) {
+      return current_marker;
+    }
+    current_marker += direction;
+  }
+
+  return NULL;
+}
+
+bool BKE_tracking_marker_get_interpolated(struct MovieTrackingTrack *track,
+                                          const int framenr,
+                                          struct MovieTrackingMarker *r_marker)
+{
+  const MovieTrackingMarker *closest_marker = BKE_tracking_marker_get(track, framenr);
+  if (closest_marker == NULL) {
+    return false;
+  }
+  if (closest_marker->framenr == framenr && (closest_marker->flag & MARKER_DISABLED) == 0) {
+    *r_marker = *closest_marker;
+    return true;
+  }
+
+  const MovieTrackingMarker *left_marker = get_usable_marker_for_interpolation(
+      track, closest_marker, -1);
+  if (left_marker == NULL) {
+    return false;
+  }
+
+  const MovieTrackingMarker *right_marker = get_usable_marker_for_interpolation(
+      track, closest_marker + 1, 1);
+  if (right_marker == NULL) {
+    return false;
+  }
+
+  if (left_marker == right_marker) {
+    *r_marker = *left_marker;
+    return true;
+  }
+
+  const float factor = (float)(framenr - left_marker->framenr) /
+                       (right_marker->framenr - left_marker->framenr);
+
+  interp_v2_v2v2(r_marker->pos, left_marker->pos, right_marker->pos, factor);
+
+  for (int i = 0; i < 4; i++) {
+    interp_v2_v2v2(r_marker->pattern_corners[i],
+                   left_marker->pattern_corners[i],
+                   right_marker->pattern_corners[i],
+                   factor);
+  }
+
+  interp_v2_v2v2(r_marker->search_min, left_marker->search_min, right_marker->search_min, factor);
+  interp_v2_v2v2(r_marker->search_max, left_marker->search_max, right_marker->search_max, factor);
+
+  r_marker->framenr = framenr;
+  r_marker->flag = 0;
+
+  if (framenr == left_marker->framenr) {
+    r_marker->flag = left_marker->flag;
+  }
+  else if (framenr == right_marker->framenr) {
+    r_marker->flag = right_marker->flag;
+  }
+
+  return true;
 }
 
 void BKE_tracking_marker_pattern_minmax(const MovieTrackingMarker *marker,
@@ -1427,9 +1604,10 @@ void BKE_tracking_marker_get_subframe_position(MovieTrackingTrack *track,
   add_v2_v2(pos, track->offset);
 }
 
-/*********************** Plane Track *************************/
+/* --------------------------------------------------------------------
+ * Plane track.
+ */
 
-/* Creates new plane track out of selected point tracks */
 MovieTrackingPlaneTrack *BKE_tracking_plane_track_add(MovieTracking *tracking,
                                                       ListBase *plane_tracks_base,
                                                       ListBase *tracks,
@@ -1495,7 +1673,7 @@ MovieTrackingPlaneTrack *BKE_tracking_plane_track_add(MovieTracking *tracking,
 
   BKE_tracking_plane_marker_insert(plane_track, &plane_marker);
 
-  /* Put new plane track to the list, ensure it's name is unique. */
+  /* Put new plane track to the list, ensure its name is unique. */
   BLI_addtail(plane_tracks_base, plane_track);
   BKE_tracking_plane_track_unique_name(plane_tracks_base, plane_track);
 
@@ -1513,11 +1691,6 @@ void BKE_tracking_plane_track_unique_name(ListBase *plane_tracks_base,
                  sizeof(plane_track->name));
 }
 
-/* Free specified plane track, only frees contents of a structure
- * (if track is allocated in heap, it shall be handled outside).
- *
- * All the pointers inside track becomes invalid after this call.
- */
 void BKE_tracking_plane_track_free(MovieTrackingPlaneTrack *plane_track)
 {
   if (plane_track->markers) {
@@ -1638,7 +1811,9 @@ void BKE_tracking_plane_tracks_replace_point_track(MovieTracking *tracking,
   }
 }
 
-/*********************** Plane Marker *************************/
+/* --------------------------------------------------------------------
+ * Plane marker.
+ */
 
 MovieTrackingPlaneMarker *BKE_tracking_plane_marker_insert(MovieTrackingPlaneTrack *plane_track,
                                                            MovieTrackingPlaneMarker *plane_marker)
@@ -1655,32 +1830,30 @@ MovieTrackingPlaneMarker *BKE_tracking_plane_marker_insert(MovieTrackingPlaneTra
 
     return old_plane_marker;
   }
-  else {
-    int a = plane_track->markersnr;
 
-    /* Find position in array where to add new marker. */
-    /* TODO(sergey): we could use bisect to speed things up. */
-    while (a--) {
-      if (plane_track->markers[a].framenr < plane_marker->framenr) {
-        break;
-      }
+  int a = plane_track->markersnr;
+
+  /* Find position in array where to add new marker. */
+  /* TODO(sergey): we could use bisect to speed things up. */
+  while (a--) {
+    if (plane_track->markers[a].framenr < plane_marker->framenr) {
+      break;
     }
-
-    plane_track->markersnr++;
-    plane_track->markers = MEM_reallocN(plane_track->markers,
-                                        sizeof(MovieTrackingPlaneMarker) * plane_track->markersnr);
-
-    /* Shift array to "free" space for new marker. */
-    memmove(plane_track->markers + a + 2,
-            plane_track->markers + a + 1,
-            (plane_track->markersnr - a - 2) * sizeof(MovieTrackingPlaneMarker));
-
-    /* Put new marker to an array. */
-    plane_track->markers[a + 1] = *plane_marker;
-    plane_track->last_marker = a + 1;
-
-    return &plane_track->markers[a + 1];
   }
+
+  plane_track->markersnr++;
+  plane_track->markers = MEM_reallocN(plane_track->markers,
+                                      sizeof(MovieTrackingPlaneMarker) * plane_track->markersnr);
+
+  /* Shift array to "free" space for new marker. */
+  memmove(plane_track->markers + a + 2,
+          plane_track->markers + a + 1,
+          (plane_track->markersnr - a - 2) * sizeof(MovieTrackingPlaneMarker));
+
+  /* Put new marker to an array. */
+  plane_track->markers[a + 1] = *plane_marker;
+
+  return &plane_track->markers[a + 1];
 }
 
 void BKE_tracking_plane_marker_delete(MovieTrackingPlaneTrack *plane_track, int framenr)
@@ -1714,9 +1887,6 @@ void BKE_tracking_plane_marker_delete(MovieTrackingPlaneTrack *plane_track, int 
  *               would be nice to de-duplicate them somehow..
  */
 
-/* Get a plane marker at given frame,
- * If there's no such marker, closest one from the left side will be returned.
- */
 MovieTrackingPlaneMarker *BKE_tracking_plane_marker_get(MovieTrackingPlaneTrack *plane_track,
                                                         int framenr)
 {
@@ -1748,27 +1918,23 @@ MovieTrackingPlaneMarker *BKE_tracking_plane_marker_get(MovieTrackingPlaneTrack 
     /* If there's no marker for exact position, use nearest marker from left side. */
     return &plane_track->markers[a - 1];
   }
-  else {
-    while (a >= 0 && plane_track->markers[a].framenr >= framenr) {
-      if (plane_track->markers[a].framenr == framenr) {
-        plane_track->last_marker = a;
 
-        return &plane_track->markers[a];
-      }
+  while (a >= 0 && plane_track->markers[a].framenr >= framenr) {
+    if (plane_track->markers[a].framenr == framenr) {
+      plane_track->last_marker = a;
 
-      a--;
+      return &plane_track->markers[a];
     }
 
-    /* If there's no marker for exact position, use nearest marker from left side. */
-    return &plane_track->markers[a];
+    a--;
   }
+
+  /* If there's no marker for exact position, use nearest marker from left side. */
+  return &plane_track->markers[a];
 
   return NULL;
 }
 
-/* Get a plane marker at exact given frame, if there's no marker at the frame,
- * NULL will be returned.
- */
 MovieTrackingPlaneMarker *BKE_tracking_plane_marker_get_exact(MovieTrackingPlaneTrack *plane_track,
                                                               int framenr)
 {
@@ -1781,7 +1947,6 @@ MovieTrackingPlaneMarker *BKE_tracking_plane_marker_get_exact(MovieTrackingPlane
   return plane_marker;
 }
 
-/* Ensure there's a marker for the given frame. */
 MovieTrackingPlaneMarker *BKE_tracking_plane_marker_ensure(MovieTrackingPlaneTrack *plane_track,
                                                            int framenr)
 {
@@ -1826,7 +1991,9 @@ void BKE_tracking_plane_marker_get_subframe_corners(MovieTrackingPlaneTrack *pla
   }
 }
 
-/*********************** Object *************************/
+/* --------------------------------------------------------------------
+ * Object.
+ */
 
 MovieTrackingObject *BKE_tracking_object_add(MovieTracking *tracking, const char *name)
 {
@@ -1971,7 +2138,9 @@ MovieTrackingReconstruction *BKE_tracking_object_get_reconstruction(MovieTrackin
   return &object->reconstruction;
 }
 
-/*********************** Camera *************************/
+/* --------------------------------------------------------------------
+ * Camera.
+ */
 
 static int reconstructed_camera_index_get(MovieTrackingReconstruction *reconstruction,
                                           int framenr,
@@ -1988,18 +2157,16 @@ static int reconstructed_camera_index_get(MovieTrackingReconstruction *reconstru
     if (nearest) {
       return 0;
     }
-    else {
-      return -1;
-    }
+
+    return -1;
   }
 
   if (framenr > cameras[reconstruction->camnr - 1].framenr) {
     if (nearest) {
       return reconstruction->camnr - 1;
     }
-    else {
-      return -1;
-    }
+
+    return -1;
   }
 
   if (reconstruction->last_camera < reconstruction->camnr) {
@@ -2020,9 +2187,8 @@ static int reconstructed_camera_index_get(MovieTrackingReconstruction *reconstru
       if (nearest) {
         return a - 1;
       }
-      else {
-        break;
-      }
+
+      break;
     }
 
     if (d < 0 && cfra < framenr) {
@@ -2030,9 +2196,8 @@ static int reconstructed_camera_index_get(MovieTrackingReconstruction *reconstru
       if (nearest) {
         return a;
       }
-      else {
-        break;
-      }
+
+      break;
     }
 
     if (cfra == framenr) {
@@ -2057,7 +2222,6 @@ static void reconstructed_camera_scale_set(MovieTrackingObject *object, float ma
   }
 }
 
-/* converts principal offset from center to offset of blender's camera */
 void BKE_tracking_camera_shift_get(
     MovieTracking *tracking, int winx, int winy, float *shiftx, float *shifty)
 {
@@ -2132,7 +2296,9 @@ void BKE_tracking_camera_get_reconstructed_interpolate(MovieTracking *tracking,
   reconstructed_camera_scale_set(object, mat);
 }
 
-/*********************** Distortion/Undistortion *************************/
+/* --------------------------------------------------------------------
+ * (Un)distortion.
+ */
 
 MovieDistortion *BKE_tracking_distortion_new(MovieTracking *tracking,
                                              int calibration_width,
@@ -2445,7 +2611,9 @@ void BKE_tracking_max_distortion_delta_across_bound(MovieTracking *tracking,
   }
 }
 
-/*********************** Image sampling *************************/
+/* --------------------------------------------------------------------
+ * Image sampling.
+ */
 
 static void disable_imbuf_channels(ImBuf *ibuf, MovieTrackingTrack *track, bool grayscale)
 {
@@ -2630,10 +2798,96 @@ ImBuf *BKE_tracking_get_search_imbuf(ImBuf *ibuf,
   return searchibuf;
 }
 
-/* zap channels from the imbuf that are disabled by the user. this can lead to
- * better tracks sometimes. however, instead of simply zeroing the channels
- * out, do a partial grayscale conversion so the display is better.
- */
+BLI_INLINE int plane_marker_size_len_in_pixels(const float a[2],
+                                               const float b[2],
+                                               const int frame_width,
+                                               const int frame_height)
+{
+  const float a_px[2] = {a[0] * frame_width, a[1] * frame_height};
+  const float b_px[2] = {b[0] * frame_width, b[1] * frame_height};
+
+  return ceilf(len_v2v2(a_px, b_px));
+}
+
+ImBuf *BKE_tracking_get_plane_imbuf(const ImBuf *frame_ibuf,
+                                    const MovieTrackingPlaneMarker *plane_marker)
+{
+  /* Alias for corners, allowing shorter access to coordinates. */
+  const float(*corners)[2] = plane_marker->corners;
+
+  /* Dimensions of the frame image in pixels. */
+  const int frame_width = frame_ibuf->x;
+  const int frame_height = frame_ibuf->y;
+
+  /* Lengths of left and right edges of the plane marker, in pixels. */
+  const int left_side_len_px = plane_marker_size_len_in_pixels(
+      corners[0], corners[3], frame_width, frame_height);
+  const int right_side_len_px = plane_marker_size_len_in_pixels(
+      corners[1], corners[2], frame_width, frame_height);
+
+  /* Lengths of top and bottom edges of the plane marker, in pixels. */
+  const int top_side_len_px = plane_marker_size_len_in_pixels(
+      corners[3], corners[2], frame_width, frame_height);
+  const int bottom_side_len_px = plane_marker_size_len_in_pixels(
+      corners[0], corners[1], frame_width, frame_height);
+
+  /* Choose the number of samples as a maximum of the corresponding sides in pixels. */
+  const int num_samples_x = max_ii(top_side_len_px, bottom_side_len_px);
+  const int num_samples_y = max_ii(left_side_len_px, right_side_len_px);
+
+  /* Create new result image with the same type of content as the original. */
+  ImBuf *plane_ibuf = IMB_allocImBuf(
+      num_samples_x, num_samples_y, 32, frame_ibuf->rect_float ? IB_rectfloat : IB_rect);
+
+  /* Calculate corner coordinates in pixel space, as separate X/Y arrays. */
+  const double src_pixel_x[4] = {corners[0][0] * frame_width,
+                                 corners[1][0] * frame_width,
+                                 corners[2][0] * frame_width,
+                                 corners[3][0] * frame_width};
+  const double src_pixel_y[4] = {corners[0][1] * frame_height,
+                                 corners[1][1] * frame_height,
+                                 corners[2][1] * frame_height,
+                                 corners[3][1] * frame_height};
+
+  /* Warped Position is unused but is expected to be provided by the API. */
+  double warped_position_x, warped_position_y;
+
+  /* Actual sampling. */
+  if (frame_ibuf->rect_float != NULL) {
+    libmv_samplePlanarPatchFloat(frame_ibuf->rect_float,
+                                 frame_ibuf->x,
+                                 frame_ibuf->y,
+                                 4,
+                                 src_pixel_x,
+                                 src_pixel_y,
+                                 num_samples_x,
+                                 num_samples_y,
+                                 NULL,
+                                 plane_ibuf->rect_float,
+                                 &warped_position_x,
+                                 &warped_position_y);
+  }
+  else {
+    libmv_samplePlanarPatchByte((unsigned char *)frame_ibuf->rect,
+                                frame_ibuf->x,
+                                frame_ibuf->y,
+                                4,
+                                src_pixel_x,
+                                src_pixel_y,
+                                num_samples_x,
+                                num_samples_y,
+                                NULL,
+                                (unsigned char *)plane_ibuf->rect,
+                                &warped_position_x,
+                                &warped_position_y);
+  }
+
+  plane_ibuf->rect_colorspace = frame_ibuf->rect_colorspace;
+  plane_ibuf->float_colorspace = frame_ibuf->float_colorspace;
+
+  return plane_ibuf;
+}
+
 void BKE_tracking_disable_channels(
     ImBuf *ibuf, bool disable_red, bool disable_green, bool disable_blue, bool grayscale)
 {
@@ -2693,7 +2947,9 @@ void BKE_tracking_disable_channels(
   }
 }
 
-/*********************** Dopesheet functions *************************/
+/* --------------------------------------------------------------------
+ * Dopesheet functions.
+ */
 
 /* ** Channels sort comparators ** */
 
@@ -2705,9 +2961,8 @@ static int channels_alpha_sort(const void *a, const void *b)
   if (BLI_strcasecmp(channel_a->track->name, channel_b->track->name) > 0) {
     return 1;
   }
-  else {
-    return 0;
-  }
+
+  return 0;
 }
 
 static int channels_total_track_sort(const void *a, const void *b)
@@ -2718,9 +2973,8 @@ static int channels_total_track_sort(const void *a, const void *b)
   if (channel_a->total_frames > channel_b->total_frames) {
     return 1;
   }
-  else {
-    return 0;
-  }
+
+  return 0;
 }
 
 static int channels_longest_segment_sort(const void *a, const void *b)
@@ -2731,9 +2985,8 @@ static int channels_longest_segment_sort(const void *a, const void *b)
   if (channel_a->max_segment > channel_b->max_segment) {
     return 1;
   }
-  else {
-    return 0;
-  }
+
+  return 0;
 }
 
 static int channels_average_error_sort(const void *a, const void *b)
@@ -2744,9 +2997,67 @@ static int channels_average_error_sort(const void *a, const void *b)
   if (channel_a->track->error > channel_b->track->error) {
     return 1;
   }
-  else {
+
+  if (channel_a->track->error == channel_b->track->error) {
+    return channels_alpha_sort(a, b);
+  }
+
+  return 0;
+}
+
+static int compare_firstlast_putting_undefined_first(
+    bool inverse, bool a_markerless, int a_value, bool b_markerless, int b_value)
+{
+  if (a_markerless && b_markerless) {
+    /* Neither channel has not-disabled markers, return whatever. */
     return 0;
   }
+  if (a_markerless) {
+    /* Put the markerless channel first. */
+    return 0;
+  }
+  if (b_markerless) {
+    /* Put the markerless channel first. */
+    return 1;
+  }
+
+  /* Both channels have markers. */
+
+  if (inverse) {
+    if (a_value < b_value) {
+      return 1;
+    }
+    return 0;
+  }
+
+  if (a_value > b_value) {
+    return 1;
+  }
+  return 0;
+}
+
+static int channels_start_sort(const void *a, const void *b)
+{
+  const MovieTrackingDopesheetChannel *channel_a = a;
+  const MovieTrackingDopesheetChannel *channel_b = b;
+
+  return compare_firstlast_putting_undefined_first(false,
+                                                   channel_a->tot_segment == 0,
+                                                   channel_a->first_not_disabled_marker_framenr,
+                                                   channel_b->tot_segment == 0,
+                                                   channel_b->first_not_disabled_marker_framenr);
+}
+
+static int channels_end_sort(const void *a, const void *b)
+{
+  const MovieTrackingDopesheetChannel *channel_a = a;
+  const MovieTrackingDopesheetChannel *channel_b = b;
+
+  return compare_firstlast_putting_undefined_first(false,
+                                                   channel_a->tot_segment == 0,
+                                                   channel_a->last_not_disabled_marker_framenr,
+                                                   channel_b->tot_segment == 0,
+                                                   channel_b->last_not_disabled_marker_framenr);
 }
 
 static int channels_alpha_inverse_sort(const void *a, const void *b)
@@ -2754,9 +3065,8 @@ static int channels_alpha_inverse_sort(const void *a, const void *b)
   if (channels_alpha_sort(a, b)) {
     return 0;
   }
-  else {
-    return 1;
-  }
+
+  return 1;
 }
 
 static int channels_total_track_inverse_sort(const void *a, const void *b)
@@ -2764,9 +3074,8 @@ static int channels_total_track_inverse_sort(const void *a, const void *b)
   if (channels_total_track_sort(a, b)) {
     return 0;
   }
-  else {
-    return 1;
-  }
+
+  return 1;
 }
 
 static int channels_longest_segment_inverse_sort(const void *a, const void *b)
@@ -2774,9 +3083,8 @@ static int channels_longest_segment_inverse_sort(const void *a, const void *b)
   if (channels_longest_segment_sort(a, b)) {
     return 0;
   }
-  else {
-    return 1;
-  }
+
+  return 1;
 }
 
 static int channels_average_error_inverse_sort(const void *a, const void *b)
@@ -2787,9 +3095,32 @@ static int channels_average_error_inverse_sort(const void *a, const void *b)
   if (channel_a->track->error < channel_b->track->error) {
     return 1;
   }
-  else {
-    return 0;
-  }
+
+  return 0;
+}
+
+static int channels_start_inverse_sort(const void *a, const void *b)
+{
+  const MovieTrackingDopesheetChannel *channel_a = a;
+  const MovieTrackingDopesheetChannel *channel_b = b;
+
+  return compare_firstlast_putting_undefined_first(true,
+                                                   channel_a->tot_segment == 0,
+                                                   channel_a->first_not_disabled_marker_framenr,
+                                                   channel_b->tot_segment == 0,
+                                                   channel_b->first_not_disabled_marker_framenr);
+}
+
+static int channels_end_inverse_sort(const void *a, const void *b)
+{
+  const MovieTrackingDopesheetChannel *channel_a = a;
+  const MovieTrackingDopesheetChannel *channel_b = b;
+
+  return compare_firstlast_putting_undefined_first(true,
+                                                   channel_a->tot_segment == 0,
+                                                   channel_a->last_not_disabled_marker_framenr,
+                                                   channel_b->tot_segment == 0,
+                                                   channel_b->last_not_disabled_marker_framenr);
 }
 
 /* Calculate frames segments at which track is tracked continuously. */
@@ -2797,10 +3128,14 @@ static void tracking_dopesheet_channels_segments_calc(MovieTrackingDopesheetChan
 {
   MovieTrackingTrack *track = channel->track;
   int i, segment;
+  bool first_not_disabled_marker_framenr_set;
 
   channel->tot_segment = 0;
   channel->max_segment = 0;
   channel->total_frames = 0;
+
+  channel->first_not_disabled_marker_framenr = 0;
+  channel->last_not_disabled_marker_framenr = 0;
 
   /* TODO(sergey): looks a bit code-duplicated, need to look into
    *               logic de-duplication here.
@@ -2808,6 +3143,7 @@ static void tracking_dopesheet_channels_segments_calc(MovieTrackingDopesheetChan
 
   /* count */
   i = 0;
+  first_not_disabled_marker_framenr_set = false;
   while (i < track->markersnr) {
     MovieTrackingMarker *marker = &track->markers[i];
 
@@ -2825,6 +3161,12 @@ static void tracking_dopesheet_channels_segments_calc(MovieTrackingDopesheetChan
           break;
         }
 
+        if (!first_not_disabled_marker_framenr_set) {
+          channel->first_not_disabled_marker_framenr = marker->framenr;
+          first_not_disabled_marker_framenr_set = true;
+        }
+        channel->last_not_disabled_marker_framenr = marker->framenr;
+
         prev_fra = marker->framenr;
         len++;
         i++;
@@ -2840,7 +3182,7 @@ static void tracking_dopesheet_channels_segments_calc(MovieTrackingDopesheetChan
     return;
   }
 
-  channel->segments = MEM_callocN(2 * sizeof(int) * channel->tot_segment,
+  channel->segments = MEM_callocN(sizeof(int[2]) * channel->tot_segment,
                                   "tracking channel segments");
 
   /* create segments */
@@ -2942,6 +3284,12 @@ static void tracking_dopesheet_channels_sort(MovieTracking *tracking,
     else if (sort_method == TRACKING_DOPE_SORT_AVERAGE_ERROR) {
       BLI_listbase_sort(&dopesheet->channels, channels_average_error_inverse_sort);
     }
+    else if (sort_method == TRACKING_DOPE_SORT_START) {
+      BLI_listbase_sort(&dopesheet->channels, channels_start_inverse_sort);
+    }
+    else if (sort_method == TRACKING_DOPE_SORT_END) {
+      BLI_listbase_sort(&dopesheet->channels, channels_end_inverse_sort);
+    }
   }
   else {
     if (sort_method == TRACKING_DOPE_SORT_NAME) {
@@ -2956,6 +3304,12 @@ static void tracking_dopesheet_channels_sort(MovieTracking *tracking,
     else if (sort_method == TRACKING_DOPE_SORT_AVERAGE_ERROR) {
       BLI_listbase_sort(&dopesheet->channels, channels_average_error_sort);
     }
+    else if (sort_method == TRACKING_DOPE_SORT_START) {
+      BLI_listbase_sort(&dopesheet->channels, channels_start_sort);
+    }
+    else if (sort_method == TRACKING_DOPE_SORT_END) {
+      BLI_listbase_sort(&dopesheet->channels, channels_end_sort);
+    }
   }
 }
 
@@ -2965,7 +3319,7 @@ static int coverage_from_count(int count)
   if (count < 8) {
     return TRACKING_COVERAGE_BAD;
   }
-  else if (count < 16) {
+  if (count < 16) {
     return TRACKING_COVERAGE_ACCEPTABLE;
   }
   return TRACKING_COVERAGE_OK;
@@ -2988,6 +3342,11 @@ static void tracking_dopesheet_calc_coverage(MovieTracking *tracking)
   LISTBASE_FOREACH (MovieTrackingTrack *, track, tracksbase) {
     start_frame = min_ii(start_frame, track->markers[0].framenr);
     end_frame = max_ii(end_frame, track->markers[track->markersnr - 1].framenr);
+  }
+
+  if (start_frame > end_frame) {
+    /* There are no markers at all, nothing to calculate coverage from. */
+    return;
   }
 
   frames = end_frame - start_frame + 1;
@@ -3049,9 +3408,6 @@ static void tracking_dopesheet_calc_coverage(MovieTracking *tracking)
   MEM_freeN(per_frame_counter);
 }
 
-/* Tag dopesheet for update, actual update will happen later
- * when it'll be actually needed.
- */
 void BKE_tracking_dopesheet_tag_update(MovieTracking *tracking)
 {
   MovieTrackingDopesheet *dopesheet = &tracking->dopesheet;
@@ -3059,7 +3415,6 @@ void BKE_tracking_dopesheet_tag_update(MovieTracking *tracking)
   dopesheet->ok = false;
 }
 
-/* Do dopesheet update, if update is not needed nothing will happen. */
 void BKE_tracking_dopesheet_update(MovieTracking *tracking)
 {
   MovieTrackingDopesheet *dopesheet = &tracking->dopesheet;
@@ -3083,7 +3438,6 @@ void BKE_tracking_dopesheet_update(MovieTracking *tracking)
   dopesheet->ok = true;
 }
 
-/* NOTE: Returns NULL if the track comes from camera object, */
 MovieTrackingObject *BKE_tracking_find_object_for_track(const MovieTracking *tracking,
                                                         const MovieTrackingTrack *track)
 {
@@ -3111,7 +3465,6 @@ ListBase *BKE_tracking_find_tracks_list_for_track(MovieTracking *tracking,
   return &tracking->tracks;
 }
 
-/* NOTE: Returns NULL if the track comes from camera object, */
 MovieTrackingObject *BKE_tracking_find_object_for_plane_track(
     const MovieTracking *tracking, const MovieTrackingPlaneTrack *plane_track)
 {
@@ -3146,13 +3499,13 @@ void BKE_tracking_get_rna_path_for_track(const struct MovieTracking *tracking,
 {
   MovieTrackingObject *object = BKE_tracking_find_object_for_track(tracking, track);
   char track_name_esc[MAX_NAME * 2];
-  BLI_strescape(track_name_esc, track->name, sizeof(track_name_esc));
+  BLI_str_escape(track_name_esc, track->name, sizeof(track_name_esc));
   if (object == NULL) {
     BLI_snprintf(rna_path, rna_path_len, "tracking.tracks[\"%s\"]", track_name_esc);
   }
   else {
     char object_name_esc[MAX_NAME * 2];
-    BLI_strescape(object_name_esc, object->name, sizeof(object_name_esc));
+    BLI_str_escape(object_name_esc, object->name, sizeof(object_name_esc));
     BLI_snprintf(rna_path,
                  rna_path_len,
                  "tracking.objects[\"%s\"].tracks[\"%s\"]",
@@ -3172,7 +3525,7 @@ void BKE_tracking_get_rna_path_prefix_for_track(const struct MovieTracking *trac
   }
   else {
     char object_name_esc[MAX_NAME * 2];
-    BLI_strescape(object_name_esc, object->name, sizeof(object_name_esc));
+    BLI_str_escape(object_name_esc, object->name, sizeof(object_name_esc));
     BLI_snprintf(rna_path, rna_path_len, "tracking.objects[\"%s\"]", object_name_esc);
   }
 }
@@ -3184,13 +3537,13 @@ void BKE_tracking_get_rna_path_for_plane_track(const struct MovieTracking *track
 {
   MovieTrackingObject *object = BKE_tracking_find_object_for_plane_track(tracking, plane_track);
   char track_name_esc[MAX_NAME * 2];
-  BLI_strescape(track_name_esc, plane_track->name, sizeof(track_name_esc));
+  BLI_str_escape(track_name_esc, plane_track->name, sizeof(track_name_esc));
   if (object == NULL) {
     BLI_snprintf(rna_path, rna_path_len, "tracking.plane_tracks[\"%s\"]", track_name_esc);
   }
   else {
     char object_name_esc[MAX_NAME * 2];
-    BLI_strescape(object_name_esc, object->name, sizeof(object_name_esc));
+    BLI_str_escape(object_name_esc, object->name, sizeof(object_name_esc));
     BLI_snprintf(rna_path,
                  rna_path_len,
                  "tracking.objects[\"%s\"].plane_tracks[\"%s\"]",
@@ -3211,7 +3564,7 @@ void BKE_tracking_get_rna_path_prefix_for_plane_track(
   }
   else {
     char object_name_esc[MAX_NAME * 2];
-    BLI_strescape(object_name_esc, object->name, sizeof(object_name_esc));
+    BLI_str_escape(object_name_esc, object->name, sizeof(object_name_esc));
     BLI_snprintf(rna_path, rna_path_len, "tracking.objects[\"%s\"].plane_tracks", object_name_esc);
   }
 }

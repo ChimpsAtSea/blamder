@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FITCURVE_H__
-#define __FITCURVE_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -71,10 +56,9 @@ class FitCurveWrapper {
   std::vector<Vector2> _vertices;
 
  public:
-  FitCurveWrapper();
   ~FitCurveWrapper();
 
-  /*! Fits a set of 2D data points to a set of Bezier Curve segments
+  /** Fits a set of 2D data points to a set of Bezier Curve segments
    *    data
    *      Input data points
    *    oCurve
@@ -92,7 +76,7 @@ class FitCurveWrapper {
    */
   void FitCurve(Vector2 *d, int nPts, double error);
 
-  /*! Draws a Bezier curve segment
+  /** Draws a Bezier curve segment
    *  n
    *    degree of curve (=3)
    *  curve
@@ -109,5 +93,3 @@ class FitCurveWrapper {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FITCURVE_H__

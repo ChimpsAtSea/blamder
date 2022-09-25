@@ -1,24 +1,12 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup wm
  *
  * Menu Registry.
  */
+
+#include <stdio.h>
 
 #include "BLI_sys_types.h"
 
@@ -41,10 +29,8 @@ static GHash *menutypes_hash = NULL;
 
 MenuType *WM_menutype_find(const char *idname, bool quiet)
 {
-  MenuType *mt;
-
   if (idname[0]) {
-    mt = BLI_ghash_lookup(menutypes_hash, idname);
+    MenuType *mt = BLI_ghash_lookup(menutypes_hash, idname);
     if (mt) {
       return mt;
     }
@@ -57,6 +43,11 @@ MenuType *WM_menutype_find(const char *idname, bool quiet)
   return NULL;
 }
 
+void WM_menutype_iter(GHashIterator *ghi)
+{
+  BLI_ghashIterator_init(ghi, menutypes_hash);
+}
+
 bool WM_menutype_add(MenuType *mt)
 {
   BLI_assert((mt->description == NULL) || (mt->description[0]));
@@ -66,15 +57,12 @@ bool WM_menutype_add(MenuType *mt)
 
 void WM_menutype_freelink(MenuType *mt)
 {
-  bool ok;
-
-  ok = BLI_ghash_remove(menutypes_hash, mt->idname, NULL, MEM_freeN);
+  bool ok = BLI_ghash_remove(menutypes_hash, mt->idname, NULL, MEM_freeN);
 
   BLI_assert(ok);
-  (void)ok;
+  UNUSED_VARS_NDEBUG(ok);
 }
 
-/* called on initialize WM_init() */
 void WM_menutype_init(void)
 {
   /* reserve size is set based on blender default setup */
@@ -110,4 +98,22 @@ bool WM_menutype_poll(bContext *C, MenuType *mt)
     return mt->poll(C, mt);
   }
   return true;
+}
+
+void WM_menutype_idname_visit_for_search(const bContext *UNUSED(C),
+                                         PointerRNA *UNUSED(ptr),
+                                         PropertyRNA *UNUSED(prop),
+                                         const char *UNUSED(edit_text),
+                                         StringPropertySearchVisitFunc visit_fn,
+                                         void *visit_user_data)
+{
+  GHashIterator gh_iter;
+  GHASH_ITER (gh_iter, menutypes_hash) {
+    MenuType *mt = BLI_ghashIterator_getValue(&gh_iter);
+
+    StringPropertySearchVisitParams visit_params = {NULL};
+    visit_params.text = mt->idname;
+    visit_params.info = mt->label;
+    visit_fn(visit_user_data, &visit_params);
+  }
 }

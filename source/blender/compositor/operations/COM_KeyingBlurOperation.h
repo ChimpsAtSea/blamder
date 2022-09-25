@@ -1,33 +1,19 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2012, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2012 Blender Foundation. */
 
-#ifndef __COM_KEYINGBLUROPERATION_H__
-#define __COM_KEYINGBLUROPERATION_H__
+#pragma once
 
-#include "COM_NodeOperation.h"
+#include "COM_MultiThreadedOperation.h"
+
+namespace blender::compositor {
 
 /**
  * Class with implementation of blurring for keying node
  */
-class KeyingBlurOperation : public NodeOperation {
+class KeyingBlurOperation : public MultiThreadedOperation {
  protected:
-  int m_size;
-  int m_axis;
+  int size_;
+  int axis_;
 
  public:
   enum BlurAxis {
@@ -37,22 +23,27 @@ class KeyingBlurOperation : public NodeOperation {
 
   KeyingBlurOperation();
 
-  void setSize(int value)
+  void set_size(int value)
   {
-    this->m_size = value;
+    size_ = value;
   }
-  void setAxis(int value)
+  void set_axis(int value)
   {
-    this->m_axis = value;
+    axis_ = value;
   }
 
-  void *initializeTileData(rcti *rect);
+  void *initialize_tile_data(rcti *rect) override;
 
-  void executePixel(float output[4], int x, int y, void *data);
+  void execute_pixel(float output[4], int x, int y, void *data) override;
 
-  bool determineDependingAreaOfInterest(rcti *input,
-                                        ReadBufferOperation *readOperation,
-                                        rcti *output);
+  bool determine_depending_area_of_interest(rcti *input,
+                                            ReadBufferOperation *read_operation,
+                                            rcti *output) override;
+
+  void get_area_of_interest(int input_idx, const rcti &output_area, rcti &r_input_area) override;
+  void update_memory_buffer_partial(MemoryBuffer *output,
+                                    const rcti &area,
+                                    Span<MemoryBuffer *> inputs) override;
 };
 
-#endif
+}  // namespace blender::compositor

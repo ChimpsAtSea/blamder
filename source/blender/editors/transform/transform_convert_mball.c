@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -30,14 +14,15 @@
 #include "BKE_context.h"
 
 #include "transform.h"
+#include "transform_snap.h"
+
 #include "transform_convert.h"
 
 /* -------------------------------------------------------------------- */
 /** \name Meta Elements Transform Creation
- *
  * \{ */
 
-void createTransMBallVerts(TransInfo *t)
+static void createTransMBallVerts(bContext *UNUSED(C), TransInfo *t)
 {
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
     MetaBall *mb = (MetaBall *)tc->obedit->data;
@@ -47,6 +32,7 @@ void createTransMBallVerts(TransInfo *t)
     float mtx[3][3], smtx[3][3];
     int count = 0, countsel = 0;
     const bool is_prop_edit = (t->flag & T_PROP_EDIT) != 0;
+    const bool is_prop_connected = (t->flag & T_PROP_CONNECTED) != 0;
 
     /* count totals */
     for (ml = mb->editelems->first; ml; ml = ml->next) {
@@ -58,8 +44,9 @@ void createTransMBallVerts(TransInfo *t)
       }
     }
 
-    /* note: in prop mode we need at least 1 selected */
-    if (countsel == 0) {
+    /* Support other objects using PET to adjust these, unless connected is enabled. */
+    if (((is_prop_edit && !is_prop_connected) ? count : countsel) == 0) {
+      tc->data_len = 0;
       continue;
     }
 
@@ -127,3 +114,28 @@ void createTransMBallVerts(TransInfo *t)
 }
 
 /** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Recalc Meta Ball
+ * \{ */
+
+static void recalcData_mball(TransInfo *t)
+{
+  if (t->state != TRANS_CANCEL) {
+    applySnappingIndividual(t);
+  }
+  FOREACH_TRANS_DATA_CONTAINER (t, tc) {
+    if (tc->data_len) {
+      DEG_id_tag_update(tc->obedit->data, ID_RECALC_GEOMETRY);
+    }
+  }
+}
+
+/** \} */
+
+TransConvertTypeInfo TransConvertType_MBall = {
+    /* flags */ (T_EDIT | T_POINTS),
+    /* createTransData */ createTransMBallVerts,
+    /* recalcData */ recalcData_mball,
+    /* special_aftertrans_update */ NULL,
+};

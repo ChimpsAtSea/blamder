@@ -1,4 +1,4 @@
-# Apache License, Version 2.0
+# SPDX-License-Identifier: Apache-2.0
 
 # ./blender.bin --background -noaudio --python tests/python/bl_blendfile_io.py
 import bpy
@@ -15,12 +15,15 @@ class TestBlendFileSaveLoadBasic(TestHelper):
         self.args = args
 
     def test_save_load(self):
-        bpy.ops.wm.read_factory_settings()
+        bpy.ops.wm.read_homefile(use_empty=True, use_factory_startup=True)
+
         bpy.data.meshes.new("OrphanedMesh")
 
         output_dir = self.args.output_dir
         self.ensure_path(output_dir)
-        output_path = os.path.join(output_dir, "blendfile.blend")
+
+        # Take care to keep the name unique so multiple test jobs can run at once.
+        output_path = os.path.join(output_dir, "blendfile_io.blend")
 
         orig_data = self.blender_data_to_tuple(bpy.data, "orig_data 1")
 
@@ -44,10 +47,9 @@ class TestBlendFileSaveLoadBasic(TestHelper):
         assert(orig_data == read_data)
 
 
-
 TESTS = (
     TestBlendFileSaveLoadBasic,
-    )
+)
 
 
 def argparse_create():
@@ -69,6 +71,9 @@ def argparse_create():
 
 def main():
     args = argparse_create().parse_args()
+
+    # Don't write thumbnails into the home directory.
+    bpy.context.preferences.filepaths.file_preview_type = 'NONE'
 
     for Test in TESTS:
         Test(args).run_all_tests()

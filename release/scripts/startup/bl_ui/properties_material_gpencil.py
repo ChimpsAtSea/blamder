@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 import bpy
 from bpy.types import Menu, Panel, UIList
 from rna_prop_ui import PropertyPanel
@@ -39,19 +21,25 @@ class GPENCIL_MT_material_context_menu(Menu):
         layout.separator()
 
         layout.operator("gpencil.material_lock_all", icon='LOCKED', text="Lock All")
-        layout.operator("gpencil.material_unlock_all", icon='UNLOCKED', text="UnLock All")
+        layout.operator("gpencil.material_unlock_all", icon='UNLOCKED', text="Unlock All")
 
         layout.operator("gpencil.material_lock_unused", text="Lock Unselected")
         layout.operator("gpencil.lock_layer", text="Lock Unused")
 
         layout.separator()
 
-        layout.operator("object.material_slot_remove_unused")
-        layout.operator("gpencil.stroke_merge_material", text="Merge Similar")
+        layout.operator("gpencil.material_to_vertex_color", text="Convert Materials to Color Attribute")
+        layout.operator("gpencil.extract_palette_vertex", text="Extract Palette from Color Attribute")
 
         layout.separator()
-        layout.operator("gpencil.material_to_vertex_color", text="Convert Materials to Vertex Color")
-        layout.operator("gpencil.extract_palette_vertex", text="Extract Palette from Vertex Color")
+
+        layout.operator("gpencil.materials_copy_to_object", text="Copy Material to Selected").only_active = True
+        layout.operator("gpencil.materials_copy_to_object", text="Copy All Materials to Selected").only_active = False
+
+        layout.separator()
+
+        layout.operator("gpencil.stroke_merge_material", text="Merge Similar")
+        layout.operator("object.material_slot_remove_unused")
 
 
 class GPENCIL_UL_matslots(UIList):
@@ -70,6 +58,7 @@ class GPENCIL_UL_matslots(UIList):
                 row.prop(ma, "name", text="", emboss=False, icon_value=icon)
 
                 row = layout.row(align=True)
+
                 if gpcolor.ghost is True:
                     icon = 'ONIONSKIN_OFF'
                 else:
@@ -147,8 +136,8 @@ class MATERIAL_PT_gpencil_strokecolor(GPMaterialButtonsPanel, Panel):
 
             col.prop(gpcolor, "stroke_style", text="Style")
 
-            row = col.row()
-            row.prop(gpcolor, "color", text="Base Color")
+            col.prop(gpcolor, "color", text="Base Color")
+            col.prop(gpcolor, "use_stroke_holdout")
 
             if gpcolor.stroke_style == 'TEXTURE':
                 row = col.row()
@@ -164,6 +153,7 @@ class MATERIAL_PT_gpencil_strokecolor(GPMaterialButtonsPanel, Panel):
 
             if gpcolor.mode in {'DOTS', 'BOX'}:
                 col.prop(gpcolor, "alignment_mode")
+                col.prop(gpcolor, "alignment_rotation")
 
             if gpcolor.mode == 'LINE':
                 col.prop(gpcolor, "use_overlap_strokes")
@@ -193,12 +183,14 @@ class MATERIAL_PT_gpencil_fillcolor(GPMaterialButtonsPanel, Panel):
 
         if gpcolor.fill_style == 'SOLID':
             col.prop(gpcolor, "fill_color", text="Base Color")
+            col.prop(gpcolor, "use_fill_holdout")
 
         elif gpcolor.fill_style == 'GRADIENT':
             col.prop(gpcolor, "gradient_type")
 
             col.prop(gpcolor, "fill_color", text="Base Color")
             col.prop(gpcolor, "mix_color", text="Secondary Color")
+            col.prop(gpcolor, "use_fill_holdout")
             col.prop(gpcolor, "mix_factor", text="Blend", slider=True)
             col.prop(gpcolor, "flip", text="Flip Colors")
 
@@ -212,6 +204,7 @@ class MATERIAL_PT_gpencil_fillcolor(GPMaterialButtonsPanel, Panel):
 
         elif gpcolor.fill_style == 'TEXTURE':
             col.prop(gpcolor, "fill_color", text="Base Color")
+            col.prop(gpcolor, "use_fill_holdout")
 
             col.template_ID(gpcolor, "fill_image", open="image.open")
 
@@ -240,8 +233,8 @@ class MATERIAL_PT_gpencil_custom_props(GPMaterialButtonsPanel, PropertyPanel, Pa
     _property_type = bpy.types.Material
 
 
-class MATERIAL_PT_gpencil_options(GPMaterialButtonsPanel, Panel):
-    bl_label = "Options"
+class MATERIAL_PT_gpencil_settings(GPMaterialButtonsPanel, Panel):
+    bl_label = "Settings"
     bl_options = {'DEFAULT_CLOSED'}
 
     def draw(self, context):
@@ -270,7 +263,7 @@ classes = (
     MATERIAL_PT_gpencil_surface,
     MATERIAL_PT_gpencil_strokecolor,
     MATERIAL_PT_gpencil_fillcolor,
-    MATERIAL_PT_gpencil_options,
+    MATERIAL_PT_gpencil_settings,
     MATERIAL_PT_gpencil_custom_props,
 )
 

@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup EEVEE
@@ -24,21 +9,15 @@
 
 #include "BLI_rand.h"
 
-/**
- * Special ball distribution:
- * Point are distributed in a way that when they are orthogonally
- * projected into any plane, the resulting distribution is (close to)
- * a uniform disc distribution.
- */
 void EEVEE_sample_ball(int sample_ofs, float radius, float rsample[3])
 {
   double ht_point[3];
   double ht_offset[3] = {0.0, 0.0, 0.0};
-  uint ht_primes[3] = {2, 3, 7};
+  const uint ht_primes[3] = {2, 3, 7};
 
   BLI_halton_3d(ht_primes, ht_offset, sample_ofs, ht_point);
 
-  /* Decorelate AA and shadow samples. (see T68594) */
+  /* De-correlate AA and shadow samples. (see T68594) */
   ht_point[0] = fmod(ht_point[0] * 1151.0, 1.0);
   ht_point[1] = fmod(ht_point[1] * 1069.0, 1.0);
   ht_point[2] = fmod(ht_point[2] * 1151.0, 1.0);
@@ -65,15 +44,15 @@ void EEVEE_sample_rectangle(int sample_ofs,
 {
   double ht_point[2];
   double ht_offset[2] = {0.0, 0.0};
-  uint ht_primes[2] = {2, 3};
+  const uint ht_primes[2] = {2, 3};
 
   BLI_halton_2d(ht_primes, ht_offset, sample_ofs, ht_point);
 
-  /* Decorelate AA and shadow samples. (see T68594) */
+  /* De-correlate AA and shadow samples. (see T68594) */
   ht_point[0] = fmod(ht_point[0] * 1151.0, 1.0);
   ht_point[1] = fmod(ht_point[1] * 1069.0, 1.0);
 
-  /* Change ditribution center to be 0,0 */
+  /* Change distribution center to be 0,0 */
   ht_point[0] = (ht_point[0] > 0.5f) ? ht_point[0] - 1.0f : ht_point[0];
   ht_point[1] = (ht_point[1] > 0.5f) ? ht_point[1] - 1.0f : ht_point[1];
 
@@ -91,11 +70,12 @@ void EEVEE_sample_ellipse(int sample_ofs,
 {
   double ht_point[2];
   double ht_offset[2] = {0.0, 0.0};
-  uint ht_primes[2] = {2, 3};
+  const uint ht_primes[2] = {2, 3};
 
   BLI_halton_2d(ht_primes, ht_offset, sample_ofs, ht_point);
 
-  /* Decorelate AA and shadow samples. (see T68594) */
+  /* Decorrelate AA and shadow samples. (see T68594) */
+
   ht_point[0] = fmod(ht_point[0] * 1151.0, 1.0);
   ht_point[1] = fmod(ht_point[1] * 1069.0, 1.0);
 
@@ -114,11 +94,11 @@ void EEVEE_random_rotation_m4(int sample_ofs, float scale, float r_mat[4][4])
 {
   double ht_point[3];
   double ht_offset[3] = {0.0, 0.0, 0.0};
-  uint ht_primes[3] = {2, 3, 5};
+  const uint ht_primes[3] = {2, 3, 5};
 
   BLI_halton_3d(ht_primes, ht_offset, sample_ofs, ht_point);
 
-  /* Decorelate AA and shadow samples. (see T68594) */
+  /* Decorrelate AA and shadow samples. (see T68594) */
   ht_point[0] = fmod(ht_point[0] * 1151.0, 1.0);
   ht_point[1] = fmod(ht_point[1] * 1069.0, 1.0);
   ht_point[2] = fmod(ht_point[2] * 1151.0, 1.0);

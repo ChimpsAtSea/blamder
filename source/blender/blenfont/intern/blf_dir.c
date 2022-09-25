@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup blf
@@ -115,11 +99,8 @@ char **BLF_dir_get(int *ndir)
 
 void BLF_dir_free(char **dirs, int count)
 {
-  char *path;
-  int i;
-
-  for (i = 0; i < count; i++) {
-    path = dirs[i];
+  for (int i = 0; i < count; i++) {
+    char *path = dirs[i];
     MEM_freeN(path);
   }
   MEM_freeN(dirs);
@@ -127,6 +108,8 @@ void BLF_dir_free(char **dirs, int count)
 
 char *blf_dir_search(const char *file)
 {
+  BLI_assert_msg(!BLI_path_is_rel(file), "Relative paths must always be expanded!");
+
   DirBLF *dir;
   char full_path[FILE_MAX];
   char *s = NULL;
@@ -140,7 +123,7 @@ char *blf_dir_search(const char *file)
   }
 
   if (!s) {
-    /* check the current directory, why not ? */
+    /* This may be an absolute path which exists. */
     if (BLI_exists(file)) {
       s = BLI_strdup(file);
     }
@@ -149,15 +132,12 @@ char *blf_dir_search(const char *file)
   return s;
 }
 
-/* Some font have additional file with metrics information,
- * in general, the extension of the file is: .afm or .pfm
- */
-char *blf_dir_metrics_search(const char *filename)
+char *blf_dir_metrics_search(const char *filepath)
 {
   char *mfile;
   char *s;
 
-  mfile = BLI_strdup(filename);
+  mfile = BLI_strdup(filepath);
   s = strrchr(mfile, '.');
   if (s) {
     if (BLI_strnlen(s, 4) < 4) {
@@ -169,12 +149,12 @@ char *blf_dir_metrics_search(const char *filename)
     s[1] = 'f';
     s[2] = 'm';
 
-    /* first check .afm */
+    /* First check `.afm`. */
     if (BLI_exists(mfile)) {
       return mfile;
     }
 
-    /* and now check .pfm */
+    /* And now check `.pfm`. */
     s[0] = 'p';
 
     if (BLI_exists(mfile)) {

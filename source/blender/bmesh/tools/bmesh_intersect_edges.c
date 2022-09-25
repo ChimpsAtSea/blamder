@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2019 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bmesh
@@ -39,7 +23,7 @@
 
 #define KDOP_TREE_TYPE 4
 #define KDOP_AXIS_LEN 14
-#define BLI_STACK_PAIR_LEN 2 * KDOP_TREE_TYPE
+#define BLI_STACK_PAIR_LEN (2 * KDOP_TREE_TYPE)
 
 /* -------------------------------------------------------------------- */
 /** \name Weld Linked Wire Edges into Linked Faces
@@ -127,12 +111,10 @@ static bool bm_vert_pair_share_splittable_face_cb(BMFace *UNUSED(f),
     if (IN_RANGE(lambda_b, range_min, range_max)) {
       return true;
     }
-    else {
-      copy_v3_v3(co, l_b->prev->v->co);
-      sub_v3_v3v3(dir, l_b->next->v->co, co);
-      if (isect_ray_ray_v3(v_a_co, v_a_b_dir, co, dir, NULL, &lambda_b)) {
-        return IN_RANGE(lambda_b, range_min, range_max);
-      }
+    copy_v3_v3(co, l_b->prev->v->co);
+    sub_v3_v3v3(dir, l_b->next->v->co, co);
+    if (isect_ray_ray_v3(v_a_co, v_a_b_dir, co, dir, NULL, &lambda_b)) {
+      return IN_RANGE(lambda_b, range_min, range_max);
     }
   }
   return false;
@@ -457,7 +439,7 @@ static void bm_elemxelem_bvhtree_overlap(const BVHTree *tree1,
   int parallel_tasks_num = BLI_bvhtree_overlap_thread_num(tree1);
   for (int i = 0; i < parallel_tasks_num; i++) {
     if (pair_stack[i] == NULL) {
-      pair_stack[i] = BLI_stack_new(sizeof(struct EDBMSplitElem[2]), __func__);
+      pair_stack[i] = BLI_stack_new(sizeof(const struct EDBMSplitElem[2]), __func__);
     }
   }
   data->pair_stack = pair_stack;
@@ -476,9 +458,7 @@ static int sort_cmp_by_lambda_cb(const void *index1_v, const void *index2_v, voi
   if (pair_flat[index1].lambda > pair_flat[index2].lambda) {
     return 1;
   }
-  else {
-    return -1;
-  }
+  return -1;
 }
 
 /* -------------------------------------------------------------------- */
@@ -837,15 +817,37 @@ bool BM_mesh_intersect_edges(
     }
 
     if (pair_array) {
+      BMVert *v_key, *v_val;
       pair_iter = &pair_array[0];
       for (i = 0; i < pair_len; i++, pair_iter++) {
         BLI_assert((*pair_iter)[0].elem->head.htype == BM_VERT);
         BLI_assert((*pair_iter)[1].elem->head.htype == BM_VERT);
         BLI_assert((*pair_iter)[0].elem != (*pair_iter)[1].elem);
-        BMVert *v_key, *v_val;
         v_key = (*pair_iter)[0].vert;
         v_val = (*pair_iter)[1].vert;
         BLI_ghash_insert(r_targetmap, v_key, v_val);
+      }
+
+      /**
+       * The weld_verts operator works best when all keys in the same group of
+       * collapsed vertices point to the same vertex.
+       * That is, if the pairs of vertices are:
+       *   [1, 2], [2, 3] and [3, 4],
+       * They are better adjusted to:
+       *   [1, 4], [2, 4] and [3, 4].
+       */
+      pair_iter = &pair_array[0];
+      for (i = 0; i < pair_len; i++, pair_iter++) {
+        v_key = (*pair_iter)[0].vert;
+        v_val = (*pair_iter)[1].vert;
+        BMVert *v_target;
+        while ((v_target = BLI_ghash_lookup(r_targetmap, v_val))) {
+          v_val = v_target;
+        }
+        if (v_val != (*pair_iter)[1].vert) {
+          BMVert **v_val_p = (BMVert **)BLI_ghash_lookup_p(r_targetmap, v_key);
+          *v_val_p = (*pair_iter)[1].vert = v_val;
+        }
         if (split_faces) {
           /* The vertex index indicates its position in the pair_array flat. */
           BM_elem_index_set(v_key, i * 2);
@@ -920,7 +922,7 @@ bool BM_mesh_intersect_edges(
             }
 
             if (va_dest == v_other_dest) {
-              /* Edge/Edgenet to vertex - we can't split the face. */
+              /* Edge/Edge-net to vertex - we can't split the face. */
               break;
             }
             if (edgenet_len == 0 && BM_edge_exists(va_dest, v_other_dest)) {

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
@@ -35,7 +19,7 @@ GHOST_DisplayManagerWin32::GHOST_DisplayManagerWin32(void)
 {
 }
 
-GHOST_TSuccess GHOST_DisplayManagerWin32::getNumDisplays(GHOST_TUns8 &numDisplays) const
+GHOST_TSuccess GHOST_DisplayManagerWin32::getNumDisplays(uint8_t &numDisplays) const
 {
   numDisplays = ::GetSystemMetrics(SM_CMONITORS);
   return numDisplays > 0 ? GHOST_kSuccess : GHOST_kFailure;
@@ -54,8 +38,8 @@ static BOOL get_dd(DWORD d, DISPLAY_DEVICE *dd)
  * the information that was cached the last time the function was called with iModeNum
  * set to zero.
  */
-GHOST_TSuccess GHOST_DisplayManagerWin32::getNumDisplaySettings(GHOST_TUns8 display,
-                                                                GHOST_TInt32 &numSettings) const
+GHOST_TSuccess GHOST_DisplayManagerWin32::getNumDisplaySettings(uint8_t display,
+                                                                int32_t &numSettings) const
 {
   DISPLAY_DEVICE display_device;
   if (!get_dd(display, &display_device))
@@ -69,8 +53,8 @@ GHOST_TSuccess GHOST_DisplayManagerWin32::getNumDisplaySettings(GHOST_TUns8 disp
   return GHOST_kSuccess;
 }
 
-GHOST_TSuccess GHOST_DisplayManagerWin32::getDisplaySetting(GHOST_TUns8 display,
-                                                            GHOST_TInt32 index,
+GHOST_TSuccess GHOST_DisplayManagerWin32::getDisplaySetting(uint8_t display,
+                                                            int32_t index,
                                                             GHOST_DisplaySetting &setting) const
 {
   DISPLAY_DEVICE display_device;
@@ -111,13 +95,13 @@ GHOST_TSuccess GHOST_DisplayManagerWin32::getDisplaySetting(GHOST_TUns8 display,
 }
 
 GHOST_TSuccess GHOST_DisplayManagerWin32::getCurrentDisplaySetting(
-    GHOST_TUns8 display, GHOST_DisplaySetting &setting) const
+    uint8_t display, GHOST_DisplaySetting &setting) const
 {
   return getDisplaySetting(display, ENUM_CURRENT_SETTINGS, setting);
 }
 
 GHOST_TSuccess GHOST_DisplayManagerWin32::setCurrentDisplaySetting(
-    GHOST_TUns8 display, const GHOST_DisplaySetting &setting)
+    uint8_t display, const GHOST_DisplaySetting &setting)
 {
   DISPLAY_DEVICE display_device;
   if (!get_dd(display, &display_device))

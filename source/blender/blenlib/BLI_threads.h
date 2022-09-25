@@ -1,24 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2006 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2006 Blender Foundation. All rights reserved. */
 
-#ifndef __BLI_THREADS_H__
-#define __BLI_THREADS_H__
+#pragma once
 
 /** \file
  * \ingroup bli
@@ -28,28 +11,35 @@
 
 #include "BLI_sys_types.h"
 
-#ifdef __APPLE__
-#  include <libkern/OSAtomic.h>
-#endif
-
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* for tables, button in UI, etc */
+/** For tables, button in UI, etc. */
 #define BLENDER_MAX_THREADS 1024
 
 struct ListBase;
-struct TaskScheduler;
 
 /* Threading API */
 
-/*this is run once at startup*/
+/**
+ * This is run once at startup.
+ */
 void BLI_threadapi_init(void);
 void BLI_threadapi_exit(void);
 
+/**
+ * \param tot: When 0 only initializes malloc mutex in a safe way (see sequence.c)
+ * problem otherwise: scene render will kill of the mutex!
+ */
 void BLI_threadpool_init(struct ListBase *threadbase, void *(*do_thread)(void *), int tot);
+/**
+ * Amount of available threads.
+ */
 int BLI_available_threads(struct ListBase *threadbase);
+/**
+ * Returns thread number, for sample patterns or threadsafe tables.
+ */
 int BLI_threadpool_available_thread_index(struct ListBase *threadbase);
 void BLI_threadpool_insert(struct ListBase *threadbase, void *callerdata);
 void BLI_threadpool_remove(struct ListBase *threadbase, void *callerdata);
@@ -60,25 +50,29 @@ int BLI_thread_is_main(void);
 
 /* System Information */
 
-int BLI_system_thread_count(void); /* gets the number of threads the system can make use of */
+/**
+ * \return the number of threads the system can make use of.
+ */
+int BLI_system_thread_count(void);
 void BLI_system_num_threads_override_set(int num);
 int BLI_system_num_threads_override_get(void);
 
-/* Global Mutex Locks
+/**
+ * Global Mutex Locks
  *
- * One custom lock available now. can be extended. */
-
-#define LOCK_IMAGE 0
-#define LOCK_DRAW_IMAGE 1
-#define LOCK_VIEWER 2
-#define LOCK_CUSTOM1 3
-#define LOCK_RCACHE 4
-#define LOCK_OPENGL 5
-#define LOCK_NODES 6
-#define LOCK_MOVIECLIP 7
-#define LOCK_COLORMANAGE 8
-#define LOCK_FFTW 9
-#define LOCK_VIEW3D 10
+ * One custom lock available now. can be extended.
+ */
+enum {
+  LOCK_IMAGE = 0,
+  LOCK_DRAW_IMAGE,
+  LOCK_VIEWER,
+  LOCK_CUSTOM1,
+  LOCK_NODES,
+  LOCK_MOVIECLIP,
+  LOCK_COLORMANAGE,
+  LOCK_FFTW,
+  LOCK_VIEW3D,
+};
 
 void BLI_thread_lock(int type);
 void BLI_thread_unlock(int type);
@@ -100,10 +94,18 @@ void BLI_mutex_unlock(ThreadMutex *mutex);
 
 /* Spin Lock */
 
-#if defined(__APPLE__)
-typedef OSSpinLock SpinLock;
+/* By default we use TBB for spin lock on all platforms. When building without
+ * TBB fall-back to spin lock implementation which is native to the platform.
+ *
+ * On macOS we use mutex lock instead of spin since the spin lock has been
+ * deprecated in SDK 10.12 and is discouraged from use. */
+
+#ifdef WITH_TBB
+typedef uint32_t SpinLock;
+#elif defined(__APPLE__)
+typedef ThreadMutex SpinLock;
 #elif defined(_MSC_VER)
-typedef volatile int SpinLock;
+typedef volatile unsigned int SpinLock;
 #else
 typedef pthread_spinlock_t SpinLock;
 #endif
@@ -149,7 +151,7 @@ typedef pthread_cond_t ThreadCondition;
 
 void BLI_condition_init(ThreadCondition *cond);
 void BLI_condition_wait(ThreadCondition *cond, ThreadMutex *mutex);
-void BLI_condition_wait_global_mutex(ThreadCondition *cond, const int type);
+void BLI_condition_wait_global_mutex(ThreadCondition *cond, int type);
 void BLI_condition_notify_one(ThreadCondition *cond);
 void BLI_condition_notify_all(ThreadCondition *cond);
 void BLI_condition_end(ThreadCondition *cond);
@@ -192,14 +194,6 @@ void BLI_thread_queue_nowait(ThreadQueue *queue);
 #  define BLI_thread_local_set(name, value) name = value
 #endif /* defined(__APPLE__) */
 
-/* **** Special functions to help performance on crazy NUMA setups. **** */
-
-/* Make sure process/thread is using NUMA node with fast memory access. */
-void BLI_thread_put_process_on_fast_node(void);
-void BLI_thread_put_thread_on_fast_node(void);
-
 #ifdef __cplusplus
 }
-#endif
-
 #endif

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -32,12 +16,12 @@
 #include "BLT_translation.h"
 
 #include "transform.h"
+#include "transform_convert.h"
+
 #include "transform_mode.h"
 
 /* -------------------------------------------------------------------- */
-/* Transform (Align) */
-
-/** \name Transform Align
+/** \name Transform (Align)
  * \{ */
 
 static void applyAlign(TransInfo *t, const int UNUSED(mval[2]))
@@ -57,7 +41,7 @@ static void applyAlign(TransInfo *t, const int UNUSED(mval[2]))
       }
 
       /* around local centers */
-      if (t->flag & (T_OBJECT | T_POSE)) {
+      if (t->options & (CTX_OBJECT | CTX_POSE_BONE)) {
         copy_v3_v3(tc->center_local, td->center);
       }
       else {
@@ -89,4 +73,5 @@ void initAlign(TransInfo *t)
 
   initMouseInputMode(t, &t->mouse, INPUT_NONE);
 }
+
 /** \} */

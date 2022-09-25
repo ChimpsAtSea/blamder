@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edinterface
@@ -23,11 +9,8 @@
 
 #include <string.h>
 
-#include "DNA_gpencil_modifier_types.h"
-#include "DNA_node_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
-#include "DNA_shader_fx_types.h"
 #include "DNA_texture_types.h"
 
 #include "BLI_alloca.h"
@@ -55,43 +38,37 @@ static void operator_search_exec_fn(bContext *C, void *UNUSED(arg1), void *arg2)
   wmOperatorType *ot = arg2;
 
   if (ot) {
-    WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, NULL);
+    WM_operator_name_call_ptr(C, ot, WM_OP_INVOKE_DEFAULT, NULL, NULL);
   }
 }
 
 static void operator_search_update_fn(const bContext *C,
                                       void *UNUSED(arg),
                                       const char *str,
-                                      uiSearchItems *items)
+                                      uiSearchItems *items,
+                                      const bool UNUSED(is_first))
 {
   GHashIterator iter;
-  const size_t str_len = strlen(str);
-  const int words_max = (str_len / 2) + 1;
-  int(*words)[2] = BLI_array_alloca(words, words_max);
 
+  /* Prepare BLI_string_all_words_matched. */
+  const size_t str_len = strlen(str);
+  const int words_max = BLI_string_max_possible_word_count(str_len);
+  int(*words)[2] = BLI_array_alloca(words, words_max);
   const int words_len = BLI_string_find_split_words(str, str_len, ' ', words, words_max);
 
   for (WM_operatortype_iter(&iter); !BLI_ghashIterator_done(&iter);
        BLI_ghashIterator_step(&iter)) {
     wmOperatorType *ot = BLI_ghashIterator_getValue(&iter);
     const char *ot_ui_name = CTX_IFACE_(ot->translation_context, ot->name);
-    int index;
 
     if ((ot->flag & OPTYPE_INTERNAL) && (G.debug & G_DEBUG_WM) == 0) {
       continue;
     }
 
-    /* match name against all search words */
-    for (index = 0; index < words_len; index++) {
-      if (!ui_str_has_word_prefix(ot_ui_name, str + words[index][0], words[index][1])) {
-        break;
-      }
-    }
-
-    if (index == words_len) {
+    if (BLI_string_all_words_matched(ot_ui_name, str, words, words_len)) {
       if (WM_operator_poll((bContext *)C, ot)) {
         char name[256];
-        int len = strlen(ot_ui_name);
+        const int len = strlen(ot_ui_name);
 
         /* display name for menu, can hold hotkey */
         BLI_strncpy(name, ot_ui_name, sizeof(name));
@@ -109,7 +86,7 @@ static void operator_search_update_fn(const bContext *C,
           }
         }
 
-        if (!UI_search_item_add(items, name, ot, ICON_NONE, 0)) {
+        if (!UI_search_item_add(items, name, ot, ICON_NONE, 0, 0)) {
           break;
         }
       }
@@ -130,6 +107,7 @@ void UI_but_func_operator_search(uiBut *but)
                          operator_search_update_fn,
                          NULL,
                          false,
+                         NULL,
                          operator_search_exec_fn,
                          NULL);
 }

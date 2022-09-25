@@ -1,29 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
-#ifndef __BKE_EFFECT_H__
-#define __BKE_EFFECT_H__
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
+#pragma once
 
 /** \file
  * \ingroup bke
  */
-
-#include "DNA_modifier_types.h"
 
 #include "BLI_utildefines.h"
 
@@ -116,20 +97,33 @@ struct PartDeflect *BKE_partdeflect_new(int type);
 struct PartDeflect *BKE_partdeflect_copy(const struct PartDeflect *pd_src);
 void BKE_partdeflect_free(struct PartDeflect *pd);
 
+/**
+ * Create list of effector relations in the collection or entire scene.
+ * This is used by the depsgraph to build relations, as well as faster
+ * lookup of effectors during evaluation.
+ */
 struct ListBase *BKE_effector_relations_create(struct Depsgraph *depsgraph,
                                                struct ViewLayer *view_layer,
                                                struct Collection *collection);
 void BKE_effector_relations_free(struct ListBase *lb);
 
+/**
+ * Create effective list of effectors from relations built beforehand.
+ */
 struct ListBase *BKE_effectors_create(struct Depsgraph *depsgraph,
                                       struct Object *ob_src,
                                       struct ParticleSystem *psys_src,
-                                      struct EffectorWeights *weights);
+                                      struct EffectorWeights *weights,
+                                      bool use_rotation);
+/**
+ * Generic force/speed system, now used for particles, soft-bodies & dynamic-paint.
+ */
 void BKE_effectors_apply(struct ListBase *effectors,
                          struct ListBase *colliders,
                          struct EffectorWeights *weights,
                          struct EffectedPoint *point,
                          float *force,
+                         float *wind_force,
                          float *impulse);
 void BKE_effectors_free(struct ListBase *lb);
 
@@ -147,15 +141,15 @@ float effector_falloff(struct EffectorCache *eff,
                        struct EffectorData *efd,
                        struct EffectedPoint *point,
                        struct EffectorWeights *weights);
-int closest_point_on_surface(SurfaceModifierData *surmd,
-                             const float co[3],
-                             float surface_co[3],
-                             float surface_nor[3],
-                             float surface_vel[3]);
-int get_effector_data(struct EffectorCache *eff,
-                      struct EffectorData *efd,
-                      struct EffectedPoint *point,
-                      int real_velocity);
+bool closest_point_on_surface(struct SurfaceModifierData *surmd,
+                              const float co[3],
+                              float surface_co[3],
+                              float surface_nor[3],
+                              float surface_vel[3]);
+bool get_effector_data(struct EffectorCache *eff,
+                       struct EffectorData *efd,
+                       struct EffectedPoint *point,
+                       int real_velocity);
 
 /* required for particle_system.c */
 #if 0
@@ -180,7 +174,7 @@ unsigned int BKE_sim_debug_data_hash(int i);
 unsigned int BKE_sim_debug_data_hash_combine(unsigned int kx, unsigned int ky);
 
 /* _VA_SIM_DEBUG_HASH#(i, ...): combined hash value of multiple integers */
-/* internal helpers*/
+/* Internal helpers. */
 #define _VA_SIM_DEBUG_HASH1(a) (BKE_sim_debug_data_hash(a))
 #define _VA_SIM_DEBUG_HASH2(a, b) \
   (BKE_sim_debug_data_hash_combine(BKE_sim_debug_data_hash(a), _VA_SIM_DEBUG_HASH1(b)))
@@ -281,6 +275,4 @@ void BKE_sim_debug_data_clear_category(const char *category);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

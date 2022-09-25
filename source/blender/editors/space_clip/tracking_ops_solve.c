@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2016 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spclip
@@ -144,8 +128,8 @@ static void solve_camera_freejob(void *scv)
   else {
     BKE_reportf(scj->reports,
                 RPT_INFO,
-                "Average re-projection error: %.3f",
-                tracking->reconstruction.error);
+                "Average re-projection error: %.2f px",
+                BKE_tracking_get_active_reconstruction(tracking)->error);
   }
 
   /* Set currently solved clip as active for scene. */
@@ -244,7 +228,7 @@ static int solve_camera_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSE
   G.is_break = false;
 
   WM_jobs_start(CTX_wm_manager(C), wm_job);
-  WM_cursor_wait(0);
+  WM_cursor_wait(false);
 
   /* add modal handler for ESC */
   WM_event_add_modal_handler(C, op);
@@ -299,10 +283,7 @@ static int clear_solution_exec(bContext *C, wmOperator *UNUSED(op))
     track->flag &= ~TRACK_HAS_BUNDLE;
   }
 
-  if (reconstruction->cameras != NULL) {
-    MEM_freeN(reconstruction->cameras);
-    reconstruction->cameras = NULL;
-  }
+  MEM_SAFE_FREE(reconstruction->cameras);
 
   reconstruction->camnr = 0;
   reconstruction->flag &= ~TRACKING_RECONSTRUCTED;

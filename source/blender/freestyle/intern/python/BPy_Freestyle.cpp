@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -45,6 +31,13 @@
 #include "BPy_ViewMap.h"
 #include "BPy_ViewShape.h"
 
+#include "BKE_appdir.h"
+#include "DNA_scene_types.h"
+#include "FRS_freestyle.h"
+#include "RNA_access.h"
+#include "RNA_prototypes.h"
+#include "bpy_rna.h" /* pyrna_struct_CreatePyObject() */
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -52,12 +45,6 @@ extern "C" {
 ///////////////////////////////////////////////////////////////////////////////////////////
 
 //------------------------ MODULE FUNCTIONS ----------------------------------
-
-#include "BKE_appdir.h"
-#include "DNA_scene_types.h"
-#include "FRS_freestyle.h"
-#include "RNA_access.h"
-#include "bpy_rna.h" /* pyrna_struct_CreatePyObject() */
 
 static char Freestyle_getCurrentScene___doc__[] =
     ".. function:: getCurrentScene()\n"
@@ -72,7 +59,7 @@ static PyObject *Freestyle_getCurrentScene(PyObject * /*self*/)
   Scene *scene = g_freestyle.scene;
   if (!scene) {
     PyErr_SetString(PyExc_TypeError, "current scene not available");
-    return NULL;
+    return nullptr;
   }
   PointerRNA ptr_scene;
   RNA_pointer_create(&scene->id, &RNA_Scene, scene, &ptr_scene);
@@ -166,12 +153,12 @@ static PyObject *Freestyle_blendRamp(PyObject * /*self*/, PyObject *args)
   float a[3], fac, b[3];
 
   if (!PyArg_ParseTuple(args, "sOfO", &s, &obj1, &fac, &obj2)) {
-    return NULL;
+    return nullptr;
   }
   type = ramp_blend_type(s);
   if (type < 0) {
     PyErr_SetString(PyExc_TypeError, "argument 1 is an unknown ramp blend type");
-    return NULL;
+    return nullptr;
   }
   if (mathutils_array_parse(a,
                             3,
@@ -179,7 +166,7 @@ static PyObject *Freestyle_blendRamp(PyObject * /*self*/, PyObject *args)
                             obj1,
                             "argument 2 must be a 3D vector "
                             "(either a tuple/list of 3 elements or Vector)") == -1) {
-    return NULL;
+    return nullptr;
   }
   if (mathutils_array_parse(b,
                             3,
@@ -187,10 +174,10 @@ static PyObject *Freestyle_blendRamp(PyObject * /*self*/, PyObject *args)
                             obj2,
                             "argument 4 must be a 3D vector "
                             "(either a tuple/list of 3 elements or Vector)") == -1) {
-    return NULL;
+    return nullptr;
   }
   ramp_blend(type, a, fac, b);
-  return Vector_CreatePyObject(a, 3, NULL);
+  return Vector_CreatePyObject(a, 3, nullptr);
 }
 
 #include "BKE_colorband.h" /* BKE_colorband_evaluate() */
@@ -214,18 +201,18 @@ static PyObject *Freestyle_evaluateColorRamp(PyObject * /*self*/, PyObject *args
   float in, out[4];
 
   if (!(PyArg_ParseTuple(args, "O!f", &pyrna_struct_Type, &py_srna, &in))) {
-    return NULL;
+    return nullptr;
   }
   if (!RNA_struct_is_a(py_srna->ptr.type, &RNA_ColorRamp)) {
     PyErr_SetString(PyExc_TypeError, "1st argument is not a ColorRamp object");
-    return NULL;
+    return nullptr;
   }
   coba = (ColorBand *)py_srna->ptr.data;
   if (!BKE_colorband_evaluate(coba, in, out)) {
     PyErr_SetString(PyExc_ValueError, "failed to evaluate the color ramp");
-    return NULL;
+    return nullptr;
   }
-  return Vector_CreatePyObject(out, 4, NULL);
+  return Vector_CreatePyObject(out, 4, nullptr);
 }
 
 #include "BKE_colortools.h" /* BKE_curvemapping_evaluateF() */
@@ -253,22 +240,22 @@ static PyObject *Freestyle_evaluateCurveMappingF(PyObject * /*self*/, PyObject *
   float value;
 
   if (!(PyArg_ParseTuple(args, "O!if", &pyrna_struct_Type, &py_srna, &cur, &value))) {
-    return NULL;
+    return nullptr;
   }
   if (!RNA_struct_is_a(py_srna->ptr.type, &RNA_CurveMapping)) {
     PyErr_SetString(PyExc_TypeError, "1st argument is not a CurveMapping object");
-    return NULL;
+    return nullptr;
   }
   if (cur < 0 || cur > 3) {
     PyErr_SetString(PyExc_ValueError, "2nd argument is out of range");
-    return NULL;
+    return nullptr;
   }
   cumap = (CurveMapping *)py_srna->ptr.data;
-  BKE_curvemapping_initialize(cumap);
+  BKE_curvemapping_init(cumap);
   /* disable extrapolation if enabled */
-  if ((cumap->flag & CUMA_EXTEND_EXTRAPOLATE)) {
-    cumap->flag &= ~(CUMA_EXTEND_EXTRAPOLATE);
-    BKE_curvemapping_changed(cumap, 0);
+  if (cumap->flag & CUMA_EXTEND_EXTRAPOLATE) {
+    cumap->flag &= ~CUMA_EXTEND_EXTRAPOLATE;
+    BKE_curvemapping_changed(cumap, false);
   }
   return PyFloat_FromDouble(BKE_curvemapping_evaluateF(cumap, cur, value));
 }
@@ -515,7 +502,7 @@ static PyMethodDef module_functions[] = {
      (PyCFunction)Freestyle_evaluateCurveMappingF,
      METH_VARARGS,
      Freestyle_evaluateCurveMappingF___doc__},
-    {NULL, NULL, 0, NULL},
+    {nullptr, nullptr, 0, nullptr},
 };
 
 /*-----------------------Freestyle module definition---------------------------*/
@@ -536,7 +523,7 @@ PyObject *Freestyle_Init(void)
   // initialize modules
   module = PyModule_Create(&module_definition);
   if (!module) {
-    return NULL;
+    return nullptr;
   }
   PyDict_SetItemString(PySys_GetObject("modules"), module_definition.m_name, module);
 

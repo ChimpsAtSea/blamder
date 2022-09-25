@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -53,7 +39,7 @@ void Chain::push_viewedge_back(ViewEdge *iViewEdge, bool orientation)
     }
     // Ensure the continuity of underlying FEdges
     CurvePoint *cp =
-        _Vertices.back();  // assumed to be instantiated as new CurvePoint(iSVertex, 0, 0.f);
+        _Vertices.back();  // assumed to be instantiated as new CurvePoint(iSVertex, 0, 0.0f);
     SVertex *sv_first = (*vfirst);
     FEdge *fe = _fedgeB->duplicate();
     fe->setTemporary(true);
@@ -117,7 +103,7 @@ void Chain::push_viewedge_front(ViewEdge *iViewEdge, bool orientation)
     }
     // Ensure the continuity of underlying FEdges
     CurvePoint *cp =
-        _Vertices.front();  // assumed to be instantiated as new CurvePoint(iSVertex, 0, 0.f);
+        _Vertices.front();  // assumed to be instantiated as new CurvePoint(iSVertex, 0, 0.0f);
     SVertex *sv_last = cp->A();
     SVertex *sv_curr = (*v);
     FEdge *fe = (orientation) ? iViewEdge->fedgeA() : iViewEdge->fedgeB();

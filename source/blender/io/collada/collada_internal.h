@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
  */
 
-#ifndef __COLLADA_INTERNAL_H__
-#define __COLLADA_INTERNAL_H__
+#pragma once
 
 #include <map>
 #include <string>
@@ -52,7 +37,7 @@ class UnitConverter {
     Imperial,
   };
 
-  // Initialize with Z_UP, since Blender uses right-handed, z-up
+  /* Initialize with Z_UP, since Blender uses right-handed, z-up */
   UnitConverter();
 
   void read_asset(const COLLADAFW::FileInfo *asset);
@@ -63,7 +48,7 @@ class UnitConverter {
 
   float getLinearMeter(void);
 
-  // TODO need also for angle conversion, time conversion...
+  /* TODO: need also for angle conversion, time conversion... */
 
   static void dae_matrix_to_mat4_(float out[4][4], const COLLADABU::Math::Matrix4 &in);
   static void mat4_to_dae(float out[4][4], float in[4][4]);
@@ -77,6 +62,7 @@ class UnitConverter {
 extern void clear_global_id_map();
 /** Look at documentation of translate_map */
 extern std::string translate_id(const std::string &id);
+/** Look at documentation of translate_map */
 extern std::string translate_id(const char *idString);
 
 extern std::string id_name(void *id);
@@ -94,5 +80,3 @@ extern std::string get_morph_id(Object *ob);
 
 extern std::string get_effect_id(Material *mat);
 extern std::string get_material_id(Material *mat);
-
-#endif /* __COLLADA_INTERNAL_H__ */

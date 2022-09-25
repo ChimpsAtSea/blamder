@@ -1,80 +1,84 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_BLURBASEOPERATION_H__
-#define __COM_BLURBASEOPERATION_H__
-#include "COM_NodeOperation.h"
+#pragma once
+
+#include "COM_MultiThreadedOperation.h"
 #include "COM_QualityStepHelper.h"
 
 #define MAX_GAUSSTAB_RADIUS 30000
 
-#ifdef __SSE2__
-#  include <emmintrin.h>
-#endif
+#include "BLI_simd.h"
 
-class BlurBaseOperation : public NodeOperation, public QualityStepHelper {
+namespace blender::compositor {
+
+class BlurBaseOperation : public MultiThreadedOperation, public QualityStepHelper {
  private:
+  bool extend_bounds_;
+
  protected:
-  BlurBaseOperation(DataType data_type);
+  static constexpr int IMAGE_INPUT_INDEX = 0;
+  static constexpr int SIZE_INPUT_INDEX = 1;
+
+ protected:
+  BlurBaseOperation(DataType data_type8);
   float *make_gausstab(float rad, int size);
-#ifdef __SSE2__
-  __m128 *convert_gausstab_sse(const float *gaustab, int size);
+#ifdef BLI_HAVE_SSE2
+  __m128 *convert_gausstab_sse(const float *gausstab, int size);
 #endif
+  /**
+   * Normalized distance from the current (inverted so 1.0 is close and 0.0 is far)
+   * 'ease' is applied after, looks nicer.
+   */
   float *make_dist_fac_inverse(float rad, int size, int falloff);
 
-  void updateSize();
+  void update_size();
 
   /**
-   * Cached reference to the inputProgram
+   * Cached reference to the input_program
    */
-  SocketReader *m_inputProgram;
-  SocketReader *m_inputSize;
-  NodeBlurData m_data;
+  SocketReader *input_program_;
+  SocketReader *input_size_;
+  NodeBlurData data_;
 
-  float m_size;
-  bool m_sizeavailable;
+  float size_;
+  bool sizeavailable_;
 
-  bool m_extend_bounds;
+  /* Flags for inheriting classes. */
+  bool use_variable_size_;
 
  public:
+  virtual void init_data() override;
   /**
    * Initialize the execution
    */
-  void initExecution();
+  void init_execution() override;
 
   /**
    * Deinitialize the execution
    */
-  void deinitExecution();
+  void deinit_execution() override;
 
-  void setData(const NodeBlurData *data);
+  void set_data(const NodeBlurData *data);
 
-  void setSize(float size)
+  void set_size(float size)
   {
-    this->m_size = size;
-    this->m_sizeavailable = true;
+    size_ = size;
+    sizeavailable_ = true;
   }
 
-  void setExtendBounds(bool extend_bounds)
+  void set_extend_bounds(bool extend_bounds)
   {
-    this->m_extend_bounds = extend_bounds;
+    extend_bounds_ = extend_bounds;
   }
 
-  void determineResolution(unsigned int resolution[2], unsigned int preferredResolution[2]);
+  int get_blur_size(eDimension dim) const;
+
+  void determine_canvas(const rcti &preferred_area, rcti &r_area) override;
+
+  virtual void get_area_of_interest(int input_idx,
+                                    const rcti &output_area,
+                                    rcti &r_input_area) override;
 };
-#endif
+
+}  // namespace blender::compositor

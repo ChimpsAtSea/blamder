@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spscript
@@ -39,20 +23,22 @@
 
 #include "ED_screen.h"
 
-#include "script_intern.h"  // own include
+#include "script_intern.h" /* own include */
 
 #ifdef WITH_PYTHON
-#  include "BPY_extern.h" /* BPY_script_exec */
+#  include "BPY_extern_run.h"
 #endif
 
 static int run_pyfile_exec(bContext *C, wmOperator *op)
 {
-  char path[512];
+  char path[FILE_MAX];
   RNA_string_get(op->ptr, "filepath", path);
 #ifdef WITH_PYTHON
-  if (BPY_execute_filepath(C, path, op->reports)) {
+  if (BPY_run_filepath(C, path, op->reports)) {
     ARegion *region = CTX_wm_region(C);
-    ED_region_tag_redraw(region);
+    if (region != NULL) {
+      ED_region_tag_redraw(region);
+    }
     return OPERATOR_FINISHED;
   }
 #else
@@ -70,7 +56,6 @@ void SCRIPT_OT_python_file_run(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = run_pyfile_exec;
-  ot->poll = ED_operator_areaactive;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO | OPTYPE_INTERNAL;
@@ -115,15 +100,32 @@ static int script_reload_exec(bContext *C, wmOperator *op)
     return OPERATOR_CANCELLED;
   }
 
-  WM_script_tag_reload();
+  /* TODO(campbell): this crashes on netrender and keying sets, need to look into why
+   * disable for now unless running in debug mode. */
 
-  /* TODO, this crashes on netrender and keying sets, need to look into why
-   * disable for now unless running in debug mode */
-  WM_cursor_wait(1);
-  BPY_execute_string(
-      C, (const char *[]){"bpy", NULL}, "bpy.utils.load_scripts(reload_scripts=True)");
-  WM_cursor_wait(0);
-  WM_event_add_notifier(C, NC_WINDOW, NULL);
+  /* It would be nice if we could detect when this is called from the Python
+   * only postponing in that case, for now always do it. */
+  if (true) {
+    /* Postpone when called from Python so this can be called from an operator
+     * that might be re-registered, crashing Blender when we try to read from the
+     * freed operator type which, see T80694. */
+    BPY_run_string_exec(C,
+                        (const char *[]){"bpy", NULL},
+                        "def fn():\n"
+                        "    bpy.utils.load_scripts(reload_scripts=True)\n"
+                        "    return None\n"
+                        "bpy.app.timers.register(fn)");
+  }
+  else {
+    WM_cursor_wait(true);
+    BPY_run_string_eval(
+        C, (const char *[]){"bpy", NULL}, "bpy.utils.load_scripts(reload_scripts=True)");
+    WM_cursor_wait(false);
+  }
+
+  /* Note that #WM_script_tag_reload is called from `bpy.utils.load_scripts`,
+   * any additional updates required by this operator should go there. */
+
   return OPERATOR_FINISHED;
 #else
   UNUSED_VARS(C, op);
@@ -135,7 +137,7 @@ void SCRIPT_OT_reload(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Reload Scripts";
-  ot->description = "Reload Scripts";
+  ot->description = "Reload scripts";
   ot->idname = "SCRIPT_OT_reload";
 
   /* api callbacks */

@@ -1,30 +1,17 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_SOUND_TYPES_H__
-#define __DNA_SOUND_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
 #include "DNA_defs.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct Ipo;
 struct PackedFile;
@@ -36,7 +23,7 @@ typedef struct bSound {
    * The path to the sound file.
    */
   /** 1024 = FILE_MAX. */
-  char name[1024];
+  char filepath[1024];
 
   /**
    * The packed file.
@@ -64,10 +51,11 @@ typedef struct bSound {
   /** Runtime only, always reset in readfile. */
   short tags;
   char _pad[4];
+  double offset_time;
 
-  /* unused currently
-  int type;
-  struct bSound *child_sound; */
+  /* Unused currently. */
+  // int type;
+  // struct bSound *child_sound;
 
   /**
    * The audaspace handle for cache.
@@ -81,7 +69,7 @@ typedef struct bSound {
 
   /**
    * The audaspace handle that should actually be played back.
-   * Should be cache if cache != NULL; otherwise it's handle
+   * Should be cache if cache != NULL; otherwise its handle
    */
   void *playback_handle;
 
@@ -89,6 +77,12 @@ typedef struct bSound {
   void *spinlock;
   /* XXX unused currently (SOUND_TYPE_LIMITER) */
   /* float start, end; */
+
+  /* Description of Audio channels, as of eSoundChannels*/
+  int audio_channels;
+
+  int samplerate;
+
 } bSound;
 
 /* XXX unused currently */
@@ -118,4 +112,6 @@ enum {
   SOUND_TAGS_WAVEFORM_LOADING = (1 << 6),
 };
 
-#endif /* __DNA_SOUND_TYPES_H__ */
+#ifdef __cplusplus
+}
+#endif

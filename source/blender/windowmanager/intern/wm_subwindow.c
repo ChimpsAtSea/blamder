@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup wm
@@ -29,7 +13,6 @@
 #include "DNA_screen_types.h"
 #include "DNA_windowmanager_types.h"
 
-#include "GPU_glew.h"
 #include "GPU_matrix.h"
 #include "GPU_viewport.h"
 
@@ -40,8 +23,8 @@ void wmViewport(const rcti *winrct)
   int width = BLI_rcti_size_x(winrct) + 1;
   int height = BLI_rcti_size_y(winrct) + 1;
 
-  glViewport(winrct->xmin, winrct->ymin, width, height);
-  glScissor(winrct->xmin, winrct->ymin, width, height);
+  GPU_viewport(winrct->xmin, winrct->ymin, width, height);
+  GPU_scissor(winrct->xmin, winrct->ymin, width, height);
 
   wmOrtho2_pixelspace(width, height);
   GPU_matrix_identity_set();
@@ -79,8 +62,8 @@ void wmPartialViewport(rcti *drawrct, const rcti *winrct, const rcti *partialrct
     scissor_height += 1;
   }
 
-  glViewport(0, 0, width, height);
-  glScissor(x, y, scissor_width, scissor_height);
+  GPU_viewport(0, 0, width, height);
+  GPU_scissor(x, y, scissor_width, scissor_height);
 
   wmOrtho2_pixelspace(width, height);
   GPU_matrix_identity_set();
@@ -91,8 +74,8 @@ void wmWindowViewport(wmWindow *win)
   int width = WM_window_pixels_x(win);
   int height = WM_window_pixels_y(win);
 
-  glViewport(0, 0, width, height);
-  glScissor(0, 0, width, height);
+  GPU_viewport(0, 0, width, height);
+  GPU_scissor(0, 0, width, height);
 
   wmOrtho2_pixelspace(width, height);
   GPU_matrix_identity_set();
@@ -117,7 +100,6 @@ static void wmOrtho2_offset(const float x, const float y, const float ofs)
   wmOrtho2(ofs, x + ofs, ofs, y + ofs);
 }
 
-/* Default pixel alignment for regions. */
 void wmOrtho2_region_pixelspace(const ARegion *region)
 {
   wmOrtho2_offset(region->winx, region->winy, -0.01f);

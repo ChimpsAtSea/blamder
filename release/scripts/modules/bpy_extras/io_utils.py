@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8-80 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 __all__ = (
     "ExportHelper",
@@ -25,7 +7,6 @@ __all__ = (
     "axis_conversion",
     "axis_conversion_ensure",
     "create_derived_objects",
-    "free_derived_objects",
     "unpack_list",
     "unpack_face_list",
     "path_reference",
@@ -94,13 +75,11 @@ class ExportHelper:
         if check_extension is not None:
             filepath = self.filepath
             if os.path.basename(filepath):
-                filepath = bpy.path.ensure_ext(
-                    filepath,
-                    self.filename_ext
-                    if check_extension
-                    else "",
-                )
-
+                if check_extension:
+                    filepath = bpy.path.ensure_ext(
+                        os.path.splitext(filepath)[0],
+                        self.filename_ext,
+                    )
                 if filepath != self.filepath:
                     self.filepath = filepath
                     change_ext = True
@@ -350,21 +329,39 @@ def axis_conversion_ensure(operator, forward_attr, up_attr):
         return False
 
 
-# return a tuple (free, object list), free is True if memory should be freed
-# later with free_derived_objects()
-def create_derived_objects(scene, ob):
-    if ob.parent and ob.parent.instance_type in {'VERTS', 'FACES'}:
-        return False, None
+def create_derived_objects(depsgraph, objects):
+    """
+    This function takes a sequence of objects, returning their instances.
 
-    if ob.instance_type != 'NONE':
-        ob.dupli_list_create(scene)
-        return True, [(dob.object, dob.matrix) for dob in ob.dupli_list]
-    else:
-        return False, [(ob, ob.matrix_world)]
+    :arg depsgraph: The evaluated depsgraph.
+    :type depsgraph: :class:`bpy.types.Depsgraph`
+    :arg objects: A sequencer of objects.
+    :type objects: sequence of :class:`bpy.types.Object`
+    :return: A dictionary where each key is an object from `objects`,
+       values are lists of (:class:`bpy.types.Object`, :class:`mathutils.Matrix`) tuples representing instances.
+    :rtype: dict
+    """
+    result = {}
+    for ob in objects:
+        ob_parent = ob.parent
+        if ob_parent and ob_parent.instance_type in {'VERTS', 'FACES'}:
+            continue
+        result[ob] = [] if ob.is_instancer else [(ob, ob.matrix_world.copy())]
 
-
-def free_derived_objects(ob):
-    ob.dupli_list_clear()
+    if result:
+        for dup in depsgraph.object_instances:
+            dup_parent = dup.parent
+            if dup_parent is None:
+                continue
+            dup_parent_original = dup_parent.original
+            if not dup_parent_original.is_instancer:
+                # The instance has already been added (on assignment).
+                continue
+            instance_list = result.get(dup_parent_original)
+            if instance_list is None:
+                continue
+            instance_list.append((dup.instance_object.original, dup.matrix_world.copy()))
+    return result
 
 
 def unpack_list(list_of_tuples):
@@ -449,7 +446,7 @@ def path_reference(
     """
     import os
     is_relative = filepath.startswith("//")
-    filepath_abs = bpy.path.abspath(filepath, base_src, library)
+    filepath_abs = bpy.path.abspath(filepath, start=base_src, library=library)
     filepath_abs = os.path.normpath(filepath_abs)
 
     if mode in {'ABSOLUTE', 'RELATIVE', 'STRIP'}:
@@ -530,7 +527,7 @@ def unique_name(key, name, name_dict, name_max=-1, clean_func=None, sep="."):
 
     :arg key: unique item this name belongs to, name_dict[key] will be reused
        when available.
-       This can be the object, mesh, material, etc instance its self.
+       This can be the object, mesh, material, etc instance itself.
     :type key: any hashable object associated with the *name*.
     :arg name: The name used to create a unique value in *name_dict*.
     :type name: string

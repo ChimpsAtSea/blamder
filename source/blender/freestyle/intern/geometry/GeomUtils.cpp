@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -21,9 +7,7 @@
 
 #include "GeomUtils.h"
 
-namespace Freestyle {
-
-namespace GeomUtils {
+namespace Freestyle::GeomUtils {
 
 // This internal procedure is defined below.
 bool intersect2dSegPoly(Vec2r *seg, Vec2r *poly, unsigned n);
@@ -77,7 +61,7 @@ intersection_test intersect2dSeg2dSeg(
   // Check signs of r3 and r4.  If both point 3 and point 4 lie on same side of line 1,
   // the line segments do not intersect.
   if (r3 != 0 && r4 != 0 && r3 * r4 > 0.0) {
-    return (DONT_INTERSECT);
+    return DONT_INTERSECT;
   }
 
   // Compute a2, b2, c2
@@ -92,13 +76,13 @@ intersection_test intersect2dSeg2dSeg(
   // Check signs of r1 and r2.  If both point 1 and point 2 lie on same side of second line
   // segment, the line segments do not intersect.
   if (r1 != 0 && r2 != 0 && r1 * r2 > 0.0) {
-    return (DONT_INTERSECT);
+    return DONT_INTERSECT;
   }
 
   // Line segments intersect: compute intersection point.
   denom = a1 * b2 - a2 * b1;
   if (fabs(denom) < M_EPSILON) {
-    return (COLINEAR);
+    return COLINEAR;
   }
 
   num = b1 * c2 - b2 * c1;
@@ -107,7 +91,7 @@ intersection_test intersect2dSeg2dSeg(
   num = a2 * c1 - a1 * c2;
   res[1] = num / denom;
 
-  return (DO_INTERSECT);
+  return DO_INTERSECT;
 }
 
 intersection_test intersect2dLine2dLine(
@@ -129,7 +113,7 @@ intersection_test intersect2dLine2dLine(
   // Line segments intersect: compute intersection point.
   denom = a1 * b2 - a2 * b1;
   if (fabs(denom) < M_EPSILON) {
-    return (COLINEAR);
+    return COLINEAR;
   }
 
   num = b1 * c2 - b2 * c1;
@@ -138,7 +122,7 @@ intersection_test intersect2dLine2dLine(
   num = a2 * c1 - a1 * c2;
   res[1] = num / denom;
 
-  return (DO_INTERSECT);
+  return DO_INTERSECT;
 }
 
 intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
@@ -165,7 +149,7 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
   // Check signs of r3 and r4.  If both point 3 and point 4 lie on same side of line 1,
   // the line segments do not intersect.
   if (r3 != 0 && r4 != 0 && r3 * r4 > 0.0) {
-    return (DONT_INTERSECT);
+    return DONT_INTERSECT;
   }
 
   // Compute a2, b2, c2
@@ -180,13 +164,13 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
   // Check signs of r1 and r2.  If both point 1 and point 2 lie on same side of second line
   // segment, the line segments do not intersect.
   if (r1 != 0 && r2 != 0 && r1 * r2 > 0.0) {
-    return (DONT_INTERSECT);
+    return DONT_INTERSECT;
   }
 
   // Line segments intersect: compute intersection point.
   denom = a1 * b2 - a2 * b1;
   if (fabs(denom) < epsilon) {
-    return (COLINEAR);
+    return COLINEAR;
   }
 
   real d1, e1;
@@ -200,7 +184,7 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
   num = -b1 * d1 - a1 * e1;
   u = num / denom;
 
-  return (DO_INTERSECT);
+  return DO_INTERSECT;
 }
 
 // AABB-triangle overlap test code by Tomas Akenine-Möller
@@ -219,14 +203,18 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
 #define FINDMINMAX(x0, x1, x2, min, max) \
   { \
     min = max = x0; \
-    if (x1 < min) \
+    if (x1 < min) { \
       min = x1; \
-    if (x1 > max) \
+    } \
+    if (x1 > max) { \
       max = x1; \
-    if (x2 < min) \
+    } \
+    if (x2 < min) { \
       min = x2; \
-    if (x2 > max) \
+    } \
+    if (x2 > max) { \
       max = x2; \
+    } \
   } \
   (void)0
 
@@ -244,8 +232,9 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
       max = p0; \
     } \
     rad = fa * boxhalfsize[Y] + fb * boxhalfsize[Z]; \
-    if (min > rad || max < -rad) \
+    if (min > rad || max < -rad) { \
       return 0; \
+    } \
   } \
   (void)0
 
@@ -262,8 +251,9 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
       max = p0; \
     } \
     rad = fa * boxhalfsize[Y] + fb * boxhalfsize[Z]; \
-    if (min > rad || max < -rad) \
+    if (min > rad || max < -rad) { \
       return 0; \
+    } \
   } \
   (void)0
 
@@ -281,8 +271,9 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
       max = p0; \
     } \
     rad = fa * boxhalfsize[X] + fb * boxhalfsize[Z]; \
-    if (min > rad || max < -rad) \
+    if (min > rad || max < -rad) { \
       return 0; \
+    } \
   } \
   (void)0
 
@@ -299,8 +290,9 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
       max = p0; \
     } \
     rad = fa * boxhalfsize[X] + fb * boxhalfsize[Z]; \
-    if (min > rad || max < -rad) \
+    if (min > rad || max < -rad) { \
       return 0; \
+    } \
   } \
   (void)0
 
@@ -318,8 +310,9 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
       max = p2; \
     } \
     rad = fa * boxhalfsize[X] + fb * boxhalfsize[Y]; \
-    if (min > rad || max < -rad) \
+    if (min > rad || max < -rad) { \
       return 0; \
+    } \
   } \
   (void)0
 
@@ -336,8 +329,9 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
       max = p0; \
     } \
     rad = fa * boxhalfsize[X] + fb * boxhalfsize[Y]; \
-    if (min > rad || max < -rad) \
+    if (min > rad || max < -rad) { \
       return 0; \
+    } \
   } \
   (void)0
 
@@ -427,12 +421,12 @@ bool overlapTriangleBox(Vec3r &boxcenter, Vec3r &boxhalfsize, Vec3r triverts[3])
 // Tomas Möller
 // Prosolvia Clarus AB
 // Sweden
-// tompa@clarus.se
+// <tompa@clarus.se>
 //
 // Ben Trumbore
 // Cornell University
 // Ithaca, New York
-// wbt@graphics.cornell.edu
+// <wbt@graphics.cornell.edu>
 bool intersectRayTriangle(const Vec3r &orig,
                           const Vec3r &dir,
                           const Vec3r &v0,
@@ -514,9 +508,8 @@ intersection_test intersectRayPlane(const Vec3r &orig,
     if (fabs((norm * orig) + d) <= epsilon) {
       return COINCIDENT;  // plane and ray are coincident
     }
-    else {
-      return COLINEAR;
-    }
+
+    return COLINEAR;
   }
 
   t = -(d + (norm * orig)) / denom;
@@ -766,9 +759,8 @@ inline bool intersect2dSegPoly(Vec2r *seg, Vec2r *poly, unsigned n)
       if (N < 0) {
         return false;
       }
-      else {
-        continue;
-      }
+
+      continue;
     }
 
     t = N / D;
@@ -838,6 +830,4 @@ inline void fromCoordAToCoordB(const Vec3r &p, Vec3r &q, const real transform[4]
   }
 }
 
-}  // end of namespace GeomUtils
-
-} /* namespace Freestyle */
+}  // namespace Freestyle::GeomUtils

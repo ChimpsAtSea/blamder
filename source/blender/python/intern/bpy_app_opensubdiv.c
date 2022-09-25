@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
@@ -63,7 +49,7 @@ static PyObject *make_opensubdiv_info(void)
 #define SetObjItem(obj) PyStructSequence_SET_ITEM(opensubdiv_info, pos++, obj)
 
 #ifdef WITH_OPENSUBDIV
-  int curversion = openSubdiv_getVersionHex();
+  const int curversion = openSubdiv_getVersionHex();
   SetObjItem(PyBool_FromLong(1));
   SetObjItem(PyC_Tuple_Pack_I32(curversion / 10000, (curversion / 100) % 100, curversion % 100));
   SetObjItem(PyUnicode_FromFormat(
@@ -74,8 +60,8 @@ static PyObject *make_opensubdiv_info(void)
   SetStrItem("Unknown");
 #endif
 
-  if (PyErr_Occurred()) {
-    Py_CLEAR(opensubdiv_info);
+  if (UNLIKELY(PyErr_Occurred())) {
+    Py_DECREF(opensubdiv_info);
     return NULL;
   }
 
@@ -96,7 +82,7 @@ PyObject *BPY_app_opensubdiv_struct(void)
   /* prevent user from creating new instances */
   BlenderAppOpenSubdivType.tp_init = NULL;
   BlenderAppOpenSubdivType.tp_new = NULL;
-  /* without this we can't do set(sys.modules) [#29635] */
+  /* without this we can't do set(sys.modules) T29635. */
   BlenderAppOpenSubdivType.tp_hash = (hashfunc)_Py_HashPointer;
 
   return ret;

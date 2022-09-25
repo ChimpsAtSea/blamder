@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -236,7 +222,7 @@ static void bridge_loop_pair(BMesh *bm,
   if (UNLIKELY((len_squared_v3(el_dir) < eps) || ((fabsf(dot_a) < eps) && (fabsf(dot_b) < eps)))) {
     /* in this case there is no depth between the two loops,
      * eg: 2x 2d circles, one scaled smaller,
-     * in this case 'el_dir' cant be used, just ensure we have matching flipping. */
+     * in this case 'el_dir' can't be used, just ensure we have matching flipping. */
     if (dot_v3v3(BM_edgeloop_normal_get(el_store_a), BM_edgeloop_normal_get(el_store_b)) < 0.0f) {
       BM_edgeloop_flip(bm, el_store_b);
     }
@@ -576,13 +562,12 @@ void bmo_bridge_loops_exec(BMesh *bm, BMOperator *op)
   BM_mesh_edgeloops_calc_center(bm, &eloops);
 
   if (count < 2) {
-    BMO_error_raise(bm, op, BMERR_INVALID_SELECTION, "Select at least two edge loops");
+    BMO_error_raise(bm, op, BMO_ERROR_CANCEL, "Select at least two edge loops");
     goto cleanup;
   }
 
   if (use_pairs && (count % 2)) {
-    BMO_error_raise(
-        bm, op, BMERR_INVALID_SELECTION, "Select an even number of loops to bridge pairs");
+    BMO_error_raise(bm, op, BMO_ERROR_CANCEL, "Select an even number of loops to bridge pairs");
     goto cleanup;
   }
 
@@ -596,8 +581,7 @@ void bmo_bridge_loops_exec(BMesh *bm, BMOperator *op)
       }
     }
     if (!match) {
-      BMO_error_raise(
-          bm, op, BMERR_INVALID_SELECTION, "Selected loops must have equal edge counts");
+      BMO_error_raise(bm, op, BMO_ERROR_CANCEL, "Selected loops must have equal edge counts");
       goto cleanup;
     }
   }

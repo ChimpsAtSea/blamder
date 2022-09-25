@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2012 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2012 Blender Foundation. All rights reserved. */
 
 #include "MEM_guardedalloc.h"
 
@@ -23,7 +7,7 @@
 
 static IOCIOImpl *impl = NULL;
 
-void OCIO_init(void)
+void OCIO_init()
 {
 #ifdef WITH_OCIO
   impl = new OCIOImpl();
@@ -32,18 +16,18 @@ void OCIO_init(void)
 #endif
 }
 
-void OCIO_exit(void)
+void OCIO_exit()
 {
   delete impl;
   impl = NULL;
 }
 
-OCIO_ConstConfigRcPtr *OCIO_getCurrentConfig(void)
+OCIO_ConstConfigRcPtr *OCIO_getCurrentConfig()
 {
   return impl->getCurrentConfig();
 }
 
-OCIO_ConstConfigRcPtr *OCIO_configCreateFallback(void)
+OCIO_ConstConfigRcPtr *OCIO_configCreateFallback()
 {
   delete impl;
   impl = new FallbackImpl();
@@ -56,7 +40,7 @@ void OCIO_setCurrentConfig(const OCIO_ConstConfigRcPtr *config)
   impl->setCurrentConfig(config);
 }
 
-OCIO_ConstConfigRcPtr *OCIO_configCreateFromEnv(void)
+OCIO_ConstConfigRcPtr *OCIO_configCreateFromEnv()
 {
   return impl->configCreateFromEnv();
 }
@@ -134,9 +118,9 @@ void OCIO_configGetDefaultLumaCoefs(OCIO_ConstConfigRcPtr *config, float *rgb)
   impl->configGetDefaultLumaCoefs(config, rgb);
 }
 
-void OCIO_configGetXYZtoRGB(OCIO_ConstConfigRcPtr *config, float xyz_to_rgb[3][3])
+void OCIO_configGetXYZtoSceneLinear(OCIO_ConstConfigRcPtr *config, float xyz_to_scene_linear[3][3])
 {
-  impl->configGetXYZtoRGB(config, xyz_to_rgb);
+  impl->configGetXYZtoSceneLinear(config, xyz_to_scene_linear);
 }
 
 int OCIO_configGetNumLooks(OCIO_ConstConfigRcPtr *config)
@@ -194,40 +178,45 @@ OCIO_ConstProcessorRcPtr *OCIO_configGetProcessorWithNames(OCIO_ConstConfigRcPtr
   return impl->configGetProcessorWithNames(config, srcName, dstName);
 }
 
-OCIO_ConstProcessorRcPtr *OCIO_configGetProcessor(OCIO_ConstConfigRcPtr *config,
-                                                  OCIO_ConstTransformRcPtr *transform)
+void OCIO_processorRelease(OCIO_ConstProcessorRcPtr *processor)
 {
-  return impl->configGetProcessor(config, transform);
+  impl->processorRelease(processor);
 }
 
-void OCIO_processorApply(OCIO_ConstProcessorRcPtr *processor, OCIO_PackedImageDesc *img)
+OCIO_ConstCPUProcessorRcPtr *OCIO_processorGetCPUProcessor(OCIO_ConstProcessorRcPtr *processor)
 {
-  impl->processorApply(processor, img);
+  return impl->processorGetCPUProcessor(processor);
 }
 
-void OCIO_processorApply_predivide(OCIO_ConstProcessorRcPtr *processor, OCIO_PackedImageDesc *img)
+void OCIO_cpuProcessorApply(OCIO_ConstCPUProcessorRcPtr *cpu_processor, OCIO_PackedImageDesc *img)
 {
-  impl->processorApply_predivide(processor, img);
+  impl->cpuProcessorApply(cpu_processor, img);
 }
 
-void OCIO_processorApplyRGB(OCIO_ConstProcessorRcPtr *processor, float *pixel)
+void OCIO_cpuProcessorApply_predivide(OCIO_ConstCPUProcessorRcPtr *cpu_processor,
+                                      OCIO_PackedImageDesc *img)
 {
-  impl->processorApplyRGB(processor, pixel);
+  impl->cpuProcessorApply_predivide(cpu_processor, img);
 }
 
-void OCIO_processorApplyRGBA(OCIO_ConstProcessorRcPtr *processor, float *pixel)
+void OCIO_cpuProcessorApplyRGB(OCIO_ConstCPUProcessorRcPtr *cpu_processor, float *pixel)
 {
-  impl->processorApplyRGBA(processor, pixel);
+  impl->cpuProcessorApplyRGB(cpu_processor, pixel);
 }
 
-void OCIO_processorApplyRGBA_predivide(OCIO_ConstProcessorRcPtr *processor, float *pixel)
+void OCIO_cpuProcessorApplyRGBA(OCIO_ConstCPUProcessorRcPtr *cpu_processor, float *pixel)
 {
-  impl->processorApplyRGBA_predivide(processor, pixel);
+  impl->cpuProcessorApplyRGBA(cpu_processor, pixel);
 }
 
-void OCIO_processorRelease(OCIO_ConstProcessorRcPtr *p)
+void OCIO_cpuProcessorApplyRGBA_predivide(OCIO_ConstCPUProcessorRcPtr *processor, float *pixel)
 {
-  impl->processorRelease(p);
+  impl->cpuProcessorApplyRGBA_predivide(processor, pixel);
+}
+
+void OCIO_cpuProcessorRelease(OCIO_ConstCPUProcessorRcPtr *cpu_processor)
+{
+  impl->cpuProcessorRelease(cpu_processor);
 }
 
 const char *OCIO_colorSpaceGetName(OCIO_ConstColorSpaceRcPtr *cs)
@@ -245,49 +234,27 @@ const char *OCIO_colorSpaceGetFamily(OCIO_ConstColorSpaceRcPtr *cs)
   return impl->colorSpaceGetFamily(cs);
 }
 
-OCIO_DisplayTransformRcPtr *OCIO_createDisplayTransform(void)
+int OCIO_colorSpaceGetNumAliases(OCIO_ConstColorSpaceRcPtr *cs)
 {
-  return impl->createDisplayTransform();
+  return impl->colorSpaceGetNumAliases(cs);
 }
 
-void OCIO_displayTransformSetInputColorSpaceName(OCIO_DisplayTransformRcPtr *dt, const char *name)
+const char *OCIO_colorSpaceGetAlias(OCIO_ConstColorSpaceRcPtr *cs, const int index)
 {
-  impl->displayTransformSetInputColorSpaceName(dt, name);
+  return impl->colorSpaceGetAlias(cs, index);
 }
 
-void OCIO_displayTransformSetDisplay(OCIO_DisplayTransformRcPtr *dt, const char *name)
+OCIO_ConstProcessorRcPtr *OCIO_createDisplayProcessor(OCIO_ConstConfigRcPtr *config,
+                                                      const char *input,
+                                                      const char *view,
+                                                      const char *display,
+                                                      const char *look,
+                                                      const float scale,
+                                                      const float exponent,
+                                                      const bool inverse)
 {
-  impl->displayTransformSetDisplay(dt, name);
-}
-
-void OCIO_displayTransformSetView(OCIO_DisplayTransformRcPtr *dt, const char *name)
-{
-  impl->displayTransformSetView(dt, name);
-}
-
-void OCIO_displayTransformSetDisplayCC(OCIO_DisplayTransformRcPtr *dt, OCIO_ConstTransformRcPtr *t)
-{
-  impl->displayTransformSetDisplayCC(dt, t);
-}
-
-void OCIO_displayTransformSetLinearCC(OCIO_DisplayTransformRcPtr *dt, OCIO_ConstTransformRcPtr *t)
-{
-  impl->displayTransformSetLinearCC(dt, t);
-}
-
-void OCIO_displayTransformSetLooksOverride(OCIO_DisplayTransformRcPtr *dt, const char *looks)
-{
-  impl->displayTransformSetLooksOverride(dt, looks);
-}
-
-void OCIO_displayTransformSetLooksOverrideEnabled(OCIO_DisplayTransformRcPtr *dt, bool enabled)
-{
-  impl->displayTransformSetLooksOverrideEnabled(dt, enabled);
-}
-
-void OCIO_displayTransformRelease(OCIO_DisplayTransformRcPtr *dt)
-{
-  impl->displayTransformRelease(dt);
+  return impl->createDisplayProcessor(
+      config, input, view, display, look, scale, exponent, inverse);
 }
 
 OCIO_PackedImageDesc *OCIO_createOCIO_PackedImageDesc(float *data,
@@ -307,116 +274,52 @@ void OCIO_PackedImageDescRelease(OCIO_PackedImageDesc *id)
   impl->OCIO_PackedImageDescRelease(id);
 }
 
-OCIO_GroupTransformRcPtr *OCIO_createGroupTransform(void)
+bool OCIO_supportGPUShader()
 {
-  return impl->createGroupTransform();
+  return impl->supportGPUShader();
 }
 
-void OCIO_groupTransformSetDirection(OCIO_GroupTransformRcPtr *gt, const bool forward)
+bool OCIO_gpuDisplayShaderBind(OCIO_ConstConfigRcPtr *config,
+                               const char *input,
+                               const char *view,
+                               const char *display,
+                               const char *look,
+                               OCIO_CurveMappingSettings *curve_mapping_settings,
+                               const float scale,
+                               const float exponent,
+                               const float dither,
+                               const bool use_predivide,
+                               const bool use_overlay)
 {
-  impl->groupTransformSetDirection(gt, forward);
+  return impl->gpuDisplayShaderBind(config,
+                                    input,
+                                    view,
+                                    display,
+                                    look,
+                                    curve_mapping_settings,
+                                    scale,
+                                    exponent,
+                                    dither,
+                                    use_predivide,
+                                    use_overlay);
 }
 
-void OCIO_groupTransformPushBack(OCIO_GroupTransformRcPtr *gt, OCIO_ConstTransformRcPtr *tr)
+void OCIO_gpuDisplayShaderUnbind()
 {
-  impl->groupTransformPushBack(gt, tr);
+  impl->gpuDisplayShaderUnbind();
 }
 
-void OCIO_groupTransformRelease(OCIO_GroupTransformRcPtr *gt)
+void OCIO_gpuCacheFree()
 {
-  impl->groupTransformRelease(gt);
+  impl->gpuCacheFree();
 }
 
-OCIO_ColorSpaceTransformRcPtr *OCIO_createColorSpaceTransform(void)
-{
-  return impl->createColorSpaceTransform();
-}
-
-void OCIO_colorSpaceTransformSetSrc(OCIO_ColorSpaceTransformRcPtr *ct, const char *name)
-{
-  impl->colorSpaceTransformSetSrc(ct, name);
-}
-
-void OCIO_colorSpaceTransformRelease(OCIO_ColorSpaceTransformRcPtr *ct)
-{
-  impl->colorSpaceTransformRelease(ct);
-}
-
-OCIO_ExponentTransformRcPtr *OCIO_createExponentTransform(void)
-{
-  return impl->createExponentTransform();
-}
-
-void OCIO_exponentTransformSetValue(OCIO_ExponentTransformRcPtr *et, const float *exponent)
-{
-  impl->exponentTransformSetValue(et, exponent);
-}
-
-void OCIO_exponentTransformRelease(OCIO_ExponentTransformRcPtr *et)
-{
-  impl->exponentTransformRelease(et);
-}
-
-OCIO_MatrixTransformRcPtr *OCIO_createMatrixTransform(void)
-{
-  return impl->createMatrixTransform();
-}
-
-void OCIO_matrixTransformSetValue(OCIO_MatrixTransformRcPtr *mt,
-                                  const float *m44,
-                                  const float *offset4)
-{
-  impl->matrixTransformSetValue(mt, m44, offset4);
-}
-
-void OCIO_matrixTransformRelease(OCIO_MatrixTransformRcPtr *mt)
-{
-  impl->matrixTransformRelease(mt);
-}
-
-void OCIO_matrixTransformScale(float *m44, float *offset4, const float *scale4f)
-{
-  impl->matrixTransformScale(m44, offset4, scale4f);
-}
-
-int OCIO_supportGLSLDraw(void)
-{
-  return (int)impl->supportGLSLDraw();
-}
-
-int OCIO_setupGLSLDraw(struct OCIO_GLSLDrawState **state_r,
-                       OCIO_ConstProcessorRcPtr *ocio_processor_scene_to_ui,
-                       OCIO_ConstProcessorRcPtr *ocio_processor_ui_to_display,
-                       OCIO_CurveMappingSettings *curve_mapping_settings,
-                       float dither,
-                       bool predivide,
-                       bool overlay)
-{
-  return (int)impl->setupGLSLDraw(state_r,
-                                  ocio_processor_scene_to_ui,
-                                  ocio_processor_ui_to_display,
-                                  curve_mapping_settings,
-                                  dither,
-                                  predivide,
-                                  overlay);
-}
-
-void OCIO_finishGLSLDraw(struct OCIO_GLSLDrawState *state)
-{
-  impl->finishGLSLDraw(state);
-}
-
-void OCIO_freeOGLState(struct OCIO_GLSLDrawState *state)
-{
-  impl->freeGLState(state);
-}
-
-const char *OCIO_getVersionString(void)
+const char *OCIO_getVersionString()
 {
   return impl->getVersionString();
 }
 
-int OCIO_getVersionHex(void)
+int OCIO_getVersionHex()
 {
   return impl->getVersionHex();
 }

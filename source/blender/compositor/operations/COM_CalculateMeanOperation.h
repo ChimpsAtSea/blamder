@@ -1,70 +1,77 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_CALCULATEMEANOPERATION_H__
-#define __COM_CALCULATEMEANOPERATION_H__
-#include "COM_NodeOperation.h"
+#pragma once
+
+#include "COM_MultiThreadedOperation.h"
 #include "DNA_node_types.h"
+#include <functional>
+
+namespace blender::compositor {
 
 /**
  * \brief base class of CalculateMean, implementing the simple CalculateMean
  * \ingroup operation
  */
-class CalculateMeanOperation : public NodeOperation {
+class CalculateMeanOperation : public MultiThreadedOperation {
+ public:
+  struct PixelsSum {
+    float sum;
+    int num_pixels;
+  };
+
  protected:
   /**
    * \brief Cached reference to the reader
    */
-  SocketReader *m_imageReader;
+  SocketReader *image_reader_;
 
-  bool m_iscalculated;
-  float m_result;
-  int m_setting;
+  bool iscalculated_;
+  float result_;
+  int setting_;
+  std::function<float(const float *elem)> setting_func_;
 
  public:
   CalculateMeanOperation();
 
   /**
-   * the inner loop of this program
+   * The inner loop of this operation.
    */
-  void executePixel(float output[4], int x, int y, void *data);
+  void execute_pixel(float output[4], int x, int y, void *data) override;
 
   /**
    * Initialize the execution
    */
-  void initExecution();
+  void init_execution() override;
 
-  void *initializeTileData(rcti *rect);
+  void *initialize_tile_data(rcti *rect) override;
 
   /**
    * Deinitialize the execution
    */
-  void deinitExecution();
+  void deinit_execution() override;
 
-  bool determineDependingAreaOfInterest(rcti *input,
-                                        ReadBufferOperation *readOperation,
-                                        rcti *output);
-  void setSetting(int setting)
-  {
-    this->m_setting = setting;
-  }
+  bool determine_depending_area_of_interest(rcti *input,
+                                            ReadBufferOperation *read_operation,
+                                            rcti *output) override;
+  void set_setting(int setting);
+
+  void get_area_of_interest(int input_idx, const rcti &output_area, rcti &r_input_area) override;
+
+  virtual void update_memory_buffer_started(MemoryBuffer *output,
+                                            const rcti &area,
+                                            Span<MemoryBuffer *> inputs) override;
+
+  virtual void update_memory_buffer_partial(MemoryBuffer *output,
+                                            const rcti &area,
+                                            Span<MemoryBuffer *> inputs) override;
 
  protected:
-  void calculateMean(MemoryBuffer *tile);
+  void calculate_mean(MemoryBuffer *tile);
+  float calc_mean(const MemoryBuffer *input);
+
+ private:
+  PixelsSum calc_area_sum(const MemoryBuffer *input, const rcti &area);
 };
-#endif
+
+}  // namespace blender::compositor

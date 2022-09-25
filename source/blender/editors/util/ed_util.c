@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edutil
@@ -27,24 +11,17 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "DNA_armature_types.h"
-#include "DNA_mesh_types.h"
-#include "DNA_object_types.h"
-#include "DNA_packedFile_types.h"
-#include "DNA_scene_types.h"
-#include "DNA_screen_types.h"
-#include "DNA_space_types.h"
-
 #include "BLI_listbase.h"
 #include "BLI_path_util.h"
 #include "BLI_string.h"
-#include "BLI_utildefines.h"
 
 #include "BLT_translation.h"
 
-#include "BKE_context.h"
+#include "BKE_collection.h"
 #include "BKE_global.h"
 #include "BKE_layer.h"
+#include "BKE_lib_id.h"
+#include "BKE_lib_remap.h"
 #include "BKE_main.h"
 #include "BKE_material.h"
 #include "BKE_multires.h"
@@ -53,23 +30,22 @@
 #include "BKE_paint.h"
 #include "BKE_screen.h"
 #include "BKE_undo_system.h"
-#include "BKE_workspace.h"
 
 #include "DEG_depsgraph.h"
 
+#include "DNA_gpencil_types.h"
+
 #include "ED_armature.h"
-#include "ED_buttons.h"
+#include "ED_asset.h"
 #include "ED_image.h"
 #include "ED_mesh.h"
-#include "ED_node.h"
 #include "ED_object.h"
-#include "ED_outliner.h"
 #include "ED_paint.h"
+#include "ED_screen.h"
 #include "ED_space_api.h"
 #include "ED_util.h"
 
 #include "GPU_immediate.h"
-#include "GPU_state.h"
 
 #include "UI_interface.h"
 #include "UI_resources.h"
@@ -92,7 +68,7 @@ void ED_editors_init_for_undo(Main *bmain)
         Scene *scene = WM_window_get_active_scene(win);
 
         BKE_texpaint_slots_refresh_object(scene, ob);
-        BKE_paint_proj_mesh_data_check(scene, ob, NULL, NULL, NULL, NULL);
+        ED_paint_proj_mesh_data_check(scene, ob, NULL, NULL, NULL, NULL);
       }
     }
   }
@@ -123,59 +99,86 @@ void ED_editors_init(bContext *C)
     if (mode == OB_MODE_OBJECT) {
       continue;
     }
-    else if (BKE_object_has_mode_data(ob, mode)) {
+    if (BKE_object_has_mode_data(ob, mode)) {
       continue;
     }
-    else if (ob->type == OB_GPENCIL) {
+    if (ob->type == OB_GPENCIL) {
       /* For multi-edit mode we may already have mode data (grease pencil does not need it).
        * However we may have a non-active object stuck in a grease-pencil edit mode. */
       if (ob != obact) {
+        bGPdata *gpd = (bGPdata *)ob->data;
+        gpd->flag &= ~(GP_DATA_STROKE_PAINTMODE | GP_DATA_STROKE_EDITMODE |
+                       GP_DATA_STROKE_SCULPTMODE | GP_DATA_STROKE_WEIGHTMODE |
+                       GP_DATA_STROKE_VERTEXMODE);
         ob->mode = OB_MODE_OBJECT;
         DEG_id_tag_update(&ob->id, ID_RECALC_COPY_ON_WRITE);
       }
       continue;
     }
 
+    /* Reset object to Object mode, so that code below can properly re-switch it to its
+     * previous mode if possible, re-creating its mode data, etc. */
     ID *ob_data = ob->data;
     ob->mode = OB_MODE_OBJECT;
     DEG_id_tag_update(&ob->id, ID_RECALC_COPY_ON_WRITE);
-    if (obact && (ob->type == obact->type) && !ID_IS_LINKED(ob) &&
-        !(ob_data && ID_IS_LINKED(ob_data))) {
-      if (mode == OB_MODE_EDIT) {
-        ED_object_editmode_enter_ex(bmain, scene, ob, 0);
-      }
-      else if (mode == OB_MODE_POSE) {
-        ED_object_posemode_enter_ex(bmain, ob);
-      }
-      else if (mode & OB_MODE_ALL_SCULPT) {
-        if (obact == ob) {
-          if (mode == OB_MODE_SCULPT) {
-            ED_object_sculptmode_enter_ex(bmain, depsgraph, scene, ob, true, reports);
-          }
-          else if (mode == OB_MODE_VERTEX_PAINT) {
-            ED_object_vpaintmode_enter_ex(bmain, depsgraph, scene, ob);
-          }
-          else if (mode == OB_MODE_WEIGHT_PAINT) {
-            ED_object_wpaintmode_enter_ex(bmain, depsgraph, scene, ob);
-          }
-          else {
-            BLI_assert(0);
-          }
+
+    /* Object mode is enforced if there is no active object, or if the active object's type is
+     * different. */
+    if (obact == NULL || ob->type != obact->type) {
+      continue;
+    }
+    /* Object mode is enforced for non-editable data (or their obdata). */
+    if (!BKE_id_is_editable(bmain, &ob->id) ||
+        (ob_data != NULL && !BKE_id_is_editable(bmain, ob_data))) {
+      continue;
+    }
+
+    /* Pose mode is very similar to Object one, we can apply it even on objects not in current
+     * scene. */
+    if (mode == OB_MODE_POSE) {
+      ED_object_posemode_enter_ex(bmain, ob);
+    }
+
+    /* Other edit/paint/etc. modes are only settable for objects visible in active scene currently.
+     * Otherwise, they (and their obdata) may not be (fully) evaluated, which is mandatory for some
+     * modes like Sculpt.
+     * Ref. T98225. */
+    if (!BKE_collection_has_object_recursive(scene->master_collection, ob) ||
+        !BKE_scene_has_object(scene, ob) || (ob->visibility_flag & OB_HIDE_VIEWPORT) != 0) {
+      continue;
+    }
+
+    if (mode == OB_MODE_EDIT) {
+      ED_object_editmode_enter_ex(bmain, scene, ob, 0);
+    }
+    else if (mode & OB_MODE_ALL_SCULPT) {
+      if (obact == ob) {
+        if (mode == OB_MODE_SCULPT) {
+          ED_object_sculptmode_enter_ex(bmain, depsgraph, scene, ob, true, reports);
+        }
+        else if (mode == OB_MODE_VERTEX_PAINT) {
+          ED_object_vpaintmode_enter_ex(bmain, depsgraph, scene, ob);
+        }
+        else if (mode == OB_MODE_WEIGHT_PAINT) {
+          ED_object_wpaintmode_enter_ex(bmain, depsgraph, scene, ob);
         }
         else {
-          /* Create data for non-active objects which need it for
-           * mode-switching but don't yet support multi-editing. */
-          if (mode & OB_MODE_ALL_SCULPT) {
-            ob->mode = mode;
-            BKE_object_sculpt_data_create(ob);
-          }
+          BLI_assert_unreachable();
         }
       }
       else {
-        /* TODO(campbell): avoid operator calls. */
-        if (obact == ob) {
-          ED_object_mode_set(C, mode);
+        /* Create data for non-active objects which need it for
+         * mode-switching but don't yet support multi-editing. */
+        if (mode & OB_MODE_ALL_SCULPT) {
+          ob->mode = mode;
+          BKE_object_sculpt_data_create(ob);
         }
+      }
+    }
+    else {
+      /* TODO(campbell): avoid operator calls. */
+      if (obact == ob) {
+        ED_object_mode_set(C, mode);
       }
     }
   }
@@ -185,18 +188,31 @@ void ED_editors_init(bContext *C)
     ED_space_image_paint_update(bmain, wm, scene);
   }
 
+  /* Enforce a full redraw for the first time areas/regions get drawn. Further region init/refresh
+   * just triggers non-rebuild redraws (#RGN_DRAW_NO_REBUILD). Usually a full redraw would be
+   * triggered by a `NC_WM | ND_FILEREAD` notifier, but if a startup script calls an operator that
+   * redraws the window, notifiers are not handled before the operator runs. See T98461. */
+  LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+    const bScreen *screen = WM_window_get_active_screen(win);
+
+    ED_screen_areas_iter (win, screen, area) {
+      ED_area_tag_redraw(area);
+    }
+  }
+
+  ED_assetlist_storage_tag_main_data_dirty();
+
   SWAP(int, reports->flag, reports_flag_prev);
   wm->op_undo_depth--;
 }
 
-/* frees all editmode stuff */
 void ED_editors_exit(Main *bmain, bool do_undo_system)
 {
   if (!bmain) {
     return;
   }
 
-  /* frees all editmode undos */
+  /* Frees all edit-mode undo-steps. */
   if (do_undo_system && G_MAIN->wm.first) {
     wmWindowManager *wm = G_MAIN->wm.first;
     /* normally we don't check for NULL undo stack,
@@ -207,19 +223,21 @@ void ED_editors_exit(Main *bmain, bool do_undo_system)
     }
   }
 
+  /* On undo, tag for update so the depsgraph doesn't use stale edit-mode data,
+   * this is possible when mixing edit-mode and memory-file undo.
+   *
+   * By convention, objects are not left in edit-mode - so this isn't often problem in practice,
+   * since exiting edit-mode will tag the objects too.
+   *
+   * However there is no guarantee the active object _never_ changes while in edit-mode.
+   * Python for example can do this, some callers to #ED_object_base_activate
+   * don't handle modes either (doing so isn't always practical).
+   *
+   * To reproduce the problem where stale data is used, see: T84920. */
   for (Object *ob = bmain->objects.first; ob; ob = ob->id.next) {
-    if (ob->type == OB_MESH) {
-      Mesh *me = ob->data;
-      if (me->edit_mesh) {
-        EDBM_mesh_free(me->edit_mesh);
-        MEM_freeN(me->edit_mesh);
-        me->edit_mesh = NULL;
-      }
-    }
-    else if (ob->type == OB_ARMATURE) {
-      bArmature *arm = ob->data;
-      if (arm->edbo) {
-        ED_armature_edit_free(ob->data);
+    if (ED_object_editmode_free_ex(bmain, ob)) {
+      if (do_undo_system == false) {
+        DEG_id_tag_update(&ob->id, ID_RECALC_TRANSFORM | ID_RECALC_GEOMETRY);
       }
     }
   }
@@ -283,8 +301,6 @@ bool ED_editors_flush_edits_for_object(Main *bmain, Object *ob)
   return ED_editors_flush_edits_for_object_ex(bmain, ob, false, false);
 }
 
-/* flush any temp data from object editing to DNA before writing files,
- * rendering, copying, etc. */
 bool ED_editors_flush_edits_ex(Main *bmain, bool for_render, bool check_needs_flush)
 {
   bool has_edited = false;
@@ -309,10 +325,8 @@ bool ED_editors_flush_edits(Main *bmain)
 
 /* ***** XXX: functions are using old blender names, cleanup later ***** */
 
-/* now only used in 2d spaces, like time, ipo, nla, sima... */
-/* XXX shift/ctrl not configurable */
 void apply_keyb_grid(
-    int shift, int ctrl, float *val, float fac1, float fac2, float fac3, int invert)
+    bool shift, bool ctrl, float *val, float fac1, float fac2, float fac3, int invert)
 {
   /* fac1 is for 'nothing', fac2 for CTRL, fac3 for SHIFT */
   if (invert) {
@@ -349,6 +363,7 @@ void unpack_menu(bContext *C,
   uiLayout *layout;
   char line[FILE_MAX + 100];
   wmOperatorType *ot = WM_operatortype_find(opname, 1);
+  const char *blendfile_path = BKE_main_blendfile_path(bmain);
 
   pup = UI_popup_menu_begin(C, IFACE_("Unpack File"), ICON_NONE);
   layout = UI_popup_menu_layout(pup);
@@ -358,13 +373,13 @@ void unpack_menu(bContext *C,
   RNA_enum_set(&props_ptr, "method", PF_REMOVE);
   RNA_string_set(&props_ptr, "id", id_name);
 
-  if (G.relbase_valid) {
+  if (blendfile_path[0] != '\0') {
     char local_name[FILE_MAXDIR + FILE_MAX], fi[FILE_MAX];
 
     BLI_split_file_part(abs_name, fi, sizeof(fi));
     BLI_snprintf(local_name, sizeof(local_name), "//%s/%s", folder, fi);
     if (!STREQ(abs_name, local_name)) {
-      switch (BKE_packedfile_compare_to_file(BKE_main_blendfile_path(bmain), local_name, pf)) {
+      switch (BKE_packedfile_compare_to_file(blendfile_path, local_name, pf)) {
         case PF_CMP_NOFILE:
           BLI_snprintf(line, sizeof(line), TIP_("Create %s"), local_name);
           uiItemFullO_ptr(layout, ot, line, ICON_NONE, NULL, WM_OP_EXEC_DEFAULT, 0, &props_ptr);
@@ -397,7 +412,7 @@ void unpack_menu(bContext *C,
     }
   }
 
-  switch (BKE_packedfile_compare_to_file(BKE_main_blendfile_path(bmain), abs_name, pf)) {
+  switch (BKE_packedfile_compare_to_file(blendfile_path, abs_name, pf)) {
     case PF_CMP_NOFILE:
       BLI_snprintf(line, sizeof(line), TIP_("Create %s"), abs_name);
       // uiItemEnumO_ptr(layout, ot, line, 0, "method", PF_WRITE_ORIGINAL);
@@ -430,75 +445,27 @@ void unpack_menu(bContext *C,
   UI_popup_menu_end(C, pup);
 }
 
-/* ********************* generic callbacks for drawcall api *********************** */
-
-/**
- * Callback that draws a line between the mouse and a position given as the initial argument.
- */
-void ED_region_draw_mouse_line_cb(const bContext *C, ARegion *region, void *arg_info)
+void ED_spacedata_id_remap(struct ScrArea *area,
+                           struct SpaceLink *sl,
+                           const struct IDRemapper *mappings)
 {
-  wmWindow *win = CTX_wm_window(C);
-  const float *mval_src = (float *)arg_info;
-  const float mval_dst[2] = {
-      win->eventstate->x - region->winrct.xmin,
-      win->eventstate->y - region->winrct.ymin,
-  };
-
-  const uint shdr_pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-
-  GPU_line_width(1.0f);
-
-  immBindBuiltinProgram(GPU_SHADER_2D_LINE_DASHED_UNIFORM_COLOR);
-
-  float viewport_size[4];
-  GPU_viewport_size_get_f(viewport_size);
-  immUniform2f("viewport_size", viewport_size[2] / UI_DPI_FAC, viewport_size[3] / UI_DPI_FAC);
-
-  immUniform1i("colors_len", 0); /* "simple" mode */
-  immUniformThemeColor3(TH_VIEW_OVERLAY);
-  immUniform1f("dash_width", 6.0f);
-  immUniform1f("dash_factor", 0.5f);
-
-  immBegin(GPU_PRIM_LINES, 2);
-  immVertex2fv(shdr_pos, mval_src);
-  immVertex2fv(shdr_pos, mval_dst);
-  immEnd();
-
-  immUnbindProgram();
+  SpaceType *st = BKE_spacetype_from_id(sl->spacetype);
+  if (st && st->id_remap) {
+    st->id_remap(area, sl, mappings);
+  }
 }
 
-/**
- * Use to free ID references within runtime data (stored outside of DNA)
- *
- * \param new_id: may be NULL to unlink \a old_id.
- */
-void ED_spacedata_id_remap(struct ScrArea *area, struct SpaceLink *sl, ID *old_id, ID *new_id)
+void ED_spacedata_id_remap_single(struct ScrArea *area,
+                                  struct SpaceLink *sl,
+                                  ID *old_id,
+                                  ID *new_id)
 {
   SpaceType *st = BKE_spacetype_from_id(sl->spacetype);
 
   if (st && st->id_remap) {
-    st->id_remap(area, sl, old_id, new_id);
+    struct IDRemapper *mappings = BKE_id_remapper_create();
+    BKE_id_remapper_add(mappings, old_id, new_id);
+    st->id_remap(area, sl, mappings);
+    BKE_id_remapper_free(mappings);
   }
-}
-
-static int ed_flush_edits_exec(bContext *C, wmOperator *UNUSED(op))
-{
-  Main *bmain = CTX_data_main(C);
-  ED_editors_flush_edits(bmain);
-  return OPERATOR_FINISHED;
-}
-
-void ED_OT_flush_edits(wmOperatorType *ot)
-{
-  /* identifiers */
-  ot->name = "Flush Edits";
-  ot->description = "Flush edit data from active editing modes";
-  ot->idname = "ED_OT_flush_edits";
-
-  /* api callbacks */
-  ot->exec = ed_flush_edits_exec;
-
-  /* flags */
-  ot->flag = OPTYPE_INTERNAL;
 }

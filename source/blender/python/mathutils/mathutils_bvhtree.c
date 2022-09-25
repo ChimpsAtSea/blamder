@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup mathutils
@@ -93,7 +79,8 @@ static const char PY_BVH_TREE_TYPE_DEFAULT = 4;
 static const char PY_BVH_AXIS_DEFAULT = 6;
 
 typedef struct {
-  PyObject_HEAD BVHTree *tree;
+  PyObject_HEAD
+  BVHTree *tree;
   float epsilon;
 
   float (*coords)[3];
@@ -333,8 +320,8 @@ PyDoc_STRVAR(py_bvhtree_ray_cast_doc,
              "\n"
              "   Cast a ray onto the mesh.\n"
              "\n"
-             "   :arg co: Start location of the ray in object space.\n"
-             "   :type co: :class:`Vector`\n"
+             "   :arg origin: Start location of the ray in object space.\n"
+             "   :type origin: :class:`Vector`\n"
              "   :arg direction: Direction of the ray in object space.\n"
              "   :type direction: :class:`Vector`\n" PYBVH_FIND_GENERIC_DISTANCE_DOC
                  PYBVH_FIND_GENERIC_RETURN_DOC);
@@ -434,7 +421,7 @@ static void py_bvhtree_nearest_point_range_cb(void *userdata,
   struct PyBVH_RangeData *data = userdata;
   PyBVHTree *self = data->self;
 
-  const float(*coords)[3] = (const float(*)[3])self->coords;
+  const float(*coords)[3] = self->coords;
   const uint *tri = self->tris[index];
   const float *tri_co[3] = {coords[tri[0]], coords[tri[1]], coords[tri[2]]};
   float nearest_tmp[3], dist_sq;
@@ -549,8 +536,7 @@ static bool py_bvhtree_overlap_cb(void *userdata, int index_a, int index_b, int 
     }
   }
 
-  return (isect_tri_tri_epsilon_v3(
-              UNPACK3(tri_a_co), UNPACK3(tri_b_co), ix_pair[0], ix_pair[1], data->epsilon) &&
+  return (isect_tri_tri_v3(UNPACK3(tri_a_co), UNPACK3(tri_b_co), ix_pair[0], ix_pair[1]) &&
           ((verts_shared == 0) || (len_squared_v3v3(ix_pair[0], ix_pair[1]) > data->epsilon)));
 }
 
@@ -590,7 +576,7 @@ static PyObject *py_bvhtree_overlap(PyBVHTree *self, PyBVHTree *other)
     /* pass */
   }
   else {
-    bool use_unique = (self->orig_index || other->orig_index);
+    const bool use_unique = (self->orig_index || other->orig_index);
     GSet *pair_test = use_unique ?
                           BLI_gset_new_ex(overlap_hash, overlap_cmp, __func__, overlap_len) :
                           NULL;
@@ -914,16 +900,15 @@ static PyObject *C_BVHTree_FromPolygons(PyObject *UNUSED(cls), PyObject *args, P
     return bvhtree_CreatePyObject(
         tree, epsilon, coords, coords_len, tris, tris_len, orig_index, orig_normal);
   }
-  else {
-    if (coords) {
-      MEM_freeN(coords);
-    }
-    if (tris) {
-      MEM_freeN(tris);
-    }
 
-    return NULL;
+  if (coords) {
+    MEM_freeN(coords);
   }
+  if (tris) {
+    MEM_freeN(tris);
+  }
+
+  return NULL;
 }
 
 #ifndef MATH_STANDALONE
@@ -963,8 +948,6 @@ static PyObject *C_BVHTree_FromBMesh(PyObject *UNUSED(cls), PyObject *args, PyOb
 
   /* Get data for tessellation */
   {
-    int tris_len_dummy;
-
     coords_len = (uint)bm->totvert;
     tris_len = (uint)poly_to_tri_count(bm->totface, bm->totloop);
 
@@ -973,8 +956,7 @@ static PyObject *C_BVHTree_FromBMesh(PyObject *UNUSED(cls), PyObject *args, PyOb
 
     looptris = MEM_mallocN(sizeof(*looptris) * (size_t)tris_len, __func__);
 
-    BM_mesh_calc_tessellation(bm, looptris, &tris_len_dummy);
-    BLI_assert(tris_len_dummy == (int)tris_len);
+    BM_mesh_calc_tessellation(bm, looptris);
   }
 
   {
@@ -1039,7 +1021,7 @@ static Mesh *bvh_get_mesh(const char *funcname,
 {
   Object *ob_eval = DEG_get_evaluated_object(depsgraph, ob);
   /* we only need minimum mesh data for topology and vertex locations */
-  CustomData_MeshMasks data_masks = CD_MASK_BAREMESH;
+  const CustomData_MeshMasks data_masks = CD_MASK_BAREMESH;
   const bool use_render = DEG_get_mode(depsgraph) == DAG_EVAL_RENDER;
   *r_free_mesh = false;
 
@@ -1053,55 +1035,48 @@ static Mesh *bvh_get_mesh(const char *funcname,
             funcname);
         return NULL;
       }
-      else {
-        *r_free_mesh = true;
-        return mesh_create_eval_final_render(depsgraph, scene, ob, &data_masks);
-      }
+
+      *r_free_mesh = true;
+      return mesh_create_eval_final(depsgraph, scene, ob, &data_masks);
     }
-    else if (ob_eval != NULL) {
+    if (ob_eval != NULL) {
       if (use_cage) {
         return mesh_get_eval_deform(depsgraph, scene, ob_eval, &data_masks);
       }
-      else {
-        return mesh_get_eval_final(depsgraph, scene, ob_eval, &data_masks);
-      }
+
+      return mesh_get_eval_final(depsgraph, scene, ob_eval, &data_masks);
     }
-    else {
-      PyErr_Format(PyExc_ValueError,
-                   "%s(...): Cannot get evaluated data from given dependency graph / object pair",
-                   funcname);
+
+    PyErr_Format(PyExc_ValueError,
+                 "%s(...): Cannot get evaluated data from given dependency graph / object pair",
+                 funcname);
+    return NULL;
+  }
+
+  /* !use_deform */
+  if (use_render) {
+    if (use_cage) {
+      PyErr_Format(
+          PyExc_ValueError,
+          "%s(...): cage arg is unsupported when dependency graph evaluation mode is RENDER",
+          funcname);
       return NULL;
     }
+
+    *r_free_mesh = true;
+    return mesh_create_eval_no_deform_render(depsgraph, scene, ob, &data_masks);
   }
-  else {
-    /* !use_deform */
-    if (use_render) {
-      if (use_cage) {
-        PyErr_Format(
-            PyExc_ValueError,
-            "%s(...): cage arg is unsupported when dependency graph evaluation mode is RENDER",
-            funcname);
-        return NULL;
-      }
-      else {
-        *r_free_mesh = true;
-        return mesh_create_eval_no_deform_render(depsgraph, scene, ob, &data_masks);
-      }
-    }
-    else {
-      if (use_cage) {
-        PyErr_Format(PyExc_ValueError,
-                     "%s(...): cage arg is unsupported when deform=False and dependency graph "
-                     "evaluation mode is not RENDER",
-                     funcname);
-        return NULL;
-      }
-      else {
-        *r_free_mesh = true;
-        return mesh_create_eval_no_deform(depsgraph, scene, ob, &data_masks);
-      }
-    }
+
+  if (use_cage) {
+    PyErr_Format(PyExc_ValueError,
+                 "%s(...): cage arg is unsupported when deform=False and dependency graph "
+                 "evaluation mode is not RENDER",
+                 funcname);
+    return NULL;
   }
+
+  *r_free_mesh = true;
+  return mesh_create_eval_no_deform(depsgraph, scene, ob, &data_masks);
 }
 
 PyDoc_STRVAR(C_BVHTree_FromObject_doc,
@@ -1120,7 +1095,7 @@ PyDoc_STRVAR(C_BVHTree_FromObject_doc,
              "   :type cage: bool\n" PYBVH_FROM_GENERIC_EPSILON_DOC);
 static PyObject *C_BVHTree_FromObject(PyObject *UNUSED(cls), PyObject *args, PyObject *kwargs)
 {
-  /* note, options here match 'bpy_bmesh_from_object' */
+  /* NOTE: options here match #bpy_bmesh_from_object. */
   const char *keywords[] = {"object", "depsgraph", "deform", "cage", "epsilon", NULL};
 
   PyObject *py_ob, *py_depsgraph;
@@ -1191,10 +1166,8 @@ static PyObject *C_BVHTree_FromObject(PyObject *UNUSED(cls), PyObject *args, PyO
     tree = BLI_bvhtree_new((int)tris_len, epsilon, PY_BVH_TREE_TYPE_DEFAULT, PY_BVH_AXIS_DEFAULT);
     if (tree) {
       orig_index = MEM_mallocN(sizeof(*orig_index) * (size_t)tris_len, __func__);
-      CustomData *pdata = &mesh->pdata;
-      orig_normal = CustomData_get_layer(pdata, CD_NORMAL); /* can be NULL */
-      if (orig_normal) {
-        orig_normal = MEM_dupallocN(orig_normal);
+      if (!BKE_mesh_poly_normals_are_dirty(mesh)) {
+        orig_normal = MEM_dupallocN(BKE_mesh_poly_normals_ensure(mesh));
       }
 
       for (i = 0; i < tris_len; i++, lt++) {
@@ -1340,7 +1313,7 @@ PyMODINIT_FUNC PyInit_mathutils_bvhtree(void)
     return NULL;
   }
 
-  PyModule_AddObject(m, "BVHTree", (PyObject *)&PyBVHTree_Type);
+  PyModule_AddType(m, &PyBVHTree_Type);
 
   return m;
 }

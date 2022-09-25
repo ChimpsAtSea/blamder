@@ -33,9 +33,10 @@
 #include <cmath>
 #include <cstddef>
 #include <limits>
+
 #include "ceres/array_utils.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/port.h"
+#include "ceres/internal/export.h"
 #include "ceres/parameter_block.h"
 #include "ceres/residual_block.h"
 #include "ceres/stringprintf.h"
@@ -55,7 +56,7 @@ void InvalidateEvaluation(const ResidualBlock& block,
 
   InvalidateArray(1, cost);
   InvalidateArray(num_residuals, residuals);
-  if (jacobians != NULL) {
+  if (jacobians != nullptr) {
     for (int i = 0; i < num_parameter_blocks; ++i) {
       const int parameter_block_size = block.parameter_blocks()[i]->Size();
       InvalidateArray(num_residuals * parameter_block_size, jacobians[i]);
@@ -68,13 +69,14 @@ string EvaluationToString(const ResidualBlock& block,
                           double* cost,
                           double* residuals,
                           double** jacobians) {
-  CHECK_NOTNULL(cost);
-  CHECK_NOTNULL(residuals);
+  CHECK(cost != nullptr);
+  CHECK(residuals != nullptr);
 
   const int num_parameter_blocks = block.NumParameterBlocks();
   const int num_residuals = block.NumResiduals();
   string result = "";
 
+  // clang-format off
   StringAppendF(&result,
                 "Residual Block size: %d parameter blocks x %d residuals\n\n",
                 num_parameter_blocks, num_residuals);
@@ -85,6 +87,7 @@ string EvaluationToString(const ResidualBlock& block,
       "of the Jacobian/residual array was requested but was not written to by user code, it is \n"  // NOLINT
       "indicated by 'Uninitialized'. This is an error. Residuals or Jacobian values evaluating \n"  // NOLINT
       "to Inf or NaN is also an error.  \n\n"; // NOLINT
+  // clang-format on
 
   string space = "Residuals:     ";
   result += space;
@@ -101,9 +104,9 @@ string EvaluationToString(const ResidualBlock& block,
       StringAppendF(&result, "| ");
       for (int k = 0; k < num_residuals; ++k) {
         AppendArrayToString(1,
-                            (jacobians != NULL && jacobians[i] != NULL)
-                            ? jacobians[i] + k * parameter_block_size + j
-                            : NULL,
+                            (jacobians != nullptr && jacobians[i] != nullptr)
+                                ? jacobians[i] + k * parameter_block_size + j
+                                : nullptr,
                             &result);
       }
       StringAppendF(&result, "\n");
@@ -126,7 +129,7 @@ bool IsEvaluationValid(const ResidualBlock& block,
     return false;
   }
 
-  if (jacobians != NULL) {
+  if (jacobians != nullptr) {
     for (int i = 0; i < num_parameter_blocks; ++i) {
       const int parameter_block_size = block.parameter_blocks()[i]->Size();
       if (!IsArrayValid(num_residuals * parameter_block_size, jacobians[i])) {

@@ -1,5 +1,5 @@
 // Ceres Solver - A fast non-linear least squares minimizer
-// Copyright 2015 Google Inc. All rights reserved.
+// Copyright 2022 Google Inc. All rights reserved.
 // http://ceres-solver.org/
 //
 // Redistribution and use in source and binary forms, with or without
@@ -30,11 +30,10 @@
 
 #include "ceres/block_jacobi_preconditioner.h"
 
+#include "ceres/block_random_access_diagonal_matrix.h"
 #include "ceres/block_sparse_matrix.h"
 #include "ceres/block_structure.h"
-#include "ceres/block_random_access_diagonal_matrix.h"
 #include "ceres/casts.h"
-#include "ceres/integral_types.h"
 #include "ceres/internal/eigen.h"
 
 namespace ceres {
@@ -48,10 +47,10 @@ BlockJacobiPreconditioner::BlockJacobiPreconditioner(
     blocks[i] = bs->cols[i].size;
   }
 
-  m_.reset(new BlockRandomAccessDiagonalMatrix(blocks));
+  m_ = std::make_unique<BlockRandomAccessDiagonalMatrix>(blocks);
 }
 
-BlockJacobiPreconditioner::~BlockJacobiPreconditioner() {}
+BlockJacobiPreconditioner::~BlockJacobiPreconditioner() = default;
 
 bool BlockJacobiPreconditioner::UpdateImpl(const BlockSparseMatrix& A,
                                            const double* D) {
@@ -61,31 +60,26 @@ bool BlockJacobiPreconditioner::UpdateImpl(const BlockSparseMatrix& A,
   for (int i = 0; i < bs->rows.size(); ++i) {
     const int row_block_size = bs->rows[i].block.size;
     const std::vector<Cell>& cells = bs->rows[i].cells;
-    for (int j = 0; j < cells.size(); ++j) {
-      const int block_id = cells[j].block_id;
+    for (const auto& cell : cells) {
+      const int block_id = cell.block_id;
       const int col_block_size = bs->cols[block_id].size;
 
       int r, c, row_stride, col_stride;
-      CellInfo* cell_info = m_->GetCell(block_id, block_id,
-                                        &r, &c,
-                                        &row_stride, &col_stride);
+      CellInfo* cell_info =
+          m_->GetCell(block_id, block_id, &r, &c, &row_stride, &col_stride);
       MatrixRef m(cell_info->values, row_stride, col_stride);
-      ConstMatrixRef b(values + cells[j].position,
-                       row_block_size,
-                       col_block_size);
+      ConstMatrixRef b(values + cell.position, row_block_size, col_block_size);
       m.block(r, c, col_block_size, col_block_size) += b.transpose() * b;
     }
   }
 
-  if (D != NULL) {
+  if (D != nullptr) {
     // Add the diagonal.
     int position = 0;
     for (int i = 0; i < bs->cols.size(); ++i) {
       const int block_size = bs->cols[i].size;
       int r, c, row_stride, col_stride;
-      CellInfo* cell_info = m_->GetCell(i, i,
-                                        &r, &c,
-                                        &row_stride, &col_stride);
+      CellInfo* cell_info = m_->GetCell(i, i, &r, &c, &row_stride, &col_stride);
       MatrixRef m(cell_info->values, row_stride, col_stride);
       m.block(r, c, block_size, block_size).diagonal() +=
           ConstVectorRef(D + position, block_size).array().square().matrix();

@@ -22,9 +22,9 @@
 #ifndef LIBMV_MULTIVIEW_PANOGRAPHY_H
 #define LIBMV_MULTIVIEW_PANOGRAPHY_H
 
+#include "libmv/base/vector.h"
 #include "libmv/numeric/numeric.h"
 #include "libmv/numeric/poly.h"
-#include "libmv/base/vector.h"
 
 namespace libmv {
 
@@ -38,7 +38,7 @@ namespace libmv {
 // The 2-point algorithm solves for the rotation of the camera with a single
 // focal length (4 degrees of freedom).
 //
-// Compute from 1 to 3 possible focal lenght for 2 point correspondences.
+// Compute from 1 to 3 possible focal length for 2 point correspondences.
 // Suppose that the cameras share the same optical center and focal lengths:
 //
 //   Image 1 => H*x = x'  =>  Image 2
@@ -53,8 +53,9 @@ namespace libmv {
 //   K = [0 f 0]
 //       [0 0 1]
 //
-void F_FromCorrespondance_2points(const Mat &x1, const Mat &x2,
-                                  vector<double> *fs);
+void F_FromCorrespondance_2points(const Mat& x1,
+                                  const Mat& x2,
+                                  vector<double>* fs);
 
 // Compute the 3x3 rotation matrix that fits two 3D point clouds in the least
 // square sense. The method is from:
@@ -90,9 +91,10 @@ void F_FromCorrespondance_2points(const Mat &x1, const Mat &x2,
 //
 //   R = arg min || X2 - R * x1 ||
 //
-void GetR_FixedCameraCenter(const Mat &x1, const Mat &x2,
+void GetR_FixedCameraCenter(const Mat& x1,
+                            const Mat& x2,
                             const double focal,
-                            Mat3 *R);
+                            Mat3* R);
 
 }  // namespace libmv
 

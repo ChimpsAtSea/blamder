@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2017, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2017 Blender Foundation. */
 
 /** \file
  * \ingroup draw
@@ -33,7 +18,6 @@
 
 #include "gpencil_engine.h"
 
-/* init render data */
 void GPENCIL_render_init(GPENCIL_Data *vedata,
                          RenderEngine *engine,
                          struct RenderLayer *render_layer,
@@ -47,7 +31,7 @@ void GPENCIL_render_init(GPENCIL_Data *vedata,
   const float *viewport_size = DRW_viewport_size_get();
   const int size[2] = {(int)viewport_size[0], (int)viewport_size[1]};
 
-  /* Set the pers & view matrix. */
+  /* Set the perspective & view matrix. */
   float winmat[4][4], viewmat[4][4], viewinv[4][4];
 
   struct Object *camera = DEG_get_evaluated_object(depsgraph, RE_GetCamera(engine->re));
@@ -77,10 +61,10 @@ void GPENCIL_render_init(GPENCIL_Data *vedata,
     /* Depth need to be remapped to [0..1] range. */
     pix_z = MEM_dupallocN(pix_z);
 
-    int pix_ct = rpass_z_src->rectx * rpass_z_src->recty;
+    int pix_num = rpass_z_src->rectx * rpass_z_src->recty;
 
     if (DRW_view_is_persp_get(view)) {
-      for (int i = 0; i < pix_ct; i++) {
+      for (int i = 0; i < pix_num; i++) {
         pix_z[i] = (-winmat[3][2] / -pix_z[i]) - winmat[2][2];
         pix_z[i] = clamp_f(pix_z[i] * 0.5f + 0.5f, 0.0f, 1.0f);
       }
@@ -90,7 +74,7 @@ void GPENCIL_render_init(GPENCIL_Data *vedata,
       float near = DRW_view_near_distance_get(view);
       float far = DRW_view_far_distance_get(view);
       float range_inv = 1.0f / fabsf(far - near);
-      for (int i = 0; i < pix_ct; i++) {
+      for (int i = 0; i < pix_num; i++) {
         pix_z[i] = (pix_z[i] + near) * range_inv;
         pix_z[i] = clamp_f(pix_z[i], 0.0f, 1.0f);
       }
@@ -101,7 +85,7 @@ void GPENCIL_render_init(GPENCIL_Data *vedata,
   const bool do_clear_z = !pix_z || do_region;
   const bool do_clear_col = !pix_col || do_region;
 
-  /* FIXME(fclem): we have a precision loss in the depth buffer because of this reupload.
+  /* FIXME(fclem): we have a precision loss in the depth buffer because of this re-upload.
    * Find where it comes from! */
   /* In multi view render the textures can be reused. */
   if (txl->render_depth_tx && !do_clear_z) {
@@ -129,7 +113,7 @@ void GPENCIL_render_init(GPENCIL_Data *vedata,
     /* To avoid unpredictable result, clear buffers that have not be initialized. */
     GPU_framebuffer_bind(fbl->render_fb);
     if (do_clear_col) {
-      float clear_col[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+      const float clear_col[4] = {0.0f, 0.0f, 0.0f, 0.0f};
       GPU_framebuffer_clear_color(fbl->render_fb, clear_col);
     }
     if (do_clear_z) {
@@ -182,16 +166,17 @@ static void GPENCIL_render_result_z(struct RenderLayer *rl,
                                rect->ymin,
                                BLI_rcti_size_x(rect),
                                BLI_rcti_size_y(rect),
+                               GPU_DATA_FLOAT,
                                rp->rect);
 
     float winmat[4][4];
     DRW_view_winmat_get(NULL, winmat, false);
 
-    int pix_ct = BLI_rcti_size_x(rect) * BLI_rcti_size_y(rect);
+    int pix_num = BLI_rcti_size_x(rect) * BLI_rcti_size_y(rect);
 
-    /* Convert ogl depth [0..1] to view Z [near..far] */
+    /* Convert GPU depth [0..1] to view Z [near..far] */
     if (DRW_view_is_persp_get(NULL)) {
-      for (int i = 0; i < pix_ct; i++) {
+      for (int i = 0; i < pix_num; i++) {
         if (rp->rect[i] == 1.0f) {
           rp->rect[i] = 1e10f; /* Background */
         }
@@ -207,12 +192,12 @@ static void GPENCIL_render_result_z(struct RenderLayer *rl,
       float far = DRW_view_far_distance_get(NULL);
       float range = fabsf(far - near);
 
-      for (int i = 0; i < pix_ct; i++) {
+      for (int i = 0; i < pix_num; i++) {
         if (rp->rect[i] == 1.0f) {
           rp->rect[i] = 1e10f; /* Background */
         }
         else {
-          rp->rect[i] = -rp->rect[i] * range + near;
+          rp->rect[i] = rp->rect[i] * range - near;
         }
       }
     }
@@ -235,6 +220,7 @@ static void GPENCIL_render_result_combined(struct RenderLayer *rl,
                              BLI_rcti_size_y(rect),
                              4,
                              0,
+                             GPU_DATA_FLOAT,
                              rp->rect);
 }
 

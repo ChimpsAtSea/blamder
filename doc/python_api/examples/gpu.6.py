@@ -6,11 +6,11 @@ To use this example you have to provide an image that should be displayed.
 """
 import bpy
 import gpu
-import bgl
 from gpu_extras.batch import batch_for_shader
 
 IMAGE_NAME = "Untitled"
 image = bpy.data.images[IMAGE_NAME]
+texture = gpu.texture.from_image(image)
 
 shader = gpu.shader.from_builtin('2D_IMAGE')
 batch = batch_for_shader(
@@ -21,17 +21,44 @@ batch = batch_for_shader(
     },
 )
 
-if image.gl_load():
-    raise Exception()
-
 
 def draw():
-    bgl.glActiveTexture(bgl.GL_TEXTURE0)
-    bgl.glBindTexture(bgl.GL_TEXTURE_2D, image.bindcode)
-
     shader.bind()
-    shader.uniform_int("image", 0)
+    shader.uniform_sampler("image", texture)
     batch.draw(shader)
 
 
 bpy.types.SpaceView3D.draw_handler_add(draw, (), 'WINDOW', 'POST_PIXEL')
+
+"""
+3D Image
+--------
+
+Similar to the 2D Image shader, but works with 3D positions for the image vertices.
+To use this example you have to provide an image that should be displayed.
+"""
+import bpy
+import gpu
+from gpu_extras.batch import batch_for_shader
+
+IMAGE_NAME = "Untitled"
+image = bpy.data.images[IMAGE_NAME]
+texture = gpu.texture.from_image(image)
+
+shader = gpu.shader.from_builtin('3D_IMAGE')
+batch = batch_for_shader(
+    shader, 'TRIS',
+    {
+        "pos": ((0, 0, 0), (0, 1, 1), (1, 1, 1), (1, 1, 1), (1, 0, 0), (0, 0, 0)),
+        "texCoord": ((0, 0), (0, 1), (1, 1), (1, 1), (1, 0), (0, 0)),
+    },
+)
+
+
+def draw():
+    shader.bind()
+    shader.uniform_sampler("image", texture)
+    batch.draw(shader)
+
+
+bpy.types.SpaceView3D.draw_handler_add(draw, (), 'WINDOW', 'POST_VIEW')

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -154,13 +140,14 @@ void bmo_face_attribute_fill_exec(BMesh *bm, BMOperator *op)
   int face_tot;
 
   BM_mesh_elem_hflag_disable_all(bm, BM_FACE, BM_ELEM_TAG, false);
-  BMO_slot_buffer_hflag_enable(
-      bm, op->slots_in, "faces", BM_FACE, BM_ELEM_TAG, false); /* do inline */
+
+  /* do inline */
+  BMO_slot_buffer_hflag_enable(bm, op->slots_in, "faces", BM_FACE, BM_ELEM_TAG, false);
 
   /* now we can copy adjacent data */
   face_tot = bmesh_face_attribute_fill(bm, use_normals, use_data);
 
-  if (face_tot != BMO_slot_buffer_count(op->slots_in, "faces")) {
+  if (face_tot != BMO_slot_buffer_len(op->slots_in, "faces")) {
     /* any remaining tags will be skipped */
     BMO_slot_buffer_from_enabled_hflag(
         bm, op, op->slots_out, "faces_fail.out", BM_FACE, BM_ELEM_TAG);

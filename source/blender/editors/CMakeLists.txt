@@ -1,19 +1,4 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 if(WITH_BLENDER)
   if(WITH_INPUT_NDOF)
@@ -22,12 +7,15 @@ if(WITH_BLENDER)
 
   add_subdirectory(animation)
   add_subdirectory(armature)
+  add_subdirectory(asset)
   add_subdirectory(curve)
+  add_subdirectory(curves)
+  add_subdirectory(geometry)
+  add_subdirectory(gizmo_library)
   add_subdirectory(gpencil)
   add_subdirectory(interface)
   add_subdirectory(io)
   add_subdirectory(lattice)
-  add_subdirectory(gizmo_library)
   add_subdirectory(mask)
   add_subdirectory(mesh)
   add_subdirectory(metaball)
@@ -51,6 +39,7 @@ if(WITH_BLENDER)
   add_subdirectory(space_outliner)
   add_subdirectory(space_script)
   add_subdirectory(space_sequencer)
+  add_subdirectory(space_spreadsheet)
   add_subdirectory(space_statusbar)
   add_subdirectory(space_text)
   add_subdirectory(space_topbar)

@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2016, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -30,44 +15,7 @@
 
 #include "eevee_private.h"
 
-static struct {
-  /* Bloom */
-  struct GPUShader *bloom_blit_sh[2];
-  struct GPUShader *bloom_downsample_sh[2];
-  struct GPUShader *bloom_upsample_sh[2];
-  struct GPUShader *bloom_resolve_sh[2];
-} e_data = {{NULL}}; /* Engine data */
-
-extern char datatoc_effect_bloom_frag_glsl[];
-
 static const bool use_highres = true;
-
-static void eevee_create_shader_bloom(void)
-{
-  e_data.bloom_blit_sh[0] = DRW_shader_create_fullscreen(datatoc_effect_bloom_frag_glsl,
-                                                         "#define STEP_BLIT\n");
-  e_data.bloom_blit_sh[1] = DRW_shader_create_fullscreen(datatoc_effect_bloom_frag_glsl,
-                                                         "#define STEP_BLIT\n"
-                                                         "#define HIGH_QUALITY\n");
-
-  e_data.bloom_downsample_sh[0] = DRW_shader_create_fullscreen(datatoc_effect_bloom_frag_glsl,
-                                                               "#define STEP_DOWNSAMPLE\n");
-  e_data.bloom_downsample_sh[1] = DRW_shader_create_fullscreen(datatoc_effect_bloom_frag_glsl,
-                                                               "#define STEP_DOWNSAMPLE\n"
-                                                               "#define HIGH_QUALITY\n");
-
-  e_data.bloom_upsample_sh[0] = DRW_shader_create_fullscreen(datatoc_effect_bloom_frag_glsl,
-                                                             "#define STEP_UPSAMPLE\n");
-  e_data.bloom_upsample_sh[1] = DRW_shader_create_fullscreen(datatoc_effect_bloom_frag_glsl,
-                                                             "#define STEP_UPSAMPLE\n"
-                                                             "#define HIGH_QUALITY\n");
-
-  e_data.bloom_resolve_sh[0] = DRW_shader_create_fullscreen(datatoc_effect_bloom_frag_glsl,
-                                                            "#define STEP_RESOLVE\n");
-  e_data.bloom_resolve_sh[1] = DRW_shader_create_fullscreen(datatoc_effect_bloom_frag_glsl,
-                                                            "#define STEP_RESOLVE\n"
-                                                            "#define HIGH_QUALITY\n");
-}
 
 int EEVEE_bloom_init(EEVEE_ViewLayerData *UNUSED(sldata), EEVEE_Data *vedata)
 {
@@ -80,11 +28,6 @@ int EEVEE_bloom_init(EEVEE_ViewLayerData *UNUSED(sldata), EEVEE_Data *vedata)
 
   if (scene_eval->eevee.flag & SCE_EEVEE_BLOOM_ENABLED) {
     const float *viewport_size = DRW_viewport_size_get();
-
-    /* Shaders */
-    if (!e_data.bloom_blit_sh[0]) {
-      eevee_create_shader_bloom();
-    }
 
     /* Bloom */
     int blitsize[2], texsize[2];
@@ -182,7 +125,8 @@ static DRWShadingGroup *eevee_create_bloom_pass(const char *name,
                                                 struct GPUShader *sh,
                                                 DRWPass **pass,
                                                 bool upsample,
-                                                bool resolve)
+                                                bool resolve,
+                                                bool resolve_add_base)
 {
   struct GPUBatch *quad = DRW_cache_fullscreen_quad_get();
 
@@ -198,7 +142,7 @@ static DRWShadingGroup *eevee_create_bloom_pass(const char *name,
   }
   if (resolve) {
     DRW_shgroup_uniform_vec3(grp, "bloomColor", effects->bloom_color, 1);
-    DRW_shgroup_uniform_bool_copy(grp, "bloomAddBase", true);
+    DRW_shgroup_uniform_bool_copy(grp, "bloomAddBase", resolve_add_base);
   }
 
   return grp;
@@ -213,7 +157,8 @@ void EEVEE_bloom_cache_init(EEVEE_ViewLayerData *UNUSED(sldata), EEVEE_Data *ved
   psl->bloom_accum_ps = NULL;
 
   if ((effects->enabled_effects & EFFECT_BLOOM) != 0) {
-    /**  Bloom algorithm
+    /**
+     * Bloom Algorithm
      *
      * Overview:
      * - Down-sample the color buffer doing a small blur during each step.
@@ -246,27 +191,31 @@ void EEVEE_bloom_cache_init(EEVEE_ViewLayerData *UNUSED(sldata), EEVEE_Data *ved
     const bool use_antiflicker = true;
     eevee_create_bloom_pass("Bloom Downsample First",
                             effects,
-                            e_data.bloom_downsample_sh[use_antiflicker],
+                            EEVEE_shaders_bloom_downsample_get(use_antiflicker),
                             &psl->bloom_downsample_first,
+                            false,
                             false,
                             false);
     eevee_create_bloom_pass("Bloom Downsample",
                             effects,
-                            e_data.bloom_downsample_sh[0],
+                            EEVEE_shaders_bloom_downsample_get(false),
                             &psl->bloom_downsample,
+                            false,
                             false,
                             false);
     eevee_create_bloom_pass("Bloom Upsample",
                             effects,
-                            e_data.bloom_upsample_sh[use_highres],
+                            EEVEE_shaders_bloom_upsample_get(use_highres),
                             &psl->bloom_upsample,
                             true,
+                            false,
                             false);
 
     grp = eevee_create_bloom_pass("Bloom Blit",
                                   effects,
-                                  e_data.bloom_blit_sh[use_antiflicker],
+                                  EEVEE_shaders_bloom_blit_get(use_antiflicker),
                                   &psl->bloom_blit,
+                                  false,
                                   false,
                                   false);
     DRW_shgroup_uniform_vec4(grp, "curveThreshold", effects->bloom_curve_threshold, 1);
@@ -274,8 +223,9 @@ void EEVEE_bloom_cache_init(EEVEE_ViewLayerData *UNUSED(sldata), EEVEE_Data *ved
 
     grp = eevee_create_bloom_pass("Bloom Resolve",
                                   effects,
-                                  e_data.bloom_resolve_sh[use_highres],
+                                  EEVEE_shaders_bloom_resolve_get(use_highres),
                                   &psl->bloom_resolve,
+                                  true,
                                   true,
                                   true);
   }
@@ -360,13 +310,13 @@ void EEVEE_bloom_output_init(EEVEE_ViewLayerData *UNUSED(sldata),
                                 {GPU_ATTACHMENT_NONE, GPU_ATTACHMENT_TEXTURE(txl->bloom_accum)});
 
   /* Create Pass and shgroup. */
-  DRWShadingGroup *grp = eevee_create_bloom_pass("Bloom Accumulate",
-                                                 effects,
-                                                 e_data.bloom_resolve_sh[use_highres],
-                                                 &psl->bloom_accum_ps,
-                                                 true,
-                                                 true);
-  DRW_shgroup_uniform_bool_copy(grp, "bloomAddBase", false);
+  eevee_create_bloom_pass("Bloom Accumulate",
+                          effects,
+                          EEVEE_shaders_bloom_resolve_get(use_highres),
+                          &psl->bloom_accum_ps,
+                          true,
+                          true,
+                          false);
 }
 
 void EEVEE_bloom_output_accumulate(EEVEE_ViewLayerData *UNUSED(sldata), EEVEE_Data *vedata)
@@ -381,15 +331,5 @@ void EEVEE_bloom_output_accumulate(EEVEE_ViewLayerData *UNUSED(sldata), EEVEE_Da
 
     /* Restore */
     GPU_framebuffer_bind(fbl->main_fb);
-  }
-}
-
-void EEVEE_bloom_free(void)
-{
-  for (int i = 0; i < 2; i++) {
-    DRW_SHADER_FREE_SAFE(e_data.bloom_blit_sh[i]);
-    DRW_SHADER_FREE_SAFE(e_data.bloom_downsample_sh[i]);
-    DRW_SHADER_FREE_SAFE(e_data.bloom_upsample_sh[i]);
-    DRW_SHADER_FREE_SAFE(e_data.bloom_resolve_sh[i]);
   }
 }

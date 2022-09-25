@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
  */
 
-#ifndef __MATERIALEXPORTER_H__
-#define __MATERIALEXPORTER_H__
+#pragma once
 
 #include <string>
 #include <vector>
@@ -52,7 +37,7 @@ class MaterialsExporter : COLLADASW::LibraryMaterials {
 // used in forEachMaterialInScene
 template<class Functor> class ForEachMaterialFunctor {
   std::vector<std::string>
-      mMat;  // contains list of material names, to avoid duplicate calling of f
+      mMat; /* contains list of material names, to avoid duplicate calling of f */
   Functor *f;
 
  public:
@@ -82,8 +67,8 @@ template<class Functor> class ForEachMaterialFunctor {
 };
 
 struct MaterialFunctor {
-  // calls f for each unique material linked to each object in sce
-  // f should have
+  /* calls f for each unique material linked to each object in sce
+   * f should have */
   // void operator()(Material *ma)
   template<class Functor>
   void forEachMaterialInExportSet(Scene *sce, Functor &f, LinkNode *export_set)
@@ -93,5 +78,3 @@ struct MaterialFunctor {
     gf.forEachMeshObjectInExportSet<ForEachMaterialFunctor<Functor>>(sce, matfunc, export_set);
   }
 };
-
-#endif

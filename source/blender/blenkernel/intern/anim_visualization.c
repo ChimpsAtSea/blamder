@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -34,10 +18,11 @@
 
 #include "GPU_batch.h"
 
+#include "BLO_read_write.h"
+
 /* ******************************************************************** */
 /* Animation Visualization */
 
-/* Initialize the default settings for animation visualization */
 void animviz_settings_init(bAnimVizSettings *avs)
 {
   /* sanity check */
@@ -48,8 +33,8 @@ void animviz_settings_init(bAnimVizSettings *avs)
   /* path settings */
   avs->path_bc = avs->path_ac = 10;
 
-  avs->path_sf = 1;   /* xxx - take from scene instead? */
-  avs->path_ef = 250; /* xxx - take from scene instead? */
+  avs->path_sf = 1;   /* XXX: Take from scene instead? */
+  avs->path_ef = 250; /* XXX: Take from scene instead? */
 
   avs->path_viewflag = (MOTIONPATH_VIEW_KFRAS | MOTIONPATH_VIEW_KFNOS);
 
@@ -60,7 +45,6 @@ void animviz_settings_init(bAnimVizSettings *avs)
 
 /* ------------------- */
 
-/* Free the given motion path's cache */
 void animviz_free_motionpath_cache(bMotionPath *mpath)
 {
   /* sanity check */
@@ -82,9 +66,6 @@ void animviz_free_motionpath_cache(bMotionPath *mpath)
   mpath->length = 0;
 }
 
-/* Free the given motion path instance and its data
- * NOTE: this frees the motion path given!
- */
 void animviz_free_motionpath(bMotionPath *mpath)
 {
   /* sanity check */
@@ -101,7 +82,6 @@ void animviz_free_motionpath(bMotionPath *mpath)
 
 /* ------------------- */
 
-/* Make a copy of motionpath data, so that viewing with copy on write works */
 bMotionPath *animviz_copy_motionpath(const bMotionPath *mpath_src)
 {
   bMotionPath *mpath_dst;
@@ -123,14 +103,6 @@ bMotionPath *animviz_copy_motionpath(const bMotionPath *mpath_src)
 
 /* ------------------- */
 
-/**
- * Setup motion paths for the given data.
- * \note Only used when explicitly calculating paths on bones which may/may not be consider already
- *
- * \param scene: Current scene (for frame ranges, etc.)
- * \param ob: Object to add paths for (must be provided)
- * \param pchan: Posechannel to add paths for (optional; if not provided, object-paths are assumed)
- */
 bMotionPath *animviz_verify_motionpaths(ReportList *reports,
                                         Scene *scene,
                                         Object *ob,
@@ -169,7 +141,7 @@ bMotionPath *animviz_verify_motionpaths(ReportList *reports,
   }
 
   /* if there is already a motionpath, just return that,
-   * provided it's settings are ok (saves extra free+alloc)
+   * provided its settings are ok (saves extra free+alloc)
    */
   if (*dst != NULL) {
     int expected_length = avs->path_ef - avs->path_sf;
@@ -181,13 +153,13 @@ bMotionPath *animviz_verify_motionpaths(ReportList *reports,
     if ((mpath->start_frame != mpath->end_frame) && (mpath->length > 0)) {
       /* outer check ensures that we have some curve data for this path */
       if (mpath->length == expected_length) {
+        mpath->start_frame = avs->path_sf;
+        mpath->end_frame = avs->path_ef;
         /* return/use this as it is already valid length */
         return mpath;
       }
-      else {
-        /* clear the existing path (as the range has changed), and reallocate below */
-        animviz_free_motionpath_cache(mpath);
-      }
+      /* clear the existing path (as the range has changed), and reallocate below */
+      animviz_free_motionpath_cache(mpath);
     }
   }
   else {
@@ -225,4 +197,33 @@ bMotionPath *animviz_verify_motionpaths(ReportList *reports,
 
   /* return it */
   return mpath;
+}
+
+void animviz_motionpath_blend_write(BlendWriter *writer, bMotionPath *mpath)
+{
+  /* sanity checks */
+  if (mpath == NULL) {
+    return;
+  }
+
+  /* firstly, just write the motionpath struct */
+  BLO_write_struct(writer, bMotionPath, mpath);
+
+  /* now write the array of data */
+  BLO_write_struct_array(writer, bMotionPathVert, mpath->length, mpath->points);
+}
+
+void animviz_motionpath_blend_read_data(BlendDataReader *reader, bMotionPath *mpath)
+{
+  /* sanity check */
+  if (mpath == NULL) {
+    return;
+  }
+
+  /* relink points cache */
+  BLO_read_data_address(reader, &mpath->points);
+
+  mpath->points_vbo = NULL;
+  mpath->batch_line = NULL;
+  mpath->batch_points = NULL;
 }

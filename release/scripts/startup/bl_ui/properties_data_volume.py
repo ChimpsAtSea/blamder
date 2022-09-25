@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 import bpy
 from bpy.types import Panel, UIList
 from rna_prop_ui import PropertyPanel
@@ -36,7 +18,7 @@ class DataButtonsPanel:
 class DATA_PT_context_volume(DataButtonsPanel, Panel):
     bl_label = ""
     bl_options = {'HIDE_HEADER'}
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -53,7 +35,7 @@ class DATA_PT_context_volume(DataButtonsPanel, Panel):
 
 class DATA_PT_volume_file(DataButtonsPanel, Panel):
     bl_label = "OpenVDB File"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -63,7 +45,7 @@ class DATA_PT_volume_file(DataButtonsPanel, Panel):
 
         layout.prop(volume, "filepath", text="")
 
-        if len(volume.filepath):
+        if volume.filepath:
             layout.use_property_split = True
             layout.use_property_decorate = False
 
@@ -76,18 +58,19 @@ class DATA_PT_volume_file(DataButtonsPanel, Panel):
                 col.prop(volume, "sequence_mode", text="Mode")
 
         error_msg = volume.grids.error_message
-        if len(error_msg):
-          layout.separator()
-          col = layout.column(align=True)
-          col.label(text="Failed to load volume:")
-          col.label(text=error_msg)
+        if error_msg:
+            layout.separator()
+            col = layout.column(align=True)
+            col.label(text="Failed to load volume:")
+            col.label(text=error_msg)
 
 
 class VOLUME_UL_grids(UIList):
-    def draw_item(self, context, layout, data, grid, icon, active_data, active_propname, index):
+    def draw_item(self, _context, layout, _data, grid, _icon, _active_data, _active_propname, _index):
         name = grid.name
         data_type = grid.bl_rna.properties['data_type'].enum_items[grid.data_type]
 
+        layout.emboss = 'NONE'
         layout.label(text=name)
         row = layout.row()
         row.alignment = 'RIGHT'
@@ -97,7 +80,7 @@ class VOLUME_UL_grids(UIList):
 
 class DATA_PT_volume_grids(DataButtonsPanel, Panel):
     bl_label = "Grids"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -110,7 +93,7 @@ class DATA_PT_volume_grids(DataButtonsPanel, Panel):
 
 class DATA_PT_volume_render(DataButtonsPanel, Panel):
     bl_label = "Render"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -130,10 +113,19 @@ class DATA_PT_volume_render(DataButtonsPanel, Panel):
             col = layout.column(align=True)
             col.prop(render, "clipping")
 
+            col = layout.column()
+            col.prop(render, "precision")
+
+            col = layout.column(align=False)
+            col.prop(volume, "velocity_grid")
+
+            col.prop(volume, "velocity_unit")
+            col.prop(volume, "velocity_scale")
+
 
 class DATA_PT_volume_viewport_display(DataButtonsPanel, Panel):
     bl_label = "Viewport Display"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -149,11 +141,41 @@ class DATA_PT_volume_viewport_display(DataButtonsPanel, Panel):
         sub.active = display.wireframe_type in {'BOXES', 'POINTS'}
         sub.prop(display, "wireframe_detail", text="Detail")
 
-        layout.prop(display, "density")
+        col = layout.column()
+        col.prop(display, "density")
+        col.prop(display, "interpolation_method")
+
+
+class DATA_PT_volume_viewport_display_slicing(DataButtonsPanel, Panel):
+    bl_label = ""
+    bl_parent_id = 'DATA_PT_volume_viewport_display'
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
+
+    def draw_header(self, context):
+        layout = self.layout
+
+        volume = context.volume
+        display = volume.display
+
+        layout.prop(display, "use_slice")
+
+    def draw(self, context):
+        layout = self.layout
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        volume = context.volume
+        display = volume.display
+
+        layout.active = display.use_slice
+
+        col = layout.column()
+        col.prop(display, "slice_axis")
+        col.prop(display, "slice_depth")
 
 
 class DATA_PT_custom_props_volume(DataButtonsPanel, PropertyPanel, Panel):
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
     _context_path = "object.data"
     _property_type = bpy.types.Volume
 
@@ -163,6 +185,7 @@ classes = (
     DATA_PT_volume_grids,
     DATA_PT_volume_file,
     DATA_PT_volume_viewport_display,
+    DATA_PT_volume_viewport_display_slicing,
     DATA_PT_volume_render,
     DATA_PT_custom_props_volume,
     VOLUME_UL_grids,

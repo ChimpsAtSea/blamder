@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup EEVEE
@@ -112,7 +97,7 @@ static void frustum_min_bounding_sphere(const float corners[8][3],
     }
   }
 
-  /* TODO try to reduce the radius further by moving the center.
+  /* TODO: try to reduce the radius further by moving the center.
    * Remember we need a __stable__ solution! */
 
   /* Try to reduce float imprecision leading to shimmering. */
@@ -131,7 +116,7 @@ static void eevee_shadow_cascade_setup(EEVEE_LightsInfo *linfo,
   EEVEE_ShadowCascade *csm_data = linfo->shadow_cascade_data + (int)shdw_data->type_data_id;
   EEVEE_ShadowCascadeRender *csm_render = linfo->shadow_cascade_render +
                                           (int)shdw_data->type_data_id;
-  int cascade_nbr = csm_render->cascade_count;
+  int cascade_count = csm_render->cascade_count;
   float cascade_fade = csm_render->cascade_fade;
   float cascade_max_dist = csm_render->cascade_max_dist;
   float cascade_exponent = csm_render->cascade_exponent;
@@ -139,7 +124,7 @@ static void eevee_shadow_cascade_setup(EEVEE_LightsInfo *linfo,
   float jitter_ofs[2];
   double ht_point[2];
   double ht_offset[2] = {0.0, 0.0};
-  uint ht_primes[2] = {2, 3};
+  const uint ht_primes[2] = {2, 3};
 
   BLI_halton_2d(ht_primes, ht_offset, sample_ofs, ht_point);
 
@@ -238,19 +223,19 @@ static void eevee_shadow_cascade_setup(EEVEE_LightsInfo *linfo,
     float p[4] = {1.0f, 1.0f, csm_end, 1.0f};
     /* TODO: we don't need full m4 multiply here */
     mul_m4_v4(vp_projmat, p);
-    splits_end_ndc[cascade_nbr - 1] = p[2];
+    splits_end_ndc[cascade_count - 1] = p[2];
     if (is_persp) {
-      splits_end_ndc[cascade_nbr - 1] /= p[3];
+      splits_end_ndc[cascade_count - 1] /= p[3];
     }
   }
 
   csm_data->split_start[0] = csm_start;
-  csm_data->split_end[cascade_nbr - 1] = csm_end;
+  csm_data->split_end[cascade_count - 1] = csm_end;
 
-  for (int c = 1; c < cascade_nbr; c++) {
+  for (int c = 1; c < cascade_count; c++) {
     /* View Space */
-    float linear_split = interpf(csm_end, csm_start, c / (float)cascade_nbr);
-    float exp_split = csm_start * powf(csm_end / csm_start, c / (float)cascade_nbr);
+    float linear_split = interpf(csm_end, csm_start, c / (float)cascade_count);
+    float exp_split = csm_start * powf(csm_end / csm_start, c / (float)cascade_count);
 
     if (is_persp) {
       csm_data->split_start[c] = interpf(exp_split, linear_split, cascade_exponent);
@@ -291,13 +276,13 @@ static void eevee_shadow_cascade_setup(EEVEE_LightsInfo *linfo,
   }
 
   /* Set last cascade split fade distance into the first split_start. */
-  float prev_split = (cascade_nbr > 1) ? csm_data->split_end[cascade_nbr - 2] :
-                                         csm_data->split_start[0];
+  float prev_split = (cascade_count > 1) ? csm_data->split_end[cascade_count - 2] :
+                                           csm_data->split_start[0];
   csm_data->split_start[0] = interpf(
-      prev_split, csm_data->split_end[cascade_nbr - 1], cascade_fade);
+      prev_split, csm_data->split_end[cascade_count - 1], cascade_fade);
 
   /* For each cascade */
-  for (int c = 0; c < cascade_nbr; c++) {
+  for (int c = 0; c < cascade_count; c++) {
     float(*projmat)[4] = csm_render->projmat[c];
     /* Given 8 frustum corners */
     float corners[8][3] = {
@@ -326,11 +311,11 @@ static void eevee_shadow_cascade_setup(EEVEE_LightsInfo *linfo,
     if (c < 3) {
       dbg_col[c] = 1.0f;
     }
-    DRW_debug_bbox((BoundBox *)&corners, dbg_col);
+    DRW_debug_bbox((const BoundBox *)&corners, dbg_col);
     DRW_debug_sphere(center, csm_render->radius[c], dbg_col);
 #endif
 
-    /* Project into lightspace */
+    /* Project into light-space. */
     mul_m4_v3(viewmat, center);
 
     /* Snap projection center to nearest texel to cancel shimmering. */
@@ -376,7 +361,7 @@ static void eevee_shadow_cascade_setup(EEVEE_LightsInfo *linfo,
 #endif
   }
 
-  /* Bias is in clipspace, divide by range. */
+  /* Bias is in clip-space, divide by range. */
   shdw_data->bias = csm_render->original_bias * 0.05f / fabsf(sh_far - sh_near);
   shdw_data->near = sh_near;
   shdw_data->far = sh_far;

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -29,9 +15,9 @@
 #  endif
 #endif
 
+#include <cstdio>
 #include <list>
 #include <map>
-#include <stdio.h>
 
 #include "GeomCleaner.h"
 
@@ -54,8 +40,7 @@ void GeomCleaner::SortIndexedVertexArray(const float *iVertices,
   list<IndexedVertex> indexedVertices;
   unsigned i;
   for (i = 0; i < iVSize; i += 3) {
-    indexedVertices.push_back(
-        IndexedVertex(Vec3f(iVertices[i], iVertices[i + 1], iVertices[i + 2]), i / 3));
+    indexedVertices.emplace_back(Vec3f(iVertices[i], iVertices[i + 1], iVertices[i + 2]), i / 3);
   }
 
   // q-sort
@@ -99,7 +84,7 @@ void GeomCleaner::CompressIndexedVertexArray(const float *iVertices,
   vector<Vec3f> vertices;
   unsigned i;
   for (i = 0; i < iVSize; i += 3) {
-    vertices.push_back(Vec3f(iVertices[i], iVertices[i + 1], iVertices[i + 2]));
+    vertices.emplace_back(iVertices[i], iVertices[i + 1], iVertices[i + 2]);
   }
 
   unsigned *mapVertex = new unsigned[iVSize];
@@ -181,7 +166,7 @@ void GeomCleaner::SortAndCompressIndexedVertexArray(const float *iVertices,
   delete[] tmpIndices;
 }
 
-/*! Defines a hash table used for searching the Cells */
+/** Defines a hash table used for searching the Cells */
 struct GeomCleanerHasher {
 #define _MUL 950706376UL
 #define _MOD 2147483647UL
@@ -203,11 +188,11 @@ void GeomCleaner::CleanIndexedVertexArray(const float *iVertices,
                                           unsigned *oVSize,
                                           unsigned **oIndices)
 {
-  typedef map<Vec3f, unsigned> cleanHashTable;
+  using cleanHashTable = map<Vec3f, unsigned>;
   vector<Vec3f> vertices;
   unsigned i;
   for (i = 0; i < iVSize; i += 3) {
-    vertices.push_back(Vec3f(iVertices[i], iVertices[i + 1], iVertices[i + 2]));
+    vertices.emplace_back(iVertices[i], iVertices[i + 1], iVertices[i + 2]);
   }
 
   cleanHashTable ht;

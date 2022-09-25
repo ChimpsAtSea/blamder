@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -36,7 +21,7 @@
 /* Returns the normal plane in NDC space. */
 static void gpencil_depth_plane(Object *ob, float r_plane[4])
 {
-  /* TODO put that into private data. */
+  /* TODO: put that into private data. */
   float viewinv[4][4];
   DRW_view_viewmat_get(NULL, viewinv, true);
   float *camera_z_axis = viewinv[2];
@@ -47,7 +32,7 @@ static void gpencil_depth_plane(Object *ob, float r_plane[4])
    * strokes not aligned with the object axes. Maybe we could try to
    * compute the minimum axis of all strokes. But this would be more
    * computationally heavy and should go into the GPData evaluation. */
-  BoundBox *bbox = BKE_object_boundbox_get(ob);
+  const BoundBox *bbox = BKE_object_boundbox_get(ob);
   /* Convert bbox to matrix */
   float mat[4][4], size[3], center[3];
   BKE_boundbox_calc_size_aabb(bbox, size);
@@ -77,7 +62,7 @@ static void gpencil_depth_plane(Object *ob, float r_plane[4])
 
   transpose_m4(mat);
   /* mat is now a "normal" matrix which will transform
-   * BBox space normal to world space.  */
+   * BBox space normal to world space. */
   mul_mat3_m4_v3(mat, r_plane);
   normalize_v3(r_plane);
 
@@ -92,7 +77,7 @@ void OVERLAY_outline_init(OVERLAY_Data *vedata)
   DefaultTextureList *dtxl = DRW_viewport_texture_list_get();
 
   if (DRW_state_is_fbo()) {
-    /* TODO only alloc if needed. */
+    /* TODO: only alloc if needed. */
     DRW_texture_ensure_fullscreen_2d(&txl->temp_depth_tx, GPU_DEPTH24_STENCIL8, 0);
     DRW_texture_ensure_fullscreen_2d(&txl->outlines_id_tx, GPU_R16UI, 0);
 
@@ -138,9 +123,19 @@ void OVERLAY_outline_cache_init(OVERLAY_Data *vedata)
     pd->outlines_grp = grp = DRW_shgroup_create(sh_geom, psl->outlines_prepass_ps);
     DRW_shgroup_uniform_bool_copy(grp, "isTransform", (G.moving & G_TRANSFORM_OBJ) != 0);
 
+    GPUShader *sh_geom_ptcloud = OVERLAY_shader_outline_prepass_pointcloud();
+
+    pd->outlines_ptcloud_grp = grp = DRW_shgroup_create(sh_geom_ptcloud, psl->outlines_prepass_ps);
+    DRW_shgroup_uniform_bool_copy(grp, "isTransform", (G.moving & G_TRANSFORM_OBJ) != 0);
+
     GPUShader *sh_gpencil = OVERLAY_shader_outline_prepass_gpencil();
 
     pd->outlines_gpencil_grp = grp = DRW_shgroup_create(sh_gpencil, psl->outlines_prepass_ps);
+    DRW_shgroup_uniform_bool_copy(grp, "isTransform", (G.moving & G_TRANSFORM_OBJ) != 0);
+    DRW_shgroup_uniform_float_copy(grp, "gpStrokeIndexOffset", 0.0);
+
+    GPUShader *sh_curves = OVERLAY_shader_outline_prepass_curves();
+    pd->outlines_curves_grp = grp = DRW_shgroup_create(sh_curves, psl->outlines_prepass_ps);
     DRW_shgroup_uniform_bool_copy(grp, "isTransform", (G.moving & G_TRANSFORM_OBJ) != 0);
   }
 
@@ -178,10 +173,10 @@ typedef struct iterData {
   float plane[4];
 } iterData;
 
-static void gp_layer_cache_populate(bGPDlayer *gpl,
-                                    bGPDframe *UNUSED(gpf),
-                                    bGPDstroke *UNUSED(gps),
-                                    void *thunk)
+static void gpencil_layer_cache_populate(bGPDlayer *gpl,
+                                         bGPDframe *UNUSED(gpf),
+                                         bGPDstroke *UNUSED(gps),
+                                         void *thunk)
 {
   iterData *iter = (iterData *)thunk;
   bGPdata *gpd = (bGPdata *)iter->ob->data;
@@ -191,23 +186,21 @@ static void gp_layer_cache_populate(bGPDlayer *gpl,
 
   float object_scale = mat4_to_scale(iter->ob->obmat);
   /* Negate thickness sign to tag that strokes are in screen space.
-   * Convert to world units (by default, 1 meter = 2000 px). */
+   * Convert to world units (by default, 1 meter = 2000 pixels). */
   float thickness_scale = (is_screenspace) ? -1.0f : (gpd->pixfactor / 2000.0f);
 
   DRWShadingGroup *grp = iter->stroke_grp = DRW_shgroup_create_sub(iter->stroke_grp);
-  DRW_shgroup_uniform_bool_copy(grp, "strokeOrder3d", is_stroke_order_3d);
-  DRW_shgroup_uniform_vec2_copy(grp, "sizeViewportInv", DRW_viewport_invert_size_get());
-  DRW_shgroup_uniform_vec2_copy(grp, "sizeViewport", DRW_viewport_size_get());
-  DRW_shgroup_uniform_float_copy(grp, "thicknessScale", object_scale);
-  DRW_shgroup_uniform_float_copy(grp, "thicknessOffset", (float)gpl->line_change);
-  DRW_shgroup_uniform_float_copy(grp, "thicknessWorldScale", thickness_scale);
+  DRW_shgroup_uniform_bool_copy(grp, "gpStrokeOrder3d", is_stroke_order_3d);
+  DRW_shgroup_uniform_float_copy(grp, "gpThicknessScale", object_scale);
+  DRW_shgroup_uniform_float_copy(grp, "gpThicknessOffset", (float)gpl->line_change);
+  DRW_shgroup_uniform_float_copy(grp, "gpThicknessWorldScale", thickness_scale);
   DRW_shgroup_uniform_vec4_copy(grp, "gpDepthPlane", iter->plane);
 }
 
-static void gp_stroke_cache_populate(bGPDlayer *UNUSED(gpl),
-                                     bGPDframe *UNUSED(gpf),
-                                     bGPDstroke *gps,
-                                     void *thunk)
+static void gpencil_stroke_cache_populate(bGPDlayer *UNUSED(gpl),
+                                          bGPDframe *UNUSED(gpf),
+                                          bGPDstroke *gps,
+                                          void *thunk)
 {
   iterData *iter = (iterData *)thunk;
 
@@ -258,8 +251,30 @@ static void OVERLAY_outline_gpencil(OVERLAY_PrivateData *pd, Object *ob)
     gpencil_depth_plane(ob, iter.plane);
   }
 
-  BKE_gpencil_visible_stroke_iter(
-      NULL, ob, gp_layer_cache_populate, gp_stroke_cache_populate, &iter, false, pd->cfra);
+  BKE_gpencil_visible_stroke_advanced_iter(NULL,
+                                           ob,
+                                           gpencil_layer_cache_populate,
+                                           gpencil_stroke_cache_populate,
+                                           &iter,
+                                           false,
+                                           pd->cfra);
+}
+
+static void OVERLAY_outline_volume(OVERLAY_PrivateData *pd, Object *ob)
+{
+  struct GPUBatch *geom = DRW_cache_volume_selection_surface_get(ob);
+  if (geom == NULL) {
+    return;
+  }
+
+  DRWShadingGroup *shgroup = pd->outlines_grp;
+  DRW_shgroup_call(shgroup, geom, ob);
+}
+
+static void OVERLAY_outline_curves(OVERLAY_PrivateData *pd, Object *ob)
+{
+  DRWShadingGroup *shgroup = pd->outlines_curves_grp;
+  DRW_shgroup_curves_create_sub(ob, shgroup, NULL);
 }
 
 void OVERLAY_outline_cache_populate(OVERLAY_Data *vedata,
@@ -283,6 +298,22 @@ void OVERLAY_outline_cache_populate(OVERLAY_Data *vedata,
     return;
   }
 
+  if (ob->type == OB_VOLUME) {
+    OVERLAY_outline_volume(pd, ob);
+    return;
+  }
+
+  if (ob->type == OB_CURVES) {
+    OVERLAY_outline_curves(pd, ob);
+    return;
+  }
+
+  if (ob->type == OB_POINTCLOUD && pd->wireframe_mode) {
+    /* Looks bad in this case. Could be relaxed if we draw a
+     * wireframe of some sort in the future. */
+    return;
+  }
+
   if (dupli && !init_dupli) {
     geom = dupli->outline_geom;
     shgroup = dupli->outline_shgrp;
@@ -302,12 +333,18 @@ void OVERLAY_outline_cache_populate(OVERLAY_Data *vedata,
     }
 
     if (geom) {
-      shgroup = pd->outlines_grp;
+      shgroup = (ob->type == OB_POINTCLOUD) ? pd->outlines_ptcloud_grp : pd->outlines_grp;
     }
   }
 
   if (shgroup && geom) {
-    DRW_shgroup_call(shgroup, geom, ob);
+    if (ob->type == OB_POINTCLOUD) {
+      /* Draw range to avoid drawcall batching messing up the instance attribute. */
+      DRW_shgroup_call_instance_range(shgroup, ob, geom, 0, 0);
+    }
+    else {
+      DRW_shgroup_call(shgroup, geom, ob);
+    }
   }
 
   if (init_dupli) {
@@ -320,7 +357,7 @@ void OVERLAY_outline_draw(OVERLAY_Data *vedata)
 {
   OVERLAY_FramebufferList *fbl = vedata->fbl;
   OVERLAY_PassList *psl = vedata->psl;
-  float clearcol[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+  const float clearcol[4] = {0.0f, 0.0f, 0.0f, 0.0f};
 
   bool do_outlines = psl->outlines_prepass_ps != NULL &&
                      !DRW_pass_is_empty(psl->outlines_prepass_ps);

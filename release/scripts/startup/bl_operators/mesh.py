@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8-80 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import bpy
 from bpy.types import Operator
@@ -181,23 +163,20 @@ class MeshMirrorUV(Operator):
             bpy.ops.object.mode_set(mode='EDIT', toggle=False)
 
         if total_duplicates and total_no_active_UV:
-            self.report({'WARNING'}, "%d %s with no active UV layer. "
-                        "%d duplicates found in %d %s, mirror may be incomplete."
+            self.report({'WARNING'},
+                        "%d mesh(es) with no active UV layer, "
+                        "%d duplicates found in %d mesh(es), mirror may be incomplete"
                         % (total_no_active_UV,
-                           "mesh" if total_no_active_UV == 1 else "meshes",
                            total_duplicates,
-                           meshes_with_duplicates,
-                           "mesh" if meshes_with_duplicates == 1 else "meshes"))
+                           meshes_with_duplicates))
         elif total_no_active_UV:
-            self.report({'WARNING'}, "%d %s with no active UV layer."
-                        % (total_no_active_UV,
-                           "mesh" if total_no_active_UV == 1 else "meshes"))
+            self.report({'WARNING'},
+                        "%d mesh(es) with no active UV layer"
+                        % (total_no_active_UV,))
         elif total_duplicates:
-            self.report({'WARNING'}, "%d duplicates found in %d %s,"
-                        " mirror may be incomplete."
-                        % (total_duplicates,
-                           meshes_with_duplicates,
-                           "mesh" if meshes_with_duplicates == 1 else "meshes"))
+            self.report({'WARNING'},
+                        "%d duplicates found in %d mesh(es), mirror may be incomplete"
+                        % (total_duplicates, meshes_with_duplicates))
 
         return {'FINISHED'}
 
@@ -222,7 +201,7 @@ class MeshSelectNext(Operator):
 
         if find_adjacent.select_next(bm, self.report):
             bm.select_flush_mode()
-            bmesh.update_edit_mesh(me, False)
+            bmesh.update_edit_mesh(me, loop_triangles=False)
 
         return {'FINISHED'}
 
@@ -247,7 +226,7 @@ class MeshSelectPrev(Operator):
 
         if find_adjacent.select_prev(bm, self.report):
             bm.select_flush_mode()
-            bmesh.update_edit_mesh(me, False)
+            bmesh.update_edit_mesh(me, loop_triangles=False)
 
         return {'FINISHED'}
 

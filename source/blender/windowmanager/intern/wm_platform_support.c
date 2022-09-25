@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2019 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup wm
@@ -43,7 +27,9 @@
 
 #define WM_PLATFORM_SUPPORT_TEXT_SIZE 1024
 
-/* Check if user has already approved the given platform_support_key. */
+/**
+ * Check if user has already approved the given `platform_support_key`.
+ */
 static bool wm_platform_support_check_approval(const char *platform_support_key, bool update)
 {
   const char *const cfgdir = BKE_appdir_folder_id(BLENDER_USER_CONFIG, NULL);
@@ -120,11 +106,11 @@ bool WM_platform_support_perform_checks()
   eGPUSupportLevel support_level = GPU_platform_support_level();
   const char *platform_key = GPU_platform_support_level_key();
 
-  /* check if previous check matches the current check. Don't update the approval when running in
-   * `background`. this could have been triggered by installing addons via installers.  */
+  /* Check if previous check matches the current check. Don't update the approval when running in
+   * `background`. this could have been triggered by installing add-ons via installers. */
   if (support_level != GPU_SUPPORT_LEVEL_UNSUPPORTED && !G.factory_startup &&
       wm_platform_support_check_approval(platform_key, !G.background)) {
-    /* if it matches the user has confirmed and whishes to use it */
+    /* If it matches the user has confirmed and wishes to use it. */
     return result;
   }
 

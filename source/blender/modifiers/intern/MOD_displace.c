@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 by the Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup modifiers
@@ -28,6 +12,7 @@
 
 #include "BLT_translation.h"
 
+#include "DNA_defaults.h"
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
@@ -41,6 +26,7 @@
 #include "BKE_lib_id.h"
 #include "BKE_lib_query.h"
 #include "BKE_mesh.h"
+#include "BKE_mesh_wrapper.h"
 #include "BKE_modifier.h"
 #include "BKE_object.h"
 #include "BKE_screen.h"
@@ -50,6 +36,7 @@
 #include "UI_resources.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "DEG_depsgraph.h"
 #include "DEG_depsgraph_query.h"
@@ -59,7 +46,7 @@
 #include "MOD_ui_common.h"
 #include "MOD_util.h"
 
-#include "RE_shader_ext.h"
+#include "RE_texture.h"
 
 /* Displace */
 
@@ -67,11 +54,9 @@ static void initData(ModifierData *md)
 {
   DisplaceModifierData *dmd = (DisplaceModifierData *)md;
 
-  dmd->texture = NULL;
-  dmd->strength = 1;
-  dmd->direction = MOD_DISP_DIR_NOR;
-  dmd->midlevel = 0.5;
-  dmd->space = MOD_DISP_SPACE_LOCAL;
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(dmd, modifier));
+
+  MEMCPY_STRUCT_AFTER(dmd, DNA_struct_default_get(DisplaceModifierData), modifier);
 }
 
 static void requiredDataMask(Object *UNUSED(ob),
@@ -95,16 +80,15 @@ static void requiredDataMask(Object *UNUSED(ob),
   }
 }
 
-static bool dependsOnTime(ModifierData *md)
+static bool dependsOnTime(struct Scene *UNUSED(scene), ModifierData *md)
 {
   DisplaceModifierData *dmd = (DisplaceModifierData *)md;
 
   if (dmd->texture) {
     return BKE_texture_dependsOnTime(dmd->texture);
   }
-  else {
-    return false;
-  }
+
+  return false;
 }
 
 static bool dependsOnNormals(ModifierData *md)
@@ -113,20 +97,12 @@ static bool dependsOnNormals(ModifierData *md)
   return ELEM(dmd->direction, MOD_DISP_DIR_NOR, MOD_DISP_DIR_CLNOR);
 }
 
-static void foreachObjectLink(ModifierData *md, Object *ob, ObjectWalkFunc walk, void *userData)
-{
-  DisplaceModifierData *dmd = (DisplaceModifierData *)md;
-
-  walk(userData, ob, &dmd->map_object, IDWALK_CB_NOP);
-}
-
 static void foreachIDLink(ModifierData *md, Object *ob, IDWalkFunc walk, void *userData)
 {
   DisplaceModifierData *dmd = (DisplaceModifierData *)md;
 
   walk(userData, ob, (ID **)&dmd->texture, IDWALK_CB_USER);
-
-  foreachObjectLink(md, ob, (ObjectWalkFunc)walk, userData);
+  walk(userData, ob, (ID **)&dmd->map_object, IDWALK_CB_NOP);
 }
 
 static void foreachTexLink(ModifierData *md, Object *ob, TexWalkFunc walk, void *userData)
@@ -184,6 +160,7 @@ typedef struct DisplaceUserdata {
   float (*vertexCos)[3];
   float local_mat[4][4];
   MVert *mvert;
+  const float (*vert_normals)[3];
   float (*vert_clnors)[3];
 } DisplaceUserdata;
 
@@ -201,7 +178,6 @@ static void displaceModifier_do_task(void *__restrict userdata,
   bool use_global_direction = data->use_global_direction;
   float(*tex_co)[3] = data->tex_co;
   float(*vertexCos)[3] = data->vertexCos;
-  MVert *mvert = data->mvert;
   float(*vert_clnors)[3] = data->vert_clnors;
 
   const float delta_fixed = 1.0f -
@@ -221,7 +197,6 @@ static void displaceModifier_do_task(void *__restrict userdata,
   }
 
   if (data->tex_target) {
-    texres.nor = NULL;
     BKE_texture_get_value_ex(
         data->scene, data->tex_target, tex_co[iter], &texres, data->pool, false);
     delta = texres.tin - dmd->midlevel;
@@ -269,9 +244,9 @@ static void displaceModifier_do_task(void *__restrict userdata,
       }
       break;
     case MOD_DISP_DIR_RGB_XYZ:
-      local_vec[0] = texres.tr - dmd->midlevel;
-      local_vec[1] = texres.tg - dmd->midlevel;
-      local_vec[2] = texres.tb - dmd->midlevel;
+      local_vec[0] = texres.trgba[0] - dmd->midlevel;
+      local_vec[1] = texres.trgba[1] - dmd->midlevel;
+      local_vec[2] = texres.trgba[2] - dmd->midlevel;
       if (use_global_direction) {
         mul_transposed_mat3_m4_v3(data->local_mat, local_vec);
       }
@@ -279,9 +254,7 @@ static void displaceModifier_do_task(void *__restrict userdata,
       add_v3_v3(vertexCos[iter], local_vec);
       break;
     case MOD_DISP_DIR_NOR:
-      vertexCos[iter][0] += delta * (mvert[iter].no[0] / 32767.0f);
-      vertexCos[iter][1] += delta * (mvert[iter].no[1] / 32767.0f);
-      vertexCos[iter][2] += delta * (mvert[iter].no[2] / 32767.0f);
+      madd_v3_v3fl(vertexCos[iter], data->vert_normals[iter], delta);
       break;
     case MOD_DISP_DIR_CLNOR:
       madd_v3_v3fl(vertexCos[iter], vert_clnors[iter], delta);
@@ -293,7 +266,7 @@ static void displaceModifier_do(DisplaceModifierData *dmd,
                                 const ModifierEvalContext *ctx,
                                 Mesh *mesh,
                                 float (*vertexCos)[3],
-                                const int numVerts)
+                                const int verts_num)
 {
   Object *ob = ctx->object;
   MVert *mvert;
@@ -323,7 +296,7 @@ static void displaceModifier_do(DisplaceModifierData *dmd,
 
   Tex *tex_target = dmd->texture;
   if (tex_target != NULL) {
-    tex_co = MEM_calloc_arrayN((size_t)numVerts, sizeof(*tex_co), "displaceModifier_do tex_co");
+    tex_co = MEM_calloc_arrayN((size_t)verts_num, sizeof(*tex_co), "displaceModifier_do tex_co");
     MOD_get_texture_coords((MappingInfoModifierData *)dmd, ctx, ob, mesh, vertexCos, tex_co);
 
     MOD_init_texture((MappingInfoModifierData *)dmd, ctx);
@@ -336,17 +309,14 @@ static void displaceModifier_do(DisplaceModifierData *dmd,
     CustomData *ldata = &mesh->ldata;
 
     if (CustomData_has_layer(ldata, CD_CUSTOMLOOPNORMAL)) {
-      float(*clnors)[3] = NULL;
-
-      if ((mesh->runtime.cd_dirty_vert & CD_MASK_NORMAL) ||
-          !CustomData_has_layer(ldata, CD_NORMAL)) {
+      if (!CustomData_has_layer(ldata, CD_NORMAL)) {
         BKE_mesh_calc_normals_split(mesh);
       }
 
-      clnors = CustomData_get_layer(ldata, CD_NORMAL);
-      vert_clnors = MEM_malloc_arrayN(numVerts, sizeof(*vert_clnors), __func__);
+      float(*clnors)[3] = CustomData_get_layer(ldata, CD_NORMAL);
+      vert_clnors = MEM_malloc_arrayN(verts_num, sizeof(*vert_clnors), __func__);
       BKE_mesh_normals_loop_to_vertex(
-          numVerts, mesh->mloop, mesh->totloop, (const float(*)[3])clnors, vert_clnors);
+          verts_num, mesh->mloop, mesh->totloop, (const float(*)[3])clnors, vert_clnors);
     }
     else {
       direction = MOD_DISP_DIR_NOR;
@@ -370,6 +340,9 @@ static void displaceModifier_do(DisplaceModifierData *dmd,
   data.vertexCos = vertexCos;
   copy_m4_m4(data.local_mat, local_mat);
   data.mvert = mvert;
+  if (direction == MOD_DISP_DIR_NOR) {
+    data.vert_normals = BKE_mesh_vertex_normals_ensure(mesh);
+  }
   data.vert_clnors = vert_clnors;
   if (tex_target != NULL) {
     data.pool = BKE_image_pool_new();
@@ -377,8 +350,8 @@ static void displaceModifier_do(DisplaceModifierData *dmd,
   }
   TaskParallelSettings settings;
   BLI_parallel_range_settings_defaults(&settings);
-  settings.use_threading = (numVerts > 512);
-  BLI_task_parallel_range(0, numVerts, &data, displaceModifier_do_task, &settings);
+  settings.use_threading = (verts_num > 512);
+  BLI_task_parallel_range(0, verts_num, &data, displaceModifier_do_task, &settings);
 
   if (data.pool != NULL) {
     BKE_image_pool_free(data.pool);
@@ -397,11 +370,12 @@ static void deformVerts(ModifierData *md,
                         const ModifierEvalContext *ctx,
                         Mesh *mesh,
                         float (*vertexCos)[3],
-                        int numVerts)
+                        int verts_num)
 {
-  Mesh *mesh_src = MOD_deform_mesh_eval_get(ctx->object, NULL, mesh, NULL, numVerts, false, false);
+  Mesh *mesh_src = MOD_deform_mesh_eval_get(
+      ctx->object, NULL, mesh, NULL, verts_num, false, false);
 
-  displaceModifier_do((DisplaceModifierData *)md, ctx, mesh_src, vertexCos, numVerts);
+  displaceModifier_do((DisplaceModifierData *)md, ctx, mesh_src, vertexCos, verts_num);
 
   if (!ELEM(mesh_src, NULL, mesh)) {
     BKE_id_free(NULL, mesh_src);
@@ -413,17 +387,17 @@ static void deformVertsEM(ModifierData *md,
                           struct BMEditMesh *editData,
                           Mesh *mesh,
                           float (*vertexCos)[3],
-                          int numVerts)
+                          int verts_num)
 {
   Mesh *mesh_src = MOD_deform_mesh_eval_get(
-      ctx->object, editData, mesh, NULL, numVerts, false, false);
+      ctx->object, editData, mesh, NULL, verts_num, false, false);
 
   /* TODO(Campbell): use edit-mode data only (remove this line). */
   if (mesh_src != NULL) {
     BKE_mesh_wrapper_ensure_mdata(mesh_src);
   }
 
-  displaceModifier_do((DisplaceModifierData *)md, ctx, mesh_src, vertexCos, numVerts);
+  displaceModifier_do((DisplaceModifierData *)md, ctx, mesh_src, vertexCos, verts_num);
 
   if (!ELEM(mesh_src, NULL, mesh)) {
     BKE_id_free(NULL, mesh_src);
@@ -435,29 +409,30 @@ static void panel_draw(const bContext *C, Panel *panel)
   uiLayout *col;
   uiLayout *layout = panel->layout;
 
-  PointerRNA ptr;
   PointerRNA ob_ptr;
-  modifier_panel_get_property_pointers(C, panel, &ob_ptr, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
-  PointerRNA texture_ptr = RNA_pointer_get(&ptr, "texture");
+  PointerRNA obj_data_ptr = RNA_pointer_get(&ob_ptr, "data");
+
+  PointerRNA texture_ptr = RNA_pointer_get(ptr, "texture");
   bool has_texture = !RNA_pointer_is_null(&texture_ptr);
-  int texture_coords = RNA_enum_get(&ptr, "texture_coords");
+  int texture_coords = RNA_enum_get(ptr, "texture_coords");
 
   uiLayoutSetPropSep(layout, true);
 
-  uiTemplateID(layout, C, &ptr, "texture", "texture.new", NULL, NULL, 0, ICON_NONE, NULL);
+  uiTemplateID(layout, C, ptr, "texture", "texture.new", NULL, NULL, 0, ICON_NONE, NULL);
 
   col = uiLayoutColumn(layout, false);
   uiLayoutSetActive(col, has_texture);
-  uiItemR(col, &ptr, "texture_coords", 0, IFACE_("Coordinates"), ICON_NONE);
+  uiItemR(col, ptr, "texture_coords", 0, IFACE_("Coordinates"), ICON_NONE);
   if (texture_coords == MOD_DISP_MAP_OBJECT) {
-    uiItemR(col, &ptr, "texture_coords_object", 0, NULL, ICON_NONE);
-    PointerRNA texture_coords_obj_ptr = RNA_pointer_get(&ptr, "texture_coords_object");
+    uiItemR(col, ptr, "texture_coords_object", 0, IFACE_("Object"), ICON_NONE);
+    PointerRNA texture_coords_obj_ptr = RNA_pointer_get(ptr, "texture_coords_object");
     if (!RNA_pointer_is_null(&texture_coords_obj_ptr) &&
         (RNA_enum_get(&texture_coords_obj_ptr, "type") == OB_ARMATURE)) {
       PointerRNA texture_coords_obj_data_ptr = RNA_pointer_get(&texture_coords_obj_ptr, "data");
-      uiItemPointerR(layout,
-                     &ptr,
+      uiItemPointerR(col,
+                     ptr,
                      "texture_coords_bone",
                      &texture_coords_obj_data_ptr,
                      "bones",
@@ -466,30 +441,30 @@ static void panel_draw(const bContext *C, Panel *panel)
     }
   }
   else if (texture_coords == MOD_DISP_MAP_UV && RNA_enum_get(&ob_ptr, "type") == OB_MESH) {
-    uiItemR(col, &ptr, "uv_layer", 0, NULL, ICON_NONE);
+    uiItemPointerR(col, ptr, "uv_layer", &obj_data_ptr, "uv_layers", NULL, ICON_NONE);
   }
 
   uiItemS(layout);
 
   col = uiLayoutColumn(layout, false);
-  uiItemR(col, &ptr, "direction", 0, 0, ICON_NONE);
-  if (ELEM(RNA_enum_get(&ptr, "direction"),
+  uiItemR(col, ptr, "direction", 0, 0, ICON_NONE);
+  if (ELEM(RNA_enum_get(ptr, "direction"),
            MOD_DISP_DIR_X,
            MOD_DISP_DIR_Y,
            MOD_DISP_DIR_Z,
            MOD_DISP_DIR_RGB_XYZ)) {
-    uiItemR(col, &ptr, "space", 0, NULL, ICON_NONE);
+    uiItemR(col, ptr, "space", 0, NULL, ICON_NONE);
   }
 
   uiItemS(layout);
 
   col = uiLayoutColumn(layout, false);
-  uiItemR(col, &ptr, "strength", 0, NULL, ICON_NONE);
-  uiItemR(col, &ptr, "mid_level", 0, NULL, ICON_NONE);
+  uiItemR(col, ptr, "strength", 0, NULL, ICON_NONE);
+  uiItemR(col, ptr, "mid_level", 0, NULL, ICON_NONE);
 
-  modifier_vgroup_ui(col, &ptr, &ob_ptr, "vertex_group", "invert_vertex_group", NULL);
+  modifier_vgroup_ui(col, ptr, &ob_ptr, "vertex_group", "invert_vertex_group", NULL);
 
-  modifier_panel_end(layout, &ptr);
+  modifier_panel_end(layout, ptr);
 }
 
 static void panelRegister(ARegionType *region_type)
@@ -498,11 +473,13 @@ static void panelRegister(ARegionType *region_type)
 }
 
 ModifierTypeInfo modifierType_Displace = {
-    /* name */ "Displace",
+    /* name */ N_("Displace"),
     /* structName */ "DisplaceModifierData",
     /* structSize */ sizeof(DisplaceModifierData),
+    /* srna */ &RNA_DisplaceModifier,
     /* type */ eModifierTypeType_OnlyDeform,
     /* flags */ eModifierTypeFlag_AcceptsMesh | eModifierTypeFlag_SupportsEditmode,
+    /* icon */ ICON_MOD_DISPLACE,
 
     /* copyData */ BKE_modifier_copydata_generic,
 
@@ -511,9 +488,7 @@ ModifierTypeInfo modifierType_Displace = {
     /* deformVertsEM */ deformVertsEM,
     /* deformMatricesEM */ NULL,
     /* modifyMesh */ NULL,
-    /* modifyHair */ NULL,
-    /* modifyPointCloud */ NULL,
-    /* modifyVolume */ NULL,
+    /* modifyGeometrySet */ NULL,
 
     /* initData */ initData,
     /* requiredDataMask */ requiredDataMask,
@@ -522,9 +497,10 @@ ModifierTypeInfo modifierType_Displace = {
     /* updateDepsgraph */ updateDepsgraph,
     /* dependsOnTime */ dependsOnTime,
     /* dependsOnNormals */ dependsOnNormals,
-    /* foreachObjectLink */ foreachObjectLink,
     /* foreachIDLink */ foreachIDLink,
     /* foreachTexLink */ foreachTexLink,
     /* freeRuntimeData */ NULL,
     /* panelRegister */ panelRegister,
+    /* blendWrite */ NULL,
+    /* blendRead */ NULL,
 };

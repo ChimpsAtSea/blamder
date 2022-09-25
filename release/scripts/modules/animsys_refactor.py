@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 """
 This module has utility functions for renaming
@@ -30,12 +12,6 @@ import bpy
 
 
 IS_TESTING = False
-
-
-def drepr(string):
-    # is there a less crappy way to do this in python?, re.escape also escapes
-    # single quotes strings so can't use it.
-    return '"%s"' % repr(string)[1:-1].replace("\"", "\\\"").replace("\\'", "'")
 
 
 def classes_recursive(base_type, clss=None):
@@ -66,7 +42,7 @@ class DataPathBuilder:
         if type(key) is int:
             str_value = '[%d]' % key
         elif type(key) is str:
-            str_value = '[%s]' % drepr(key)
+            str_value = '["%s"]' % bpy.utils.escape_identifier(key)
         else:
             raise Exception("unsupported accessor %r of type %r (internal error)" % (key, type(key)))
         return DataPathBuilder(self.data_path + (str_value, ))
@@ -80,7 +56,10 @@ class DataPathBuilder:
                 base_new = Ellipsis
                 # find the new name
                 if item.startswith("."):
-                    for class_name, item_new, options in rna_update_from_map.get(item[1:], []) + [(None, item[1:], None)]:
+                    for class_name, item_new, options in (
+                            rna_update_from_map.get(item[1:], []) +
+                            [(None, item[1:], None)]
+                    ):
                         if callable(item_new):
                             # No type check here, callback is assumed to know what it's doing.
                             base_new, item_new = item_new(base, class_name, item[1:], fcurve, options)

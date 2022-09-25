@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup imbdds
@@ -25,31 +11,30 @@
  * Original license from NVIDIA follows.
  */
 
-// Copyright NVIDIA Corporation 2007 -- Ignacio Castano <icastano@nvidia.com>
-//
-// Permission is hereby granted, free of charge, to any person
-// obtaining a copy of this software and associated documentation
-// files (the "Software"), to deal in the Software without
-// restriction, including without limitation the rights to use,
-// copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the
-// Software is furnished to do so, subject to the following
-// conditions:
-//
-// The above copyright notice and this permission notice shall be
-// included in all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
-// EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
-// OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
-// NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-// HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-// WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-// FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-// OTHER DEALINGS IN THE SOFTWARE.
+/* Copyright NVIDIA Corporation 2007 -- Ignacio Castano <icastano@nvidia.com>
+ *
+ * Permission is hereby granted, free of charge, to any person
+ * obtaining a copy of this software and associated documentation
+ * files (the "Software"), to deal in the Software without
+ * restriction, including without limitation the rights to use,
+ * copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following
+ * conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES
+ * OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
+ * HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
+ * WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+ * FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE. */
 
-#ifndef __DIRECTDRAWSURFACE_H__
-#define __DIRECTDRAWSURFACE_H__
+#pragma once
 
 #include <ColorBlock.h>
 #include <Common.h>
@@ -74,7 +59,7 @@ struct DDSCaps {
   uint caps4;
 };
 
-/// DDS file header for DX10.
+/** DDS file header for DX10. */
 struct DDSHeader10 {
   uint dxgiFormat;
   uint resourceDimension;
@@ -83,7 +68,7 @@ struct DDSHeader10 {
   uint reserved;
 };
 
-/// DDS file header.
+/** DDS file header. */
 struct DDSHeader {
   uint fourcc;
   uint size;
@@ -99,7 +84,7 @@ struct DDSHeader {
   uint notused;
   DDSHeader10 header10;
 
-  // Helper methods.
+  /* Helper methods. */
   DDSHeader();
 
   void setWidth(uint w);
@@ -121,7 +106,7 @@ struct DDSHeader {
   void setHasAlphaFlag(bool b);
   void setUserVersion(int version);
 
-  /*void swapBytes();*/
+  // void swapBytes();
 
   bool hasDX10Header() const;
   uint signature() const;
@@ -133,11 +118,10 @@ struct DDSHeader {
   uint d3d9Format() const;
 };
 
-/// DirectDraw Surface. (DDS)
+/** DirectDraw Surface. (DDS) */
 class DirectDrawSurface {
  public:
   DirectDrawSurface(unsigned char *mem, uint size);
-  ~DirectDrawSurface();
 
   bool isValid() const;
   bool isSupported() const;
@@ -159,6 +143,10 @@ class DirectDrawSurface {
   void setUserVersion(int version);
 
   void mipmap(Image *img, uint f, uint m);
+  /**
+   * It was easier to copy this function from upstream than to resync.
+   * This should be removed if a resync ever occurs.
+   */
   void *readData(uint &size);
   //  void mipmap(FloatImage *img, uint f, uint m);
 
@@ -176,7 +164,8 @@ class DirectDrawSurface {
   void readBlock(ColorBlock *rgba);
 
  private:
-  Stream stream;  // memory where DDS file resides
+  /** Memory where DDS file resides. */
+  Stream stream;
   DDSHeader header;
 };
 
@@ -184,5 +173,3 @@ void mem_read(Stream &mem, DDSPixelFormat &pf);
 void mem_read(Stream &mem, DDSCaps &caps);
 void mem_read(Stream &mem, DDSHeader &header);
 void mem_read(Stream &mem, DDSHeader10 &header);
-
-#endif /* __DIRECTDRAWSURFACE_H__ */

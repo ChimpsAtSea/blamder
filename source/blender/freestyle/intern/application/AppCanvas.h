@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __APPCANVAS_H__
-#define __APPCANVAS_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -33,21 +18,21 @@ class AppCanvas : public Canvas {
   AppCanvas(const AppCanvas &iBrother);
   virtual ~AppCanvas();
 
-  /*! operations that need to be done before a draw */
+  /** operations that need to be done before a draw */
   virtual void preDraw();
 
-  /*! operations that need to be done after a draw */
+  /** operations that need to be done after a draw */
   virtual void postDraw();
 
-  /*! Erases the layers and clears the canvas */
+  /** Erases the layers and clears the canvas */
   virtual void Erase();
 
   /* init the canvas */
   virtual void init();
 
-  /*! Reads a pixel area from the canvas */
+  /** Reads a pixel area from the canvas */
   virtual void readColorPixels(int x, int y, int w, int h, RGBImage &oImage) const;
-  /*! Reads a depth pixel area from the canvas */
+  /** Reads a depth pixel area from the canvas */
   virtual void readDepthPixels(int x, int y, int w, int h, GrayImage &oImage) const;
 
   virtual BBox<Vec3r> scene3DBBox() const;
@@ -56,7 +41,7 @@ class AppCanvas : public Canvas {
   virtual void RenderStroke(Stroke *);
   virtual void update();
 
-  /*! accessors */
+  /** accessors */
   virtual int width() const;
   virtual int height() const;
   virtual BBox<Vec2i> border() const;
@@ -68,7 +53,7 @@ class AppCanvas : public Canvas {
     return _pViewer;
   }
 
-  /*! modifiers */
+  /** modifiers */
   void setViewer(AppView *iViewer);
 
   /* soc */
@@ -93,5 +78,3 @@ class AppCanvas : public Canvas {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __APPCANVAS_H__

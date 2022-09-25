@@ -1,22 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup wm
  */
+
+#include <stdio.h>
 
 #include "BLI_ghash.h"
 #include "BLI_utildefines.h"
@@ -27,6 +15,7 @@
 
 #include "RNA_access.h"
 #include "RNA_define.h"
+#include "RNA_prototypes.h"
 
 #include "WM_api.h"
 #include "WM_types.h"
@@ -38,6 +27,7 @@
 #include "wm_gizmo_intern.h"
 #include "wm_gizmo_wmapi.h"
 
+/* -------------------------------------------------------------------- */
 /** \name GizmoGroup Type Append
  *
  * \note This follows conventions from #WM_operatortype_find #WM_operatortype_append & friends.
@@ -68,7 +58,6 @@ wmGizmoGroupType *WM_gizmogrouptype_find(const char *idname, bool quiet)
   return NULL;
 }
 
-/* caller must free */
 void WM_gizmogrouptype_iter(GHashIterator *ghi)
 {
   BLI_ghashIterator_init(ghi, global_gizmogrouptype_hash);
@@ -124,10 +113,6 @@ wmGizmoGroupType *WM_gizmogrouptype_append_ptr(void (*wtfunc)(struct wmGizmoGrou
   return gzgt;
 }
 
-/**
- * Append and insert into a gizmo typemap.
- * This is most common for C gizmos which are enabled by default.
- */
 wmGizmoGroupTypeRef *WM_gizmogrouptype_append_and_link(wmGizmoMapType *gzmap_type,
                                                        void (*wtfunc)(struct wmGizmoGroupType *))
 {
@@ -151,7 +136,7 @@ static void gizmogrouptype_free(wmGizmoGroupType *gzgt)
   MEM_freeN(gzgt);
 }
 
-void WM_gizmogrouptype_free_ptr(wmGizmoGroupType *gzgt)
+void WM_gizmo_group_type_free_ptr(wmGizmoGroupType *gzgt)
 {
   BLI_assert(gzgt == WM_gizmogrouptype_find(gzgt->idname, false));
 
@@ -159,10 +144,10 @@ void WM_gizmogrouptype_free_ptr(wmGizmoGroupType *gzgt)
 
   gizmogrouptype_free(gzgt);
 
-  /* XXX, TODO, update the world! */
+  /* XXX, TODO: update the world! */
 }
 
-bool WM_gizmogrouptype_free(const char *idname)
+bool WM_gizmo_group_type_free(const char *idname)
 {
   wmGizmoGroupType *gzgt = BLI_ghash_lookup(global_gizmogrouptype_hash, idname);
 
@@ -170,7 +155,7 @@ bool WM_gizmogrouptype_free(const char *idname)
     return false;
   }
 
-  WM_gizmogrouptype_free_ptr(gzgt);
+  WM_gizmo_group_type_free_ptr(gzgt);
 
   return true;
 }
@@ -187,7 +172,6 @@ void wm_gizmogrouptype_free(void)
   global_gizmogrouptype_hash = NULL;
 }
 
-/* called on initialize WM_init() */
 void wm_gizmogrouptype_init(void)
 {
   /* reserve size is set based on blender default setup */

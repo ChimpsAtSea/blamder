@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -60,7 +44,9 @@
 #  define CACHE_PRINTF(...)
 #endif
 
-/*********************** Tracks map *************************/
+/* -------------------------------------------------------------------- */
+/** \name Tracks Map
+ * \{ */
 
 TracksMap *tracks_map_new(const char *object_name,
                           bool is_camera,
@@ -242,7 +228,11 @@ void tracks_map_free(TracksMap *map, void (*customdata_free)(void *customdata))
   MEM_freeN(map);
 }
 
-/*********************** Space transformation functions *************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Space Transformation Functions
+ * \{ */
 
 /* Three coordinate frames: Frame, Search, and Marker
  * Two units: Pixels, Unified
@@ -332,11 +322,6 @@ static void search_pixel_to_marker_unified(int frame_width,
   sub_v2_v2v2(marker_unified, frame_unified, marker->pos);
 }
 
-/* Each marker has 5 coordinates associated with it that get warped with
- * tracking: the four corners ("pattern_corners"), and the center ("pos").
- * This function puts those 5 points into the appropriate frame for tracking
- * (the "search" coordinate frame).
- */
 void tracking_get_marker_coords_for_tracking(int frame_width,
                                              int frame_height,
                                              const MovieTrackingMarker *marker,
@@ -363,7 +348,6 @@ void tracking_get_marker_coords_for_tracking(int frame_width,
   search_pixel_y[4] = pixel_coords[1] - 0.5f;
 }
 
-/* Inverse of above. */
 void tracking_set_marker_coords_from_tracking(int frame_width,
                                               int frame_height,
                                               MovieTrackingMarker *marker,
@@ -399,17 +383,12 @@ void tracking_set_marker_coords_from_tracking(int frame_width,
   marker->pos[1] += marker_unified[1];
 }
 
-/*********************** General purpose utility functions *************************/
+/** \} */
 
-/* Place a disabled marker before or after specified ref_marker.
- *
- * If before is truth, disabled marker is placed before reference
- * one, and it's placed after it otherwise.
- *
- * If there's already a marker at the frame where disabled one
- * is expected to be placed, nothing will happen if overwrite
- * is false.
- */
+/* -------------------------------------------------------------------- */
+/** \name General Purpose Utility Functions
+ * \{ */
+
 void tracking_marker_insert_disabled(MovieTrackingTrack *track,
                                      const MovieTrackingMarker *ref_marker,
                                      bool before,
@@ -457,6 +436,15 @@ static void distortion_model_parameters_from_tracking(
       camera_intrinsics_options->nuke_k1 = camera->nuke_k1;
       camera_intrinsics_options->nuke_k2 = camera->nuke_k2;
       return;
+    case TRACKING_DISTORTION_MODEL_BROWN:
+      camera_intrinsics_options->distortion_model = LIBMV_DISTORTION_MODEL_BROWN;
+      camera_intrinsics_options->brown_k1 = camera->brown_k1;
+      camera_intrinsics_options->brown_k2 = camera->brown_k2;
+      camera_intrinsics_options->brown_k3 = camera->brown_k3;
+      camera_intrinsics_options->brown_k4 = camera->brown_k4;
+      camera_intrinsics_options->brown_p1 = camera->brown_p1;
+      camera_intrinsics_options->brown_p2 = camera->brown_p2;
+      return;
   }
 
   /* Unknown distortion model, which might be due to opening newer file in older Blender.
@@ -491,14 +479,22 @@ static void distortion_model_parameters_from_options(
       camera->nuke_k1 = camera_intrinsics_options->nuke_k1;
       camera->nuke_k2 = camera_intrinsics_options->nuke_k2;
       return;
+    case LIBMV_DISTORTION_MODEL_BROWN:
+      camera->distortion_model = TRACKING_DISTORTION_MODEL_BROWN;
+      camera->brown_k1 = camera_intrinsics_options->brown_k1;
+      camera->brown_k2 = camera_intrinsics_options->brown_k2;
+      camera->brown_k3 = camera_intrinsics_options->brown_k3;
+      camera->brown_k4 = camera_intrinsics_options->brown_k4;
+      camera->brown_p1 = camera_intrinsics_options->brown_p1;
+      camera->brown_p2 = camera_intrinsics_options->brown_p2;
+      return;
   }
 
   /* Libmv returned distortion model which is not known to Blender. This is a logical error in code
    * and Blender side is to be updated to match Libmv. */
-  BLI_assert(!"Unknown distortion model");
+  BLI_assert_msg(0, "Unknown distortion model");
 }
 
-/* Fill in Libmv C-API camera intrinsics options from tracking structure. */
 void tracking_cameraIntrinscisOptionsFromTracking(
     MovieTracking *tracking,
     int calibration_width,
@@ -535,7 +531,6 @@ void tracking_trackingCameraFromIntrinscisOptions(
   distortion_model_parameters_from_options(camera_intrinsics_options, camera);
 }
 
-/* Get previous keyframed marker. */
 MovieTrackingMarker *tracking_get_keyframed_marker(MovieTrackingTrack *track,
                                                    int current_frame,
                                                    bool backwards)
@@ -595,89 +590,11 @@ MovieTrackingMarker *tracking_get_keyframed_marker(MovieTrackingTrack *track,
   return marker_keyed;
 }
 
-/*********************** Frame accessr *************************/
+/** \} */
 
-typedef struct AccessCacheKey {
-  int clip_index;
-  int frame;
-  int downscale;
-  libmv_InputMode input_mode;
-  bool has_region;
-  float region_min[2], region_max[2];
-  int64_t transform_key;
-} AccessCacheKey;
-
-static unsigned int accesscache_hashhash(const void *key_v)
-{
-  const AccessCacheKey *key = (const AccessCacheKey *)key_v;
-  /* TODP(sergey): Need better hashing here for faster frame access. */
-  return key->clip_index << 16 | key->frame;
-}
-
-static bool accesscache_hashcmp(const void *a_v, const void *b_v)
-{
-  const AccessCacheKey *a = (const AccessCacheKey *)a_v;
-  const AccessCacheKey *b = (const AccessCacheKey *)b_v;
-  if (a->clip_index != b->clip_index || a->frame != b->frame || a->downscale != b->downscale ||
-      a->input_mode != b->input_mode || a->has_region != b->has_region ||
-      a->transform_key != b->transform_key) {
-    return true;
-  }
-  /* If there is region applied, compare it. */
-  if (a->has_region) {
-    if (!equals_v2v2(a->region_min, b->region_min) || !equals_v2v2(a->region_max, b->region_max)) {
-      return true;
-    }
-  }
-  return false;
-}
-
-static void accesscache_construct_key(AccessCacheKey *key,
-                                      int clip_index,
-                                      int frame,
-                                      libmv_InputMode input_mode,
-                                      int downscale,
-                                      const libmv_Region *region,
-                                      int64_t transform_key)
-{
-  key->clip_index = clip_index;
-  key->frame = frame;
-  key->input_mode = input_mode;
-  key->downscale = downscale;
-  key->has_region = (region != NULL);
-  if (key->has_region) {
-    copy_v2_v2(key->region_min, region->min);
-    copy_v2_v2(key->region_max, region->max);
-  }
-  key->transform_key = transform_key;
-}
-
-static void accesscache_put(TrackingImageAccessor *accessor,
-                            int clip_index,
-                            int frame,
-                            libmv_InputMode input_mode,
-                            int downscale,
-                            const libmv_Region *region,
-                            int64_t transform_key,
-                            ImBuf *ibuf)
-{
-  AccessCacheKey key;
-  accesscache_construct_key(&key, clip_index, frame, input_mode, downscale, region, transform_key);
-  IMB_moviecache_put(accessor->cache, &key, ibuf);
-}
-
-static ImBuf *accesscache_get(TrackingImageAccessor *accessor,
-                              int clip_index,
-                              int frame,
-                              libmv_InputMode input_mode,
-                              int downscale,
-                              const libmv_Region *region,
-                              int64_t transform_key)
-{
-  AccessCacheKey key;
-  accesscache_construct_key(&key, clip_index, frame, input_mode, downscale, region, transform_key);
-  return IMB_moviecache_get(accessor->cache, &key);
-}
+/* -------------------------------------------------------------------- */
+/** \name Frame Accessor
+ * \{ */
 
 static ImBuf *accessor_get_preprocessed_ibuf(TrackingImageAccessor *accessor,
                                              int clip_index,
@@ -704,7 +621,7 @@ static ImBuf *make_grayscale_ibuf_copy(ImBuf *ibuf)
 {
   ImBuf *grayscale = IMB_allocImBuf(ibuf->x, ibuf->y, 32, 0);
 
-  BLI_assert(ibuf->channels == 3 || ibuf->channels == 4);
+  BLI_assert(ELEM(ibuf->channels, 3, 4));
 
   /* TODO(sergey): Bummer, currently IMB API only allows to create 4 channels
    * float buffer, so we do it manually here.
@@ -758,33 +675,14 @@ static ImBuf *accessor_get_ibuf(TrackingImageAccessor *accessor,
                                 const libmv_Region *region,
                                 const libmv_FrameTransform *transform)
 {
-  ImBuf *ibuf, *orig_ibuf, *final_ibuf;
-  int64_t transform_key = 0;
-  if (transform != NULL) {
-    transform_key = libmv_frameAccessorgetTransformKey(transform);
-  }
   /* First try to get fully processed image from the cache. */
-  BLI_spin_lock(&accessor->cache_lock);
-  ibuf = accesscache_get(
-      accessor, clip_index, frame, input_mode, downscale, region, transform_key);
-  BLI_spin_unlock(&accessor->cache_lock);
-  if (ibuf != NULL) {
-    CACHE_PRINTF("Used cached buffer for frame %d\n", frame);
-    /* This is a little heuristic here: if we re-used image once, this is
-     * a high probability of the image to be related to a keyframe matched
-     * reference image. Those images we don't want to be thrown away because
-     * if we toss them out we'll be re-calculating them at the next
-     * iteration.
-     */
-    ibuf->userflags |= IB_PERSISTENT;
-    return ibuf;
-  }
   CACHE_PRINTF("Calculate new buffer for frame %d\n", frame);
   /* And now we do postprocessing of the original frame. */
-  orig_ibuf = accessor_get_preprocessed_ibuf(accessor, clip_index, frame);
+  ImBuf *orig_ibuf = accessor_get_preprocessed_ibuf(accessor, clip_index, frame);
   if (orig_ibuf == NULL) {
     return NULL;
   }
+  ImBuf *final_ibuf;
   /* Cut a region if requested. */
   if (region != NULL) {
     int width = region->max[0] - region->min[0], height = region->max[1] - region->min[1];
@@ -862,7 +760,7 @@ static ImBuf *accessor_get_ibuf(TrackingImageAccessor *accessor,
   }
   /* Transform number of channels. */
   if (input_mode == LIBMV_IMAGE_MODE_RGBA) {
-    BLI_assert(orig_ibuf->channels == 3 || orig_ibuf->channels == 4);
+    BLI_assert(ELEM(orig_ibuf->channels, 3, 4));
     /* pass */
   }
   else /* if (input_mode == LIBMV_IMAGE_MODE_MONO) */ {
@@ -884,11 +782,6 @@ static ImBuf *accessor_get_ibuf(TrackingImageAccessor *accessor,
     final_ibuf = IMB_dupImBuf(orig_ibuf);
   }
   IMB_freeImBuf(orig_ibuf);
-  BLI_spin_lock(&accessor->cache_lock);
-  /* Put final buffer to cache. */
-  accesscache_put(
-      accessor, clip_index, frame, input_mode, downscale, region, transform_key, final_ibuf);
-  BLI_spin_unlock(&accessor->cache_lock);
   return final_ibuf;
 }
 
@@ -991,22 +884,20 @@ static void accessor_release_mask_callback(libmv_CacheKey cache_key)
 TrackingImageAccessor *tracking_image_accessor_new(MovieClip *clips[MAX_ACCESSOR_CLIP],
                                                    int num_clips,
                                                    MovieTrackingTrack **tracks,
-                                                   int num_tracks,
-                                                   int start_frame)
+                                                   int num_tracks)
 {
   TrackingImageAccessor *accessor = MEM_callocN(sizeof(TrackingImageAccessor),
                                                 "tracking image accessor");
 
   BLI_assert(num_clips <= MAX_ACCESSOR_CLIP);
 
-  accessor->cache = IMB_moviecache_create(
-      "frame access cache", sizeof(AccessCacheKey), accesscache_hashhash, accesscache_hashcmp);
-
   memcpy(accessor->clips, clips, num_clips * sizeof(MovieClip *));
   accessor->num_clips = num_clips;
-  accessor->tracks = tracks;
+
+  accessor->tracks = MEM_malloc_arrayN(
+      num_tracks, sizeof(MovieTrackingTrack *), "image accessor tracks");
+  memcpy(accessor->tracks, tracks, num_tracks * sizeof(MovieTrackingTrack *));
   accessor->num_tracks = num_tracks;
-  accessor->start_frame = start_frame;
 
   accessor->libmv_accessor = libmv_FrameAccessorNew((libmv_FrameAccessorUserData *)accessor,
                                                     accessor_get_image_callback,
@@ -1021,8 +912,10 @@ TrackingImageAccessor *tracking_image_accessor_new(MovieClip *clips[MAX_ACCESSOR
 
 void tracking_image_accessor_destroy(TrackingImageAccessor *accessor)
 {
-  IMB_moviecache_free(accessor->cache);
   libmv_FrameAccessorDestroy(accessor->libmv_accessor);
   BLI_spin_end(&accessor->cache_lock);
+  MEM_freeN(accessor->tracks);
   MEM_freeN(accessor);
 }
+
+/** \} */

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup eduv
@@ -59,6 +43,7 @@
 
 #include "RNA_access.h"
 #include "RNA_define.h"
+#include "RNA_prototypes.h"
 
 #include "WM_api.h"
 #include "WM_types.h"
@@ -76,7 +61,7 @@ typedef struct StitchPreviewer {
   float *preview_polys;
   /* uvs per polygon. */
   uint *uvs_per_polygon;
-  /*number of preview polygons */
+  /* Number of preview polygons. */
   uint num_polys;
   /* preview data. These will be either the previewed vertices or edges
    * depending on stitch mode settings */
@@ -129,8 +114,10 @@ typedef struct UvEdge {
   /** general use flag
    * (Used to check if edge is boundary here, and propagates to adjacency elements) */
   uchar flag;
-  /** element that guarantees element->face
-   * has the edge on element->tfindex and element->tfindex+1 is the second uv */
+  /**
+   * Element that guarantees `element.l` has the edge on
+   * `element.loop_of_poly_index` and `element->loop_of_poly_index + 1` is the second UV.
+   */
   UvElement *element;
   /** next uv edge with the same exact vertices as this one.
    * Calculated at startup to save time */
@@ -224,13 +211,13 @@ enum StitchModes {
   STITCH_EDGE,
 };
 
-/* UvElement identification. */
+/** #UvElement identification. */
 typedef struct UvElementID {
   int faceIndex;
   int elementIndex;
 } UvElementID;
 
-/* StitchState initializition. */
+/** #StitchState initialization. */
 typedef struct StitchStateInit {
   int uv_selected_count;
   UvElementID *to_select;
@@ -263,26 +250,11 @@ static StitchPreviewer *stitch_preview_init(void)
 static void stitch_preview_delete(StitchPreviewer *stitch_preview)
 {
   if (stitch_preview) {
-    if (stitch_preview->preview_polys) {
-      MEM_freeN(stitch_preview->preview_polys);
-      stitch_preview->preview_polys = NULL;
-    }
-    if (stitch_preview->uvs_per_polygon) {
-      MEM_freeN(stitch_preview->uvs_per_polygon);
-      stitch_preview->uvs_per_polygon = NULL;
-    }
-    if (stitch_preview->preview_stitchable) {
-      MEM_freeN(stitch_preview->preview_stitchable);
-      stitch_preview->preview_stitchable = NULL;
-    }
-    if (stitch_preview->preview_unstitchable) {
-      MEM_freeN(stitch_preview->preview_unstitchable);
-      stitch_preview->preview_unstitchable = NULL;
-    }
-    if (stitch_preview->static_tris) {
-      MEM_freeN(stitch_preview->static_tris);
-      stitch_preview->static_tris = NULL;
-    }
+    MEM_SAFE_FREE(stitch_preview->preview_polys);
+    MEM_SAFE_FREE(stitch_preview->uvs_per_polygon);
+    MEM_SAFE_FREE(stitch_preview->preview_stitchable);
+    MEM_SAFE_FREE(stitch_preview->preview_unstitchable);
+    MEM_SAFE_FREE(stitch_preview->static_tris);
     MEM_freeN(stitch_preview);
   }
 }
@@ -320,12 +292,13 @@ static int getNumOfIslandUvs(UvElementMap *elementMap, int island)
   if (island == elementMap->totalIslands - 1) {
     return elementMap->totalUVs - elementMap->islandIndices[island];
   }
-  else {
-    return elementMap->islandIndices[island + 1] - elementMap->islandIndices[island];
-  }
+  return elementMap->islandIndices[island + 1] - elementMap->islandIndices[island];
 }
 
-static void stitch_uv_rotate(float mat[2][2], float medianPoint[2], float uv[2], float aspect)
+static void stitch_uv_rotate(const float mat[2][2],
+                             const float medianPoint[2],
+                             float uv[2],
+                             float aspect)
 {
   float uv_rotation_result[2];
 
@@ -367,13 +340,9 @@ static bool stitch_check_uvs_stitchable(UvElement *element,
         fabsf(luv->uv[1] - luv_iter->uv[1]) < limit) {
       return 1;
     }
-    else {
-      return 0;
-    }
+    return 0;
   }
-  else {
-    return 1;
-  }
+  return 1;
 }
 
 static bool stitch_check_edges_stitchable(UvEdge *edge,
@@ -411,13 +380,9 @@ static bool stitch_check_edges_stitchable(UvEdge *edge,
         fabsf(luv_orig2->uv[1] - luv_iter2->uv[1]) < limit) {
       return 1;
     }
-    else {
-      return 0;
-    }
+    return 0;
   }
-  else {
-    return 1;
-  }
+  return 1;
 }
 
 static bool stitch_check_uvs_state_stitchable(UvElement *element,
@@ -544,7 +509,7 @@ static void stitch_island_calculate_edge_rotation(UvEdge *edge,
                                                   StitchStateContainer *ssc,
                                                   StitchState *state,
                                                   UVVertAverage *uv_average,
-                                                  uint *uvfinal_map,
+                                                  const uint *uvfinal_map,
                                                   IslandStitchData *island_stitch_data)
 {
   BMesh *bm = state->em->bm;
@@ -991,7 +956,7 @@ static void stitch_propagate_uv_final_position(Scene *scene,
       if (final) {
         copy_v2_v2(luv->uv, final_position[index].uv);
 
-        uvedit_uv_select_enable(state->em, scene, l, false, cd_loop_uv_offset);
+        uvedit_uv_select_enable(scene, state->em, l, false, cd_loop_uv_offset);
       }
       else {
         int face_preview_pos =
@@ -1074,8 +1039,7 @@ static int stitch_process_data(StitchStateContainer *ssc,
     }
   }
 
-  /* remember stitchable candidates as places the 'I' button  */
-  /* will stop at.                                            */
+  /* Remember stitchable candidates as places the 'I' button will stop at. */
   for (int island_idx = 0; island_idx < state->element_map->totalIslands; island_idx++) {
     state->island_is_stitchable[island_idx] = island_stitch_data[island_idx].stitchableCandidate ?
                                                   true :
@@ -1232,14 +1196,14 @@ static int stitch_process_data(StitchStateContainer *ssc,
     uint buffer_index = 0;
 
     /* initialize the preview buffers */
-    preview->preview_polys = MEM_mallocN(preview->preview_uvs * sizeof(float) * 2,
+    preview->preview_polys = MEM_mallocN(sizeof(float[2]) * preview->preview_uvs,
                                          "tri_uv_stitch_prev");
-    preview->uvs_per_polygon = MEM_mallocN(preview->num_polys * sizeof(*preview->uvs_per_polygon),
+    preview->uvs_per_polygon = MEM_mallocN(sizeof(*preview->uvs_per_polygon) * preview->num_polys,
                                            "tri_uv_stitch_prev");
 
-    preview->static_tris = MEM_mallocN(state->tris_per_island[ssc->static_island] * sizeof(float) *
-                                           6,
-                                       "static_island_preview_tris");
+    preview->static_tris = MEM_mallocN(
+        (sizeof(float[6]) * state->tris_per_island[ssc->static_island]),
+        "static_island_preview_tris");
 
     preview->num_static_tris = state->tris_per_island[ssc->static_island];
     /* will cause cancel and freeing of all data structures so OK */
@@ -1278,9 +1242,9 @@ static int stitch_process_data(StitchStateContainer *ssc,
                   &bm->ldata, lnext->next->head.data, CD_MLOOPUV);
               luv = CustomData_bmesh_get(&bm->ldata, lnext->head.data, CD_MLOOPUV);
 
-              memcpy(preview->static_tris + buffer_index, fuv->uv, 2 * sizeof(float));
-              memcpy(preview->static_tris + buffer_index + 2, luv->uv, 2 * sizeof(float));
-              memcpy(preview->static_tris + buffer_index + 4, luvnext->uv, 2 * sizeof(float));
+              memcpy(preview->static_tris + buffer_index, fuv->uv, sizeof(float[2]));
+              memcpy(preview->static_tris + buffer_index + 2, luv->uv, sizeof(float[2]));
+              memcpy(preview->static_tris + buffer_index + 4, luvnext->uv, sizeof(float[2]));
               buffer_index += 6;
             }
             else {
@@ -1752,7 +1716,8 @@ static void stitch_draw_vbo(GPUVertBuf *vbo, GPUPrimType prim_type, const float 
   GPU_batch_discard(batch);
 }
 
-/* TODO make things pretier : store batches inside StitchPreviewer instead of the bare verts pos */
+/* TODO: make things prettier : store batches inside StitchPreviewer instead of the bare verts pos
+ */
 static void stitch_draw(const bContext *UNUSED(C), ARegion *UNUSED(region), void *arg)
 {
 
@@ -1772,9 +1737,9 @@ static void stitch_draw(const bContext *UNUSED(C), ARegion *UNUSED(region), void
       pos_id = GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
     }
 
-    GPU_blend(true);
+    GPU_blend(GPU_BLEND_ALPHA);
 
-    /* Static Tris */
+    /* Static Triangles. */
     if (stitch_preview->static_tris) {
       UI_GetThemeColor4fv(TH_STITCH_PREVIEW_ACTIVE, col);
       vbo = GPU_vertbuf_create_with_format(&format);
@@ -1823,7 +1788,7 @@ static void stitch_draw(const bContext *UNUSED(C), ARegion *UNUSED(region), void
 
         /* Closing line */
         GPU_vertbuf_attr_set(vbo_line, pos_id, line_idx++, &stitch_preview->preview_polys[index]);
-        /* j = uvs_per_polygon[i] - 1*/
+        /* `j = uvs_per_polygon[i] - 1` */
         GPU_vertbuf_attr_set(
             vbo_line, pos_id, line_idx++, &stitch_preview->preview_polys[index + j * 2]);
 
@@ -1836,7 +1801,7 @@ static void stitch_draw(const bContext *UNUSED(C), ARegion *UNUSED(region), void
       stitch_draw_vbo(vbo_line, GPU_PRIM_LINES, col);
     }
 
-    GPU_blend(false);
+    GPU_blend(GPU_BLEND_NONE);
 
     /* draw stitch vert/lines preview */
     if (ssc->mode == STITCH_VERT) {
@@ -1933,19 +1898,19 @@ static StitchState *stitch_init(bContext *C,
   state->obedit = obedit;
   state->em = em;
 
-  /* in uv synch selection, all uv's are visible */
-  if (ts->uv_flag & UV_SYNC_SELECTION) {
-    state->element_map = BM_uv_element_map_create(state->em->bm, scene, false, false, true, true);
-  }
-  else {
-    state->element_map = BM_uv_element_map_create(state->em->bm, scene, true, false, true, true);
-  }
+  /* Workaround for sync-select & face-select mode which implies all selected faces are detached,
+   * for stitch this isn't useful behavior, see T86924. */
+  const int selectmode_orig = scene->toolsettings->selectmode;
+  scene->toolsettings->selectmode = SCE_SELECT_VERTEX;
+  state->element_map = BM_uv_element_map_create(state->em->bm, scene, false, true, true);
+  scene->toolsettings->selectmode = selectmode_orig;
+
   if (!state->element_map) {
     state_delete(state);
     return NULL;
   }
 
-  ED_uvedit_get_aspect(scene, obedit, em->bm, &aspx, &aspy);
+  ED_uvedit_get_aspect(obedit, &aspx, &aspy);
   state->aspect = aspx / aspy;
 
   /* Count 'unique' uvs */
@@ -1985,7 +1950,7 @@ static StitchState *stitch_init(bContext *C,
         counter++;
         state->uvs[counter] = element;
       }
-      /* pointer arithmetic to the rescue, as always :)*/
+      /* Pointer arithmetic to the rescue, as always :). */
       map[element - state->element_map->buf] = counter;
     }
   }
@@ -1994,7 +1959,7 @@ static StitchState *stitch_init(bContext *C,
   /* Now, on to generate our uv connectivity data */
   BM_ITER_MESH (efa, &iter, em->bm, BM_FACES_OF_MESH) {
     if (!(ts->uv_flag & UV_SYNC_SELECTION) &&
-        ((BM_elem_flag_test(efa, BM_ELEM_HIDDEN)) || !BM_elem_flag_test(efa, BM_ELEM_SELECT))) {
+        (BM_elem_flag_test(efa, BM_ELEM_HIDDEN) || !BM_elem_flag_test(efa, BM_ELEM_SELECT))) {
       continue;
     }
 
@@ -2012,8 +1977,8 @@ static StitchState *stitch_init(bContext *C,
       all_edges[counter].first = NULL;
       all_edges[counter].flag = 0;
       all_edges[counter].element = element;
-      /* using an order policy, sort uvs according to address space. This avoids
-       * Having two different UvEdges with the same uvs on different positions  */
+      /* Using an order policy, sort UV's according to address space.
+       * This avoids having two different UvEdges with the same UV's on different positions. */
       if (offset1 < offset2) {
         all_edges[counter].uv1 = offset1;
         all_edges[counter].uv2 = offset2;
@@ -2057,7 +2022,7 @@ static StitchState *stitch_init(bContext *C,
 
   BLI_ghash_free(edge_hash, NULL, NULL);
 
-  /* refill an edge hash to create edge connnectivity data */
+  /* Refill an edge hash to create edge connectivity data. */
   state->edge_hash = edge_hash = BLI_ghash_new(uv_edge_hash, uv_edge_compare, "stitch_edge_hash");
   for (i = 0; i < total_edges; i++) {
     BLI_ghash_insert(edge_hash, edges + i, edges + i);
@@ -2177,8 +2142,8 @@ static StitchState *stitch_init(bContext *C,
                                            "uv_stitch_selection_stack");
 
       BM_ITER_MESH (efa, &iter, em->bm, BM_FACES_OF_MESH) {
-        if (!(ts->uv_flag & UV_SYNC_SELECTION) && ((BM_elem_flag_test(efa, BM_ELEM_HIDDEN)) ||
-                                                   !BM_elem_flag_test(efa, BM_ELEM_SELECT))) {
+        if (!(ts->uv_flag & UV_SYNC_SELECTION) &&
+            (BM_elem_flag_test(efa, BM_ELEM_HIDDEN) || !BM_elem_flag_test(efa, BM_ELEM_SELECT))) {
           continue;
         }
 
@@ -2386,9 +2351,9 @@ static int stitch_init_all(bContext *C, wmOperator *op)
   StitchState *state = ssc->states[ssc->active_object_index];
   ssc->static_island %= state->element_map->totalIslands;
 
-  /* If the initial active object doesn't have any stitchable islands */
-  /* then no active island will be seen in the UI. Make sure we're on */
-  /* a stitchable object and island.                                  */
+  /* If the initial active object doesn't have any stitchable islands
+   * then no active island will be seen in the UI.
+   * Make sure we're on a stitchable object and island. */
   if (!state->island_is_stitchable[ssc->static_island]) {
     goto_next_island(ssc);
     state = ssc->states[ssc->active_object_index];
@@ -2535,10 +2500,8 @@ static int stitch_exec(bContext *C, wmOperator *op)
     stitch_exit(C, op, 1);
     return OPERATOR_FINISHED;
   }
-  else {
-    stitch_cancel(C, op);
-    return OPERATOR_CANCELLED;
-  }
+  stitch_cancel(C, op);
+  return OPERATOR_CANCELLED;
 }
 
 static StitchState *stitch_select(bContext *C,
@@ -2548,8 +2511,8 @@ static StitchState *stitch_select(bContext *C,
 {
   /* add uv under mouse to processed uv's */
   float co[2];
-  UvNearestHit hit = UV_NEAREST_HIT_INIT;
   ARegion *region = CTX_wm_region(C);
+  UvNearestHit hit = UV_NEAREST_HIT_INIT_MAX(&region->v2d);
 
   UI_view2d_region_to_view(&region->v2d, event->mval[0], event->mval[1], &co[0], &co[1]);
 
@@ -2575,7 +2538,7 @@ static StitchState *stitch_select(bContext *C,
       return state;
     }
   }
-  else if (uv_find_nearest_edge_multi(scene, ssc->objects, ssc->objects_len, co, &hit)) {
+  else if (uv_find_nearest_edge_multi(scene, ssc->objects, ssc->objects_len, co, 0.0f, &hit)) {
     /* find StitchState from hit->ob */
     StitchState *state = NULL;
     for (uint ob_index = 0; ob_index < ssc->objects_len; ob_index++) {
@@ -2619,18 +2582,16 @@ static int stitch_modal(bContext *C, wmOperator *op, const wmEvent *event)
           stitch_exit(C, op, 1);
           return OPERATOR_FINISHED;
         }
-        else {
-          stitch_cancel(C, op);
-          return OPERATOR_CANCELLED;
-        }
+
+        stitch_cancel(C, op);
+        return OPERATOR_CANCELLED;
       }
-      else {
-        return OPERATOR_PASS_THROUGH;
-      }
+      return OPERATOR_PASS_THROUGH;
+
       /* Increase limit */
     case EVT_PADPLUSKEY:
     case WHEELUPMOUSE:
-      if (event->val == KM_PRESS && event->alt) {
+      if ((event->val == KM_PRESS) && (event->modifier & KM_ALT)) {
         ssc->limit_dist += 0.01f;
         if (!stitch_process_data(ssc, active_state, scene, false)) {
           stitch_cancel(C, op);
@@ -2644,7 +2605,7 @@ static int stitch_modal(bContext *C, wmOperator *op, const wmEvent *event)
       /* Decrease limit */
     case EVT_PADMINUS:
     case WHEELDOWNMOUSE:
-      if (event->val == KM_PRESS && event->alt) {
+      if ((event->val == KM_PRESS) && (event->modifier & KM_ALT)) {
         ssc->limit_dist -= 0.01f;
         ssc->limit_dist = MAX2(0.01f, ssc->limit_dist);
         if (!stitch_process_data(ssc, active_state, scene, false)) {
@@ -2705,7 +2666,7 @@ static int stitch_modal(bContext *C, wmOperator *op, const wmEvent *event)
 
       /* Select geometry */
     case RIGHTMOUSE:
-      if (!event->shift) {
+      if ((event->modifier & KM_SHIFT) == 0) {
         stitch_cancel(C, op);
         return OPERATOR_CANCELLED;
       }
@@ -2819,7 +2780,7 @@ void UV_OT_stitch(wmOperatorType *ot)
   RNA_def_boolean(ot->srna,
                   "midpoint_snap",
                   0,
-                  "Snap At Midpoint",
+                  "Snap at Midpoint",
                   "UVs are stitched at midpoint instead of at static island");
   RNA_def_boolean(ot->srna, "clear_seams", 1, "Clear Seams", "Clear seams of stitched edges");
   RNA_def_enum(ot->srna,

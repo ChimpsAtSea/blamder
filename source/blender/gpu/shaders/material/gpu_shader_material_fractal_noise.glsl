@@ -1,3 +1,6 @@
+#pragma BLENDER_REQUIRE(gpu_shader_common_hash.glsl)
+#pragma BLENDER_REQUIRE(gpu_shader_material_noise.glsl)
+
 /* The fractal_noise functions are all exactly the same except for the input type. */
 float fractal_noise(float p, float octaves, float roughness)
 {
@@ -5,7 +8,7 @@ float fractal_noise(float p, float octaves, float roughness)
   float amp = 1.0;
   float maxamp = 0.0;
   float sum = 0.0;
-  octaves = clamp(octaves, 0.0, 16.0);
+  octaves = clamp(octaves, 0.0, 15.0);
   int n = int(octaves);
   for (int i = 0; i <= n; i++) {
     float t = noise(fscale * p);
@@ -34,7 +37,7 @@ float fractal_noise(vec2 p, float octaves, float roughness)
   float amp = 1.0;
   float maxamp = 0.0;
   float sum = 0.0;
-  octaves = clamp(octaves, 0.0, 16.0);
+  octaves = clamp(octaves, 0.0, 15.0);
   int n = int(octaves);
   for (int i = 0; i <= n; i++) {
     float t = noise(fscale * p);
@@ -63,7 +66,7 @@ float fractal_noise(vec3 p, float octaves, float roughness)
   float amp = 1.0;
   float maxamp = 0.0;
   float sum = 0.0;
-  octaves = clamp(octaves, 0.0, 16.0);
+  octaves = clamp(octaves, 0.0, 15.0);
   int n = int(octaves);
   for (int i = 0; i <= n; i++) {
     float t = noise(fscale * p);
@@ -92,7 +95,7 @@ float fractal_noise(vec4 p, float octaves, float roughness)
   float amp = 1.0;
   float maxamp = 0.0;
   float sum = 0.0;
-  octaves = clamp(octaves, 0.0, 16.0);
+  octaves = clamp(octaves, 0.0, 15.0);
   int n = int(octaves);
   for (int i = 0; i <= n; i++) {
     float t = noise(fscale * p);

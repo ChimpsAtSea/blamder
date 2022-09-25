@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __CCGSUBSURF_H__
-#define __CCGSUBSURF_H__
+#pragma once
 
 /** \file
  * \ingroup bke
@@ -73,7 +58,7 @@ typedef enum {
 /***/
 
 CCGSubSurf *ccgSubSurf_new(CCGMeshIFC *ifc,
-                           int subdivisionLevels,
+                           int subdivLevels,
                            CCGAllocatorIFC *allocatorIFC,
                            CCGAllocatorHDL allocator);
 void ccgSubSurf_free(CCGSubSurf *ss);
@@ -101,11 +86,31 @@ CCGError ccgSubSurf_syncFaceDel(CCGSubSurf *ss, CCGFaceHDL fHDL);
 
 CCGError ccgSubSurf_processSync(CCGSubSurf *ss);
 
-CCGError ccgSubSurf_updateFromFaces(CCGSubSurf *ss, int lvl, CCGFace **faces, int numFaces);
-CCGError ccgSubSurf_updateToFaces(CCGSubSurf *ss, int lvl, CCGFace **faces, int numFaces);
-CCGError ccgSubSurf_updateNormals(CCGSubSurf *ss, CCGFace **faces, int numFaces);
-CCGError ccgSubSurf_updateLevels(CCGSubSurf *ss, int lvl, CCGFace **faces, int numFaces);
-CCGError ccgSubSurf_stitchFaces(CCGSubSurf *ss, int lvl, CCGFace **faces, int numFaces);
+/**
+ * Copy face grid coordinates to other places.
+ */
+CCGError ccgSubSurf_updateFromFaces(CCGSubSurf *ss,
+                                    int lvl,
+                                    CCGFace **effectedF,
+                                    int numEffectedF);
+/**
+ * Copy other places to face grid coordinates.
+ */
+CCGError ccgSubSurf_updateToFaces(CCGSubSurf *ss, int lvl, CCGFace **effectedF, int numEffectedF);
+/**
+ * Update normals for specified faces.
+ */
+CCGError ccgSubSurf_updateNormals(CCGSubSurf *ss, CCGFace **effectedF, int numEffectedF);
+/**
+ * Compute subdivision levels from a given starting point, used by multi-res subdivide/propagate,
+ * by filling in coordinates at a certain level, and then subdividing that up to the highest level.
+ */
+CCGError ccgSubSurf_updateLevels(CCGSubSurf *ss, int lvl, CCGFace **effectedF, int numEffectedF);
+/**
+ * Stitch together face grids, averaging coordinates at edges and vertices, for multi-res
+ * displacements.
+ */
+CCGError ccgSubSurf_stitchFaces(CCGSubSurf *ss, int lvl, CCGFace **effectedF, int numEffectedF);
 
 CCGError ccgSubSurf_setSubdivisionLevels(CCGSubSurf *ss, int subdivisionLevels);
 
@@ -210,5 +215,3 @@ void ccgEdgeIterator_next(CCGEdgeIterator *ei);
 CCGFace *ccgFaceIterator_getCurrent(CCGFaceIterator *fi);
 int ccgFaceIterator_isStopped(CCGFaceIterator *fi);
 void ccgFaceIterator_next(CCGFaceIterator *fi);
-
-#endif /* __CCGSUBSURF_H__ */

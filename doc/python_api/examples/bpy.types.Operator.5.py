@@ -56,7 +56,14 @@ class ModalOperator(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
+# Only needed if you want to add into a dynamic menu.
+def menu_func(self, context):
+    self.layout.operator(ModalOperator.bl_idname, text="Modal Operator")
+
+
+# Register and add to the object menu (required to also use F3 search "Modal Operator" for quick access).
 bpy.utils.register_class(ModalOperator)
+bpy.types.VIEW3D_MT_object.append(menu_func)
 
 # test call
 bpy.ops.object.modal_operator('INVOKE_DEFAULT')

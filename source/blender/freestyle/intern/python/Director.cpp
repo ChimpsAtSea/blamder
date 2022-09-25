@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -55,6 +41,8 @@
 #include "UnaryFunction1D/BPy_UnaryFunction1DVec2f.h"
 #include "UnaryFunction1D/BPy_UnaryFunction1DVec3f.h"
 #include "UnaryFunction1D/BPy_UnaryFunction1DVectorViewShape.h"
+
+using namespace Freestyle;
 
 // BinaryPredicate0D: __call__
 int Director_BPy_BinaryPredicate0D___call__(BinaryPredicate0D *bp0D,
@@ -195,7 +183,7 @@ int Director_BPy_ChainingIterator_init(ChainingIterator *c_it)
     PyErr_SetString(PyExc_RuntimeError, "Reference to Python object (py_c_it) not initialized");
     return -1;
   }
-  PyObject *result = PyObject_CallMethod((PyObject *)c_it->py_c_it, "init", NULL);
+  PyObject *result = PyObject_CallMethod((PyObject *)c_it->py_c_it, "init", nullptr);
   if (!result) {
     return -1;
   }
@@ -222,7 +210,7 @@ int Director_BPy_ChainingIterator_traverse(ChainingIterator *c_it, AdjacencyIter
     c_it->result = ((BPy_ViewEdge *)result)->ve;
   }
   else if (result == Py_None) {
-    c_it->result = NULL;
+    c_it->result = nullptr;
   }
   else {
     PyErr_SetString(PyExc_RuntimeError, "traverse method returned a wrong value");

@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8-80 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # This file defines a set of methods that are useful for various
 # Relative Keying Set (RKS) related operations, such as: callbacks
@@ -218,6 +200,44 @@ def RKS_GEN_scaling(_ksi, _context, ks, data):
         ks.paths.add(id_block, path, group_method='NAMED', group_name=grouping)
     else:
         ks.paths.add(id_block, path)
+
+
+# Custom Properties
+def RKS_GEN_custom_props(_ksi, _context, ks, data):
+    # get id-block and path info
+    id_block, base_path, grouping = get_transform_generators_base_info(data)
+
+    # Only some RNA types can be animated.
+    prop_type_compat = {bpy.types.BoolProperty,
+                        bpy.types.IntProperty,
+                        bpy.types.FloatProperty}
+
+    # When working with a pose, 'id_block' is the armature object (which should
+    # get the animation data), whereas 'data' is the bone being keyed.
+    for cprop_name in data.keys():
+        # ignore special "_RNA_UI" used for UI editing
+        if cprop_name == "_RNA_UI":
+            continue
+
+        prop_path = '["%s"]' % bpy.utils.escape_identifier(cprop_name)
+
+        try:
+            rna_property = data.path_resolve(prop_path, False)
+        except ValueError:
+            # Can technically happen, but there is no known case.
+            continue
+        if rna_property is None:
+            # In this case the property cannot be converted to an
+            # FCurve-compatible value, so we can't keyframe it anyways.
+            continue
+        if rna_property.rna_type not in prop_type_compat:
+            continue
+
+        path = "%s%s" % (base_path, prop_path)
+        if grouping:
+            ks.paths.add(id_block, path, group_method='NAMED', group_name=grouping)
+        else:
+            ks.paths.add(id_block, path)
 
 # ------
 

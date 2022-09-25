@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 1999 - 2002 David Hodson <hodsond@acm.org>
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 1999-2002 David Hodson <hodsond@acm.org>. */
 
 /** \file
  * \ingroup imbcineon
@@ -123,23 +108,23 @@ static void fillDpxMainHeader(LogImageFile *dpx,
   header->televisionHeader.field_number = DPX_UNDEFINED_U8;
   header->televisionHeader.video_signal = DPX_UNDEFINED_U8;
   header->televisionHeader.padding = DPX_UNDEFINED_U8;
-  header->televisionHeader.horizontal_sample_rate = DPX_UNDEFINED_R32;
-  header->televisionHeader.vertical_sample_rate = DPX_UNDEFINED_R32;
-  header->televisionHeader.frame_rate = DPX_UNDEFINED_R32;
-  header->televisionHeader.time_offset = DPX_UNDEFINED_R32;
+  header->televisionHeader.horizontal_sample_rate = swap_float(DPX_UNDEFINED_R32, dpx->isMSB);
+  header->televisionHeader.vertical_sample_rate = swap_float(DPX_UNDEFINED_R32, dpx->isMSB);
+  header->televisionHeader.frame_rate = swap_float(DPX_UNDEFINED_R32, dpx->isMSB);
+  header->televisionHeader.time_offset = swap_float(DPX_UNDEFINED_R32, dpx->isMSB);
   header->televisionHeader.gamma = swap_float(dpx->gamma, dpx->isMSB);
   header->televisionHeader.black_level = swap_float(dpx->referenceBlack, dpx->isMSB);
-  header->televisionHeader.black_gain = DPX_UNDEFINED_R32;
-  header->televisionHeader.breakpoint = DPX_UNDEFINED_R32;
+  header->televisionHeader.black_gain = swap_float(DPX_UNDEFINED_R32, dpx->isMSB);
+  header->televisionHeader.breakpoint = swap_float(DPX_UNDEFINED_R32, dpx->isMSB);
   header->televisionHeader.white_level = swap_float(dpx->referenceWhite, dpx->isMSB);
-  header->televisionHeader.integration_times = DPX_UNDEFINED_R32;
+  header->televisionHeader.integration_times = swap_float(DPX_UNDEFINED_R32, dpx->isMSB);
 }
 
 LogImageFile *dpxOpen(const unsigned char *byteStuff, int fromMemory, size_t bufferSize)
 {
   DpxMainHeader header;
   LogImageFile *dpx = (LogImageFile *)MEM_mallocN(sizeof(LogImageFile), __func__);
-  const char *filename = (const char *)byteStuff;
+  const char *filepath = (const char *)byteStuff;
   int i;
 
   if (dpx == NULL) {
@@ -156,11 +141,11 @@ LogImageFile *dpxOpen(const unsigned char *byteStuff, int fromMemory, size_t buf
   dpx->file = NULL;
 
   if (fromMemory == 0) {
-    /* byteStuff is then the filename */
-    dpx->file = BLI_fopen(filename, "rb");
+    /* byteStuff is then the filepath */
+    dpx->file = BLI_fopen(filepath, "rb");
     if (dpx->file == NULL) {
       if (verbose) {
-        printf("DPX: Failed to open file \"%s\".\n", filename);
+        printf("DPX: Failed to open file \"%s\".\n", filepath);
       }
       logImageClose(dpx);
       return NULL;
@@ -207,7 +192,7 @@ LogImageFile *dpxOpen(const unsigned char *byteStuff, int fromMemory, size_t buf
 
   dpx->srcFormat = format_DPX;
   dpx->numElements = swap_ushort(header.imageHeader.elements_per_image, dpx->isMSB);
-  size_t max_elements = sizeof(header.imageHeader.element) / sizeof(header.imageHeader.element[0]);
+  size_t max_elements = ARRAY_SIZE(header.imageHeader.element);
   if (dpx->numElements == 0 || dpx->numElements >= max_elements) {
     if (verbose) {
       printf("DPX: Wrong number of elements: %d\n", dpx->numElements);
@@ -277,9 +262,7 @@ LogImageFile *dpxOpen(const unsigned char *byteStuff, int fromMemory, size_t buf
     }
 
     dpx->element[i].bitsPerSample = header.imageHeader.element[i].bits_per_sample;
-    if (dpx->element[i].bitsPerSample != 1 && dpx->element[i].bitsPerSample != 8 &&
-        dpx->element[i].bitsPerSample != 10 && dpx->element[i].bitsPerSample != 12 &&
-        dpx->element[i].bitsPerSample != 16) {
+    if (!ELEM(dpx->element[i].bitsPerSample, 1, 8, 10, 12, 16)) {
       if (verbose) {
         printf("DPX: Unsupported bitsPerSample for elements %d: %d\n",
                i,
@@ -341,15 +324,12 @@ LogImageFile *dpxOpen(const unsigned char *byteStuff, int fromMemory, size_t buf
           dpx->element[i].refHighData = (unsigned int)dpx->element[i].maxValue;
         }
 
-        if (dpx->element[i].refLowQuantity == DPX_UNDEFINED_R32 ||
-            isnan(dpx->element[i].refLowQuantity)) {
+        if (IS_DPX_UNDEFINED_R32(dpx->element[i].refLowQuantity)) {
           dpx->element[i].refLowQuantity = 0.0f;
         }
 
-        if (dpx->element[i].refHighQuantity == DPX_UNDEFINED_R32 ||
-            isnan(dpx->element[i].refHighQuantity)) {
-          if (dpx->element[i].transfer == transfer_PrintingDensity ||
-              dpx->element[i].transfer == transfer_Logarithmic) {
+        if (IS_DPX_UNDEFINED_R32(dpx->element[i].refHighQuantity)) {
+          if (ELEM(dpx->element[i].transfer, transfer_PrintingDensity, transfer_Logarithmic)) {
             dpx->element[i].refHighQuantity = 2.048f;
           }
           else {
@@ -373,13 +353,11 @@ LogImageFile *dpxOpen(const unsigned char *byteStuff, int fromMemory, size_t buf
           dpx->element[i].refHighData = 235.0f / 255.0f * dpx->element[i].maxValue;
         }
 
-        if (dpx->element[i].refLowQuantity == DPX_UNDEFINED_R32 ||
-            isnan(dpx->element[i].refLowQuantity)) {
+        if (IS_DPX_UNDEFINED_R32(dpx->element[i].refLowQuantity)) {
           dpx->element[i].refLowQuantity = 0.0f;
         }
 
-        if (dpx->element[i].refHighQuantity == DPX_UNDEFINED_R32 ||
-            isnan(dpx->element[i].refHighQuantity)) {
+        if (IS_DPX_UNDEFINED_R32(dpx->element[i].refHighQuantity)) {
           dpx->element[i].refHighQuantity = 0.7f;
         }
 
@@ -394,10 +372,9 @@ LogImageFile *dpxOpen(const unsigned char *byteStuff, int fromMemory, size_t buf
   dpx->referenceWhite = swap_float(header.televisionHeader.white_level, dpx->isMSB);
   dpx->gamma = swap_float(header.televisionHeader.gamma, dpx->isMSB);
 
-  if ((dpx->referenceBlack == DPX_UNDEFINED_R32 || isnan(dpx->referenceBlack)) ||
-      (dpx->referenceWhite == DPX_UNDEFINED_R32 || dpx->referenceWhite <= dpx->referenceBlack ||
-       isnan(dpx->referenceWhite)) ||
-      (dpx->gamma == DPX_UNDEFINED_R32 || dpx->gamma <= 0 || isnan(dpx->gamma))) {
+  if (IS_DPX_UNDEFINED_R32(dpx->referenceBlack) ||
+      (dpx->referenceWhite <= dpx->referenceBlack || IS_DPX_UNDEFINED_R32(dpx->referenceWhite)) ||
+      (dpx->gamma <= 0 || IS_DPX_UNDEFINED_R32(dpx->gamma))) {
     dpx->referenceBlack = 95.0f / 1023.0f * dpx->element[0].maxValue;
     dpx->referenceWhite = 685.0f / 1023.0f * dpx->element[0].maxValue;
     dpx->gamma = 1.7f;
@@ -429,7 +406,7 @@ LogImageFile *dpxOpen(const unsigned char *byteStuff, int fromMemory, size_t buf
   return dpx;
 }
 
-LogImageFile *dpxCreate(const char *filename,
+LogImageFile *dpxCreate(const char *filepath,
                         int width,
                         int height,
                         int bitsPerSample,
@@ -525,19 +502,19 @@ LogImageFile *dpxCreate(const char *filename,
     dpx->gamma = 1.7f;
   }
 
-  shortFilename = strrchr(filename, '/');
+  shortFilename = strrchr(filepath, PATHSEP_CHAR);
   if (shortFilename == NULL) {
-    shortFilename = filename;
+    shortFilename = filepath;
   }
   else {
     shortFilename++;
   }
 
-  dpx->file = BLI_fopen(filename, "wb");
+  dpx->file = BLI_fopen(filepath, "wb");
 
   if (dpx->file == NULL) {
     if (verbose) {
-      printf("DPX: Couldn't open file %s\n", filename);
+      printf("DPX: Couldn't open file %s\n", filepath);
     }
     logImageClose(dpx);
     return NULL;

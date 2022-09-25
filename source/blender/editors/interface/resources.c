@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edinterface
@@ -85,7 +69,7 @@ const uchar *UI_ThemeGetColorPtr(bTheme *btheme, int spacetype, int colorid)
   ThemeSpace *ts = NULL;
   static uchar error[4] = {240, 0, 240, 255};
   static uchar alert[4] = {240, 60, 60, 255};
-  static uchar headerdesel[4] = {0, 0, 0, 255};
+  static uchar header_active[4] = {0, 0, 0, 255};
   static uchar back[4] = {0, 0, 0, 255};
   static uchar setting = 0;
   const uchar *cp = error;
@@ -159,6 +143,9 @@ const uchar *UI_ThemeGetColorPtr(bTheme *btheme, int spacetype, int colorid)
           break;
         case SPACE_STATUSBAR:
           ts = &btheme->space_statusbar;
+          break;
+        case SPACE_SPREADSHEET:
+          ts = &btheme->space_spreadsheet;
           break;
         default:
           ts = &btheme->space_view3d;
@@ -246,15 +233,18 @@ const uchar *UI_ThemeGetColorPtr(bTheme *btheme, int spacetype, int colorid)
         case TH_HEADER:
           cp = ts->header;
           break;
-        case TH_HEADERDESEL:
-          /* We calculate a dynamic builtin header deselect color, also for pull-downs. */
+
+        case TH_HEADER_ACTIVE:
           cp = ts->header;
-          headerdesel[0] = cp[0] > 10 ? cp[0] - 10 : 0;
-          headerdesel[1] = cp[1] > 10 ? cp[1] - 10 : 0;
-          headerdesel[2] = cp[2] > 10 ? cp[2] - 10 : 0;
-          headerdesel[3] = cp[3];
-          cp = headerdesel;
+          const int factor = 5;
+          /* Lighten the header color when editor is active. */
+          header_active[0] = cp[0] > 245 ? cp[0] - factor : cp[0] + factor;
+          header_active[1] = cp[1] > 245 ? cp[1] - factor : cp[1] + factor;
+          header_active[2] = cp[2] > 245 ? cp[2] - factor : cp[2] + factor;
+          header_active[3] = cp[3];
+          cp = header_active;
           break;
+
         case TH_HEADER_TEXT:
           cp = ts->header_text;
           break;
@@ -361,6 +351,9 @@ const uchar *UI_ThemeGetColorPtr(bTheme *btheme, int spacetype, int colorid)
           break;
         case TH_VERTEX_SELECT:
           cp = ts->vertex_select;
+          break;
+        case TH_VERTEX_ACTIVE:
+          cp = ts->vertex_active;
           break;
         case TH_VERTEX_BEVEL:
           cp = ts->vertex_bevel;
@@ -616,10 +609,16 @@ const uchar *UI_ThemeGetColorPtr(bTheme *btheme, int spacetype, int colorid)
         case TH_NODE_LAYOUT:
           cp = ts->nodeclass_layout;
           break;
+        case TH_NODE_GEOMETRY:
+          cp = ts->nodeclass_geometry;
+          break;
+        case TH_NODE_ATTRIBUTE:
+          cp = ts->nodeclass_attribute;
+          break;
         case TH_NODE_SHADER:
           cp = ts->nodeclass_shader;
           break;
-        case TH_NODE_CONVERTOR:
+        case TH_NODE_CONVERTER:
           cp = ts->syntaxv;
           break;
         case TH_NODE_GROUP:
@@ -774,9 +773,6 @@ const uchar *UI_ThemeGetColorPtr(bTheme *btheme, int spacetype, int colorid)
           cp = ts->metadatatext;
           break;
 
-        case TH_UV_OTHERS:
-          cp = ts->uv_others;
-          break;
         case TH_UV_SHADOW:
           cp = ts->uv_shadow;
           break;
@@ -1023,12 +1019,6 @@ const uchar *UI_ThemeGetColorPtr(bTheme *btheme, int spacetype, int colorid)
   return (const uchar *)cp;
 }
 
-/**
- * Initialize default theme.
- *
- * \note When you add new colors, created & saved themes need initialized
- * use function below, #init_userdef_do_versions.
- */
 void UI_theme_init_default(void)
 {
   /* we search for the theme with name Default */
@@ -1079,9 +1069,6 @@ bTheme *UI_GetTheme(void)
   return U.themes.first;
 }
 
-/**
- * for the rare case we need to temp swap in a different theme (offscreen render)
- */
 void UI_Theme_Store(struct bThemeState *theme_state)
 {
   *theme_state = g_theme_state;
@@ -1151,21 +1138,18 @@ void UI_FontThemeColor(int fontid, int colorid)
   BLF_color4ubv(fontid, color);
 }
 
-/* get individual values, not scaled */
 float UI_GetThemeValuef(int colorid)
 {
   const uchar *cp = UI_ThemeGetColorPtr(theme_active, theme_spacetype, colorid);
   return ((float)cp[0]);
 }
 
-/* get individual values, not scaled */
 int UI_GetThemeValue(int colorid)
 {
   const uchar *cp = UI_ThemeGetColorPtr(theme_active, theme_spacetype, colorid);
   return ((int)cp[0]);
 }
 
-/* versions of the function above, which take a space-type */
 float UI_GetThemeValueTypef(int colorid, int spacetype)
 {
   const uchar *cp = UI_ThemeGetColorPtr(theme_active, spacetype, colorid);
@@ -1178,7 +1162,6 @@ int UI_GetThemeValueType(int colorid, int spacetype)
   return ((int)cp[0]);
 }
 
-/* get the color, range 0.0-1.0 */
 void UI_GetThemeColor3fv(int colorid, float col[3])
 {
   const uchar *cp = UI_ThemeGetColorPtr(theme_active, theme_spacetype, colorid);
@@ -1205,7 +1188,6 @@ void UI_GetThemeColorType4fv(int colorid, int spacetype, float col[4])
   col[3] = ((float)cp[3]) / 255.0f;
 }
 
-/* get the color, range 0.0-1.0, complete with shading offset */
 void UI_GetThemeColorShade3fv(int colorid, int offset, float col[3])
 {
   const uchar *cp = UI_ThemeGetColorPtr(theme_active, theme_spacetype, colorid);
@@ -1249,9 +1231,9 @@ void UI_GetThemeColorBlendShade3ubv(
   CLAMP(fac, 0.0f, 1.0f);
 
   float blend[3];
-  blend[0] = offset + floorf((1.0f - fac) * cp1[0] + fac * cp2[0]);
-  blend[1] = offset + floorf((1.0f - fac) * cp1[1] + fac * cp2[1]);
-  blend[2] = offset + floorf((1.0f - fac) * cp1[2] + fac * cp2[2]);
+  blend[0] = (offset + floorf((1.0f - fac) * cp1[0] + fac * cp2[0])) / 255.0f;
+  blend[1] = (offset + floorf((1.0f - fac) * cp1[1] + fac * cp2[1])) / 255.0f;
+  blend[2] = (offset + floorf((1.0f - fac) * cp1[2] + fac * cp2[2])) / 255.0f;
 
   unit_float_to_uchar_clamp_v3(col, blend);
 }
@@ -1328,7 +1310,8 @@ void UI_GetThemeColorBlendShade4fv(int colorid1, int colorid2, float fac, int of
   CLAMP(g, 0, 255);
   b = offset + floorf((1.0f - fac) * cp1[2] + fac * cp2[2]);
   CLAMP(b, 0, 255);
-  a = offset + floorf((1.0f - fac) * cp1[3] + fac * cp2[3]);
+
+  a = floorf((1.0f - fac) * cp1[3] + fac * cp2[3]); /* No shading offset. */
   CLAMP(a, 0, 255);
 
   col[0] = ((float)r) / 255.0f;
@@ -1337,7 +1320,6 @@ void UI_GetThemeColorBlendShade4fv(int colorid1, int colorid2, float fac, int of
   col[3] = ((float)a) / 255.0f;
 }
 
-/* get the color, in char pointer */
 void UI_GetThemeColor3ubv(int colorid, uchar col[3])
 {
   const uchar *cp = UI_ThemeGetColorPtr(theme_active, theme_spacetype, colorid);
@@ -1346,7 +1328,6 @@ void UI_GetThemeColor3ubv(int colorid, uchar col[3])
   col[2] = cp[2];
 }
 
-/* get the color, range 0.0-1.0, complete with shading offset */
 void UI_GetThemeColorShade4fv(int colorid, int offset, float col[4])
 {
   const uchar *cp = UI_ThemeGetColorPtr(theme_active, theme_spacetype, colorid);
@@ -1368,7 +1349,6 @@ void UI_GetThemeColorShade4fv(int colorid, int offset, float col[4])
   col[3] = ((float)a) / 255.0f;
 }
 
-/* get the color, in char pointer */
 void UI_GetThemeColor4ubv(int colorid, uchar col[4])
 {
   const uchar *cp = UI_ThemeGetColorPtr(theme_active, theme_spacetype, colorid);
@@ -1408,7 +1388,7 @@ bool UI_GetIconThemeColor4ubv(int colorid, uchar col[4])
   if (colorid == 0) {
     return false;
   }
-  else if (colorid == TH_ICON_FUND) {
+  if (colorid == TH_ICON_FUND) {
     /* Always color development fund icon. */
   }
   else if (!((theme_spacetype == SPACE_OUTLINER && theme_regionid == RGN_TYPE_WINDOW) ||
@@ -1446,7 +1426,6 @@ void UI_GetColorPtrShade3ubv(const uchar cp[3], uchar col[3], int offset)
   col[2] = b;
 }
 
-/* get a 3 byte color, blended and shaded between two other char color pointers */
 void UI_GetColorPtrBlendShade3ubv(
     const uchar cp1[3], const uchar cp2[3], uchar col[3], float fac, int offset)
 {
@@ -1471,14 +1450,7 @@ void UI_ThemeClearColor(int colorid)
   float col[3];
 
   UI_GetThemeColor3fv(colorid, col);
-  GPU_clear_color(col[0], col[1], col[2], 0.0f);
-}
-
-void UI_ThemeClearColorAlpha(int colorid, float alpha)
-{
-  float col[3];
-  UI_GetThemeColor3fv(colorid, col);
-  GPU_clear_color(col[0], col[1], col[2], alpha);
+  GPU_clear_color(col[0], col[1], col[2], 1.0f);
 }
 
 int UI_ThemeMenuShadowWidth(void)
@@ -1508,19 +1480,4 @@ void UI_make_axis_color(const uchar src_col[3], uchar dst_col[3], const char axi
       BLI_assert(0);
       break;
   }
-}
-
-/* patching UserDef struct and Themes */
-void init_userdef_do_versions(Main *bmain)
-{
-  BLO_version_defaults_userpref_blend(bmain, &U);
-
-  if (STREQ(U.tempdir, "/")) {
-    BKE_tempdir_system_init(U.tempdir);
-  }
-
-  /* Not versioning, just avoid errors. */
-#ifndef WITH_CYCLES
-  BKE_addon_remove_safe(&U.addons, "cycles");
-#endif
 }

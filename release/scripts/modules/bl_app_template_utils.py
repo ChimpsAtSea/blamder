@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8-80 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 """
 Similar to ``addon_utils``, except we can only have one active at a time.
@@ -134,7 +116,7 @@ def _disable(template_id, *, handle_error=None):
         print("\tapp_template_utils.disable", template_id)
 
 
-def import_from_path(path, ignore_not_found=False):
+def import_from_path(path, *, ignore_not_found=False):
     import os
     from importlib import import_module
     base_module, template_id = path.rsplit(os.sep, 2)[-2:]
@@ -148,9 +130,9 @@ def import_from_path(path, ignore_not_found=False):
         raise ex
 
 
-def import_from_id(template_id, ignore_not_found=False):
+def import_from_id(template_id, *, ignore_not_found=False):
     import os
-    path = next(iter(_bpy.utils.app_template_paths(template_id)), None)
+    path = next(iter(_bpy.utils.app_template_paths(path=template_id)), None)
     if path is None:
         if ignore_not_found:
             return None
@@ -163,12 +145,12 @@ def import_from_id(template_id, ignore_not_found=False):
         return import_from_path(path, ignore_not_found=ignore_not_found)
 
 
-def activate(template_id=None):
+def activate(*, template_id=None, reload_scripts=False):
     template_id_prev = _app_template["id"]
 
     # not needed but may as well avoids redundant
     # disable/enable for all add-ons on 'File -> New'
-    if template_id_prev == template_id:
+    if not reload_scripts and template_id_prev == template_id:
         return
 
     if template_id_prev:
@@ -188,6 +170,4 @@ def reset(*, reload_scripts=False):
     if _bpy.app.debug_python:
         print("bl_app_template_utils.reset('%s')" % template_id)
 
-    # TODO reload_scripts
-
-    activate(template_id)
+    activate(template_id=template_id, reload_scripts=reload_scripts)

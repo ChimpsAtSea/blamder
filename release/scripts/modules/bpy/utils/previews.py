@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 """
 This module contains utility functions to handle custom previews.
@@ -65,6 +47,10 @@ class ImagePreviewCollection(dict):
 
     # Internal notes:
     # - Blender's internal 'PreviewImage' struct uses 'self._uuid' prefix.
+    # - Blender's preview.new/load return the data if it exists,
+    #   don't do this for the Python API as it allows accidental re-use of names,
+    #   anyone who wants to reuse names can use dict.get() to check if it exists.
+    #   We could use this for the C API too (would need some investigation).
 
     def __init__(self):
         super().__init__()
@@ -76,8 +62,7 @@ class ImagePreviewCollection(dict):
             return
 
         raise ResourceWarning(
-            f"{self!r}: left open, remove with "
-            "'bpy.utils.previews.remove()'"
+            "%r: left open, remove with 'bpy.utils.previews.remove()'" % self
         )
         self.close()
 
@@ -86,7 +71,7 @@ class ImagePreviewCollection(dict):
 
     def new(self, name):
         if name in self:
-            raise KeyError(f"key {name!r} already exists")
+            raise KeyError("key %r already exists" % name)
         p = self[name] = _utils_previews.new(
             self._gen_key(name))
         return p
@@ -94,7 +79,7 @@ class ImagePreviewCollection(dict):
 
     def load(self, name, path, path_type, force_reload=False):
         if name in self:
-            raise KeyError(f"key {name!r} already exists")
+            raise KeyError("key %r already exists" % name)
         p = self[name] = _utils_previews.load(
             self._gen_key(name), path, path_type, force_reload)
         return p
@@ -116,7 +101,9 @@ class ImagePreviewCollection(dict):
         super().__delitem__(key)
 
     def __repr__(self):
-        return f"<{self.__class__.__name__:s} id={self._uuid:s}[{len(self):d}], {super()!r}>"
+        return "<%s id=%s[%d], %r>" % (
+            self.__class__.__name__, self._uuid, len(self), super()
+        )
 
 
 def new():

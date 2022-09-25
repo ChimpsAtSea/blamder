@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import bpy
 
@@ -80,7 +62,13 @@ def graph_armature(obj, filepath, FAKE_PARENT=True, CONSTRAINTS=True, DRIVERS=Tr
 
             label.append("%s = %s" % (key, value))
 
-        opts = ["shape=box", "regular=1", "style=filled", "fixedsize=false", 'label="%s"' % compat_str('\n'.join(label))]
+        opts = [
+            "shape=box",
+            "regular=1",
+            "style=filled",
+            "fixedsize=false",
+            'label="%s"' % compat_str('\n'.join(label)),
+        ]
 
         if bone.name.startswith('ORG'):
             opts.append("fillcolor=yellow")
@@ -125,7 +113,15 @@ def graph_armature(obj, filepath, FAKE_PARENT=True, CONSTRAINTS=True, DRIVERS=Tr
                 subtarget = getattr(constraint, "subtarget", "")
                 if subtarget:
                     # TODO, not internal links
-                    opts = ['dir=forward', "weight=1", "arrowhead=normal", "arrowtail=none", "constraint=false", 'color="red"', 'labelfontsize=4']
+                    opts = [
+                        'dir=forward',
+                        "weight=1",
+                        "arrowhead=normal",
+                        "arrowtail=none",
+                        "constraint=false",
+                        'color="red"',
+                        'labelfontsize=4',
+                    ]
                     if XTRA_INFO:
                         label = "%s\n%s" % (constraint.type, constraint.name)
                         opts.append('label="%s"' % compat_str(label))
@@ -160,7 +156,15 @@ def graph_armature(obj, filepath, FAKE_PARENT=True, CONSTRAINTS=True, DRIVERS=Tr
                             pbone_target = rna_path_as_pbone(target.data_path)
                             rna_path_target = target.data_path
                             if pbone_target:
-                                opts = ['dir=forward', "weight=1", "arrowhead=normal", "arrowtail=none", "constraint=false", 'color="blue"', "labelfontsize=4"]
+                                opts = [
+                                    'dir=forward',
+                                    "weight=1",
+                                    "arrowhead=normal",
+                                    "arrowtail=none",
+                                    "constraint=false",
+                                    'color="blue"',
+                                    "labelfontsize=4",
+                                ]
                                 display_source = rna_path.replace("pose.bones", "")
                                 display_target = rna_path_target.replace("pose.bones", "")
                                 if XTRA_INFO:

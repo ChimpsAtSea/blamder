@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spseq
  */
 
-#ifndef __SEQUENCER_INTERN_H__
-#define __SEQUENCER_INTERN_H__
+#pragma once
 
 #include "DNA_sequence_types.h"
 #include "RNA_access.h"
@@ -34,43 +17,105 @@ struct ARegionType;
 struct Depsgraph;
 struct Main;
 struct Scene;
+struct SeqCollection;
 struct Sequence;
 struct SpaceSeq;
 struct StripElem;
+struct View2D;
 struct bContext;
 struct rctf;
 struct wmOperator;
+struct ScrArea;
+struct Editing;
+struct ListBase;
+
+#define DEFAULT_IMG_STRIP_LENGTH 25 /* XXX arbitrary but ok for now. */
+#define OVERLAP_ALPHA 180
+
+typedef struct SeqChannelDrawContext {
+  const struct bContext *C;
+  struct ScrArea *area;
+  struct ARegion *region;
+  struct ARegion *timeline_region;
+  struct View2D *v2d;
+  struct View2D *timeline_region_v2d;
+
+  struct Scene *scene;
+  struct Editing *ed;
+  struct ListBase *seqbase;  /* Displayed seqbase. */
+  struct ListBase *channels; /* Displayed channels. */
+
+  float draw_offset;
+  float channel_height;
+  float frame_width;
+  float scale;
+} SeqChannelDrawContext;
 
 /* sequencer_draw.c */
+
 void draw_timeline_seq(const struct bContext *C, struct ARegion *region);
+void draw_timeline_seq_display(const struct bContext *C, struct ARegion *region);
 void sequencer_draw_preview(const struct bContext *C,
                             struct Scene *scene,
                             struct ARegion *region,
                             struct SpaceSeq *sseq,
-                            int cfra,
+                            int timeline_frame,
                             int offset,
                             bool draw_overlay,
                             bool draw_backdrop);
-void color3ubv_from_seq(struct Scene *curscene, struct Sequence *seq, unsigned char col[3]);
+void color3ubv_from_seq(const struct Scene *curscene,
+                        const struct Sequence *seq,
+                        bool show_strip_color_tag,
+                        uchar r_col[3]);
 
 void sequencer_special_update_set(Sequence *seq);
-float sequence_handle_size_get_clamped(struct Sequence *seq, const float pixelx);
+/* Get handle width in 2d-View space. */
+float sequence_handle_size_get_clamped(const struct Scene *scene,
+                                       struct Sequence *seq,
+                                       float pixelx);
 
 /* UNUSED */
 /* void seq_reset_imageofs(struct SpaceSeq *sseq); */
 
+/**
+ * Rendering using opengl will change the current viewport/context.
+ * This is why we need the \a region, to set back the render area.
+ *
+ * TODO: do not rely on such hack and just update the \a ibuf outside of
+ * the UI drawing code.
+ */
 struct ImBuf *sequencer_ibuf_get(struct Main *bmain,
+                                 struct ARegion *region,
                                  struct Depsgraph *depsgraph,
                                  struct Scene *scene,
                                  struct SpaceSeq *sseq,
-                                 int cfra,
+                                 int timeline_frame,
                                  int frame_ofs,
                                  const char *viewname);
 
+/* sequencer_thumbnails.c */
+
+void last_displayed_thumbnails_list_free(void *val);
+void draw_seq_strip_thumbnail(struct View2D *v2d,
+                              const struct bContext *C,
+                              struct Scene *scene,
+                              struct Sequence *seq,
+                              float y1,
+                              float y2,
+                              float pixelx,
+                              float pixely);
+
+/* sequencer_draw_channels.c */
+
+void draw_channels(const struct bContext *C, struct ARegion *region);
+void channel_draw_context_init(const struct bContext *C,
+                               struct ARegion *region,
+                               struct SeqChannelDrawContext *r_context);
+
 /* sequencer_edit.c */
+
 struct View2D;
-void seq_rectf(struct Sequence *seq, struct rctf *rectf);
-void boundbox_seq(struct Scene *scene, struct rctf *rect);
+void seq_rectf(const struct Scene *scene, struct Sequence *seq, struct rctf *rectf);
 struct Sequence *find_nearest_seq(struct Scene *scene,
                                   struct View2D *v2d,
                                   int *hand,
@@ -79,7 +124,7 @@ struct Sequence *find_neighboring_sequence(struct Scene *scene,
                                            struct Sequence *test,
                                            int lr,
                                            int sel);
-void recurs_sel_seq(struct Sequence *seqm);
+void recurs_sel_seq(struct Sequence *seq_meta);
 int seq_effect_find_selected(struct Scene *scene,
                              struct Sequence *activeseq,
                              int type,
@@ -90,11 +135,32 @@ int seq_effect_find_selected(struct Scene *scene,
 
 /* Operator helpers. */
 bool sequencer_edit_poll(struct bContext *C);
+bool sequencer_editing_initialized_and_active(struct bContext *C);
 /* UNUSED */
 /* bool sequencer_strip_poll(struct bContext *C); */
 bool sequencer_strip_has_path_poll(struct bContext *C);
-bool sequencer_view_preview_poll(struct bContext *C);
+bool sequencer_view_has_preview_poll(struct bContext *C);
+bool sequencer_view_preview_only_poll(const struct bContext *C);
 bool sequencer_view_strips_poll(struct bContext *C);
+
+/**
+ * Returns collection with all strips presented to user. If operation is done in preview,
+ * collection is limited to all presented strips that can produce image output.
+ *
+ * \param C: context
+ * \return collection of strips (`Sequence`)
+ */
+struct SeqCollection *all_strips_from_context(struct bContext *C);
+
+/**
+ * Returns collection with selected strips presented to user. If operation is done in preview,
+ * collection is limited to selected presented strips, that can produce image output at current
+ * frame.
+ *
+ * \param C: context
+ * \return collection of strips (`Sequence`)
+ */
+struct SeqCollection *selected_strips_from_context(struct bContext *C);
 
 /* Externs. */
 extern EnumPropertyItem sequencer_prop_effect_types[];
@@ -131,16 +197,10 @@ void SEQUENCER_OT_swap(struct wmOperatorType *ot);
 void SEQUENCER_OT_swap_data(struct wmOperatorType *ot);
 void SEQUENCER_OT_rendersize(struct wmOperatorType *ot);
 
-void SEQUENCER_OT_view_toggle(struct wmOperatorType *ot);
-void SEQUENCER_OT_view_all(struct wmOperatorType *ot);
-void SEQUENCER_OT_view_selected(struct wmOperatorType *ot);
-void SEQUENCER_OT_view_frame(struct wmOperatorType *ot);
-void SEQUENCER_OT_view_zoom_ratio(struct wmOperatorType *ot);
-void SEQUENCER_OT_view_ghost_border(struct wmOperatorType *ot);
-
 void SEQUENCER_OT_change_effect_input(struct wmOperatorType *ot);
 void SEQUENCER_OT_change_effect_type(struct wmOperatorType *ot);
 void SEQUENCER_OT_change_path(struct wmOperatorType *ot);
+void SEQUENCER_OT_change_scene(struct wmOperatorType *ot);
 
 void SEQUENCER_OT_copy(struct wmOperatorType *ot);
 void SEQUENCER_OT_paste(struct wmOperatorType *ot);
@@ -151,11 +211,14 @@ void SEQUENCER_OT_enable_proxies(struct wmOperatorType *ot);
 void SEQUENCER_OT_export_subtitles(struct wmOperatorType *ot);
 
 void SEQUENCER_OT_set_range_to_strips(struct wmOperatorType *ot);
+void SEQUENCER_OT_strip_transform_clear(struct wmOperatorType *ot);
+void SEQUENCER_OT_strip_transform_fit(struct wmOperatorType *ot);
 
-/* Preview specific operators. */
-void SEQUENCER_OT_view_all_preview(struct wmOperatorType *ot);
+void SEQUENCER_OT_strip_color_tag_set(struct wmOperatorType *ot);
+void SEQUENCER_OT_cursor_set(struct wmOperatorType *ot);
 
 /* sequencer_select.c */
+
 void SEQUENCER_OT_select_all(struct wmOperatorType *ot);
 void SEQUENCER_OT_select(struct wmOperatorType *ot);
 void SEQUENCER_OT_select_side_of_frame(struct wmOperatorType *ot);
@@ -169,8 +232,10 @@ void SEQUENCER_OT_select_box(struct wmOperatorType *ot);
 void SEQUENCER_OT_select_inverse(struct wmOperatorType *ot);
 void SEQUENCER_OT_select_grouped(struct wmOperatorType *ot);
 
-/* sequencer_select.c */
+/* sequencer_add.c */
+
 void SEQUENCER_OT_scene_strip_add(struct wmOperatorType *ot);
+void SEQUENCER_OT_scene_strip_add_new(struct wmOperatorType *ot);
 void SEQUENCER_OT_movie_strip_add(struct wmOperatorType *ot);
 void SEQUENCER_OT_movieclip_strip_add(struct wmOperatorType *ot);
 void SEQUENCER_OT_mask_strip_add(struct wmOperatorType *ot);
@@ -178,16 +243,17 @@ void SEQUENCER_OT_sound_strip_add(struct wmOperatorType *ot);
 void SEQUENCER_OT_image_strip_add(struct wmOperatorType *ot);
 void SEQUENCER_OT_effect_strip_add(struct wmOperatorType *ot);
 
-enum {
-  SEQ_SPLIT_SOFT,
-  SEQ_SPLIT_HARD,
-};
+/* sequencer_drag_drop.c */
+
+void sequencer_dropboxes(void);
 
 /* sequencer_ops.c */
+
 void sequencer_operatortypes(void);
 void sequencer_keymap(struct wmKeyConfig *keyconf);
 
 /* sequencer_scope.c */
+
 struct ImBuf *make_waveform_view_from_ibuf(struct ImBuf *ibuf);
 struct ImBuf *make_sep_waveform_view_from_ibuf(struct ImBuf *ibuf);
 struct ImBuf *make_vectorscope_view_from_ibuf(struct ImBuf *ibuf);
@@ -195,26 +261,39 @@ struct ImBuf *make_zebra_view_from_ibuf(struct ImBuf *ibuf, float perc);
 struct ImBuf *make_histogram_view_from_ibuf(struct ImBuf *ibuf);
 
 /* sequencer_buttons.c */
+
 void sequencer_buttons_register(struct ARegionType *art);
 
 /* sequencer_modifiers.c */
+
 void SEQUENCER_OT_strip_modifier_add(struct wmOperatorType *ot);
 void SEQUENCER_OT_strip_modifier_remove(struct wmOperatorType *ot);
 void SEQUENCER_OT_strip_modifier_move(struct wmOperatorType *ot);
 void SEQUENCER_OT_strip_modifier_copy(struct wmOperatorType *ot);
 
 /* sequencer_view.c */
+
 void SEQUENCER_OT_sample(struct wmOperatorType *ot);
+void SEQUENCER_OT_view_all(struct wmOperatorType *ot);
+void SEQUENCER_OT_view_frame(struct wmOperatorType *ot);
+void SEQUENCER_OT_view_all_preview(struct wmOperatorType *ot);
+void SEQUENCER_OT_view_zoom_ratio(struct wmOperatorType *ot);
+void SEQUENCER_OT_view_selected(struct wmOperatorType *ot);
+void SEQUENCER_OT_view_ghost_border(struct wmOperatorType *ot);
+
+/* sequencer_channels_edit.c */
+
+void SEQUENCER_OT_rename_channel(struct wmOperatorType *ot);
 
 /* sequencer_preview.c */
+
 void sequencer_preview_add_sound(const struct bContext *C, struct Sequence *seq);
 
 /* sequencer_add.c */
+
 int sequencer_image_seq_get_minmax_frame(struct wmOperator *op,
                                          int sfra,
                                          int *r_minframe,
                                          int *r_numdigits);
 void sequencer_image_seq_reserve_frames(
     struct wmOperator *op, struct StripElem *se, int len, int minframe, int numdigits);
-
-#endif /* __SEQUENCER_INTERN_H__ */

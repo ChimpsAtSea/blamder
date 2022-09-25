@@ -1,19 +1,4 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 set(INC
   ../include
@@ -21,40 +6,42 @@ set(INC
   ../../blenkernel
   ../../blenlib
   ../../blentranslation
+  ../../compositor
   ../../depsgraph
+  ../../draw
+  ../../functions
   ../../gpu
   ../../imbuf
   ../../makesdna
   ../../makesrna
   ../../nodes
-  ../../render/extern/include
-  ../../compositor
+  ../../render
   ../../windowmanager
   ../../../../intern/glew-mx
   ../../../../intern/guardedalloc
+  # RNA_prototypes.h
+  ${CMAKE_BINARY_DIR}/source/blender/makesrna
 )
 
-set(INC_SYS
-  ${GLEW_INCLUDE_PATH}
-)
 
 set(SRC
-  drawnode.c
-  node_add.c
-  node_buttons.c
-  node_draw.c
-  node_edit.c
-  node_gizmo.c
-  node_group.c
-  node_ops.c
-  node_relationships.c
-  node_select.c
-  node_templates.c
-  node_toolbar.c
-  node_view.c
-  space_node.c
+  drawnode.cc
+  link_drag_search.cc
+  node_add.cc
+  node_context_path.cc
+  node_draw.cc
+  node_edit.cc
+  node_geometry_attribute_search.cc
+  node_gizmo.cc
+  node_group.cc
+  node_ops.cc
+  node_relationships.cc
+  node_select.cc
+  node_templates.cc
+  node_view.cc
+  space_node.cc
 
-  node_intern.h
+  node_intern.hh
 )
 
 set(LIB
@@ -62,10 +49,6 @@ set(LIB
   bf_blenlib
   bf_editor_screen
 )
-
-if(WITH_INTERNATIONAL)
-  add_definitions(-DWITH_INTERNATIONAL)
-endif()
 
 if(WITH_COMPOSITOR)
   add_definitions(-DWITH_COMPOSITOR)
@@ -75,10 +58,27 @@ if(WITH_OPENIMAGEDENOISE)
   add_definitions(-DWITH_OPENIMAGEDENOISE)
 endif()
 
-if (WITH_NEW_SIMULATION_TYPE)
-  add_definitions(-DWITH_NEW_SIMULATION_TYPE)
+if(WITH_OPENSUBDIV)
+  add_definitions(-DWITH_OPENSUBDIV)
 endif()
 
-add_definitions(${GL_DEFINITIONS})
+if(WITH_TBB)
+  add_definitions(-DWITH_TBB)
+  if(WIN32)
+    # TBB includes Windows.h which will define min/max macros
+    # that will collide with the stl versions.
+    add_definitions(-DNOMINMAX)
+  endif()
+  list(APPEND INC_SYS
+    ${TBB_INCLUDE_DIRS}
+  )
+
+  list(APPEND LIB
+    ${TBB_LIBRARIES}
+  )
+endif()
 
 blender_add_lib(bf_editor_space_node "${SRC}" "${INC}" "${INC_SYS}" "${LIB}")
+
+# RNA_prototypes.h
+add_dependencies(bf_editor_space_node bf_rna)

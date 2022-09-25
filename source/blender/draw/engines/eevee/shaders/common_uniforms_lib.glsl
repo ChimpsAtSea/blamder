@@ -2,8 +2,7 @@
 layout(std140) uniform common_block
 {
   mat4 pastViewProjectionMatrix;
-  vec4 viewVecs[2];
-  vec2 mipRatio[10]; /* To correct mip level texel misalignment */
+  vec4 hizUvScale; /* To correct mip level texel misalignment */
   /* Ambient Occlusion */
   vec4 aoParameters[2];
   /* Volumetric */
@@ -13,9 +12,9 @@ layout(std140) uniform common_block
   vec4 volJitter;
   vec4 volCoordScale; /* To convert volume uvs to screen uvs */
   float volHistoryAlpha;
-  float volLightClamp;
   float volShadowSteps;
   bool volUseLights;
+  bool volUseSoftShadows;
   /* Screen Space Reflections */
   vec4 ssrParameters;
   float ssrBorderFac;
@@ -38,15 +37,15 @@ layout(std140) uniform common_block
   int prbIrradianceVisSize;
   float prbIrradianceSmooth;
   float prbLodCubeMax;
-  float prbLodPlanarMax;
-  /* Misc*/
-  int hizMipOffset;
+  /* Misc */
   int rayType;
   float rayDepth;
   float alphaHashOffset;
   float alphaHashScale;
+  float pad6;
   float pad7;
   float pad8;
+  float pad9;
 };
 
 /* rayType (keep in sync with ray_type) */
@@ -70,3 +69,5 @@ layout(std140) uniform common_block
 #define ssrQuality ssrParameters.x
 #define ssrThickness ssrParameters.y
 #define ssrPixelSize ssrParameters.zw
+
+#define ssrUvScale hizUvScale.zw

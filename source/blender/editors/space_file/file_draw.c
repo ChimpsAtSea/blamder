@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spfile
@@ -25,6 +9,9 @@
 #include <math.h>
 #include <string.h>
 
+#include "MEM_guardedalloc.h"
+
+#include "BLI_alloca.h"
 #include "BLI_blenlib.h"
 #include "BLI_fileops_types.h"
 #include "BLI_math.h"
@@ -51,6 +38,7 @@
 #include "DNA_windowmanager_types.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "ED_fileselect.h"
 #include "ED_screen.h"
@@ -69,7 +57,7 @@
 
 #include "filelist.h"
 
-#include "file_intern.h"  // own include
+#include "file_intern.h" /* own include */
 
 void ED_file_path_button(bScreen *screen,
                          const SpaceFile *sfile,
@@ -78,6 +66,9 @@ void ED_file_path_button(bScreen *screen,
 {
   PointerRNA params_rna_ptr;
   uiBut *but;
+
+  BLI_assert_msg(params != NULL,
+                 "File select parameters not set. The caller is expected to check this.");
 
   RNA_pointer_create(&screen->id, &RNA_FileSelectParams, params, &params_rna_ptr);
 
@@ -107,7 +98,7 @@ void ED_file_path_button(bScreen *screen,
   UI_but_func_complete_set(but, autocomplete_directory, NULL);
   UI_but_funcN_set(but, file_directory_enter_handle, NULL, but);
 
-  /* TODO, directory editing is non-functional while a library is loaded
+  /* TODO: directory editing is non-functional while a library is loaded
    * until this is properly supported just disable it. */
   if (sfile && sfile->files && filelist_lib(sfile->files)) {
     UI_but_flag_enable(but, UI_BUT_DISABLED);
@@ -124,19 +115,22 @@ static char *file_draw_tooltip_func(bContext *UNUSED(C), void *argN, const char 
   return BLI_strdup(dyn_tooltip);
 }
 
-static void draw_tile(int sx, int sy, int width, int height, int colorid, int shade)
+static void draw_tile_background(const rcti *draw_rect, int colorid, int shade)
 {
   float color[4];
+  rctf draw_rect_fl;
+  BLI_rctf_rcti_copy(&draw_rect_fl, draw_rect);
+
   UI_GetThemeColorShade4fv(colorid, shade, color);
   UI_draw_roundbox_corner_set(UI_CNR_ALL);
-  UI_draw_roundbox_aa(
-      true, (float)sx, (float)(sy - height), (float)(sx + width), (float)sy, 5.0f, color);
+  UI_draw_roundbox_aa(&draw_rect_fl, true, 5.0f, color);
 }
 
-static void file_draw_icon(uiBlock *block,
+static void file_draw_icon(const SpaceFile *sfile,
+                           uiBlock *block,
+                           const FileDirEntry *file,
                            const char *path,
-                           int sx,
-                           int sy,
+                           const rcti *tile_draw_rect,
                            int icon,
                            int width,
                            int height,
@@ -144,21 +138,50 @@ static void file_draw_icon(uiBlock *block,
                            bool dimmed)
 {
   uiBut *but;
-  int x, y;
 
-  x = sx;
-  y = sy - height;
+  const int x = tile_draw_rect->xmin;
+  const int y = tile_draw_rect->ymax - sfile->layout->tile_border_y - height;
 
   /* For uiDefIconBut(), if a1==1.0 then a2 is alpha 0.0 - 1.0 */
   const float a1 = dimmed ? 1.0f : 0.0f;
   const float a2 = dimmed ? 0.3f : 0.0f;
   but = uiDefIconBut(
       block, UI_BTYPE_LABEL, 0, icon, x, y, width, height, NULL, 0.0f, 0.0f, a1, a2, NULL);
-  UI_but_func_tooltip_set(but, file_draw_tooltip_func, BLI_strdup(path));
+  UI_but_func_tooltip_set(but, file_draw_tooltip_func, BLI_strdup(path), MEM_freeN);
 
   if (drag) {
-    /* path is no more static, cannot give it directly to but... */
-    UI_but_drag_set_path(but, BLI_strdup(path), true);
+    /* TODO: duplicated from file_draw_preview(). */
+    ID *id;
+
+    if ((id = filelist_file_get_id(file))) {
+      UI_but_drag_set_id(but, id);
+      ImBuf *preview_image = filelist_file_getimage(file);
+      if (preview_image) {
+        UI_but_drag_attach_image(but, preview_image, UI_DPI_FAC);
+      }
+    }
+    else if (sfile->browse_mode == FILE_BROWSE_MODE_ASSETS &&
+             (file->typeflag & FILE_TYPE_ASSET) != 0) {
+      ImBuf *preview_image = filelist_file_getimage(file);
+      char blend_path[FILE_MAX_LIBEXTRA];
+      if (BLO_library_path_explode(path, blend_path, NULL, NULL)) {
+        const FileAssetSelectParams *asset_params = ED_fileselect_get_asset_params(sfile);
+        BLI_assert(asset_params != NULL);
+
+        UI_but_drag_set_asset(but,
+                              &(AssetHandle){.file_data = file},
+                              BLI_strdup(blend_path),
+                              file->asset_data,
+                              asset_params->import_type,
+                              icon,
+                              preview_image,
+                              UI_DPI_FAC);
+      }
+    }
+    else {
+      /* path is no more static, cannot give it directly to but... */
+      UI_but_drag_set_path(but, BLI_strdup(path), true);
+    }
   }
 }
 
@@ -179,7 +202,7 @@ static void file_draw_string(int sx,
   }
 
   const uiStyle *style = UI_style_get();
-  fs = style->widgetlabel;
+  fs = style->widget;
 
   BLI_strncpy(fname, string, FILE_MAXFILE);
   UI_text_clip_middle_ex(&fs, fname, width, UI_DPI_ICON_SIZE, sizeof(fname), '\0');
@@ -194,10 +217,71 @@ static void file_draw_string(int sx,
   UI_fontstyle_draw(&fs,
                     &rect,
                     fname,
+                    sizeof(fname),
                     col,
                     &(struct uiFontStyleDraw_Params){
                         .align = align,
                     });
+}
+
+/**
+ * \param r_sx, r_sy: The lower right corner of the last line drawn, plus the height of the last
+ *                    line. This is the cursor position on completion to allow drawing more text
+ *                    behind that.
+ */
+static void file_draw_string_multiline(int sx,
+                                       int sy,
+                                       const char *string,
+                                       int wrap_width,
+                                       int line_height,
+                                       const uchar text_col[4],
+                                       int *r_sx,
+                                       int *r_sy)
+{
+  rcti rect;
+
+  if (string[0] == '\0' || wrap_width < 1) {
+    return;
+  }
+
+  const uiStyle *style = UI_style_get();
+  int font_id = style->widget.uifont_id;
+  int len = strlen(string);
+
+  rcti textbox;
+  BLF_wordwrap(font_id, wrap_width);
+  BLF_enable(font_id, BLF_WORD_WRAP);
+  BLF_boundbox(font_id, string, len, &textbox);
+  BLF_disable(font_id, BLF_WORD_WRAP);
+
+  /* no text clipping needed, UI_fontstyle_draw does it but is a bit too strict
+   * (for buttons it works) */
+  rect.xmin = sx;
+  rect.xmax = sx + wrap_width;
+  /* Need to increase the clipping rect by one more line, since the #UI_fontstyle_draw_ex() will
+   * actually start drawing at (ymax - line-height). */
+  rect.ymin = sy - BLI_rcti_size_y(&textbox) - line_height;
+  rect.ymax = sy;
+
+  struct ResultBLF result;
+  UI_fontstyle_draw_ex(&style->widget,
+                       &rect,
+                       string,
+                       len,
+                       text_col,
+                       &(struct uiFontStyleDraw_Params){
+                           .align = UI_STYLE_TEXT_LEFT,
+                           .word_wrap = true,
+                       },
+                       NULL,
+                       NULL,
+                       &result);
+  if (r_sx) {
+    *r_sx = result.width;
+  }
+  if (r_sy) {
+    *r_sy = rect.ymin + line_height;
+  }
 }
 
 void file_calc_previews(const bContext *C, ARegion *region)
@@ -209,16 +293,16 @@ void file_calc_previews(const bContext *C, ARegion *region)
   UI_view2d_totRect_set(v2d, sfile->layout->width, sfile->layout->height);
 }
 
-static void file_draw_preview(uiBlock *block,
+static void file_draw_preview(const SpaceFile *sfile,
+                              uiBlock *block,
+                              const FileDirEntry *file,
                               const char *path,
-                              int sx,
-                              int sy,
+                              const rcti *tile_draw_rect,
                               const float icon_aspect,
                               ImBuf *imb,
                               const int icon,
                               FileLayout *layout,
                               const bool is_icon,
-                              const int typeflags,
                               const bool drag,
                               const bool dimmed,
                               const bool is_link)
@@ -232,7 +316,8 @@ static void file_draw_preview(uiBlock *block,
   float scale;
   int ex, ey;
   bool show_outline = !is_icon &&
-                      (typeflags & (FILE_TYPE_IMAGE | FILE_TYPE_MOVIE | FILE_TYPE_BLENDER));
+                      (file->typeflag & (FILE_TYPE_IMAGE | FILE_TYPE_MOVIE | FILE_TYPE_BLENDER));
+  const bool is_offline = (file->attributes & FILE_ATTR_OFFLINE);
 
   BLI_assert(imb != NULL);
 
@@ -264,23 +349,23 @@ static void file_draw_preview(uiBlock *block,
   fy = ((float)layout->prv_h - (float)ey) / 2.0f;
   dx = (fx + 0.5f + layout->prv_border_x);
   dy = (fy + 0.5f - layout->prv_border_y);
-  xco = sx + (int)dx;
-  yco = sy - layout->prv_h + (int)dy;
+  xco = tile_draw_rect->xmin + (int)dx;
+  yco = tile_draw_rect->ymax - layout->prv_h + (int)dy;
 
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   /* the large image */
 
   float col[4] = {1.0f, 1.0f, 1.0f, 1.0f};
   if (is_icon) {
-    if (typeflags & FILE_TYPE_DIR) {
+    if (file->typeflag & FILE_TYPE_DIR) {
       UI_GetThemeColor4fv(TH_ICON_FOLDER, col);
     }
     else {
       UI_GetThemeColor4fv(TH_TEXT, col);
     }
   }
-  else if (typeflags & FILE_TYPE_FTFONT) {
+  else if (file->typeflag & FILE_TYPE_FTFONT) {
     UI_GetThemeColor4fv(TH_TEXT, col);
   }
 
@@ -288,30 +373,27 @@ static void file_draw_preview(uiBlock *block,
     col[3] *= 0.3f;
   }
 
-  if (!is_icon && typeflags & FILE_TYPE_BLENDERLIB) {
+  if (!is_icon && file->typeflag & FILE_TYPE_BLENDERLIB) {
     /* Datablock preview images use premultiplied alpha. */
-    GPU_blend_set_func_separate(
-        GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+    GPU_blend(GPU_BLEND_ALPHA_PREMULT);
   }
 
   IMMDrawPixelsTexState state = immDrawPixelsTexSetup(GPU_SHADER_2D_IMAGE_COLOR);
-  immDrawPixelsTexScaled(&state,
-                         (float)xco,
-                         (float)yco,
-                         imb->x,
-                         imb->y,
-                         GL_RGBA,
-                         GL_UNSIGNED_BYTE,
-                         GL_NEAREST,
-                         imb->rect,
-                         scale,
-                         scale,
-                         1.0f,
-                         1.0f,
-                         col);
+  immDrawPixelsTexTiled_scaling(&state,
+                                (float)xco,
+                                (float)yco,
+                                imb->x,
+                                imb->y,
+                                GPU_RGBA8,
+                                true,
+                                imb->rect,
+                                scale,
+                                scale,
+                                1.0f,
+                                1.0f,
+                                col);
 
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   if (icon && is_icon) {
     /* Small icon in the middle of large image, scaled to fit container and UI scale */
@@ -327,19 +409,19 @@ static void file_draw_preview(uiBlock *block,
       icon_color[2] = 255;
     }
     icon_x = xco + (ex / 2.0f) - (icon_size / 2.0f);
-    icon_y = yco + (ey / 2.0f) - (icon_size * ((typeflags & FILE_TYPE_DIR) ? 0.78f : 0.75f));
+    icon_y = yco + (ey / 2.0f) - (icon_size * ((file->typeflag & FILE_TYPE_DIR) ? 0.78f : 0.75f));
     UI_icon_draw_ex(
         icon_x, icon_y, icon, icon_aspect / U.dpi_fac, icon_opacity, 0.0f, icon_color, false);
   }
 
-  if (is_link) {
-    /* Arrow icon to indicate it is a shortcut, link, or alias. */
+  if (is_link || is_offline) {
+    /* Icon at bottom to indicate it is a shortcut, link, alias, or offline. */
     float icon_x, icon_y;
     icon_x = xco + (2.0f * UI_DPI_FAC);
     icon_y = yco + (2.0f * UI_DPI_FAC);
-    const int arrow = ICON_LOOP_FORWARDS;
+    const int arrow = is_link ? ICON_LOOP_FORWARDS : ICON_URL;
     if (!is_icon) {
-      /* Arrow at very bottom-left if preview style. */
+      /* At very bottom-left if preview style. */
       const uchar dark[4] = {0, 0, 0, 255};
       const uchar light[4] = {255, 255, 255, 255};
       UI_icon_draw_ex(icon_x + 1, icon_y - 1, arrow, 1.0f / U.dpi_fac, 0.2f, 0.0f, dark, false);
@@ -349,13 +431,13 @@ static void file_draw_preview(uiBlock *block,
       /* Link to folder or non-previewed file. */
       uchar icon_color[4];
       UI_GetThemeColor4ubv(TH_BACK, icon_color);
-      icon_x = xco + ((typeflags & FILE_TYPE_DIR) ? 0.14f : 0.23f) * scaledx;
-      icon_y = yco + ((typeflags & FILE_TYPE_DIR) ? 0.24f : 0.14f) * scaledy;
+      icon_x = xco + ((file->typeflag & FILE_TYPE_DIR) ? 0.14f : 0.23f) * scaledx;
+      icon_y = yco + ((file->typeflag & FILE_TYPE_DIR) ? 0.24f : 0.14f) * scaledy;
       UI_icon_draw_ex(
           icon_x, icon_y, arrow, icon_aspect / U.dpi_fac * 1.8, 0.3f, 0.0f, icon_color, false);
     }
   }
-  else if (icon && !is_icon && !(typeflags & FILE_TYPE_FTFONT)) {
+  else if (icon && !is_icon && !(file->typeflag & FILE_TYPE_FTFONT)) {
     /* Smaller, fainter icon at bottom-left for preview image thumbnail, but not for fonts. */
     float icon_x, icon_y;
     const uchar dark[4] = {0, 0, 0, 255};
@@ -364,6 +446,17 @@ static void file_draw_preview(uiBlock *block,
     icon_y = yco + (2.0f * UI_DPI_FAC);
     UI_icon_draw_ex(icon_x + 1, icon_y - 1, icon, 1.0f / U.dpi_fac, 0.2f, 0.0f, dark, false);
     UI_icon_draw_ex(icon_x, icon_y, icon, 1.0f / U.dpi_fac, 0.6f, 0.0f, light, false);
+  }
+
+  const bool is_current_main_data = filelist_file_get_id(file) != NULL;
+  if (is_current_main_data) {
+    /* Smaller, fainter icon at the top-right indicating that the file represents data from the
+     * current file (from current #Main in fact). */
+    float icon_x, icon_y;
+    const uchar light[4] = {255, 255, 255, 255};
+    icon_x = xco + ex - UI_UNIT_X;
+    icon_y = yco + ey - UI_UNIT_Y;
+    UI_icon_draw_ex(icon_x, icon_y, ICON_CURRENT_FILE, 1.0f / U.dpi_fac, 0.6f, 0.0f, light, false);
   }
 
   /* Contrasting outline around some preview types. */
@@ -384,15 +477,60 @@ static void file_draw_preview(uiBlock *block,
     immUnbindProgram();
   }
 
-  but = uiDefBut(block, UI_BTYPE_LABEL, 0, "", xco, yco, ex, ey, NULL, 0.0, 0.0, 0, 0, NULL);
+  /* Invisible button for dragging. */
+  rcti drag_rect = *tile_draw_rect;
+  /* A bit smaller than the full tile, to increase the gap between items that users can drag from
+   * for box select. */
+  BLI_rcti_pad(&drag_rect, -layout->tile_border_x, -layout->tile_border_y);
 
-  /* dragregion */
+  but = uiDefBut(block,
+                 UI_BTYPE_LABEL,
+                 0,
+                 "",
+                 drag_rect.xmin,
+                 drag_rect.ymin,
+                 BLI_rcti_size_x(&drag_rect),
+                 BLI_rcti_size_y(&drag_rect),
+                 NULL,
+                 0.0,
+                 0.0,
+                 0,
+                 0,
+                 NULL);
+
+  /* Drag-region. */
   if (drag) {
+    ID *id;
+
+    if ((id = filelist_file_get_id(file))) {
+      UI_but_drag_set_id(but, id);
+      UI_but_drag_attach_image(but, imb, scale);
+    }
     /* path is no more static, cannot give it directly to but... */
-    UI_but_drag_set_image(but, BLI_strdup(path), icon, imb, scale, true);
+    else if (sfile->browse_mode == FILE_BROWSE_MODE_ASSETS &&
+             (file->typeflag & FILE_TYPE_ASSET) != 0) {
+      char blend_path[FILE_MAX_LIBEXTRA];
+
+      if (BLO_library_path_explode(path, blend_path, NULL, NULL)) {
+        const FileAssetSelectParams *asset_params = ED_fileselect_get_asset_params(sfile);
+        BLI_assert(asset_params != NULL);
+
+        UI_but_drag_set_asset(but,
+                              &(AssetHandle){.file_data = file},
+                              BLI_strdup(blend_path),
+                              file->asset_data,
+                              asset_params->import_type,
+                              icon,
+                              imb,
+                              scale);
+      }
+    }
+    else {
+      UI_but_drag_set_image(but, BLI_strdup(path), icon, imb, scale, true);
+    }
   }
 
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 }
 
 static void renamebutton_cb(bContext *C, void *UNUSED(arg1), char *oldname)
@@ -401,13 +539,15 @@ static void renamebutton_cb(bContext *C, void *UNUSED(arg1), char *oldname)
   char orgname[FILE_MAX + 12];
   char filename[FILE_MAX + 12];
   wmWindowManager *wm = CTX_wm_manager(C);
+  wmWindow *win = CTX_wm_window(C);
   SpaceFile *sfile = (SpaceFile *)CTX_wm_space_data(C);
   ARegion *region = CTX_wm_region(C);
+  FileSelectParams *params = ED_fileselect_get_active_params(sfile);
 
-  BLI_join_dirfile(orgname, sizeof(orgname), sfile->params->dir, oldname);
-  BLI_strncpy(filename, sfile->params->renamefile, sizeof(filename));
+  BLI_join_dirfile(orgname, sizeof(orgname), params->dir, oldname);
+  BLI_strncpy(filename, params->renamefile, sizeof(filename));
   BLI_filename_make_safe(filename);
-  BLI_join_dirfile(newname, sizeof(newname), sfile->params->dir, filename);
+  BLI_join_dirfile(newname, sizeof(newname), params->dir, filename);
 
   if (!STREQ(orgname, newname)) {
     if (!BLI_exists(newname)) {
@@ -418,18 +558,16 @@ static void renamebutton_cb(bContext *C, void *UNUSED(arg1), char *oldname)
       }
       else {
         /* If rename is successful, scroll to newly renamed entry. */
-        BLI_strncpy(sfile->params->renamefile, filename, sizeof(sfile->params->renamefile));
-        sfile->params->rename_flag = FILE_PARAMS_RENAME_POSTSCROLL_PENDING;
-
-        if (sfile->smoothscroll_timer != NULL) {
-          WM_event_remove_timer(CTX_wm_manager(C), CTX_wm_window(C), sfile->smoothscroll_timer);
-        }
-        sfile->smoothscroll_timer = WM_event_add_timer(wm, CTX_wm_window(C), TIMER1, 1.0 / 1000.0);
-        sfile->scroll_offset = 0;
+        BLI_strncpy(params->renamefile, filename, sizeof(params->renamefile));
+        file_params_invoke_rename_postscroll(wm, win, sfile);
       }
 
       /* to make sure we show what is on disk */
-      ED_fileselect_clear(wm, CTX_data_scene(C), sfile);
+      ED_fileselect_clear(wm, sfile);
+    }
+    else {
+      /* Renaming failed, reset the name for further renaming handling. */
+      BLI_strncpy(params->renamefile, oldname, sizeof(params->renamefile));
     }
 
     ED_region_tag_redraw(region);
@@ -444,13 +582,15 @@ static void draw_background(FileLayout *layout, View2D *v2d)
 
   uint pos = GPU_vertformat_attr_add(immVertexFormat(), "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
   immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
-  immUniformThemeColorShade(TH_BACK, -7);
+  float col_alternating[4];
+  UI_GetThemeColor4fv(TH_ROW_ALTERNATE, col_alternating);
+  immUniformThemeColorBlend(TH_BACK, TH_ROW_ALTERNATE, col_alternating[3]);
 
   /* alternating flat shade background */
   for (i = 2; (i <= layout->rows + 1); i += 2) {
     sy = (int)v2d->cur.ymax - layout->offset_top - i * item_height - layout->tile_border_y;
 
-    /* Offsett pattern slightly to add scroll effect. */
+    /* Offset pattern slightly to add scroll effect. */
     sy += round_fl_to_int(item_height * (v2d->tot.ymax - v2d->cur.ymax) / item_height);
 
     immRectf(pos,
@@ -602,40 +742,45 @@ static void draw_columnheader_columns(const FileSelectParams *params,
 /**
  * Updates the stat string stored in file->entry if necessary.
  */
-static const char *filelist_get_details_column_string(FileAttributeColumnType column,
-                                                      const FileDirEntry *file,
-                                                      const bool small_size,
-                                                      const bool update_stat_strings)
+static const char *filelist_get_details_column_string(
+    FileAttributeColumnType column,
+    /* Generated string will be cached in the file, so non-const. */
+    FileDirEntry *file,
+    const bool small_size,
+    const bool update_stat_strings)
 {
   switch (column) {
     case COLUMN_DATETIME:
       if (!(file->typeflag & FILE_TYPE_BLENDERLIB) && !FILENAME_IS_CURRPAR(file->relpath)) {
-        if ((file->entry->datetime_str[0] == '\0') || update_stat_strings) {
+        if ((file->draw_data.datetime_str[0] == '\0') || update_stat_strings) {
           char date[FILELIST_DIRENTRY_DATE_LEN], time[FILELIST_DIRENTRY_TIME_LEN];
           bool is_today, is_yesterday;
 
           BLI_filelist_entry_datetime_to_string(
-              NULL, file->entry->time, small_size, time, date, &is_today, &is_yesterday);
+              NULL, file->time, small_size, time, date, &is_today, &is_yesterday);
 
           if (is_today || is_yesterday) {
             BLI_strncpy(date, is_today ? N_("Today") : N_("Yesterday"), sizeof(date));
           }
-          BLI_snprintf(
-              file->entry->datetime_str, sizeof(file->entry->datetime_str), "%s %s", date, time);
+          BLI_snprintf(file->draw_data.datetime_str,
+                       sizeof(file->draw_data.datetime_str),
+                       "%s %s",
+                       date,
+                       time);
         }
 
-        return file->entry->datetime_str;
+        return file->draw_data.datetime_str;
       }
       break;
     case COLUMN_SIZE:
       if ((file->typeflag & (FILE_TYPE_BLENDER | FILE_TYPE_BLENDER_BACKUP)) ||
           !(file->typeflag & (FILE_TYPE_DIR | FILE_TYPE_BLENDERLIB))) {
-        if ((file->entry->size_str[0] == '\0') || update_stat_strings) {
+        if ((file->draw_data.size_str[0] == '\0') || update_stat_strings) {
           BLI_filelist_entry_size_to_string(
-              NULL, file->entry->size, small_size, file->entry->size_str);
+              NULL, file->size, small_size, file->draw_data.size_str);
         }
 
-        return file->entry->size_str;
+        return file->draw_data.size_str;
       }
       break;
     default:
@@ -647,14 +792,13 @@ static const char *filelist_get_details_column_string(FileAttributeColumnType co
 
 static void draw_details_columns(const FileSelectParams *params,
                                  const FileLayout *layout,
-                                 const FileDirEntry *file,
-                                 const int pos_x,
-                                 const int pos_y,
+                                 FileDirEntry *file,
+                                 const rcti *tile_draw_rect,
                                  const uchar text_col[4])
 {
   const bool small_size = SMALL_SIZE_CHECK(params->thumbnail_size);
   const bool update_stat_strings = small_size != SMALL_SIZE_CHECK(layout->curr_size);
-  int sx = pos_x - layout->tile_border_x - (UI_UNIT_X * 0.1f), sy = pos_y;
+  int sx = tile_draw_rect->xmin - layout->tile_border_x - (UI_UNIT_X * 0.1f);
 
   for (FileAttributeColumnType column_type = 0; column_type < ATTRIBUTE_COLUMN_MAX;
        column_type++) {
@@ -674,7 +818,7 @@ static void draw_details_columns(const FileSelectParams *params,
 
     if (str) {
       file_draw_string(sx + ATTRIBUTE_COLUMN_PADDING,
-                       sy - layout->tile_border_y,
+                       tile_draw_rect->ymax - layout->tile_border_y,
                        IFACE_(str),
                        column->width - 2 * ATTRIBUTE_COLUMN_PADDING,
                        layout->tile_h,
@@ -686,10 +830,34 @@ static void draw_details_columns(const FileSelectParams *params,
   }
 }
 
+static rcti tile_draw_rect_get(const View2D *v2d,
+                               const FileLayout *layout,
+                               const enum eFileDisplayType display,
+                               const int file_idx,
+                               const int padx)
+{
+  int tile_pos_x, tile_pos_y;
+  ED_fileselect_layout_tilepos(layout, file_idx, &tile_pos_x, &tile_pos_y);
+  tile_pos_x += (int)(v2d->tot.xmin);
+  tile_pos_y = (int)(v2d->tot.ymax - tile_pos_y);
+
+  rcti rect;
+  rect.xmin = tile_pos_x + padx;
+  rect.xmax = rect.xmin + (ELEM(display, FILE_VERTICALDISPLAY, FILE_HORIZONTALDISPLAY) ?
+                               layout->tile_w - (2 * padx) :
+                               layout->tile_w);
+  rect.ymax = tile_pos_y;
+  rect.ymin = rect.ymax - layout->tile_h - layout->tile_border_y;
+
+  return rect;
+}
+
 void file_draw_list(const bContext *C, ARegion *region)
 {
+  wmWindowManager *wm = CTX_wm_manager(C);
+  wmWindow *win = CTX_wm_window(C);
   SpaceFile *sfile = CTX_wm_space_file(C);
-  FileSelectParams *params = ED_fileselect_get_params(sfile);
+  FileSelectParams *params = ED_fileselect_get_active_params(sfile);
   FileLayout *layout = ED_fileselect_get_layout(sfile, region);
   View2D *v2d = &region->v2d;
   struct FileList *files = sfile->files;
@@ -699,7 +867,6 @@ void file_draw_list(const bContext *C, ARegion *region)
   uiBlock *block = UI_block_begin(C, region, __func__, UI_EMBOSS);
   int numfiles;
   int numfiles_layout;
-  int sx, sy;
   int offset;
   int textwidth, textheight;
   int i;
@@ -754,16 +921,17 @@ void file_draw_list(const bContext *C, ARegion *region)
      * since it's filelist_file_cache_block() and filelist_cache_previews_update()
      * which controls previews task. */
     {
-      const bool previews_running = filelist_cache_previews_running(files);
+      const bool previews_running = filelist_cache_previews_running(files) &&
+                                    !filelist_cache_previews_done(files);
       //          printf("%s: preview task: %d\n", __func__, previews_running);
       if (previews_running && !sfile->previews_timer) {
         sfile->previews_timer = WM_event_add_timer_notifier(
-            CTX_wm_manager(C), CTX_wm_window(C), NC_SPACE | ND_SPACE_FILE_PREVIEW, 0.01);
+            wm, win, NC_SPACE | ND_SPACE_FILE_PREVIEW, 0.01);
       }
       if (!previews_running && sfile->previews_timer) {
         /* Preview is not running, no need to keep generating update events! */
         //              printf("%s: Inactive preview task, sleeping!\n", __func__);
-        WM_event_remove_timer_notifier(CTX_wm_manager(C), CTX_wm_window(C), sfile->previews_timer);
+        WM_event_remove_timer_notifier(wm, win, sfile->previews_timer);
         sfile->previews_timer = NULL;
       }
     }
@@ -776,12 +944,10 @@ void file_draw_list(const bContext *C, ARegion *region)
   for (i = offset; (i < numfiles) && (i < offset + numfiles_layout); i++) {
     uint file_selflag;
     char path[FILE_MAX_LIBEXTRA];
-    int padx = 0.1f * UI_UNIT_X;
+    const int padx = 0.1f * UI_UNIT_X;
     int icon_ofs = 0;
 
-    ED_fileselect_layout_tilepos(layout, i, &sx, &sy);
-    sx += (int)(v2d->tot.xmin + padx);
-    sy = (int)(v2d->tot.ymax - sy);
+    const rcti tile_draw_rect = tile_draw_rect_get(v2d, layout, params->display, i, padx);
 
     file = filelist_file(files, i);
     file_selflag = filelist_entry_select_get(sfile->files, file, CHECK_ALL);
@@ -794,14 +960,12 @@ void file_draw_list(const bContext *C, ARegion *region)
         int colorid = (file_selflag & FILE_SEL_SELECTED) ? TH_HILITE : TH_BACK;
         int shade = (params->highlight_file == i) || (file_selflag & FILE_SEL_HIGHLIGHTED) ? 35 :
                                                                                              0;
-        const short width = ELEM(params->display, FILE_VERTICALDISPLAY, FILE_HORIZONTALDISPLAY) ?
-                                layout->tile_w - (2 * padx) :
-                                layout->tile_w;
-
         BLI_assert(i == 0 || !FILENAME_IS_CURRPAR(file->relpath));
 
-        draw_tile(
-            sx, sy - 1, width, sfile->layout->tile_h + layout->tile_border_y, colorid, shade);
+        rcti tile_bg_rect = tile_draw_rect;
+        /* One pixel downwards, places it more in the center. */
+        BLI_rcti_translate(&tile_bg_rect, 0, -1);
+        draw_tile_background(&tile_bg_rect, colorid, shade);
       }
     }
     UI_draw_roundbox_corner_set(UI_CNR_NONE);
@@ -820,25 +984,26 @@ void file_draw_list(const bContext *C, ARegion *region)
         is_icon = 1;
       }
 
-      file_draw_preview(block,
+      file_draw_preview(sfile,
+                        block,
+                        file,
                         path,
-                        sx,
-                        sy,
+                        &tile_draw_rect,
                         thumb_icon_aspect,
                         imb,
                         icon,
                         layout,
                         is_icon,
-                        file->typeflag,
                         do_drag,
                         is_hidden,
                         is_link);
     }
     else {
-      file_draw_icon(block,
+      file_draw_icon(sfile,
+                     block,
+                     file,
                      path,
-                     sx,
-                     sy - layout->tile_border_y,
+                     &tile_draw_rect,
                      filelist_geticon(files, i, true),
                      ICON_DEFAULT_WIDTH_SCALE,
                      ICON_DEFAULT_HEIGHT_SCALE,
@@ -848,39 +1013,52 @@ void file_draw_list(const bContext *C, ARegion *region)
     }
 
     if (file_selflag & FILE_SEL_EDITING) {
-      uiBut *but;
       const short width = (params->display == FILE_IMGDISPLAY) ?
                               textwidth :
                               layout->attribute_columns[COLUMN_NAME].width -
                                   ATTRIBUTE_COLUMN_PADDING;
 
-      but = uiDefBut(block,
-                     UI_BTYPE_TEXT,
-                     1,
-                     "",
-                     sx + icon_ofs,
-                     sy - layout->tile_h - 0.15f * UI_UNIT_X,
-                     width - icon_ofs,
-                     textheight,
-                     sfile->params->renamefile,
-                     1.0f,
-                     (float)sizeof(sfile->params->renamefile),
-                     0,
-                     0,
-                     "");
+      uiBut *but = uiDefBut(block,
+                            UI_BTYPE_TEXT,
+                            1,
+                            "",
+                            tile_draw_rect.xmin + icon_ofs,
+                            tile_draw_rect.ymin + layout->tile_border_y - 0.15f * UI_UNIT_X,
+                            width - icon_ofs,
+                            textheight,
+                            params->renamefile,
+                            1.0f,
+                            (float)sizeof(params->renamefile),
+                            0,
+                            0,
+                            "");
       UI_but_func_rename_set(but, renamebutton_cb, file);
       UI_but_flag_enable(but, UI_BUT_NO_UTF8); /* allow non utf8 names */
       UI_but_flag_disable(but, UI_BUT_UNDO);
       if (false == UI_but_active_only(C, region, block, but)) {
-        file_selflag = filelist_entry_select_set(
-            sfile->files, file, FILE_SEL_REMOVE, FILE_SEL_EDITING, CHECK_ALL);
+        /* Note that this is the only place where we can also handle a cancelled renaming. */
+
+        file_params_rename_end(wm, win, sfile, file);
+
+        /* After the rename button is removed, we need to make sure the view is redrawn once more,
+         * in case selection changed. Usually UI code would trigger that redraw, but the rename
+         * operator may have been called from a different region.
+         * Tagging regions for redrawing while drawing is rightfully prevented. However, this
+         * active button removing basically introduces handling logic to drawing code. So a
+         * notifier should be an acceptable workaround. */
+        WM_event_add_notifier_ex(wm, win, NC_SPACE | ND_SPACE_FILE_PARAMS, NULL);
+
+        file_selflag = filelist_entry_select_get(sfile->files, file, CHECK_ALL);
       }
     }
-    else {
-      const int txpos = (params->display == FILE_IMGDISPLAY) ? sx : sx + 1 + icon_ofs;
+
+    /* file_selflag might have been modified by branch above. */
+    if ((file_selflag & FILE_SEL_EDITING) == 0) {
+      const int txpos = (params->display == FILE_IMGDISPLAY) ? tile_draw_rect.xmin :
+                                                               tile_draw_rect.xmin + 1 + icon_ofs;
       const int typos = (params->display == FILE_IMGDISPLAY) ?
-                            sy - layout->tile_h + layout->textheight :
-                            sy - layout->tile_border_y;
+                            tile_draw_rect.ymin + layout->tile_border_y + layout->textheight :
+                            tile_draw_rect.ymax - layout->tile_border_y;
       const int twidth = (params->display == FILE_IMGDISPLAY) ?
                              textwidth :
                              textwidth - 1 - icon_ofs - padx - layout->tile_border_x;
@@ -888,7 +1066,7 @@ void file_draw_list(const bContext *C, ARegion *region)
     }
 
     if (params->display != FILE_IMGDISPLAY) {
-      draw_details_columns(params, layout, file, sx, sy, text_col);
+      draw_details_columns(params, layout, file, &tile_draw_rect, text_col);
     }
   }
 
@@ -904,4 +1082,82 @@ void file_draw_list(const bContext *C, ARegion *region)
   }
 
   layout->curr_size = params->thumbnail_size;
+}
+
+static void file_draw_invalid_library_hint(const bContext *C,
+                                           const SpaceFile *sfile,
+                                           ARegion *region)
+{
+  const FileAssetSelectParams *asset_params = ED_fileselect_get_asset_params(sfile);
+
+  char library_ui_path[PATH_MAX];
+  file_path_to_ui_path(asset_params->base_params.dir, library_ui_path, sizeof(library_ui_path));
+
+  uchar text_col[4];
+  UI_GetThemeColor4ubv(TH_TEXT, text_col);
+
+  const View2D *v2d = &region->v2d;
+  const int pad = sfile->layout->tile_border_x;
+  const int width = BLI_rctf_size_x(&v2d->tot) - (2 * pad);
+  const int line_height = sfile->layout->textheight;
+  int sx = v2d->tot.xmin + pad;
+  /* For some reason no padding needed. */
+  int sy = v2d->tot.ymax;
+
+  {
+    const char *message = TIP_("Path to asset library does not exist:");
+    file_draw_string_multiline(sx, sy, message, width, line_height, text_col, NULL, &sy);
+
+    sy -= line_height;
+    file_draw_string(sx, sy, library_ui_path, width, line_height, UI_STYLE_TEXT_LEFT, text_col);
+  }
+
+  /* Separate a bit further. */
+  sy -= line_height * 2.2f;
+
+  {
+    UI_icon_draw(sx, sy - UI_UNIT_Y, ICON_INFO);
+
+    const char *suggestion = TIP_(
+        "Asset Libraries are local directories that can contain .blend files with assets inside.\n"
+        "Manage Asset Libraries from the File Paths section in Preferences");
+    file_draw_string_multiline(
+        sx + UI_UNIT_X, sy, suggestion, width - UI_UNIT_X, line_height, text_col, NULL, &sy);
+
+    uiBlock *block = UI_block_begin(C, region, __func__, UI_EMBOSS);
+    uiBut *but = uiDefIconTextButO(block,
+                                   UI_BTYPE_BUT,
+                                   "SCREEN_OT_userpref_show",
+                                   WM_OP_INVOKE_DEFAULT,
+                                   ICON_PREFERENCES,
+                                   NULL,
+                                   sx + UI_UNIT_X,
+                                   sy - line_height - UI_UNIT_Y * 1.2f,
+                                   UI_UNIT_X * 8,
+                                   UI_UNIT_Y,
+                                   NULL);
+    PointerRNA *but_opptr = UI_but_operator_ptr_get(but);
+    RNA_enum_set(but_opptr, "section", USER_SECTION_FILE_PATHS);
+
+    UI_block_end(C, block);
+    UI_block_draw(C, block);
+  }
+}
+
+bool file_draw_hint_if_invalid(const bContext *C, const SpaceFile *sfile, ARegion *region)
+{
+  FileAssetSelectParams *asset_params = ED_fileselect_get_asset_params(sfile);
+  /* Only for asset browser. */
+  if (!ED_fileselect_is_asset_browser(sfile)) {
+    return false;
+  }
+  /* Check if the library exists. */
+  if ((asset_params->asset_library_ref.type == ASSET_LIBRARY_LOCAL) ||
+      filelist_is_dir(sfile->files, asset_params->base_params.dir)) {
+    return false;
+  }
+
+  file_draw_invalid_library_hint(C, sfile, region);
+
+  return true;
 }

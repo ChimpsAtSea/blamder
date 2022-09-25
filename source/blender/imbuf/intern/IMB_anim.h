@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup imbuf
  */
 
-#ifndef __IMB_ANIM_H__
-#define __IMB_ANIM_H__
+#pragma once
 
 #ifdef _WIN32
 #  define INC_OLE2
@@ -33,9 +16,9 @@
 #  include <windows.h>
 #  include <windowsx.h>
 
-#  undef AVIIF_KEYFRAME  // redefined in AVI_avi.h
-#  undef AVIIF_LIST      // redefined in AVI_avi.h
-#endif                   /* _WIN32 */
+#  undef AVIIF_KEYFRAME /* redefined in AVI_avi.h */
+#  undef AVIIF_LIST     /* redefined in AVI_avi.h */
+#endif                  /* _WIN32 */
 
 #include <ctype.h>
 #include <stdio.h>
@@ -88,10 +71,11 @@ struct anim_index;
 struct anim {
   int ib_flags;
   int curtype;
-  int curposition; /* index  0 = 1e,  1 = 2e, enz. */
+  int cur_position; /* index  0 = 1e,  1 = 2e, enz. */
   int duration_in_frames;
   int frs_sec;
   double frs_sec_base;
+  double start_offset;
   int x, y;
 
   /* for number */
@@ -106,7 +90,6 @@ struct anim {
   int orientation;
   size_t framesize;
   int interlacing;
-  int preseek;
   int streamindex;
 
   /* avi */
@@ -118,25 +101,30 @@ struct anim {
   int firstvideo;
   int pfileopen;
   PAVIFILE pfile;
-  PAVISTREAM pavi[MAXNUMSTREAMS];  // the current streams
+  PAVISTREAM pavi[MAXNUMSTREAMS]; /* the current streams */
   PGETFRAME pgf;
 #endif
 
 #ifdef WITH_FFMPEG
   AVFormatContext *pFormatCtx;
   AVCodecContext *pCodecCtx;
-  AVCodec *pCodec;
-  AVFrame *pFrame;
-  int pFrameComplete;
+  const AVCodec *pCodec;
   AVFrame *pFrameRGB;
   AVFrame *pFrameDeinterlaced;
   struct SwsContext *img_convert_ctx;
   int videoStream;
 
-  struct ImBuf *last_frame;
-  int64_t last_pts;
-  int64_t next_pts;
-  AVPacket next_packet;
+  AVFrame *pFrame;
+  bool pFrame_complete;
+  AVFrame *pFrame_backup;
+  bool pFrame_backup_complete;
+
+  struct ImBuf *cur_frame_final;
+  int64_t cur_pts;
+  int64_t cur_key_frame_pts;
+  AVPacket *cur_packet;
+
+  bool seek_before_decode;
 #endif
 
   char index_dir[768];
@@ -152,5 +140,3 @@ struct anim {
 
   struct IDProperty *metadata;
 };
-
-#endif

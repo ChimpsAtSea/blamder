@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup sptext
@@ -73,7 +59,7 @@ typedef struct TextState {
 
 static void text_state_encode(TextState *state, Text *text, BArrayStore *buffer_store)
 {
-  int buf_len = 0;
+  size_t buf_len = 0;
   uchar *buf = (uchar *)txt_to_buf_for_undo(text, &buf_len);
   state->buf_array_state = BLI_array_store_state_add(buffer_store, buf, buf_len, NULL);
   MEM_freeN(buf);
@@ -196,14 +182,19 @@ static bool text_undosys_step_encode(struct bContext *C,
   return true;
 }
 
-static void text_undosys_step_decode(
-    struct bContext *C, struct Main *UNUSED(bmain), UndoStep *us_p, int dir, bool is_final)
+static void text_undosys_step_decode(struct bContext *C,
+                                     struct Main *UNUSED(bmain),
+                                     UndoStep *us_p,
+                                     const eUndoStepDir dir,
+                                     bool is_final)
 {
+  BLI_assert(dir != STEP_INVALID);
+
   TextUndoStep *us = (TextUndoStep *)us_p;
   Text *text = us->text_ref.ptr;
 
   TextState *state;
-  if ((us->states[0].buf_array_state != NULL) && (dir == -1) && !is_final) {
+  if ((us->states[0].buf_array_state != NULL) && (dir == STEP_UNDO) && !is_final) {
     state = &us->states[0];
   }
   else {
@@ -247,8 +238,6 @@ static void text_undosys_foreach_ID_ref(UndoStep *us_p,
   foreach_ID_ref_fn(user_data, ((UndoRefID *)&us->text_ref));
 }
 
-/* Export for ED_undo_sys. */
-
 void ED_text_undosys_type(UndoType *ut)
 {
   ut->name = "Text";
@@ -260,7 +249,7 @@ void ED_text_undosys_type(UndoType *ut)
 
   ut->step_foreach_ID_ref = text_undosys_foreach_ID_ref;
 
-  ut->use_context = false;
+  ut->flags = UNDOTYPE_FLAG_NEED_CONTEXT_FOR_ENCODE | UNDOTYPE_FLAG_DECODE_ACTIVE_STEP;
 
   ut->step_size = sizeof(TextUndoStep);
 }
@@ -271,7 +260,6 @@ void ED_text_undosys_type(UndoType *ut)
 /** \name Utilities
  * \{ */
 
-/* Use operator system to finish the undo step. */
 UndoStep *ED_text_undo_push_init(bContext *C)
 {
   UndoStack *ustack = ED_undo_stack_get();

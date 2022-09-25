@@ -1,54 +1,49 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2017, Blender Foundation
- * This is a new part of Blender
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2017 Blender Foundation. */
 
 /** \file
  * \ingroup modifiers
  */
 
 #include <stdio.h>
+#include <string.h>
 
 #include "BLI_listbase.h"
+#include "BLI_math_base.h"
+#include "BLI_math_matrix.h"
+#include "BLI_math_vector.h"
 #include "BLI_utildefines.h"
 
-#include "BLI_math.h"
+#include "BLT_translation.h"
 
+#include "DNA_defaults.h"
 #include "DNA_gpencil_modifier_types.h"
 #include "DNA_gpencil_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_modifier_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
+#include "DNA_screen_types.h"
 
 #include "BKE_action.h"
 #include "BKE_colortools.h"
+#include "BKE_context.h"
 #include "BKE_deform.h"
 #include "BKE_gpencil_geom.h"
 #include "BKE_gpencil_modifier.h"
-#include "BKE_layer.h"
 #include "BKE_lib_query.h"
 #include "BKE_main.h"
 #include "BKE_modifier.h"
 #include "BKE_scene.h"
+#include "BKE_screen.h"
 
-#include "MEM_guardedalloc.h"
+#include "UI_interface.h"
+#include "UI_resources.h"
+
+#include "RNA_access.h"
 
 #include "MOD_gpencil_modifiertypes.h"
+#include "MOD_gpencil_ui_common.h"
 #include "MOD_gpencil_util.h"
 
 #include "DEG_depsgraph.h"
@@ -76,15 +71,13 @@ struct GPHookData_cb {
 static void initData(GpencilModifierData *md)
 {
   HookGpencilModifierData *gpmd = (HookGpencilModifierData *)md;
-  gpmd->pass_index = 0;
-  gpmd->material = NULL;
-  gpmd->object = NULL;
-  gpmd->force = 0.5f;
-  gpmd->falloff_type = eGPHook_Falloff_Smooth;
+
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(gpmd, modifier));
+
+  MEMCPY_STRUCT_AFTER(gpmd, DNA_struct_default_get(HookGpencilModifierData), modifier);
+
   gpmd->curfalloff = BKE_curvemapping_add(1, 0.0f, 0.0f, 1.0f, 1.0f);
-  if (gpmd->curfalloff) {
-    BKE_curvemapping_initialize(gpmd->curfalloff);
-  }
+  BKE_curvemapping_init(gpmd->curfalloff);
 }
 
 static void copyData(const GpencilModifierData *md, GpencilModifierData *target)
@@ -102,14 +95,14 @@ static void copyData(const GpencilModifierData *md, GpencilModifierData *target)
   tgmd->curfalloff = BKE_curvemapping_copy(gmd->curfalloff);
 }
 
-/* calculate factor of fallof */
-static float gp_hook_falloff(const struct GPHookData_cb *tData, const float len_sq)
+/* Calculate the factor of falloff. */
+static float gpencil_hook_falloff(const struct GPHookData_cb *tData, const float len_sq)
 {
   BLI_assert(tData->falloff_sq);
   if (len_sq > tData->falloff_sq) {
     return 0.0f;
   }
-  else if (len_sq > 0.0f) {
+  if (len_sq > 0.0f) {
     float fac;
 
     if (tData->falloff_type == eGPHook_Falloff_Const) {
@@ -156,7 +149,7 @@ static float gp_hook_falloff(const struct GPHookData_cb *tData, const float len_
 }
 
 /* apply point deformation */
-static void gp_hook_co_apply(struct GPHookData_cb *tData, float weight, bGPDspoint *pt)
+static void gpencil_hook_co_apply(struct GPHookData_cb *tData, float weight, bGPDspoint *pt)
 {
   float fac;
 
@@ -172,7 +165,7 @@ static void gp_hook_co_apply(struct GPHookData_cb *tData, float weight, bGPDspoi
       len_sq = len_squared_v3v3(tData->cent, &pt->x);
     }
 
-    fac = gp_hook_falloff(tData, len_sq);
+    fac = gpencil_hook_falloff(tData, len_sq);
   }
   else {
     fac = tData->fac_orig;
@@ -218,6 +211,7 @@ static void deformStroke(GpencilModifierData *md,
                                       mmd->flag & GP_HOOK_INVERT_MATERIAL)) {
     return;
   }
+  bGPdata *gpd = ob->data;
 
   /* init struct */
   tData.curfalloff = mmd->curfalloff;
@@ -260,44 +254,27 @@ static void deformStroke(GpencilModifierData *md,
     if (weight < 0.0f) {
       continue;
     }
-    gp_hook_co_apply(&tData, weight, pt);
+    gpencil_hook_co_apply(&tData, weight, pt);
   }
   /* Calc geometry data. */
-  BKE_gpencil_stroke_geometry_update(gps);
+  BKE_gpencil_stroke_geometry_update(gpd, gps);
 }
 
 /* FIXME: Ideally we be doing this on a copy of the main depsgraph
  * (i.e. one where we don't have to worry about restoring state)
  */
-static void bakeModifier(Main *bmain, Depsgraph *depsgraph, GpencilModifierData *md, Object *ob)
+static void bakeModifier(Main *UNUSED(bmain),
+                         Depsgraph *depsgraph,
+                         GpencilModifierData *md,
+                         Object *ob)
 {
   HookGpencilModifierData *mmd = (HookGpencilModifierData *)md;
-  Scene *scene = DEG_get_evaluated_scene(depsgraph);
-  bGPdata *gpd = ob->data;
-  int oldframe = (int)DEG_get_ctime(depsgraph);
 
   if (mmd->object == NULL) {
     return;
   }
 
-  LISTBASE_FOREACH (bGPDlayer *, gpl, &gpd->layers) {
-    LISTBASE_FOREACH (bGPDframe *, gpf, &gpl->frames) {
-      /* apply hook effects on this frame
-       * NOTE: this assumes that we don't want hook animation on non-keyframed frames
-       */
-      CFRA = gpf->framenum;
-      BKE_scene_graph_update_for_newframe(depsgraph, bmain);
-
-      /* compute hook effects on this frame */
-      LISTBASE_FOREACH (bGPDstroke *, gps, &gpf->strokes) {
-        deformStroke(md, depsgraph, ob, gpl, gpf, gps);
-      }
-    }
-  }
-
-  /* return frame state and DB to original state */
-  CFRA = oldframe;
-  BKE_scene_graph_update_for_newframe(depsgraph, bmain);
+  generic_bake_deform_stroke(depsgraph, md, ob, true, deformStroke);
 }
 
 static void freeData(GpencilModifierData *md)
@@ -316,7 +293,9 @@ static bool isDisabled(GpencilModifierData *md, int UNUSED(userRenderParams))
   return !mmd->object;
 }
 
-static void updateDepsgraph(GpencilModifierData *md, const ModifierUpdateDepsgraphContext *ctx)
+static void updateDepsgraph(GpencilModifierData *md,
+                            const ModifierUpdateDepsgraphContext *ctx,
+                            const int UNUSED(mode))
 {
   HookGpencilModifierData *lmd = (HookGpencilModifierData *)md;
   if (lmd->object != NULL) {
@@ -326,27 +305,89 @@ static void updateDepsgraph(GpencilModifierData *md, const ModifierUpdateDepsgra
   DEG_add_object_relation(ctx->node, ctx->object, DEG_OB_COMP_TRANSFORM, "Hook Modifier");
 }
 
-static void foreachObjectLink(GpencilModifierData *md,
-                              Object *ob,
-                              ObjectWalkFunc walk,
-                              void *userData)
-{
-  HookGpencilModifierData *mmd = (HookGpencilModifierData *)md;
-
-  walk(userData, ob, &mmd->object, IDWALK_CB_NOP);
-}
-
 static void foreachIDLink(GpencilModifierData *md, Object *ob, IDWalkFunc walk, void *userData)
 {
   HookGpencilModifierData *mmd = (HookGpencilModifierData *)md;
 
   walk(userData, ob, (ID **)&mmd->material, IDWALK_CB_USER);
+  walk(userData, ob, (ID **)&mmd->object, IDWALK_CB_NOP);
+}
 
-  foreachObjectLink(md, ob, (ObjectWalkFunc)walk, userData);
+static void panel_draw(const bContext *UNUSED(C), Panel *panel)
+{
+  uiLayout *sub, *row, *col;
+  uiLayout *layout = panel->layout;
+
+  PointerRNA ob_ptr;
+  PointerRNA *ptr = gpencil_modifier_panel_get_property_pointers(panel, &ob_ptr);
+
+  PointerRNA hook_object_ptr = RNA_pointer_get(ptr, "object");
+  bool has_vertex_group = RNA_string_length(ptr, "vertex_group") != 0;
+
+  uiLayoutSetPropSep(layout, true);
+
+  col = uiLayoutColumn(layout, false);
+  uiItemR(col, ptr, "object", 0, NULL, ICON_NONE);
+  if (!RNA_pointer_is_null(&hook_object_ptr) &&
+      RNA_enum_get(&hook_object_ptr, "type") == OB_ARMATURE) {
+    PointerRNA hook_object_data_ptr = RNA_pointer_get(&hook_object_ptr, "data");
+    uiItemPointerR(
+        col, ptr, "subtarget", &hook_object_data_ptr, "bones", IFACE_("Bone"), ICON_NONE);
+  }
+
+  row = uiLayoutRow(layout, true);
+  uiItemPointerR(row, ptr, "vertex_group", &ob_ptr, "vertex_groups", NULL, ICON_NONE);
+  sub = uiLayoutRow(row, true);
+  uiLayoutSetActive(sub, has_vertex_group);
+  uiLayoutSetPropSep(sub, false);
+  uiItemR(sub, ptr, "invert_vertex", 0, "", ICON_ARROW_LEFTRIGHT);
+
+  uiItemR(layout, ptr, "strength", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
+
+  gpencil_modifier_panel_end(layout, ptr);
+}
+
+static void falloff_panel_draw(const bContext *UNUSED(C), Panel *panel)
+{
+  uiLayout *row;
+  uiLayout *layout = panel->layout;
+
+  PointerRNA *ptr = gpencil_modifier_panel_get_property_pointers(panel, NULL);
+
+  bool use_falloff = RNA_enum_get(ptr, "falloff_type") != eWarp_Falloff_None;
+
+  uiLayoutSetPropSep(layout, true);
+
+  uiItemR(layout, ptr, "falloff_type", 0, IFACE_("Type"), ICON_NONE);
+
+  row = uiLayoutRow(layout, false);
+  uiLayoutSetActive(row, use_falloff);
+  uiItemR(row, ptr, "falloff_radius", 0, NULL, ICON_NONE);
+
+  uiItemR(layout, ptr, "use_falloff_uniform", 0, NULL, ICON_NONE);
+
+  if (RNA_enum_get(ptr, "falloff_type") == eWarp_Falloff_Curve) {
+    uiTemplateCurveMapping(layout, ptr, "falloff_curve", 0, false, false, false, false);
+  }
+}
+
+static void mask_panel_draw(const bContext *UNUSED(C), Panel *panel)
+{
+  gpencil_modifier_masking_panel_draw(panel, true, false);
+}
+
+static void panelRegister(ARegionType *region_type)
+{
+  PanelType *panel_type = gpencil_modifier_panel_register(
+      region_type, eGpencilModifierType_Hook, panel_draw);
+  gpencil_modifier_subpanel_register(
+      region_type, "falloff", "Falloff", NULL, falloff_panel_draw, panel_type);
+  gpencil_modifier_subpanel_register(
+      region_type, "mask", "Influence", NULL, mask_panel_draw, panel_type);
 }
 
 GpencilModifierTypeInfo modifierType_Gpencil_Hook = {
-    /* name */ "Hook",
+    /* name */ N_("Hook"),
     /* structName */ "HookGpencilModifierData",
     /* structSize */ sizeof(HookGpencilModifierData),
     /* type */ eGpencilModifierTypeType_Gpencil,
@@ -364,7 +405,7 @@ GpencilModifierTypeInfo modifierType_Gpencil_Hook = {
     /* isDisabled */ isDisabled,
     /* updateDepsgraph */ updateDepsgraph,
     /* dependsOnTime */ NULL,
-    /* foreachObjectLink */ foreachObjectLink,
     /* foreachIDLink */ foreachIDLink,
     /* foreachTexLink */ NULL,
+    /* panelRegister */ panelRegister,
 };

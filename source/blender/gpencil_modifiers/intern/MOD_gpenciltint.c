@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2017, Blender Foundation
- * This is a new part of Blender
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2017 Blender Foundation. */
 
 /** \file
  * \ingroup modifiers
@@ -26,47 +10,53 @@
 #include "BLI_utildefines.h"
 
 #include "BLI_listbase.h"
-#include "BLI_math.h"
+#include "BLI_math_vector.h"
 
+#include "BLT_translation.h"
+
+#include "DNA_defaults.h"
 #include "DNA_gpencil_modifier_types.h"
 #include "DNA_gpencil_types.h"
+#include "DNA_material_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_modifier_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
+#include "DNA_screen_types.h"
 
-#include "BKE_action.h"
 #include "BKE_colorband.h"
 #include "BKE_colortools.h"
+#include "BKE_context.h"
 #include "BKE_deform.h"
-#include "BKE_gpencil.h"
 #include "BKE_gpencil_modifier.h"
-#include "BKE_layer.h"
 #include "BKE_lib_query.h"
 #include "BKE_main.h"
 #include "BKE_material.h"
 #include "BKE_modifier.h"
 #include "BKE_scene.h"
+#include "BKE_screen.h"
 
 #include "MEM_guardedalloc.h"
 
+#include "UI_interface.h"
+#include "UI_resources.h"
+
+#include "RNA_access.h"
+
 #include "MOD_gpencil_modifiertypes.h"
+#include "MOD_gpencil_ui_common.h"
 #include "MOD_gpencil_util.h"
 
 #include "DEG_depsgraph.h"
 #include "DEG_depsgraph_build.h"
-#include "DEG_depsgraph_query.h"
 
 static void initData(GpencilModifierData *md)
 {
   TintGpencilModifierData *gpmd = (TintGpencilModifierData *)md;
-  gpmd->pass_index = 0;
-  gpmd->material = NULL;
-  gpmd->object = NULL;
-  gpmd->radius = 1.0f;
-  gpmd->factor = 0.5f;
-  ARRAY_SET_ITEMS(gpmd->rgb, 1.0f, 1.0f, 1.0f);
-  gpmd->mode = GPPAINT_MODE_BOTH;
+
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(gpmd, modifier));
+
+  MEMCPY_STRUCT_AFTER(gpmd, DNA_struct_default_get(TintGpencilModifierData), modifier);
 
   /* Add default color ramp. */
   gpmd->colorband = BKE_colorband_add(false);
@@ -83,10 +73,7 @@ static void initData(GpencilModifierData *md)
   }
 
   gpmd->curve_intensity = BKE_curvemapping_add(1, 0.0f, 0.0f, 1.0f, 1.0f);
-  if (gpmd->curve_intensity) {
-    CurveMapping *curve = gpmd->curve_intensity;
-    BKE_curvemapping_initialize(curve);
-  }
+  BKE_curvemapping_init(gpmd->curve_intensity);
 }
 
 static void copyData(const GpencilModifierData *md, GpencilModifierData *target)
@@ -125,6 +112,8 @@ static void deformStroke(GpencilModifierData *md,
 
   const int def_nr = BKE_object_defgroup_name_index(ob, mmd->vgname);
   const bool use_curve = (mmd->flag & GP_TINT_CUSTOM_CURVE) != 0 && mmd->curve_intensity;
+  bool is_inverted = ((mmd->flag & GP_TINT_WEIGHT_FACTOR) == 0) &&
+                     ((mmd->flag & GP_TINT_INVERT_VGROUP) != 0);
 
   if (!is_stroke_affected_by_modifier(ob,
                                       mmd->layername,
@@ -167,6 +156,17 @@ static void deformStroke(GpencilModifierData *md,
     if (!fill_done) {
       /* Apply to fill. */
       if (mmd->mode != GPPAINT_MODE_STROKE) {
+        float fill_factor = mmd->factor;
+
+        /* Use weighted factor. */
+        if (mmd->flag & GP_TINT_WEIGHT_FACTOR) {
+          /* Use first point for weight. */
+          MDeformVert *dvert_fill = (gps->dvert != NULL) ? &gps->dvert[0] : NULL;
+          float weight = get_modifier_point_weight(dvert_fill, is_inverted, def_nr);
+          if (weight >= 0.0f) {
+            fill_factor = ((mmd->flag & GP_TINT_INVERT_VGROUP) ? 1.0f - weight : weight);
+          }
+        }
 
         /* If not using Vertex Color, use the material color. */
         if ((gp_style != NULL) && (gps->vert_color_fill[3] == 0.0f) &&
@@ -186,13 +186,13 @@ static void deformStroke(GpencilModifierData *md,
 
           BKE_colorband_evaluate(mmd->colorband, mix_factor, coba_res);
           interp_v3_v3v3(gps->vert_color_fill, gps->vert_color_fill, coba_res, mmd->factor);
-          gps->vert_color_fill[3] = clamp_f(mmd->factor, 0.0f, 1.0f);
+          gps->vert_color_fill[3] = clamp_f(fill_factor, 0.0f, 1.0f);
         }
         else {
           interp_v3_v3v3(gps->vert_color_fill,
                          gps->vert_color_fill,
                          mmd->rgb,
-                         clamp_f(mmd->factor, 0.0f, 1.0f));
+                         clamp_f(fill_factor, 0.0f, 1.0f));
         }
         /* If no stroke, cancel loop. */
         if (mmd->mode != GPPAINT_MODE_BOTH) {
@@ -205,11 +205,13 @@ static void deformStroke(GpencilModifierData *md,
 
     /* Verify vertex group. */
     if (mmd->mode != GPPAINT_MODE_FILL) {
-      float weight = get_modifier_point_weight(
-          dvert, (mmd->flag & GP_TINT_INVERT_VGROUP) != 0, def_nr);
+      float weight = get_modifier_point_weight(dvert, is_inverted, def_nr);
       if (weight < 0.0f) {
         continue;
       }
+
+      float factor = mmd->factor;
+
       /* Custom curve to modulate value. */
       if (use_curve) {
         float value = (float)i / (gps->totpoints - 1);
@@ -220,6 +222,12 @@ static void deformStroke(GpencilModifierData *md,
       if ((gp_style != NULL) && (pt->vert_color[3] == 0.0f) && (gp_style->stroke_rgba[3] > 0.0f)) {
         copy_v4_v4(pt->vert_color, gp_style->stroke_rgba);
         pt->vert_color[3] = 1.0f;
+      }
+
+      /* Apply weight directly. */
+      if (mmd->flag & GP_TINT_WEIGHT_FACTOR) {
+        factor = ((mmd->flag & GP_TINT_INVERT_VGROUP) ? 1.0f - weight : weight);
+        weight = 1.0f;
       }
 
       if (is_gradient) {
@@ -235,11 +243,11 @@ static void deformStroke(GpencilModifierData *md,
         interp_v3_v3v3(pt->vert_color,
                        pt->vert_color,
                        coba_res,
-                       clamp_f(mmd->factor, 0.0f, 1.0f) * weight * coba_res[3]);
+                       clamp_f(factor, 0.0f, 1.0f) * weight * coba_res[3]);
       }
       else {
         interp_v3_v3v3(
-            pt->vert_color, pt->vert_color, mmd->rgb, clamp_f(mmd->factor * weight, 0.0, 1.0f));
+            pt->vert_color, pt->vert_color, mmd->rgb, clamp_f(factor * weight, 0.0, 1.0f));
       }
     }
   }
@@ -248,44 +256,24 @@ static void deformStroke(GpencilModifierData *md,
 /* FIXME: Ideally we be doing this on a copy of the main depsgraph
  * (i.e. one where we don't have to worry about restoring state)
  */
-static void bakeModifier(Main *bmain, Depsgraph *depsgraph, GpencilModifierData *md, Object *ob)
+static void bakeModifier(Main *UNUSED(bmain),
+                         Depsgraph *depsgraph,
+                         GpencilModifierData *md,
+                         Object *ob)
 {
   TintGpencilModifierData *mmd = (TintGpencilModifierData *)md;
-  Scene *scene = DEG_get_evaluated_scene(depsgraph);
-  bGPdata *gpd = ob->data;
-  int oldframe = (int)DEG_get_ctime(depsgraph);
 
-  if (mmd->object == NULL) {
+  if ((mmd->type == GP_TINT_GRADIENT) && (mmd->object == NULL)) {
     return;
   }
 
-  LISTBASE_FOREACH (bGPDlayer *, gpl, &gpd->layers) {
-    LISTBASE_FOREACH (bGPDframe *, gpf, &gpl->frames) {
-      /* apply effects on this frame
-       * NOTE: this assumes that we don't want animation on non-keyframed frames
-       */
-      CFRA = gpf->framenum;
-      BKE_scene_graph_update_for_newframe(depsgraph, bmain);
-
-      /* compute effects on this frame */
-      LISTBASE_FOREACH (bGPDstroke *, gps, &gpf->strokes) {
-        deformStroke(md, depsgraph, ob, gpl, gpf, gps);
-      }
-    }
-  }
-
-  /* return frame state and DB to original state */
-  CFRA = oldframe;
-  BKE_scene_graph_update_for_newframe(depsgraph, bmain);
+  generic_bake_deform_stroke(depsgraph, md, ob, true, deformStroke);
 }
 
 static void freeData(GpencilModifierData *md)
 {
   TintGpencilModifierData *mmd = (TintGpencilModifierData *)md;
-  if (mmd->colorband) {
-    MEM_freeN(mmd->colorband);
-    mmd->colorband = NULL;
-  }
+  MEM_SAFE_FREE(mmd->colorband);
   if (mmd->curve_intensity) {
     BKE_curvemapping_free(mmd->curve_intensity);
   }
@@ -301,7 +289,9 @@ static bool isDisabled(GpencilModifierData *md, int UNUSED(userRenderParams))
   return !mmd->object;
 }
 
-static void updateDepsgraph(GpencilModifierData *md, const ModifierUpdateDepsgraphContext *ctx)
+static void updateDepsgraph(GpencilModifierData *md,
+                            const ModifierUpdateDepsgraphContext *ctx,
+                            const int UNUSED(mode))
 {
   TintGpencilModifierData *lmd = (TintGpencilModifierData *)md;
   if (lmd->object != NULL) {
@@ -311,27 +301,73 @@ static void updateDepsgraph(GpencilModifierData *md, const ModifierUpdateDepsgra
   DEG_add_object_relation(ctx->node, ctx->object, DEG_OB_COMP_TRANSFORM, "Vertexcolor Modifier");
 }
 
-static void foreachObjectLink(GpencilModifierData *md,
-                              Object *ob,
-                              ObjectWalkFunc walk,
-                              void *userData)
-{
-  TintGpencilModifierData *mmd = (TintGpencilModifierData *)md;
-
-  walk(userData, ob, &mmd->object, IDWALK_CB_NOP);
-}
-
 static void foreachIDLink(GpencilModifierData *md, Object *ob, IDWalkFunc walk, void *userData)
 {
   TintGpencilModifierData *mmd = (TintGpencilModifierData *)md;
 
   walk(userData, ob, (ID **)&mmd->material, IDWALK_CB_USER);
+  walk(userData, ob, (ID **)&mmd->object, IDWALK_CB_NOP);
+}
 
-  foreachObjectLink(md, ob, (ObjectWalkFunc)walk, userData);
+static void panel_draw(const bContext *UNUSED(C), Panel *panel)
+{
+  uiLayout *col;
+  uiLayout *layout = panel->layout;
+
+  PointerRNA *ptr = gpencil_modifier_panel_get_property_pointers(panel, NULL);
+
+  int tint_type = RNA_enum_get(ptr, "tint_type");
+
+  uiLayoutSetPropSep(layout, true);
+
+  uiItemR(layout, ptr, "vertex_mode", 0, NULL, ICON_NONE);
+
+  const bool is_weighted = !RNA_boolean_get(ptr, "use_weight_factor");
+  uiLayout *row = uiLayoutRow(layout, true);
+  uiLayoutSetActive(row, is_weighted);
+  uiItemR(row, ptr, "factor", 0, NULL, ICON_NONE);
+  uiLayout *sub = uiLayoutRow(row, true);
+  uiLayoutSetActive(sub, true);
+  uiItemR(row, ptr, "use_weight_factor", 0, "", ICON_MOD_VERTEX_WEIGHT);
+
+  uiItemR(layout, ptr, "tint_type", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
+
+  if (tint_type == GP_TINT_UNIFORM) {
+    uiItemR(layout, ptr, "color", 0, NULL, ICON_NONE);
+  }
+  else {
+    col = uiLayoutColumn(layout, false);
+    uiLayoutSetPropSep(col, false);
+    uiTemplateColorRamp(col, ptr, "colors", true);
+    uiItemS(layout);
+    uiItemR(layout, ptr, "object", 0, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "radius", 0, NULL, ICON_NONE);
+  }
+
+  gpencil_modifier_panel_end(layout, ptr);
+}
+
+static void mask_panel_draw(const bContext *UNUSED(C), Panel *panel)
+{
+  gpencil_modifier_masking_panel_draw(panel, true, true);
+}
+
+static void panelRegister(ARegionType *region_type)
+{
+  PanelType *panel_type = gpencil_modifier_panel_register(
+      region_type, eGpencilModifierType_Tint, panel_draw);
+  PanelType *mask_panel_type = gpencil_modifier_subpanel_register(
+      region_type, "mask", "Influence", NULL, mask_panel_draw, panel_type);
+  gpencil_modifier_subpanel_register(region_type,
+                                     "curve",
+                                     "",
+                                     gpencil_modifier_curve_header_draw,
+                                     gpencil_modifier_curve_panel_draw,
+                                     mask_panel_type);
 }
 
 GpencilModifierTypeInfo modifierType_Gpencil_Tint = {
-    /* name */ "Tint",
+    /* name */ N_("Tint"),
     /* structName */ "TintGpencilModifierData",
     /* structSize */ sizeof(TintGpencilModifierData),
     /* type */ eGpencilModifierTypeType_Gpencil,
@@ -349,7 +385,7 @@ GpencilModifierTypeInfo modifierType_Gpencil_Tint = {
     /* isDisabled */ isDisabled,
     /* updateDepsgraph */ updateDepsgraph,
     /* dependsOnTime */ NULL,
-    /* foreachObjectLink */ foreachObjectLink,
     /* foreachIDLink */ foreachIDLink,
     /* foreachTexLink */ NULL,
+    /* panelRegister */ panelRegister,
 };

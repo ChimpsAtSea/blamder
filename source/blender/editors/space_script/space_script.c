@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spscript
@@ -36,7 +20,6 @@
 #include "ED_space_api.h"
 
 #include "WM_api.h"
-#include "WM_types.h"
 
 #include "UI_resources.h"
 #include "UI_view2d.h"
@@ -44,14 +27,13 @@
 #ifdef WITH_PYTHON
 #endif
 
-#include "GPU_framebuffer.h"
-#include "script_intern.h"  // own include
+#include "script_intern.h" /* own include */
 
 // static script_run_python(char *funcname, )
 
 /* ******************** default callbacks for script space ***************** */
 
-static SpaceLink *script_new(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
+static SpaceLink *script_create(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
 {
   ARegion *region;
   SpaceScript *sscript;
@@ -83,10 +65,8 @@ static void script_free(SpaceLink *sl)
   SpaceScript *sscript = (SpaceScript *)sl;
 
 #ifdef WITH_PYTHON
-  /*free buttons references*/
+  /* Free buttons references. */
   if (sscript->but_refs) {
-    // XXX      BPy_Set_DrawButtonsList(sscript->but_refs);
-    //      BPy_Free_DrawButtonsList();
     sscript->but_refs = NULL;
   }
 #endif
@@ -127,7 +107,6 @@ static void script_main_region_draw(const bContext *C, ARegion *region)
 
   /* clear and setup matrix */
   UI_ThemeClearColor(TH_BACK);
-  GPU_clear(GPU_COLOR_BIT);
 
   UI_view2d_view_ortho(v2d);
 
@@ -159,18 +138,14 @@ static void script_header_region_draw(const bContext *C, ARegion *region)
   ED_region_header(C, region);
 }
 
-static void script_main_region_listener(wmWindow *UNUSED(win),
-                                        ScrArea *UNUSED(area),
-                                        ARegion *UNUSED(region),
-                                        wmNotifier *UNUSED(wmn),
-                                        const Scene *UNUSED(scene))
+static void script_main_region_listener(const wmRegionListenerParams *UNUSED(params))
 {
-  /* context changes */
-  // XXX - Todo, need the ScriptSpace accessible to get the python script to run.
-  // BPY_run_script_space_listener()
+/* XXX: Todo, need the ScriptSpace accessible to get the python script to run. */
+#if 0
+  BPY_run_script_space_listener()
+#endif
 }
 
-/* only called once, from space/spacetypes.c */
 void ED_spacetype_script(void)
 {
   SpaceType *st = MEM_callocN(sizeof(SpaceType), "spacetype script");
@@ -179,7 +154,7 @@ void ED_spacetype_script(void)
   st->spaceid = SPACE_SCRIPT;
   strncpy(st->name, "Script", BKE_ST_MAXNAME);
 
-  st->new = script_new;
+  st->create = script_create;
   st->free = script_free;
   st->init = script_init;
   st->duplicate = script_duplicate;

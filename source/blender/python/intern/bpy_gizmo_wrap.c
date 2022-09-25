@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
@@ -41,6 +27,8 @@
 #include "bpy_intern_string.h"
 #include "bpy_rna.h"
 
+#include "../generic/py_capi_rna.h"
+
 /* we may want to add, but not now */
 
 /* -------------------------------------------------------------------- */
@@ -49,25 +37,36 @@
 
 static bool bpy_gizmotype_target_property_def(wmGizmoType *gzt, PyObject *item)
 {
-  /* Note: names based on 'rna_rna.c' */
+  /* NOTE: names based on `rna_rna.c`. */
   PyObject *empty_tuple = PyTuple_New(0);
 
   struct {
     char *id;
-    char *type_id;
-    int type;
+    struct BPy_EnumProperty_Parse type_enum;
     int array_length;
   } params = {
       .id = NULL, /* not optional */
-      .type = PROP_FLOAT,
-      .type_id = NULL,
+      .type_enum = {.items = rna_enum_property_type_items, .value = PROP_FLOAT},
       .array_length = 1,
   };
 
   static const char *const _keywords[] = {"id", "type", "array_length", NULL};
-  static _PyArg_Parser _parser = {"|$ssi:register_class", _keywords, 0};
-  if (!_PyArg_ParseTupleAndKeywordsFast(
-          empty_tuple, item, &_parser, &params.id, &params.type_id, &params.array_length)) {
+  static _PyArg_Parser _parser = {
+      "|$" /* Optional keyword only arguments. */
+      "s"  /* `id` */
+      "O&" /* `type` */
+      "i"  /* `array_length` */
+      ":register_class",
+      _keywords,
+      0,
+  };
+  if (!_PyArg_ParseTupleAndKeywordsFast(empty_tuple,
+                                        item,
+                                        &_parser,
+                                        &params.id,
+                                        pyrna_enum_value_parse_string,
+                                        &params.type_enum,
+                                        &params.array_length)) {
     goto fail;
   }
 
@@ -76,21 +75,12 @@ static bool bpy_gizmotype_target_property_def(wmGizmoType *gzt, PyObject *item)
     goto fail;
   }
 
-  if ((params.type_id != NULL) &&
-      pyrna_enum_value_from_id(
-          rna_enum_property_type_items, params.type_id, &params.type, "'type' enum value") == -1) {
-    goto fail;
-  }
-  else {
-    params.type = rna_enum_property_type_items[params.type].value;
-  }
-
-  if ((params.array_length < 1 || params.array_length > RNA_MAX_ARRAY_LENGTH)) {
+  if ((params.array_length < 1) || (params.array_length > RNA_MAX_ARRAY_LENGTH)) {
     PyErr_SetString(PyExc_ValueError, "'array_length' out of range");
     goto fail;
   }
 
-  WM_gizmotype_target_property_def(gzt, params.id, params.type, params.array_length);
+  WM_gizmotype_target_property_def(gzt, params.id, params.type_enum.value, params.array_length);
   Py_DECREF(empty_tuple);
   return true;
 
@@ -118,7 +108,7 @@ static void gizmo_properties_init(wmGizmoType *gzt)
   {
     /* Picky developers will notice that 'bl_targets' won't work with inheritance
      * get direct from the dict to avoid raising a load of attribute errors
-     * (yes this isnt ideal) - campbell. */
+     * (yes this isn't ideal) - campbell. */
     PyObject *py_class_dict = py_class->tp_dict;
     PyObject *bl_target_properties = PyDict_GetItem(py_class_dict,
                                                     bpy_intern_str_bl_target_properties);

@@ -1,27 +1,15 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup balembic
  */
 
 #include "../ABC_alembic.h"
+#include "IO_types.h"
 
 #include <Alembic/AbcMaterial/IMaterial.h>
 
+#include "abc_axis_conversion.h"
 #include "abc_reader_archive.h"
 #include "abc_reader_camera.h"
 #include "abc_reader_curves.h"
@@ -30,17 +18,11 @@
 #include "abc_reader_points.h"
 #include "abc_reader_transform.h"
 #include "abc_util.h"
-#include "abc_writer_camera.h"
-#include "abc_writer_curves.h"
-#include "abc_writer_hair.h"
-#include "abc_writer_mesh.h"
-#include "abc_writer_nurbs.h"
-#include "abc_writer_points.h"
-#include "abc_writer_transform.h"
 
 #include "MEM_guardedalloc.h"
 
 #include "DNA_cachefile_types.h"
+#include "DNA_collection_types.h"
 #include "DNA_curve_types.h"
 #include "DNA_modifier_types.h"
 #include "DNA_object_types.h"
@@ -54,70 +36,55 @@
 #include "BKE_lib_id.h"
 #include "BKE_object.h"
 #include "BKE_scene.h"
+#include "BKE_screen.h"
 
 #include "DEG_depsgraph.h"
 #include "DEG_depsgraph_build.h"
 
-/* SpaceType struct has a member called 'new' which obviously conflicts with C++
- * so temporarily redefining the new keyword to make it compile. */
-#define new extern_new
-#include "BKE_screen.h"
-#undef new
+#include "ED_undo.h"
 
+#include "BLI_compiler_compat.h"
 #include "BLI_fileops.h"
 #include "BLI_ghash.h"
 #include "BLI_listbase.h"
 #include "BLI_math.h"
 #include "BLI_path_util.h"
 #include "BLI_string.h"
+#include "BLI_timeit.hh"
 
 #include "WM_api.h"
 #include "WM_types.h"
 
-using Alembic::Abc::Int32ArraySamplePtr;
+using Alembic::Abc::IV3fArrayProperty;
 using Alembic::Abc::ObjectHeader;
-
-using Alembic::AbcGeom::kWrapExisting;
-using Alembic::AbcGeom::MetaData;
-using Alembic::AbcGeom::P3fArraySamplePtr;
-
+using Alembic::Abc::PropertyHeader;
+using Alembic::Abc::V3fArraySamplePtr;
 using Alembic::AbcGeom::ICamera;
-using Alembic::AbcGeom::ICompoundProperty;
 using Alembic::AbcGeom::ICurves;
-using Alembic::AbcGeom::ICurvesSchema;
 using Alembic::AbcGeom::IFaceSet;
 using Alembic::AbcGeom::ILight;
-using Alembic::AbcGeom::IN3fArrayProperty;
-using Alembic::AbcGeom::IN3fGeomParam;
 using Alembic::AbcGeom::INuPatch;
 using Alembic::AbcGeom::IObject;
 using Alembic::AbcGeom::IPoints;
-using Alembic::AbcGeom::IPointsSchema;
 using Alembic::AbcGeom::IPolyMesh;
 using Alembic::AbcGeom::IPolyMeshSchema;
 using Alembic::AbcGeom::ISampleSelector;
 using Alembic::AbcGeom::ISubD;
-using Alembic::AbcGeom::IV2fGeomParam;
 using Alembic::AbcGeom::IXform;
-using Alembic::AbcGeom::IXformSchema;
-using Alembic::AbcGeom::N3fArraySamplePtr;
-using Alembic::AbcGeom::V3fArraySamplePtr;
-using Alembic::AbcGeom::XformSample;
-
+using Alembic::AbcGeom::kWrapExisting;
+using Alembic::AbcGeom::MetaData;
 using Alembic::AbcMaterial::IMaterial;
 
-struct AbcArchiveHandle {
-  int unused;
-};
+using namespace blender::io::alembic;
 
-ABC_INLINE ArchiveReader *archive_from_handle(AbcArchiveHandle *handle)
+BLI_INLINE ArchiveReader *archive_from_handle(CacheArchiveHandle *handle)
 {
   return reinterpret_cast<ArchiveReader *>(handle);
 }
 
-ABC_INLINE AbcArchiveHandle *handle_from_archive(ArchiveReader *archive)
+BLI_INLINE CacheArchiveHandle *handle_from_archive(ArchiveReader *archive)
 {
-  return reinterpret_cast<AbcArchiveHandle *>(archive);
+  return reinterpret_cast<CacheArchiveHandle *>(archive);
 }
 
 //#define USE_NURBS
@@ -167,8 +134,8 @@ static bool gather_objects_paths(const IObject &object, ListBase *object_paths)
   }
 
   if (get_path) {
-    void *abc_path_void = MEM_callocN(sizeof(AlembicObjectPath), "AlembicObjectPath");
-    AlembicObjectPath *abc_path = static_cast<AlembicObjectPath *>(abc_path_void);
+    void *abc_path_void = MEM_callocN(sizeof(CacheObjectPath), "CacheObjectPath");
+    CacheObjectPath *abc_path = static_cast<CacheObjectPath *>(abc_path_void);
 
     BLI_strncpy(abc_path->path, object.getFullName().c_str(), sizeof(abc_path->path));
     BLI_addtail(object_paths, abc_path);
@@ -177,15 +144,29 @@ static bool gather_objects_paths(const IObject &object, ListBase *object_paths)
   return parent_is_part_of_this_object;
 }
 
-AbcArchiveHandle *ABC_create_handle(struct Main *bmain,
-                                    const char *filename,
-                                    ListBase *object_paths)
+CacheArchiveHandle *ABC_create_handle(struct Main *bmain,
+                                      const char *filename,
+                                      const CacheFileLayer *layers,
+                                      ListBase *object_paths)
 {
-  ArchiveReader *archive = new ArchiveReader(bmain, filename);
+  std::vector<const char *> filenames;
+  filenames.push_back(filename);
 
-  if (!archive->valid()) {
+  while (layers) {
+    if ((layers->flag & CACHEFILE_LAYER_HIDDEN) == 0) {
+      filenames.push_back(layers->filepath);
+    }
+    layers = layers->next;
+  }
+
+  /* We need to reverse the order as overriding archives should come first. */
+  std::reverse(filenames.begin(), filenames.end());
+
+  ArchiveReader *archive = ArchiveReader::get(bmain, filenames);
+
+  if (!archive || !archive->valid()) {
     delete archive;
-    return NULL;
+    return nullptr;
   }
 
   if (object_paths) {
@@ -195,7 +176,7 @@ AbcArchiveHandle *ABC_create_handle(struct Main *bmain,
   return handle_from_archive(archive);
 }
 
-void ABC_free_handle(AbcArchiveHandle *handle)
+void ABC_free_handle(CacheArchiveHandle *handle)
 {
   delete archive_from_handle(handle);
 }
@@ -223,196 +204,6 @@ static void find_iobject(const IObject &object, IObject &ret, const std::string 
   }
 
   ret = tmp;
-}
-
-struct ExportJobData {
-  ViewLayer *view_layer;
-  Main *bmain;
-  wmWindowManager *wm;
-
-  char filename[1024];
-  ExportSettings settings;
-
-  short *stop;
-  short *do_update;
-  float *progress;
-
-  bool was_canceled;
-  bool export_ok;
-};
-
-static void export_startjob(void *customdata, short *stop, short *do_update, float *progress)
-{
-  ExportJobData *data = static_cast<ExportJobData *>(customdata);
-
-  data->stop = stop;
-  data->do_update = do_update;
-  data->progress = progress;
-
-  /* XXX annoying hack: needed to prevent data corruption when changing
-   * scene frame in separate threads
-   */
-  G.is_rendering = true;
-  WM_set_locked_interface(data->wm, true);
-  G.is_break = false;
-
-  DEG_graph_build_from_view_layer(
-      data->settings.depsgraph, data->bmain, data->settings.scene, data->view_layer);
-  BKE_scene_graph_update_tagged(data->settings.depsgraph, data->bmain);
-
-  try {
-    AbcExporter exporter(data->bmain, data->filename, data->settings);
-
-    Scene *scene = data->settings.scene; /* for the CFRA macro */
-    const int orig_frame = CFRA;
-
-    data->was_canceled = false;
-    exporter(do_update, progress, &data->was_canceled);
-
-    if (CFRA != orig_frame) {
-      CFRA = orig_frame;
-
-      BKE_scene_graph_update_for_newframe(data->settings.depsgraph, data->bmain);
-    }
-
-    data->export_ok = !data->was_canceled;
-  }
-  catch (const std::exception &e) {
-    ABC_LOG(data->settings.logger) << "Abc Export error: " << e.what() << '\n';
-  }
-  catch (...) {
-    ABC_LOG(data->settings.logger) << "Abc Export: unknown error...\n";
-  }
-}
-
-static void export_endjob(void *customdata)
-{
-  ExportJobData *data = static_cast<ExportJobData *>(customdata);
-
-  DEG_graph_free(data->settings.depsgraph);
-
-  if (data->was_canceled && BLI_exists(data->filename)) {
-    BLI_delete(data->filename, false, false);
-  }
-
-  std::string log = data->settings.logger.str();
-  if (!log.empty()) {
-    std::cerr << log;
-    WM_report(RPT_ERROR, "Errors occurred during the export, look in the console to know more...");
-  }
-
-  G.is_rendering = false;
-  WM_set_locked_interface(data->wm, false);
-}
-
-bool ABC_export(Scene *scene,
-                bContext *C,
-                const char *filepath,
-                const struct AlembicExportParams *params,
-                bool as_background_job)
-{
-  ExportJobData *job = static_cast<ExportJobData *>(
-      MEM_mallocN(sizeof(ExportJobData), "ExportJobData"));
-
-  job->view_layer = CTX_data_view_layer(C);
-  job->bmain = CTX_data_main(C);
-  job->wm = CTX_wm_manager(C);
-  job->export_ok = false;
-  BLI_strncpy(job->filename, filepath, 1024);
-
-  /* Alright, alright, alright....
-   *
-   * ExportJobData contains an ExportSettings containing a SimpleLogger.
-   *
-   * Since ExportJobData is a C-style struct dynamically allocated with
-   * MEM_mallocN (see above), its constructor is never called, therefore the
-   * ExportSettings constructor is not called which implies that the
-   * SimpleLogger one is not called either. SimpleLogger in turn does not call
-   * the constructor of its data members which ultimately means that its
-   * std::ostringstream member has a NULL pointer. To be able to properly use
-   * the stream's operator<<, the pointer needs to be set, therefore we have
-   * to properly construct everything. And this is done using the placement
-   * new operator as here below. It seems hackish, but I'm too lazy to
-   * do bigger refactor and maybe there is a better way which does not involve
-   * hardcore refactoring. */
-  new (&job->settings) ExportSettings();
-  job->settings.scene = scene;
-  job->settings.depsgraph = DEG_graph_new(job->bmain, scene, job->view_layer, DAG_EVAL_RENDER);
-
-  /* TODO(Sybren): for now we only export the active scene layer.
-   * Later in the 2.8 development process this may be replaced by using
-   * a specific collection for Alembic I/O, which can then be toggled
-   * between "real" objects and cached Alembic files. */
-  job->settings.view_layer = job->view_layer;
-
-  job->settings.frame_start = params->frame_start;
-  job->settings.frame_end = params->frame_end;
-  job->settings.frame_samples_xform = params->frame_samples_xform;
-  job->settings.frame_samples_shape = params->frame_samples_shape;
-  job->settings.shutter_open = params->shutter_open;
-  job->settings.shutter_close = params->shutter_close;
-
-  /* TODO(Sybren): For now this is ignored, until we can get selection
-   * detection working through Base pointers (instead of ob->flags). */
-  job->settings.selected_only = params->selected_only;
-
-  job->settings.export_face_sets = params->face_sets;
-  job->settings.export_normals = params->normals;
-  job->settings.export_uvs = params->uvs;
-  job->settings.export_vcols = params->vcolors;
-  job->settings.export_hair = params->export_hair;
-  job->settings.export_particles = params->export_particles;
-  job->settings.apply_subdiv = params->apply_subdiv;
-  job->settings.curves_as_mesh = params->curves_as_mesh;
-  job->settings.flatten_hierarchy = params->flatten_hierarchy;
-
-  /* TODO(Sybren): visible_layer & renderable only is ignored for now,
-   * to be replaced with collections later in the 2.8 dev process
-   * (also see note above). */
-  job->settings.visible_objects_only = params->visible_objects_only;
-  job->settings.renderable_only = params->renderable_only;
-
-  job->settings.use_subdiv_schema = params->use_subdiv_schema;
-  job->settings.export_ogawa = (params->compression_type == ABC_ARCHIVE_OGAWA);
-  job->settings.pack_uv = params->packuv;
-  job->settings.global_scale = params->global_scale;
-  job->settings.triangulate = params->triangulate;
-  job->settings.quad_method = params->quad_method;
-  job->settings.ngon_method = params->ngon_method;
-
-  if (job->settings.frame_start > job->settings.frame_end) {
-    std::swap(job->settings.frame_start, job->settings.frame_end);
-  }
-
-  bool export_ok = false;
-  if (as_background_job) {
-    wmJob *wm_job = WM_jobs_get(CTX_wm_manager(C),
-                                CTX_wm_window(C),
-                                job->settings.scene,
-                                "Alembic Export",
-                                WM_JOB_PROGRESS,
-                                WM_JOB_TYPE_ALEMBIC);
-
-    /* setup job */
-    WM_jobs_customdata_set(wm_job, job, MEM_freeN);
-    WM_jobs_timer(wm_job, 0.1, NC_SCENE | ND_FRAME, NC_SCENE | ND_FRAME);
-    WM_jobs_callbacks(wm_job, export_startjob, NULL, NULL, export_endjob);
-
-    WM_jobs_start(CTX_wm_manager(C), wm_job);
-  }
-  else {
-    /* Fake a job context, so that we don't need NULL pointer checks while exporting. */
-    short stop = 0, do_update = 0;
-    float progress = 0.f;
-
-    export_startjob(job, &stop, &do_update, &progress);
-    export_endjob(job);
-    export_ok = job->export_ok;
-
-    MEM_freeN(job);
-  }
-
-  return export_ok;
 }
 
 /* ********************** Import file ********************** */
@@ -447,7 +238,7 @@ static std::pair<bool, AbcObjectReader *> visit_object(
 
   if (!object.valid()) {
     std::cerr << "  - " << full_name << ": object is invalid, skipping it and all its children.\n";
-    return std::make_pair(false, static_cast<AbcObjectReader *>(NULL));
+    return std::make_pair(false, static_cast<AbcObjectReader *>(nullptr));
   }
 
   /* The interpretation of data by the children determine the role of this
@@ -469,7 +260,7 @@ static std::pair<bool, AbcObjectReader *> visit_object(
     bool child_claims_this_object = child_result.first;
     AbcObjectReader *child_reader = child_result.second;
 
-    if (child_reader == NULL) {
+    if (child_reader == nullptr) {
       BLI_assert(!child_claims_this_object);
     }
     else {
@@ -484,8 +275,9 @@ static std::pair<bool, AbcObjectReader *> visit_object(
     children_claiming_this_object += child_claims_this_object ? 1 : 0;
   }
   BLI_assert(children_claiming_this_object == claiming_child_readers.size());
+  UNUSED_VARS_NDEBUG(children_claiming_this_object);
 
-  AbcObjectReader *reader = NULL;
+  AbcObjectReader *reader = nullptr;
   const MetaData &md = object.getMetaData();
   bool parent_is_part_of_this_object = false;
 
@@ -566,8 +358,8 @@ static std::pair<bool, AbcObjectReader *> visit_object(
     readers.push_back(reader);
     reader->incref();
 
-    AlembicObjectPath *abc_path = static_cast<AlembicObjectPath *>(
-        MEM_callocN(sizeof(AlembicObjectPath), "AlembicObjectPath"));
+    CacheObjectPath *abc_path = static_cast<CacheObjectPath *>(
+        MEM_callocN(sizeof(CacheObjectPath), "CacheObjectPath"));
     BLI_strncpy(abc_path->path, full_name.c_str(), sizeof(abc_path->path));
     BLI_addtail(&settings.cache_file->object_paths, abc_path);
 
@@ -582,7 +374,7 @@ static std::pair<bool, AbcObjectReader *> visit_object(
     }
   }
   else if (object.getParent()) {
-    if (claiming_child_readers.size() > 0) {
+    if (!claiming_child_readers.empty()) {
       /* The first claiming child will serve just fine as parent to
        * our non-claiming children. Since all claiming children share
        * the same XForm, it doesn't really matter which one we pick. */
@@ -620,10 +412,10 @@ static std::pair<bool, AbcObjectReader *> visit_object(
 enum {
   ABC_NO_ERROR = 0,
   ABC_ARCHIVE_FAIL,
-  ABC_UNSUPPORTED_HDF5,
 };
 
 struct ImportJobData {
+  bContext *C;
   Main *bmain;
   Scene *scene;
   ViewLayer *view_layer;
@@ -642,7 +434,17 @@ struct ImportJobData {
   char error_code;
   bool was_cancelled;
   bool import_ok;
+  bool is_background_job;
+  blender::timeit::TimePoint start_time;
 };
+
+static void report_job_duration(const ImportJobData *data)
+{
+  blender::timeit::Nanoseconds duration = blender::timeit::Clock::now() - data->start_time;
+  std::cout << "Alembic import of '" << data->filename << "' took ";
+  blender::timeit::print_duration(duration);
+  std::cout << '\n';
+}
 
 static void import_startjob(void *user_data, short *stop, short *do_update, float *progress)
 {
@@ -653,17 +455,14 @@ static void import_startjob(void *user_data, short *stop, short *do_update, floa
   data->stop = stop;
   data->do_update = do_update;
   data->progress = progress;
+  data->start_time = blender::timeit::Clock::now();
 
   WM_set_locked_interface(data->wm, true);
 
-  ArchiveReader *archive = new ArchiveReader(data->bmain, data->filename);
+  ArchiveReader *archive = ArchiveReader::get(data->bmain, {data->filename});
 
-  if (!archive->valid()) {
-#ifndef WITH_ALEMBIC_HDF5
-    data->error_code = archive->is_hdf5() ? ABC_UNSUPPORTED_HDF5 : ABC_ARCHIVE_FAIL;
-#else
+  if (!archive || !archive->valid()) {
     data->error_code = ABC_ARCHIVE_FAIL;
-#endif
     delete archive;
     return;
   }
@@ -673,7 +472,7 @@ static void import_startjob(void *user_data, short *stop, short *do_update, floa
 
   /* Decrement the ID ref-count because it is going to be incremented for each
    * modifier and constraint that it will be attached to, so since currently
-   * it is not used by anyone, its use count will off by one. */
+   * it is not used by anyone, its use count will be off by one. */
   id_us_min(&cache_file->id);
 
   cache_file->is_sequence = data->settings.is_sequence;
@@ -691,7 +490,7 @@ static void import_startjob(void *user_data, short *stop, short *do_update, floa
   visit_object(archive->getTop(), data->readers, data->settings, assign_as_parent);
 
   /* There shouldn't be any orphans. */
-  BLI_assert(assign_as_parent.size() == 0);
+  BLI_assert(assign_as_parent.empty());
 
   if (G.is_break) {
     data->was_cancelled = true;
@@ -709,7 +508,7 @@ static void import_startjob(void *user_data, short *stop, short *do_update, floa
   chrono_t min_time = std::numeric_limits<chrono_t>::max();
   chrono_t max_time = std::numeric_limits<chrono_t>::min();
 
-  ISampleSelector sample_sel(0.0f);
+  ISampleSelector sample_sel(0.0);
   std::vector<AbcObjectReader *>::iterator iter;
   for (iter = data->readers.begin(); iter != data->readers.end(); ++iter) {
     AbcObjectReader *reader = *iter;
@@ -738,14 +537,14 @@ static void import_startjob(void *user_data, short *stop, short *do_update, floa
     Scene *scene = data->scene;
 
     if (data->settings.is_sequence) {
-      SFRA = data->settings.sequence_offset;
-      EFRA = SFRA + (data->settings.sequence_len - 1);
-      CFRA = SFRA;
+      scene->r.sfra = data->settings.sequence_offset;
+      scene->r.efra = scene->r.sfra + (data->settings.sequence_len - 1);
+      scene->r.cfra = scene->r.sfra;
     }
     else if (min_time < max_time) {
-      SFRA = static_cast<int>(round(min_time * FPS));
-      EFRA = static_cast<int>(round(max_time * FPS));
-      CFRA = SFRA;
+      scene->r.sfra = static_cast<int>(round(min_time * FPS));
+      scene->r.efra = static_cast<int>(round(max_time * FPS));
+      scene->r.cfra = scene->r.sfra;
     }
   }
 
@@ -755,8 +554,8 @@ static void import_startjob(void *user_data, short *stop, short *do_update, floa
     const AbcObjectReader *parent_reader = reader->parent_reader;
     Object *ob = reader->object();
 
-    if (parent_reader == NULL || !reader->inherits_xform()) {
-      ob->parent = NULL;
+    if (parent_reader == nullptr || !reader->inherits_xform()) {
+      ob->parent = nullptr;
     }
     else {
       ob->parent = parent_reader->object();
@@ -767,7 +566,7 @@ static void import_startjob(void *user_data, short *stop, short *do_update, floa
   i = 0;
   for (iter = data->readers.begin(); iter != data->readers.end(); ++iter) {
     AbcObjectReader *reader = *iter;
-    reader->setupObjectTransform(0.0f);
+    reader->setupObjectTransform(0.0);
 
     *data->progress = 0.7f + 0.3f * (++i / size);
     *data->do_update = true;
@@ -785,16 +584,14 @@ static void import_endjob(void *user_data)
 
   ImportJobData *data = static_cast<ImportJobData *>(user_data);
 
-  std::vector<AbcObjectReader *>::iterator iter;
-
   /* Delete objects on cancellation. */
   if (data->was_cancelled) {
-    for (iter = data->readers.begin(); iter != data->readers.end(); ++iter) {
-      Object *ob = (*iter)->object();
+    for (AbcObjectReader *reader : data->readers) {
+      Object *ob = reader->object();
 
       /* It's possible that cancellation occurred between the creation of
        * the reader and the creation of the Blender object. */
-      if (ob == NULL) {
+      if (ob == nullptr) {
         continue;
       }
 
@@ -802,7 +599,6 @@ static void import_endjob(void *user_data)
     }
   }
   else {
-    /* Add object to scene. */
     Base *base;
     LayerCollection *lc;
     ViewLayer *view_layer = data->view_layer;
@@ -811,11 +607,17 @@ static void import_endjob(void *user_data)
 
     lc = BKE_layer_collection_get_active(view_layer);
 
-    for (iter = data->readers.begin(); iter != data->readers.end(); ++iter) {
-      Object *ob = (*iter)->object();
-
+    /* Add all objects to the collection (don't do sync for each object). */
+    BKE_layer_collection_resync_forbid();
+    for (AbcObjectReader *reader : data->readers) {
+      Object *ob = reader->object();
       BKE_collection_object_add(data->bmain, lc->collection, ob);
-
+    }
+    /* Sync the collection, and do view layer operations. */
+    BKE_layer_collection_resync_allow();
+    BKE_main_collection_sync(data->bmain);
+    for (AbcObjectReader *reader : data->readers) {
+      Object *ob = reader->object();
       base = BKE_view_layer_base_find(view_layer, ob);
       /* TODO: is setting active needed? */
       BKE_view_layer_base_select_and_set_active(view_layer, base);
@@ -829,10 +631,15 @@ static void import_endjob(void *user_data)
 
     DEG_id_tag_update(&data->scene->id, ID_RECALC_BASE_FLAGS);
     DEG_relations_tag_update(data->bmain);
+
+    if (data->is_background_job) {
+      /* Blender already returned from the import operator, so we need to store our own extra undo
+       * step. */
+      ED_undo_push(data->C, "Alembic Import Finished");
+    }
   }
 
-  for (iter = data->readers.begin(); iter != data->readers.end(); ++iter) {
-    AbcObjectReader *reader = *iter;
+  for (AbcObjectReader *reader : data->readers) {
     reader->decref();
 
     if (reader->refcount() == 0) {
@@ -850,12 +657,10 @@ static void import_endjob(void *user_data)
     case ABC_ARCHIVE_FAIL:
       WM_report(RPT_ERROR, "Could not open Alembic archive for reading! See console for detail.");
       break;
-    case ABC_UNSUPPORTED_HDF5:
-      WM_report(RPT_ERROR, "Alembic archive in obsolete HDF5 format is not supported.");
-      break;
   }
 
   WM_main_add_notifier(NC_SCENE | ND_FRAME, data->scene);
+  report_job_duration(data);
 }
 
 static void import_freejob(void *user_data)
@@ -873,10 +678,12 @@ bool ABC_import(bContext *C,
                 int sequence_len,
                 int offset,
                 bool validate_meshes,
+                bool always_add_cache_reader,
                 bool as_background_job)
 {
   /* Using new here since MEM_* functions do not call constructor to properly initialize data. */
   ImportJobData *job = new ImportJobData();
+  job->C = C;
   job->bmain = CTX_data_main(C);
   job->scene = CTX_data_scene(C);
   job->view_layer = CTX_data_view_layer(C);
@@ -890,9 +697,11 @@ bool ABC_import(bContext *C,
   job->settings.sequence_len = sequence_len;
   job->settings.sequence_offset = offset;
   job->settings.validate_meshes = validate_meshes;
+  job->settings.always_add_cache_reader = always_add_cache_reader;
   job->error_code = ABC_NO_ERROR;
   job->was_cancelled = false;
-  job->archive = NULL;
+  job->archive = nullptr;
+  job->is_background_job = as_background_job;
 
   G.is_break = false;
 
@@ -908,14 +717,14 @@ bool ABC_import(bContext *C,
     /* setup job */
     WM_jobs_customdata_set(wm_job, job, import_freejob);
     WM_jobs_timer(wm_job, 0.1, NC_SCENE | ND_FRAME, NC_SCENE | ND_FRAME);
-    WM_jobs_callbacks(wm_job, import_startjob, NULL, NULL, import_endjob);
+    WM_jobs_callbacks(wm_job, import_startjob, nullptr, nullptr, import_endjob);
 
     WM_jobs_start(CTX_wm_manager(C), wm_job);
   }
   else {
     /* Fake a job context, so that we don't need NULL pointer checks while importing. */
     short stop = 0, do_update = 0;
-    float progress = 0.f;
+    float progress = 0.0f;
 
     import_startjob(job, &stop, &do_update, &progress);
     import_endjob(job);
@@ -929,7 +738,7 @@ bool ABC_import(bContext *C,
 
 /* ************************************************************************** */
 
-void ABC_get_transform(CacheReader *reader, float r_mat_world[4][4], float time, float scale)
+void ABC_get_transform(CacheReader *reader, float r_mat_world[4][4], double time, float scale)
 {
   if (!reader) {
     return;
@@ -942,7 +751,7 @@ void ABC_get_transform(CacheReader *reader, float r_mat_world[4][4], float time,
   /* Convert from the local matrix we obtain from Alembic to world coordinates
    * for Blender. This conversion is done here rather than by Blender due to
    * work around the non-standard interpretation of CONSTRAINT_SPACE_LOCAL in
-   * BKE_constraint_mat_convertspace().  */
+   * BKE_constraint_mat_convertspace(). */
   Object *object = abc_reader->object();
   if (object->parent == nullptr) {
     /* No parent, so local space is the same as world space. */
@@ -968,19 +777,19 @@ static AbcObjectReader *get_abc_reader(CacheReader *reader, Object *ob, const ch
 
   if (!iobject.valid()) {
     *err_str = "Invalid object: verify object path";
-    return NULL;
+    return nullptr;
   }
 
   const ObjectHeader &header = iobject.getHeader();
   if (!abc_reader->accepts_object_type(header, ob, err_str)) {
     /* err_str is set by acceptsObjectType() */
-    return NULL;
+    return nullptr;
   }
 
   return abc_reader;
 }
 
-static ISampleSelector sample_selector_for_time(float time)
+static ISampleSelector sample_selector_for_time(chrono_t time)
 {
   /* kFloorIndex is used to be compatible with non-interpolating
    * properties; they use the floor. */
@@ -990,24 +799,31 @@ static ISampleSelector sample_selector_for_time(float time)
 Mesh *ABC_read_mesh(CacheReader *reader,
                     Object *ob,
                     Mesh *existing_mesh,
-                    const float time,
-                    const char **err_str,
-                    int read_flag)
+                    const ABCReadParams *params,
+                    const char **err_str)
 {
   AbcObjectReader *abc_reader = get_abc_reader(reader, ob, err_str);
-  if (abc_reader == NULL) {
-    return NULL;
+  if (abc_reader == nullptr) {
+    return nullptr;
   }
 
-  ISampleSelector sample_sel = sample_selector_for_time(time);
-  return abc_reader->read_mesh(existing_mesh, sample_sel, read_flag, err_str);
+  ISampleSelector sample_sel = sample_selector_for_time(params->time);
+  return abc_reader->read_mesh(existing_mesh,
+                               sample_sel,
+                               params->read_flags,
+                               params->velocity_name,
+                               params->velocity_scale,
+                               err_str);
 }
 
-bool ABC_mesh_topology_changed(
-    CacheReader *reader, Object *ob, Mesh *existing_mesh, const float time, const char **err_str)
+bool ABC_mesh_topology_changed(CacheReader *reader,
+                               Object *ob,
+                               const Mesh *existing_mesh,
+                               const double time,
+                               const char **err_str)
 {
   AbcObjectReader *abc_reader = get_abc_reader(reader, ob, err_str);
-  if (abc_reader == NULL) {
+  if (abc_reader == nullptr) {
     return false;
   }
 
@@ -1017,7 +833,7 @@ bool ABC_mesh_topology_changed(
 
 /* ************************************************************************** */
 
-void CacheReader_free(CacheReader *reader)
+void ABC_CacheReader_free(CacheReader *reader)
 {
   AbcObjectReader *abc_reader = reinterpret_cast<AbcObjectReader *>(reader);
   abc_reader->decref();
@@ -1027,13 +843,13 @@ void CacheReader_free(CacheReader *reader)
   }
 }
 
-void CacheReader_incref(CacheReader *reader)
+void ABC_CacheReader_incref(CacheReader *reader)
 {
   AbcObjectReader *abc_reader = reinterpret_cast<AbcObjectReader *>(reader);
   abc_reader->incref();
 }
 
-CacheReader *CacheReader_open_alembic_object(AbcArchiveHandle *handle,
+CacheReader *CacheReader_open_alembic_object(CacheArchiveHandle *handle,
                                              CacheReader *reader,
                                              Object *object,
                                              const char *object_path)
@@ -1052,14 +868,14 @@ CacheReader *CacheReader_open_alembic_object(AbcArchiveHandle *handle,
   find_iobject(archive->getTop(), iobject, object_path);
 
   if (reader) {
-    CacheReader_free(reader);
+    ABC_CacheReader_free(reader);
   }
 
   ImportSettings settings;
   AbcObjectReader *abc_reader = create_reader(iobject, settings);
-  if (abc_reader == NULL) {
+  if (abc_reader == nullptr) {
     /* This object is not supported */
-    return NULL;
+    return nullptr;
   }
   abc_reader->object(object);
   abc_reader->incref();

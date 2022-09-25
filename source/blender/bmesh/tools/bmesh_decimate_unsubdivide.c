@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -77,12 +63,12 @@ static bool bm_vert_dissolve_fan_test(BMVert *v)
 
 static bool bm_vert_dissolve_fan(BMesh *bm, BMVert *v)
 {
-  /* collapse under 2 conditions.
+  /* Collapse under 2 conditions:
    * - vert connects to 4 manifold edges (and 4 faces).
    * - vert connects to 1 manifold edge, 2 boundary edges (and 2 faces).
    *
    * This covers boundary verts of a quad grid and center verts.
-   * note that surrounding faces dont have to be quads.
+   * note that surrounding faces don't have to be quads.
    */
 
   BMIter iter;
@@ -110,7 +96,7 @@ static bool bm_vert_dissolve_fan(BMesh *bm, BMVert *v)
   if (tot_edge == 2) {
     /* check for 2 wire verts only */
     if (tot_edge_wire == 2) {
-      return (BM_vert_collapse_edge(bm, v->e, v, true, true) != NULL);
+      return (BM_vert_collapse_edge(bm, v->e, v, true, true, true) != NULL);
     }
   }
   else if (tot_edge == 4) {
@@ -168,8 +154,6 @@ enum {
  * - BMVert.index == -1:         shows we will remove this vert
  */
 
-/**
- * \param tag_only: so we can call this from an operator */
 void BM_mesh_decimate_unsubdivide_ex(BMesh *bm, const int iterations, const bool tag_only)
 {
 #ifdef USE_WALKER

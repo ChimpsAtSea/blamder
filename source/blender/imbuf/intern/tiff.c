@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup imbuf
@@ -22,15 +8,15 @@
  * Provides TIFF file loading and saving for Blender, via libtiff.
  *
  * The task of loading is complicated somewhat by the fact that Blender has
- * already loaded the file into a memory buffer.  libtiff is not well
+ * already loaded the file into a memory buffer. libtiff is not well
  * configured to handle files in memory, so a client wrapper is written to
- * surround the memory and turn it into a virtual file.  Currently, reading
- * of TIFF files is done using libtiff's RGBAImage support.  This is a
+ * surround the memory and turn it into a virtual file. Currently, reading
+ * of TIFF files is done using libtiff's RGBAImage support. This is a
  * high-level routine that loads all images as 32-bit RGBA, handling all the
  * required conversions between many different TIFF types internally.
  *
- * Saving supports RGB, RGBA and BW (grayscale) images correctly, with
- * 8 bits per channel in all cases.  The "deflate" compression algorithm is
+ * Saving supports RGB, RGBA and BW (gray-scale) images correctly, with
+ * 8 bits per channel in all cases. The "deflate" compression algorithm is
  * used to compress images.
  */
 
@@ -38,6 +24,7 @@
 
 #include "imbuf.h"
 
+#include "BLI_endian_defines.h"
 #include "BLI_math.h"
 #include "BLI_utildefines.h"
 
@@ -51,15 +38,16 @@
 #include "IMB_colormanagement.h"
 #include "IMB_colormanagement_intern.h"
 
-#include "tiffio.h"
+#include <tiffio.h>
 
 #ifdef WIN32
 #  include "utfconv.h"
 #endif
 
-/***********************
- * Local declarations. *
- ***********************/
+/* -------------------------------------------------------------------- */
+/** \name Local Declarations
+ * \{ */
+
 /* Reading and writing of an in-memory TIFF file. */
 static tsize_t imb_tiff_ReadProc(thandle_t handle, tdata_t data, tsize_t n);
 static tsize_t imb_tiff_WriteProc(thandle_t handle, tdata_t data, tsize_t n);
@@ -69,42 +57,57 @@ static toff_t imb_tiff_SizeProc(thandle_t handle);
 static int imb_tiff_DummyMapProc(thandle_t fd, tdata_t *pbase, toff_t *psize);
 static void imb_tiff_DummyUnmapProc(thandle_t fd, tdata_t base, toff_t size);
 
-/* Structure for in-memory TIFF file. */
+/** Structure for in-memory TIFF file. */
 typedef struct ImbTIFFMemFile {
-  const unsigned char *mem; /* Location of first byte of TIFF file. */
-  toff_t offset;            /* Current offset within the file.      */
-  tsize_t size;             /* Size of the TIFF file.               */
+  /** Location of first byte of TIFF file. */
+  const unsigned char *mem;
+  /** Current offset within the file. */
+  toff_t offset;
+  /** Size of the TIFF file. */
+  tsize_t size;
 } ImbTIFFMemFile;
 #define IMB_TIFF_GET_MEMFILE(x) ((ImbTIFFMemFile *)(x))
 
-/*****************************
- * Function implementations. *
- *****************************/
+/** \} */
 
-static void imb_tiff_DummyUnmapProc(thandle_t fd, tdata_t base, toff_t size)
+/* -------------------------------------------------------------------- */
+/** \name Function Implementations
+ * \{ */
+
+static void imb_tiff_DummyUnmapProc(
+    thandle_t fd,
+    tdata_t base,
+    /* Cannot be const, because this function implements #TIFFUnmapFileProc.
+     * NOLINTNEXTLINE: readability-non-const-parameter. */
+    toff_t size)
 {
   (void)fd;
   (void)base;
   (void)size;
 }
 
-static int imb_tiff_DummyMapProc(thandle_t fd, tdata_t *pbase, toff_t *psize)
+static int imb_tiff_DummyMapProc(
+    thandle_t fd,
+    tdata_t *pbase,
+    /* Cannot be const, because this function implements #TIFFMapFileProc.
+     * NOLINTNEXTLINE: readability-non-const-parameter. */
+    toff_t *psize)
 {
   (void)fd;
   (void)pbase;
   (void)psize;
 
-  return (0);
+  return 0;
 }
 
 /**
  * Reads data from an in-memory TIFF file.
  *
- * \param handle: Handle of the TIFF file (pointer to ImbTIFFMemFile).
- * \param data:   Buffer to contain data (treat as (void *)).
- * \param n:      Number of bytes to read.
+ * \param handle: Handle of the TIFF file (pointer to #ImbTIFFMemFile).
+ * \param data: Buffer to contain data (treat as (void *)).
+ * \param n: Number of bytes to read.
  *
- * \return: Number of bytes actually read.
+ * \return Number of bytes actually read.
  *   0 = EOF.
  */
 static tsize_t imb_tiff_ReadProc(thandle_t handle, tdata_t data, tsize_t n)
@@ -135,7 +138,7 @@ static tsize_t imb_tiff_ReadProc(thandle_t handle, tdata_t data, tsize_t n)
 
   /* on EOF, return immediately and read (copy) nothing */
   if (nCopy <= 0) {
-    return (0);
+    return 0;
   }
 
   /* all set -> do the read (copy) */
@@ -148,8 +151,8 @@ static tsize_t imb_tiff_ReadProc(thandle_t handle, tdata_t data, tsize_t n)
 /**
  * Writes data to an in-memory TIFF file.
  *
- * NOTE: The current Blender implementation should not need this function.  It
- *       is simply a stub.
+ * NOTE: The current Blender implementation should not need this function.
+ * It is simply a stub.
  */
 static tsize_t imb_tiff_WriteProc(thandle_t handle, tdata_t data, tsize_t n)
 {
@@ -164,16 +167,16 @@ static tsize_t imb_tiff_WriteProc(thandle_t handle, tdata_t data, tsize_t n)
 /**
  * Seeks to a new location in an in-memory TIFF file.
  *
- * \param handle: Handle of the TIFF file (pointer to ImbTIFFMemFile).
- * \param ofs:    Offset value (interpreted according to whence below).
+ * \param handle: Handle of the TIFF file (pointer to #ImbTIFFMemFile).
+ * \param ofs: Offset value (interpreted according to whence below).
  * \param whence: This can be one of three values:
  * SEEK_SET - The offset is set to ofs bytes.
  * SEEK_CUR - The offset is set to its current location plus ofs bytes.
  * SEEK_END - (This is unsupported and will return -1, indicating an
  *             error).
  *
- * \return: Resulting offset location within the file, measured in bytes from
- *          the beginning of the file.  (-1) indicates an error.
+ * \return Resulting offset location within the file, measured in bytes from
+ * the beginning of the file. (-1) indicates an error.
  */
 static toff_t imb_tiff_SeekProc(thandle_t handle, toff_t ofs, int whence)
 {
@@ -212,13 +215,13 @@ static toff_t imb_tiff_SeekProc(thandle_t handle, toff_t ofs, int whence)
  * Closes (virtually) an in-memory TIFF file.
  *
  * NOTE: All this function actually does is sets the data pointer within the
- *       TIFF file to NULL.  That should trigger assertion errors if attempts
- *       are made to access the file after that point.  However, no such
+ *       TIFF file to NULL. That should trigger assertion errors if attempts
+ *       are made to access the file after that point. However, no such
  *       attempts should ever be made (in theory).
  *
- * \param handle: Handle of the TIFF file (pointer to ImbTIFFMemFile).
+ * \param handle: Handle of the TIFF file (pointer to #ImbTIFFMemFile).
  *
- * \return: 0
+ * \return 0
  */
 static int imb_tiff_CloseProc(thandle_t handle)
 {
@@ -228,7 +231,7 @@ static int imb_tiff_CloseProc(thandle_t handle)
   mfile = IMB_TIFF_GET_MEMFILE(handle);
   if (!mfile || !mfile->mem) {
     fprintf(stderr, "imb_tiff_CloseProc: !mfile || !mfile->mem!\n");
-    return (0);
+    return 0;
   }
 
   /* virtually close the file */
@@ -236,13 +239,13 @@ static int imb_tiff_CloseProc(thandle_t handle)
   mfile->offset = 0;
   mfile->size = 0;
 
-  return (0);
+  return 0;
 }
 
 /**
  * Returns the size of an in-memory TIFF file in bytes.
  *
- * \return: Size of file (in bytes).
+ * \return Size of file (in bytes).
  */
 static toff_t imb_tiff_SizeProc(thandle_t handle)
 {
@@ -252,7 +255,7 @@ static toff_t imb_tiff_SizeProc(thandle_t handle)
   mfile = IMB_TIFF_GET_MEMFILE(handle);
   if (!mfile || !mfile->mem) {
     fprintf(stderr, "imb_tiff_SizeProc: !mfile || !mfile->mem!\n");
-    return (0);
+    return 0;
   }
 
   /* return the size */
@@ -278,6 +281,12 @@ static TIFF *imb_tiff_client_open(ImbTIFFMemFile *memFile, const unsigned char *
                         imb_tiff_DummyUnmapProc);
 }
 
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Load TIFF
+ * \{ */
+
 /**
  * Checks whether a given memory buffer contains a TIFF file.
  *
@@ -294,13 +303,16 @@ static TIFF *imb_tiff_client_open(ImbTIFFMemFile *memFile, const unsigned char *
  * hence my manual comparison. - Jonathan Merritt (lancelet) 4th Sept 2005.
  */
 #define IMB_TIFF_NCB 4 /* number of comparison bytes used */
-int imb_is_a_tiff(const unsigned char *mem)
+bool imb_is_a_tiff(const unsigned char *buf, size_t size)
 {
-  char big_endian[IMB_TIFF_NCB] = {0x4d, 0x4d, 0x00, 0x2a};
-  char lil_endian[IMB_TIFF_NCB] = {0x49, 0x49, 0x2a, 0x00};
+  const char big_endian[IMB_TIFF_NCB] = {0x4d, 0x4d, 0x00, 0x2a};
+  const char lil_endian[IMB_TIFF_NCB] = {0x49, 0x49, 0x2a, 0x00};
+  if (size < IMB_TIFF_NCB) {
+    return false;
+  }
 
-  return ((memcmp(big_endian, mem, IMB_TIFF_NCB) == 0) ||
-          (memcmp(lil_endian, mem, IMB_TIFF_NCB) == 0));
+  return ((memcmp(big_endian, buf, IMB_TIFF_NCB) == 0) ||
+          (memcmp(lil_endian, buf, IMB_TIFF_NCB) == 0));
 }
 
 static void scanline_contig_16bit(float *rectf,
@@ -349,7 +361,7 @@ static void scanline_separate_32bit(float *rectf, const float *fbuf, int scanlin
 
 static void imb_read_tiff_resolution(ImBuf *ibuf, TIFF *image)
 {
-  uint16 unit;
+  uint16_t unit;
   float xres;
   float yres;
 
@@ -431,7 +443,7 @@ static int imb_read_tiff_pixels(ImBuf *ibuf, TIFF *image)
   }
 
   /* simple RGBA image */
-  if (!(bitspersample == 32 || bitspersample == 16)) {
+  if (!(ELEM(bitspersample, 32, 16))) {
     success |= TIFFReadRGBAImage(image, ibuf->x, ibuf->y, tmpibuf->rect, 0);
   }
   /* contiguous channels: RGBRGBRGB */
@@ -462,7 +474,7 @@ static int imb_read_tiff_pixels(ImBuf *ibuf, TIFF *image)
           if (chan == 3 && spp == 3) { /* fill alpha if only RGB TIFF */
             copy_vn_fl(fbuf, ibuf->x, 1.0f);
           }
-          else if (chan >= spp) { /* for grayscale, duplicate first channel into G and B */
+          else if (chan >= spp) { /* For gray-scale, duplicate first channel into G and B. */
             success |= TIFFReadScanline(image, fbuf, row, 0);
           }
           else {
@@ -474,7 +486,7 @@ static int imb_read_tiff_pixels(ImBuf *ibuf, TIFF *image)
           if (chan == 3 && spp == 3) { /* fill alpha if only RGB TIFF */
             copy_vn_ushort(sbuf, ibuf->x, 65535);
           }
-          else if (chan >= spp) { /* for grayscale, duplicate first channel into G and B */
+          else if (chan >= spp) { /* For gray-scale, duplicate first channel into G and B. */
             success |= TIFFReadScanline(image, fbuf, row, 0);
           }
           else {
@@ -487,7 +499,7 @@ static int imb_read_tiff_pixels(ImBuf *ibuf, TIFF *image)
   }
 
   if (success) {
-    /* Code seems to be not needed for 16 bits tif, on PPC G5 OSX (ton) */
+    /* Code seems to be not needed for 16 bits TIFF, on PPC G5 OSX (ton) */
     if (bitspersample < 16) {
       if (ENDIAN_ORDER == B_ENDIAN) {
         IMB_convert_rgba_to_abgr(tmpibuf);
@@ -527,15 +539,6 @@ void imb_inittiff(void)
   }
 }
 
-/**
- * Loads a TIFF file.
- * \param mem:   Memory containing the TIFF file.
- * \param size:  Size of the mem buffer.
- * \param flags: If flags has IB_test set then the file is not actually loaded,
- *                but all other operations take place.
- *
- * \return: A newly allocated ImBuf structure if successful, otherwise NULL.
- */
 ImBuf *imb_loadtiff(const unsigned char *mem,
                     size_t size,
                     int flags,
@@ -544,19 +547,15 @@ ImBuf *imb_loadtiff(const unsigned char *mem,
   TIFF *image = NULL;
   ImBuf *ibuf = NULL, *hbuf;
   ImbTIFFMemFile memFile;
-  uint32 width, height;
+  uint32_t width, height;
   char *format = NULL;
   int level;
   short spp;
   int ib_depth;
   int found;
 
-  /* check whether or not we have a TIFF file */
-  if (size < IMB_TIFF_NCB) {
-    fprintf(stderr, "imb_loadtiff: size < IMB_TIFF_NCB\n");
-    return NULL;
-  }
-  if (imb_is_a_tiff(mem) == 0) {
+  /* Check whether or not we have a TIFF file. */
+  if (imb_is_a_tiff(mem, size) == 0) {
     return NULL;
   }
 
@@ -669,7 +668,7 @@ void imb_loadtiletiff(
     ImBuf *ibuf, const unsigned char *mem, size_t size, int tx, int ty, unsigned int *rect)
 {
   TIFF *image = NULL;
-  uint32 width, height;
+  uint32_t width, height;
   ImbTIFFMemFile memFile;
 
   image = imb_tiff_client_open(&memFile, mem, size);
@@ -716,26 +715,16 @@ void imb_loadtiletiff(
   TIFFClose(image);
 }
 
-/**
- * Saves a TIFF file.
- *
- * ImBuf structures with 1, 3 or 4 bytes per pixel (GRAY, RGB, RGBA
- * respectively) are accepted, and interpreted correctly.  Note that the TIFF
- * convention is to use pre-multiplied alpha, which can be achieved within
- * Blender by setting "Premul" alpha handling.  Other alpha conventions are
- * not strictly correct, but are permitted anyhow.
- *
- * \param ibuf:  Image buffer.
- * \param name:  Name of the TIFF file to create.
- * \param flags: Currently largely ignored.
- *
- * \return: 1 if the function is successful, 0 on failure.
- */
+/** \} */
 
-int imb_savetiff(ImBuf *ibuf, const char *name, int flags)
+/* -------------------------------------------------------------------- */
+/** \name Save TIFF
+ * \{ */
+
+bool imb_savetiff(ImBuf *ibuf, const char *filepath, int flags)
 {
   TIFF *image = NULL;
-  uint16 samplesperpixel, bitspersample;
+  uint16_t samplesperpixel, bitspersample;
   size_t npixels;
   unsigned char *pixels = NULL;
   unsigned char *from = NULL, *to = NULL;
@@ -745,16 +734,16 @@ int imb_savetiff(ImBuf *ibuf, const char *name, int flags)
   int x, y, from_i, to_i, i;
   int compress_mode = COMPRESSION_NONE;
 
-  /* check for a valid number of bytes per pixel.  Like the PNG writer,
+  /* check for a valid number of bytes per pixel. Like the PNG writer,
    * the TIFF writer supports 1, 3 or 4 bytes per pixel, corresponding
    * to gray, RGB, RGBA respectively. */
-  samplesperpixel = (uint16)((ibuf->planes + 7) >> 3);
+  samplesperpixel = (uint16_t)((ibuf->planes + 7) >> 3);
   if ((samplesperpixel > 4) || (samplesperpixel == 2)) {
     fprintf(stderr,
             "imb_savetiff: unsupported number of bytes per "
             "pixel: %d\n",
             samplesperpixel);
-    return (0);
+    return 0;
   }
 
   if ((ibuf->foptions.flag & TIF_16BIT) && ibuf->rect_float) {
@@ -776,25 +765,25 @@ int imb_savetiff(ImBuf *ibuf, const char *name, int flags)
 
   /* open TIFF file for writing */
   if (flags & IB_mem) {
-    /* bork at the creation of a TIFF in memory */
+    /* Failed to allocate TIFF in memory. */
     fprintf(stderr,
             "imb_savetiff: creation of in-memory TIFF files is "
             "not yet supported.\n");
-    return (0);
+    return 0;
   }
-  else {
-    /* create image as a file */
+
+  /* create image as a file */
 #ifdef WIN32
-    wchar_t *wname = alloc_utf16_from_8(name, 0);
-    image = TIFFOpenW(wname, "w");
-    free(wname);
+  wchar_t *wname = alloc_utf16_from_8(filepath, 0);
+  image = TIFFOpenW(wname, "w");
+  free(wname);
 #else
-    image = TIFFOpen(name, "w");
+  image = TIFFOpen(filepath, "w");
 #endif
-  }
+
   if (image == NULL) {
     fprintf(stderr, "imb_savetiff: could not open TIFF for writing.\n");
-    return (0);
+    return 0;
   }
 
   /* allocate array for pixel data */
@@ -809,7 +798,7 @@ int imb_savetiff(ImBuf *ibuf, const char *name, int flags)
   if (pixels == NULL && pixels16 == NULL) {
     fprintf(stderr, "imb_savetiff: could not allocate pixels array.\n");
     TIFFClose(image);
-    return (0);
+    return 0;
   }
 
   /* setup pointers */
@@ -845,11 +834,11 @@ int imb_savetiff(ImBuf *ibuf, const char *name, int flags)
     TIFFSetField(image, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_RGB);
   }
   else if (samplesperpixel == 1) {
-    /* grayscale images, 1 channel */
+    /* Gray-scale images, 1 channel */
     TIFFSetField(image, TIFFTAG_PHOTOMETRIC, PHOTOMETRIC_MINISBLACK);
   }
 
-  /* copy pixel data.  While copying, we flip the image vertically. */
+  /* copy pixel data. While copying, we flip the image vertically. */
   const int channels_in_float = ibuf->channels ? ibuf->channels : 4;
   for (x = 0; x < ibuf->x; x++) {
     for (y = 0; y < ibuf->y; y++) {
@@ -860,7 +849,7 @@ int imb_savetiff(ImBuf *ibuf, const char *name, int flags)
         /* convert from float source */
         float rgb[4];
 
-        if (channels_in_float == 3 || channels_in_float == 4) {
+        if (ELEM(channels_in_float, 3, 4)) {
           if (ibuf->float_colorspace || (ibuf->colormanage_flag & IMB_COLORMANAGE_IS_DATA)) {
             /* Float buffer was managed already, no need in color
              * space conversion.
@@ -868,9 +857,7 @@ int imb_savetiff(ImBuf *ibuf, const char *name, int flags)
             copy_v3_v3(rgb, &fromf[from_i]);
           }
           else {
-            /* Standard linear-to-srgb conversion if float buffer
-             * wasn't managed.
-             */
+            /* Standard linear-to-SRGB conversion if float buffer wasn't managed. */
             linearrgb_to_srgb_v3_v3(rgb, &fromf[from_i]);
           }
           if (channels_in_float == 4) {
@@ -935,7 +922,7 @@ int imb_savetiff(ImBuf *ibuf, const char *name, int flags)
     if (pixels16) {
       _TIFFfree(pixels16);
     }
-    return (1);
+    return 1;
   }
 
   /* close the TIFF file */
@@ -946,5 +933,7 @@ int imb_savetiff(ImBuf *ibuf, const char *name, int flags)
   if (pixels16) {
     _TIFFfree(pixels16);
   }
-  return (1);
+  return 1;
 }
+
+/** \} */

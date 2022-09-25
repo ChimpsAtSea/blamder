@@ -1,11 +1,20 @@
+#pragma BLENDER_REQUIRE(gpu_shader_common_hash.glsl)
+#pragma BLENDER_REQUIRE(gpu_shader_common_math_utils.glsl)
+
 /*
+ * Original code is under the MIT License, Copyright (c) 2013 Inigo Quilez.
+ *
  * Smooth Voronoi:
  *
  * - https://wiki.blender.org/wiki/User:OmarSquircleArt/GSoC2019/Documentation/Smooth_Voronoi
  *
- * Distance To Edge:
+ * Distance To Edge based on:
  *
- * - https://www.shadertoy.com/view/llG3zy
+ * - https://www.iquilezles.org/www/articles/voronoilines/voronoilines.htm
+ * - https://www.shadertoy.com/view/ldl3W8
+ *
+ * With optimization to change -2..2 scan window to -1..1 for better performance,
+ * as explained in https://www.shadertoy.com/view/llG3zy.
  *
  */
 
@@ -66,7 +75,7 @@ void node_tex_voronoi_smooth_f1_1d(vec3 coord,
                                    out float outRadius)
 {
   randomness = clamp(randomness, 0.0, 1.0);
-  smoothness = clamp(smoothness / 2.0, 0, 0.5);
+  smoothness = clamp(smoothness / 2.0, 0.0, 0.5);
 
   float scaledCoord = w * scale;
   float cellPosition = floor(scaledCoord);
@@ -158,14 +167,14 @@ void node_tex_voronoi_distance_to_edge_1d(vec3 coord,
   float cellPosition = floor(scaledCoord);
   float localPosition = scaledCoord - cellPosition;
 
-  float minDistance = 8.0;
-  for (int i = -1; i <= 1; i++) {
-    float cellOffset = float(i);
-    float pointPosition = cellOffset + hash_float_to_float(cellPosition + cellOffset) * randomness;
-    float distanceToPoint = voronoi_distance(pointPosition, localPosition, metric, exponent);
-    minDistance = min(distanceToPoint, minDistance);
-  }
-  outDistance = minDistance;
+  float midPointPosition = hash_float_to_float(cellPosition) * randomness;
+  float leftPointPosition = -1.0 + hash_float_to_float(cellPosition - 1.0) * randomness;
+  float rightPointPosition = 1.0 + hash_float_to_float(cellPosition + 1.0) * randomness;
+  float distanceToMidLeft = distance((midPointPosition + leftPointPosition) / 2.0, localPosition);
+  float distanceToMidRight = distance((midPointPosition + rightPointPosition) / 2.0,
+                                      localPosition);
+
+  outDistance = min(distanceToMidLeft, distanceToMidRight);
 }
 
 void node_tex_voronoi_n_sphere_radius_1d(vec3 coord,
@@ -295,7 +304,7 @@ void node_tex_voronoi_smooth_f1_2d(vec3 coord,
                                    out float outRadius)
 {
   randomness = clamp(randomness, 0.0, 1.0);
-  smoothness = clamp(smoothness / 2.0, 0, 0.5);
+  smoothness = clamp(smoothness / 2.0, 0.0, 0.5);
 
   vec2 scaledCoord = coord.xy * scale;
   vec2 cellPosition = floor(scaledCoord);
@@ -559,7 +568,7 @@ void node_tex_voronoi_smooth_f1_3d(vec3 coord,
                                    out float outRadius)
 {
   randomness = clamp(randomness, 0.0, 1.0);
-  smoothness = clamp(smoothness / 2.0, 0, 0.5);
+  smoothness = clamp(smoothness / 2.0, 0.0, 0.5);
 
   vec3 scaledCoord = coord * scale;
   vec3 cellPosition = floor(scaledCoord);
@@ -846,7 +855,7 @@ void node_tex_voronoi_smooth_f1_4d(vec3 coord,
                                    out float outRadius)
 {
   randomness = clamp(randomness, 0.0, 1.0);
-  smoothness = clamp(smoothness / 2.0, 0, 0.5);
+  smoothness = clamp(smoothness / 2.0, 0.0, 0.5);
 
   vec4 scaledCoord = vec4(coord, w) * scale;
   vec4 cellPosition = floor(scaledCoord);

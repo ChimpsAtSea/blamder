@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -30,10 +14,14 @@
 
 #include "BKE_context.h"
 #include "BKE_mask.h"
-#include "BKE_report.h"
 
 #include "ED_clip.h"
+#include "ED_image.h"
+#include "ED_keyframing.h"
 #include "ED_mask.h"
+
+#include "WM_api.h"
+#include "WM_types.h"
 
 #include "transform.h"
 #include "transform_convert.h"
@@ -53,7 +41,6 @@ typedef struct TransDataMasking {
 
 /* -------------------------------------------------------------------- */
 /** \name Masking Transform Creation
- *
  * \{ */
 
 static void MaskHandleToTransData(MaskSplinePoint *point,
@@ -130,22 +117,21 @@ static void MaskPointToTransData(Scene *scene,
   const bool is_sel_any = MASKPOINT_ISSEL_ANY(point);
   float parent_matrix[3][3], parent_inverse_matrix[3][3];
 
-  BKE_mask_point_parent_matrix_get(point, CFRA, parent_matrix);
+  BKE_mask_point_parent_matrix_get(point, scene->r.cfra, parent_matrix);
   invert_m3_m3(parent_inverse_matrix, parent_matrix);
 
   if (is_prop_edit || is_sel_point) {
-    int i;
 
     tdm->point = point;
     copy_m3_m3(tdm->vec, bezt->vec);
 
-    for (i = 0; i < 3; i++) {
+    for (int i = 0; i < 3; i++) {
       copy_m3_m3(tdm->parent_matrix, parent_matrix);
       copy_m3_m3(tdm->parent_inverse_matrix, parent_inverse_matrix);
 
       /* CV coords are scaled by aspects. this is needed for rotations and
        * proportional editing to be consistent with the stretched CV coords
-       * that are displayed. this also means that for display and numinput,
+       * that are displayed. this also means that for display and number-input,
        * and when the CV coords are flushed, these are converted each time */
       mul_v2_m3v2(td2d->loc, parent_matrix, bezt->vec[i]);
       td2d->loc[0] *= asp[0];
@@ -259,7 +245,7 @@ static void MaskPointToTransData(Scene *scene,
   }
 }
 
-void createTransMaskingData(bContext *C, TransInfo *t)
+static void createTransMaskingData(bContext *C, TransInfo *t)
 {
   Scene *scene = CTX_data_scene(C);
   Mask *mask = CTX_data_edit_mask(C);
@@ -275,23 +261,15 @@ void createTransMaskingData(bContext *C, TransInfo *t)
 
   tc->data_len = 0;
 
-  if (!mask) {
+  if (!ED_maskedit_mask_visible_splines_poll(C)) {
     return;
-  }
-
-  if (t->spacetype == SPACE_CLIP) {
-    SpaceClip *sc = t->area->spacedata.first;
-    MovieClip *clip = ED_space_clip_get_clip(sc);
-    if (!clip) {
-      return;
-    }
   }
 
   /* count */
   for (masklay = mask->masklayers.first; masklay; masklay = masklay->next) {
     MaskSpline *spline;
 
-    if (masklay->restrictflag & (MASK_RESTRICT_VIEW | MASK_RESTRICT_SELECT)) {
+    if (masklay->visibility_flag & (MASK_HIDE_VIEW | MASK_HIDE_SELECT)) {
       continue;
     }
 
@@ -328,7 +306,7 @@ void createTransMaskingData(bContext *C, TransInfo *t)
     }
   }
 
-  /* note: in prop mode we need at least 1 selected */
+  /* NOTE: in prop mode we need at least 1 selected. */
   if (countsel == 0) {
     return;
   }
@@ -349,7 +327,7 @@ void createTransMaskingData(bContext *C, TransInfo *t)
   for (masklay = mask->masklayers.first; masklay; masklay = masklay->next) {
     MaskSpline *spline;
 
-    if (masklay->restrictflag & (MASK_RESTRICT_VIEW | MASK_RESTRICT_SELECT)) {
+    if (masklay->visibility_flag & (MASK_HIDE_VIEW | MASK_HIDE_SELECT)) {
       continue;
     }
 
@@ -396,11 +374,10 @@ void createTransMaskingData(bContext *C, TransInfo *t)
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name Masking Transform Flush
- *
+/** \name Recalc TransData Masking
  * \{ */
 
-void flushTransMasking(TransInfo *t)
+static void flushTransMasking(TransInfo *t)
 {
   TransData2D *td;
   TransDataMasking *tdm;
@@ -439,4 +416,57 @@ void flushTransMasking(TransInfo *t)
   }
 }
 
+static void recalcData_mask_common(TransInfo *t)
+{
+  Mask *mask = CTX_data_edit_mask(t->context);
+
+  flushTransMasking(t);
+
+  DEG_id_tag_update(&mask->id, 0);
+}
+
 /** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Special After Transform Mask
+ * \{ */
+
+static void special_aftertrans_update__mask(bContext *C, TransInfo *t)
+{
+  Mask *mask = NULL;
+
+  if (t->spacetype == SPACE_CLIP) {
+    SpaceClip *sc = t->area->spacedata.first;
+    mask = ED_space_clip_get_mask(sc);
+  }
+  else if (t->spacetype == SPACE_IMAGE) {
+    SpaceImage *sima = t->area->spacedata.first;
+    mask = ED_space_image_get_mask(sima);
+  }
+  else {
+    BLI_assert(0);
+  }
+
+  if (t->scene->nodetree) {
+    WM_event_add_notifier(C, NC_MASK | ND_DATA, &mask->id);
+  }
+
+  /* TODO: don't key all masks. */
+  if (IS_AUTOKEY_ON(t->scene)) {
+    Scene *scene = t->scene;
+
+    if (ED_mask_layer_shape_auto_key_select(mask, scene->r.cfra)) {
+      WM_event_add_notifier(C, NC_MASK | ND_DATA, &mask->id);
+      DEG_id_tag_update(&mask->id, 0);
+    }
+  }
+}
+
+/** \} */
+
+TransConvertTypeInfo TransConvertType_Mask = {
+    /* flags */ (T_POINTS | T_2D_EDIT),
+    /* createTransData */ createTransMaskingData,
+    /* recalcData */ recalcData_mask_common,
+    /* special_aftertrans_update */ special_aftertrans_update__mask,
+};

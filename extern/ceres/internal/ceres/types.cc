@@ -28,18 +28,23 @@
 //
 // Author: sameeragarwal@google.com (Sameer Agarwal)
 
+#include "ceres/types.h"
+
 #include <algorithm>
 #include <cctype>
 #include <string>
-#include "ceres/types.h"
+
+#include "ceres/internal/config.h"
 #include "glog/logging.h"
 
 namespace ceres {
 
 using std::string;
 
+// clang-format off
 #define CASESTR(x) case x: return #x
-#define STRENUM(x) if (value == #x) { *type = x; return true;}
+#define STRENUM(x) if (value == #x) { *type = x; return true; }
+// clang-format on
 
 static void UpperCase(string* input) {
   std::transform(input->begin(), input->end(), input->begin(), ::toupper);
@@ -78,6 +83,7 @@ const char* PreconditionerTypeToString(PreconditionerType type) {
     CASESTR(SCHUR_JACOBI);
     CASESTR(CLUSTER_JACOBI);
     CASESTR(CLUSTER_TRIDIAGONAL);
+    CASESTR(SUBSET);
     default:
       return "UNKNOWN";
   }
@@ -90,6 +96,7 @@ bool StringToPreconditionerType(string value, PreconditionerType* type) {
   STRENUM(SCHUR_JACOBI);
   STRENUM(CLUSTER_JACOBI);
   STRENUM(CLUSTER_TRIDIAGONAL);
+  STRENUM(SUBSET);
   return false;
 }
 
@@ -99,6 +106,7 @@ const char* SparseLinearAlgebraLibraryTypeToString(
     CASESTR(SUITE_SPARSE);
     CASESTR(CX_SPARSE);
     CASESTR(EIGEN_SPARSE);
+    CASESTR(ACCELERATE_SPARSE);
     CASESTR(NO_SPARSE);
     default:
       return "UNKNOWN";
@@ -106,12 +114,12 @@ const char* SparseLinearAlgebraLibraryTypeToString(
 }
 
 bool StringToSparseLinearAlgebraLibraryType(
-    string value,
-    SparseLinearAlgebraLibraryType* type) {
+    string value, SparseLinearAlgebraLibraryType* type) {
   UpperCase(&value);
   STRENUM(SUITE_SPARSE);
   STRENUM(CX_SPARSE);
   STRENUM(EIGEN_SPARSE);
+  STRENUM(ACCELERATE_SPARSE);
   STRENUM(NO_SPARSE);
   return false;
 }
@@ -121,17 +129,18 @@ const char* DenseLinearAlgebraLibraryTypeToString(
   switch (type) {
     CASESTR(EIGEN);
     CASESTR(LAPACK);
+    CASESTR(CUDA);
     default:
       return "UNKNOWN";
   }
 }
 
 bool StringToDenseLinearAlgebraLibraryType(
-    string value,
-    DenseLinearAlgebraLibraryType* type) {
+    string value, DenseLinearAlgebraLibraryType* type) {
   UpperCase(&value);
   STRENUM(EIGEN);
   STRENUM(LAPACK);
+  STRENUM(CUDA);
   return false;
 }
 
@@ -232,9 +241,8 @@ const char* LineSearchInterpolationTypeToString(
   }
 }
 
-bool StringToLineSearchInterpolationType(
-    string value,
-    LineSearchInterpolationType* type) {
+bool StringToLineSearchInterpolationType(string value,
+                                         LineSearchInterpolationType* type) {
   UpperCase(&value);
   STRENUM(BISECTION);
   STRENUM(QUADRATIC);
@@ -254,8 +262,7 @@ const char* NonlinearConjugateGradientTypeToString(
 }
 
 bool StringToNonlinearConjugateGradientType(
-    string value,
-    NonlinearConjugateGradientType* type) {
+    string value, NonlinearConjugateGradientType* type) {
   UpperCase(&value);
   STRENUM(FLETCHER_REEVES);
   STRENUM(POLAK_RIBIERE);
@@ -263,29 +270,24 @@ bool StringToNonlinearConjugateGradientType(
   return false;
 }
 
-const char* CovarianceAlgorithmTypeToString(
-    CovarianceAlgorithmType type) {
+const char* CovarianceAlgorithmTypeToString(CovarianceAlgorithmType type) {
   switch (type) {
     CASESTR(DENSE_SVD);
-    CASESTR(EIGEN_SPARSE_QR);
-    CASESTR(SUITE_SPARSE_QR);
+    CASESTR(SPARSE_QR);
     default:
       return "UNKNOWN";
   }
 }
 
-bool StringToCovarianceAlgorithmType(
-    string value,
-    CovarianceAlgorithmType* type) {
+bool StringToCovarianceAlgorithmType(string value,
+                                     CovarianceAlgorithmType* type) {
   UpperCase(&value);
   STRENUM(DENSE_SVD);
-  STRENUM(EIGEN_SPARSE_QR);
-  STRENUM(SUITE_SPARSE_QR);
+  STRENUM(SPARSE_QR);
   return false;
 }
 
-const char* NumericDiffMethodTypeToString(
-    NumericDiffMethodType type) {
+const char* NumericDiffMethodTypeToString(NumericDiffMethodType type) {
   switch (type) {
     CASESTR(CENTRAL);
     CASESTR(FORWARD);
@@ -295,9 +297,7 @@ const char* NumericDiffMethodTypeToString(
   }
 }
 
-bool StringToNumericDiffMethodType(
-    string value,
-    NumericDiffMethodType* type) {
+bool StringToNumericDiffMethodType(string value, NumericDiffMethodType* type) {
   UpperCase(&value);
   STRENUM(CENTRAL);
   STRENUM(FORWARD);
@@ -305,8 +305,7 @@ bool StringToNumericDiffMethodType(
   return false;
 }
 
-const char* VisibilityClusteringTypeToString(
-    VisibilityClusteringType type) {
+const char* VisibilityClusteringTypeToString(VisibilityClusteringType type) {
   switch (type) {
     CASESTR(CANONICAL_VIEWS);
     CASESTR(SINGLE_LINKAGE);
@@ -315,9 +314,8 @@ const char* VisibilityClusteringTypeToString(
   }
 }
 
-bool StringToVisibilityClusteringType(
-    string value,
-    VisibilityClusteringType* type) {
+bool StringToVisibilityClusteringType(string value,
+                                      VisibilityClusteringType* type) {
   UpperCase(&value);
   STRENUM(CANONICAL_VIEWS);
   STRENUM(SINGLE_LINKAGE);
@@ -336,13 +334,47 @@ const char* TerminationTypeToString(TerminationType type) {
   }
 }
 
+const char* LoggingTypeToString(LoggingType type) {
+  switch (type) {
+    CASESTR(SILENT);
+    CASESTR(PER_MINIMIZER_ITERATION);
+    default:
+      return "UNKNOWN";
+  }
+}
+
+bool StringtoLoggingType(std::string value, LoggingType* type) {
+  UpperCase(&value);
+  STRENUM(SILENT);
+  STRENUM(PER_MINIMIZER_ITERATION);
+  return false;
+}
+
+const char* DumpFormatTypeToString(DumpFormatType type) {
+  switch (type) {
+    CASESTR(CONSOLE);
+    CASESTR(TEXTFILE);
+    default:
+      return "UNKNOWN";
+  }
+}
+
+bool StringtoDumpFormatType(std::string value, DumpFormatType* type) {
+  UpperCase(&value);
+  STRENUM(CONSOLE);
+  STRENUM(TEXTFILE);
+  return false;
+}
+
 #undef CASESTR
 #undef STRENUM
 
 bool IsSchurType(LinearSolverType type) {
+  // clang-format off
   return ((type == SPARSE_SCHUR) ||
           (type == DENSE_SCHUR)  ||
           (type == ITERATIVE_SCHUR));
+  // clang-format on
 }
 
 bool IsSparseLinearAlgebraLibraryTypeAvailable(
@@ -357,6 +389,14 @@ bool IsSparseLinearAlgebraLibraryTypeAvailable(
 
   if (type == CX_SPARSE) {
 #ifdef CERES_NO_CXSPARSE
+    return false;
+#else
+    return true;
+#endif
+  }
+
+  if (type == ACCELERATE_SPARSE) {
+#ifdef CERES_NO_ACCELERATE_SPARSE
     return false;
 #else
     return true;
@@ -380,8 +420,17 @@ bool IsDenseLinearAlgebraLibraryTypeAvailable(
   if (type == EIGEN) {
     return true;
   }
+
   if (type == LAPACK) {
 #ifdef CERES_NO_LAPACK
+    return false;
+#else
+    return true;
+#endif
+  }
+
+  if (type == CUDA) {
+#ifdef CERES_NO_CUDA
     return false;
 #else
     return true;

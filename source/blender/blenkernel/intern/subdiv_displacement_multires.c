@@ -1,25 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2018 by Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2018 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bke
  */
+
+#include <math.h>
 
 #include "BKE_subdiv.h"
 
@@ -122,16 +108,16 @@ BLI_INLINE eAverageWith read_displacement_grid(const MDisps *displacement_grid,
     zero_v3(r_tangent_D);
     return AVERAGE_WITH_NONE;
   }
-  const int x = (grid_u * (grid_size - 1) + 0.5f);
-  const int y = (grid_v * (grid_size - 1) + 0.5f);
+  const int x = roundf(grid_u * (grid_size - 1));
+  const int y = roundf(grid_v * (grid_size - 1));
   copy_v3_v3(r_tangent_D, displacement_grid->disps[y * grid_size + x]);
   if (x == 0 && y == 0) {
     return AVERAGE_WITH_ALL;
   }
-  else if (x == 0) {
+  if (x == 0) {
     return AVERAGE_WITH_PREV;
   }
-  else if (y == 0) {
+  if (y == 0) {
     return AVERAGE_WITH_NEXT;
   }
   return AVERAGE_WITH_NONE;
@@ -321,9 +307,8 @@ static int displacement_get_face_corner(MultiresDisplacementData *data,
     float dummy_corner_u, dummy_corner_v;
     return BKE_subdiv_rotate_quad_to_corner(u, v, &dummy_corner_u, &dummy_corner_v);
   }
-  else {
-    return poly_corner->corner;
-  }
+
+  return poly_corner->corner;
 }
 
 static void initialize(SubdivDisplacement *displacement)
@@ -441,7 +426,7 @@ void BKE_subdiv_displacement_attach_from_multires(Subdiv *subdiv,
 {
   /* Make sure we don't have previously assigned displacement. */
   BKE_subdiv_displacement_detach(subdiv);
-  /* It is possible to have mesh without MDISPS layer. Happens when using
+  /* It is possible to have mesh without CD_MDISPS layer. Happens when using
    * dynamic topology. */
   if (!CustomData_has_layer(&mesh->ldata, CD_MDISPS)) {
     return;

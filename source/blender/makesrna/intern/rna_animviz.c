@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -50,6 +36,31 @@ const EnumPropertyItem rna_enum_motionpath_bake_location_items[] = {
     {0, NULL, 0, NULL, NULL},
 };
 
+const EnumPropertyItem rna_enum_motionpath_display_type_items[] = {
+    {MOTIONPATH_TYPE_ACFRA,
+     "CURRENT_FRAME",
+     0,
+     "Around Frame",
+     "Display Paths of poses within a fixed number of frames around the current frame"},
+    {MOTIONPATH_TYPE_RANGE,
+     "RANGE",
+     0,
+     "In Range",
+     "Display Paths of poses within specified range"},
+    {0, NULL, 0, NULL, NULL},
+};
+
+const EnumPropertyItem rna_enum_motionpath_range_items[] = {
+    {MOTIONPATH_RANGE_KEYS_ALL, "KEYS_ALL", 0, "All Keys", "From the first keyframe to the last"},
+    {MOTIONPATH_RANGE_KEYS_SELECTED,
+     "KEYS_SELECTED",
+     0,
+     "Selected Keys",
+     "From the first selected keyframe to the last"},
+    {MOTIONPATH_RANGE_SCENE, "SCENE", 0, "Scene Frame Range", "The entire Scene / Preview range"},
+    {0, NULL, 0, NULL, NULL},
+};
+
 #ifdef RNA_RUNTIME
 
 static PointerRNA rna_AnimViz_motion_paths_get(PointerRNA *ptr)
@@ -61,7 +72,7 @@ static void rna_AnimViz_path_start_frame_set(PointerRNA *ptr, int value)
 {
   bAnimVizSettings *data = (bAnimVizSettings *)ptr->data;
 
-  /* XXX: watchit! Path Start > MAXFRAME/2 could be a problem... */
+  /* XXX: Watch it! Path Start > MAXFRAME/2 could be a problem. */
   data->path_sf = value;
   FRAMENUMBER_MIN_CLAMP(data->path_sf);
 
@@ -117,7 +128,7 @@ static void rna_def_animviz_motion_path(BlenderRNA *brna)
   srna = RNA_def_struct(brna, "MotionPath", NULL);
   RNA_def_struct_sdna(srna, "bMotionPath");
   RNA_def_struct_ui_text(
-      srna, "Motion Path", "Cache of the worldspace positions of an element over a frame range");
+      srna, "Motion Path", "Cache of the world-space positions of an element over a frame range");
 
   /* Collections */
   prop = RNA_def_property(srna, "points", PROP_COLLECTION, PROP_NONE);
@@ -144,14 +155,14 @@ static void rna_def_animviz_motion_path(BlenderRNA *brna)
   prop = RNA_def_property(srna, "color", PROP_FLOAT, PROP_COLOR_GAMMA);
   RNA_def_property_array(prop, 3);
   RNA_def_property_ui_text(prop, "Color", "Custom color for motion path");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   /* Line width */
   prop = RNA_def_property(srna, "line_thickness", PROP_INT, PROP_NONE);
   RNA_def_property_int_sdna(prop, NULL, "line_thickness");
   RNA_def_property_range(prop, 1, 6);
-  RNA_def_property_ui_text(prop, "Line Thickness", "Line thickness for drawing path");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_ui_text(prop, "Line Thickness", "Line thickness for motion path");
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   /* Settings */
   prop = RNA_def_property(srna, "use_bone_head", PROP_BOOLEAN, PROP_NONE);
@@ -171,13 +182,13 @@ static void rna_def_animviz_motion_path(BlenderRNA *brna)
   prop = RNA_def_property(srna, "use_custom_color", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flag", MOTIONPATH_FLAG_CUSTOM);
   RNA_def_property_ui_text(prop, "Custom Colors", "Use custom color for this motion path");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   /* Draw lines between keyframes */
   prop = RNA_def_property(srna, "lines", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flag", MOTIONPATH_FLAG_LINES);
-  RNA_def_property_ui_text(prop, "Lines", "Draw straight lines between keyframe points");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_ui_text(prop, "Lines", "Use straight lines between keyframe points");
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 }
 
 /* --- */
@@ -187,61 +198,50 @@ static void rna_def_animviz_paths(BlenderRNA *brna)
   StructRNA *srna;
   PropertyRNA *prop;
 
-  static const EnumPropertyItem prop_type_items[] = {
-      {MOTIONPATH_TYPE_ACFRA,
-       "CURRENT_FRAME",
-       0,
-       "Around Frame",
-       "Display Paths of poses within a fixed number of frames around the current frame"},
-      {MOTIONPATH_TYPE_RANGE,
-       "RANGE",
-       0,
-       "In Range",
-       "Display Paths of poses within specified range"},
-      {0, NULL, 0, NULL, NULL},
-  };
-
   srna = RNA_def_struct(brna, "AnimVizMotionPaths", NULL);
   RNA_def_struct_sdna(srna, "bAnimVizSettings");
   RNA_def_struct_nested(brna, srna, "AnimViz");
   RNA_def_struct_ui_text(
       srna, "Motion Path Settings", "Motion Path settings for animation visualization");
 
+  RNA_define_lib_overridable(true);
+
   /* Enums */
   prop = RNA_def_property(srna, "type", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_sdna(prop, NULL, "path_type");
-  RNA_def_property_enum_items(prop, prop_type_items);
+  RNA_def_property_enum_items(prop, rna_enum_motionpath_display_type_items);
   RNA_def_property_ui_text(prop, "Paths Type", "Type of range to show for Motion Paths");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
+
+  prop = RNA_def_property(srna, "range", PROP_ENUM, PROP_NONE);
+  RNA_def_property_enum_sdna(prop, NULL, "path_range");
+  RNA_def_property_enum_items(prop, rna_enum_motionpath_range_items);
+  RNA_def_property_ui_text(prop, "Paths Range", "Type of range to calculate for Motion Paths");
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   prop = RNA_def_property(srna, "bake_location", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_bitflag_sdna(prop, NULL, "path_bakeflag");
   RNA_def_property_enum_items(prop, rna_enum_motionpath_bake_location_items);
   RNA_def_property_ui_text(prop, "Bake Location", "When calculating Bone Paths, use Head or Tips");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   /* Settings */
   prop = RNA_def_property(srna, "show_frame_numbers", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "path_viewflag", MOTIONPATH_VIEW_FNUMS);
   RNA_def_property_ui_text(prop, "Show Frame Numbers", "Show frame numbers on Motion Paths");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   prop = RNA_def_property(srna, "show_keyframe_highlight", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "path_viewflag", MOTIONPATH_VIEW_KFRAS);
   RNA_def_property_ui_text(
       prop, "Highlight Keyframes", "Emphasize position of keyframes on Motion Paths");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   prop = RNA_def_property(srna, "show_keyframe_numbers", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "path_viewflag", MOTIONPATH_VIEW_KFNOS);
   RNA_def_property_ui_text(
       prop, "Show Keyframe Numbers", "Show frame numbers of Keyframes on Motion Paths");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   prop = RNA_def_property(srna, "show_keyframe_action_all", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "path_viewflag", MOTIONPATH_VIEW_KFACT);
@@ -250,8 +250,7 @@ static void rna_def_animviz_paths(BlenderRNA *brna)
       "All Action Keyframes",
       "For bone motion paths, search whole Action for keyframes instead of in group"
       " with matching name only (is slower)");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   prop = RNA_def_property(srna, "frame_step", PROP_INT, PROP_NONE);
   RNA_def_property_int_sdna(prop, NULL, "path_step");
@@ -260,8 +259,7 @@ static void rna_def_animviz_paths(BlenderRNA *brna)
       prop,
       "Frame Step",
       "Number of frames between paths shown (not for 'On Keyframes' Onion-skinning method)");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   /* Playback Ranges */
   prop = RNA_def_property(srna, "frame_start", PROP_INT, PROP_TIME);
@@ -271,8 +269,7 @@ static void rna_def_animviz_paths(BlenderRNA *brna)
                            "Start Frame",
                            "Starting frame of range of paths to display/calculate "
                            "(not for 'Around Current Frame' Onion-skinning method)");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   prop = RNA_def_property(srna, "frame_end", PROP_INT, PROP_TIME);
   RNA_def_property_int_sdna(prop, NULL, "path_ef");
@@ -281,8 +278,7 @@ static void rna_def_animviz_paths(BlenderRNA *brna)
                            "End Frame",
                            "End frame of range of paths to display/calculate "
                            "(not for 'Around Current Frame' Onion-skinning method)");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   /* Around Current Ranges */
   prop = RNA_def_property(srna, "frame_before", PROP_INT, PROP_TIME);
@@ -292,8 +288,7 @@ static void rna_def_animviz_paths(BlenderRNA *brna)
                            "Before Current",
                            "Number of frames to show before the current frame "
                            "(only for 'Around Current Frame' Onion-skinning method)");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   prop = RNA_def_property(srna, "frame_after", PROP_INT, PROP_TIME);
   RNA_def_property_int_sdna(prop, NULL, "path_ac");
@@ -302,8 +297,7 @@ static void rna_def_animviz_paths(BlenderRNA *brna)
                            "After Current",
                            "Number of frames to show after the current frame "
                            "(only for 'Around Current Frame' Onion-skinning method)");
-  RNA_def_property_update(
-      prop, NC_SPACE | ND_SPACE_VIEW3D, NULL); /* XXX since this is only for 3d-view drawing */
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW_ANIMVIZ, NULL);
 
   /* Readonly Property - Do any motion paths exist/need updating? (Mainly for bone paths) */
   prop = RNA_def_property(srna, "has_motion_paths", PROP_BOOLEAN, PROP_NONE);
@@ -312,6 +306,8 @@ static void rna_def_animviz_paths(BlenderRNA *brna)
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_ui_text(
       prop, "Has Motion Paths", "Are there any bone paths that will need updating (read-only)");
+
+  RNA_define_lib_overridable(false);
 }
 
 /* --- */
@@ -323,6 +319,7 @@ void rna_def_animviz_common(StructRNA *srna)
   prop = RNA_def_property(srna, "animation_visualization", PROP_POINTER, PROP_NONE);
   RNA_def_property_flag(prop, PROP_NEVER_NULL);
   RNA_def_property_pointer_sdna(prop, NULL, "avs");
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_ui_text(prop, "Animation Visualization", "Animation data for this data-block");
 }
 
@@ -339,6 +336,7 @@ static void rna_def_animviz(BlenderRNA *brna)
   /* motion path settings (nested struct) */
   prop = RNA_def_property(srna, "motion_path", PROP_POINTER, PROP_NONE);
   RNA_def_property_flag(prop, PROP_NEVER_NULL);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_struct_type(prop, "AnimVizMotionPaths");
   RNA_def_property_pointer_funcs(prop, "rna_AnimViz_motion_paths_get", NULL, NULL, NULL);
   RNA_def_property_ui_text(prop, "Motion Paths", "Motion Path settings for visualization");

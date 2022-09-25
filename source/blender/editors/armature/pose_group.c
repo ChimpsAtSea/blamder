@@ -1,25 +1,9 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation
- * All rights reserved.
- * Implementation of Bone Groups operators and editing API's
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edarmature
+ * Implementation of Bone Groups operators and editing API's.
  */
 
 #include <string.h>
@@ -55,6 +39,22 @@
 /* ********************************************** */
 /* Bone Groups */
 
+static bool pose_group_poll(bContext *C)
+{
+  if (!ED_operator_posemode_context(C)) {
+    CTX_wm_operator_poll_msg_set(C, "Bone groups can only be edited in pose mode");
+    return false;
+  }
+
+  Object *obpose = ED_pose_object_from_context(C);
+  if (ID_IS_OVERRIDE_LIBRARY(obpose)) {
+    CTX_wm_operator_poll_msg_set(C, "Cannot edit bone groups for library overrides");
+    return false;
+  }
+
+  return true;
+}
+
 static int pose_group_add_exec(bContext *C, wmOperator *UNUSED(op))
 {
   Object *ob = ED_pose_object_from_context(C);
@@ -82,7 +82,7 @@ void POSE_OT_group_add(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = pose_group_add_exec;
-  ot->poll = ED_operator_posemode_context;
+  ot->poll = pose_group_poll;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -116,7 +116,7 @@ void POSE_OT_group_remove(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = pose_group_remove_exec;
-  ot->poll = ED_operator_posemode_context;
+  ot->poll = pose_group_poll;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -159,7 +159,7 @@ static int pose_groups_menu_invoke(bContext *C, wmOperator *op, const wmEvent *U
     pup = UI_popup_menu_begin(C, op->type->name, ICON_NONE);
     layout = UI_popup_menu_layout(pup);
 
-    /* special entry - allow to create new group, then use that
+    /* special entry - allow creating a new group, then using that
      * (not to be used for removing though)
      */
     if (strstr(op->idname, "assign")) {
@@ -177,11 +177,10 @@ static int pose_groups_menu_invoke(bContext *C, wmOperator *op, const wmEvent *U
 
     return OPERATOR_INTERFACE;
   }
-  else {
-    /* just use the active group index, and call the exec callback for the calling operator */
-    RNA_int_set(op->ptr, "type", pose->active_group);
-    return op->type->exec(C, op);
-  }
+
+  /* just use the active group index, and call the exec callback for the calling operator */
+  RNA_int_set(op->ptr, "type", pose->active_group);
+  return op->type->exec(C, op);
 }
 
 /* Assign selected pchans to the bone group that the user selects */
@@ -221,9 +220,7 @@ static int pose_group_assign_exec(bContext *C, wmOperator *op)
   if (done) {
     return OPERATOR_FINISHED;
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return OPERATOR_CANCELLED;
 }
 
 void POSE_OT_group_assign(wmOperatorType *ot)
@@ -236,7 +233,7 @@ void POSE_OT_group_assign(wmOperatorType *ot)
   /* api callbacks */
   ot->invoke = pose_groups_menu_invoke;
   ot->exec = pose_group_assign_exec;
-  ot->poll = ED_operator_posemode_context;
+  ot->poll = pose_group_poll;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -272,9 +269,7 @@ static int pose_group_unassign_exec(bContext *C, wmOperator *UNUSED(op))
   if (done) {
     return OPERATOR_FINISHED;
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return OPERATOR_CANCELLED;
 }
 
 void POSE_OT_group_unassign(wmOperatorType *ot)
@@ -286,7 +281,7 @@ void POSE_OT_group_unassign(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = pose_group_unassign_exec;
-  ot->poll = ED_operator_posemode_context;
+  ot->poll = pose_group_poll;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -351,7 +346,7 @@ void POSE_OT_group_move(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = group_move_exec;
-  ot->poll = ED_operator_posemode_context;
+  ot->poll = pose_group_poll;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -386,8 +381,6 @@ static int group_sort_exec(bContext *C, wmOperator *UNUSED(op))
   bPoseChannel *pchan;
   tSortActionGroup *agrp_array;
   bActionGroup *agrp;
-  int agrp_count;
-  int i;
 
   if (ELEM(NULL, ob, pose)) {
     return OPERATOR_CANCELLED;
@@ -397,8 +390,9 @@ static int group_sort_exec(bContext *C, wmOperator *UNUSED(op))
   }
 
   /* create temporary array with bone groups and indices */
-  agrp_count = BLI_listbase_count(&pose->agroups);
+  int agrp_count = BLI_listbase_count(&pose->agroups);
   agrp_array = MEM_mallocN(sizeof(tSortActionGroup) * agrp_count, "sort bone groups");
+  int i;
   for (agrp = pose->agroups.first, i = 0; agrp; agrp = agrp->next, i++) {
     BLI_assert(i < agrp_count);
     agrp_array[i].agrp = agrp;
@@ -414,7 +408,7 @@ static int group_sort_exec(bContext *C, wmOperator *UNUSED(op))
     BLI_addtail(&pose->agroups, agrp_array[i].agrp);
   }
 
-  /* fix changed bone group indizes in bones */
+  /* Fix changed bone group indices in bones. */
   for (pchan = ob->pose->chanbase.first; pchan; pchan = pchan->next) {
     for (i = 0; i < agrp_count; i++) {
       if (pchan->agrp_index == agrp_array[i].index) {
@@ -443,7 +437,7 @@ void POSE_OT_group_sort(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = group_sort_exec;
-  ot->poll = ED_operator_posemode_context;
+  ot->poll = pose_group_poll;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;

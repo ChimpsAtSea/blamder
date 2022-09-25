@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup nodes
@@ -38,35 +22,34 @@
  */
 
 #include "node_texture_util.h"
-#include <assert.h>
 
-bool tex_node_poll_default(bNodeType *UNUSED(ntype), bNodeTree *ntree)
+bool tex_node_poll_default(bNodeType *UNUSED(ntype),
+                           bNodeTree *ntree,
+                           const char **r_disabled_hint)
 {
-  return STREQ(ntree->idname, "TextureNodeTree");
+  if (!STREQ(ntree->idname, "TextureNodeTree")) {
+    *r_disabled_hint = TIP_("Not a texture node tree");
+    return false;
+  }
+  return true;
 }
 
-void tex_node_type_base(
-    struct bNodeType *ntype, int type, const char *name, short nclass, short flag)
+void tex_node_type_base(struct bNodeType *ntype, int type, const char *name, short nclass)
 {
-  node_type_base(ntype, type, name, nclass, flag);
+  node_type_base(ntype, type, name, nclass);
 
   ntype->poll = tex_node_poll_default;
   ntype->insert_link = node_insert_link_default;
-  ntype->update_internal_links = node_update_internal_links_default;
 }
 
 static void tex_call_delegate(TexDelegate *dg, float *out, TexParams *params, short thread)
 {
   if (dg->node->need_exec) {
     dg->fn(out, params, dg->node, dg->in, thread);
-
-    if (dg->cdata->do_preview) {
-      tex_do_preview(dg->preview, params->previewco, out, dg->cdata->do_manage);
-    }
   }
 }
 
-static void tex_input(float *out, int sz, bNodeStack *in, TexParams *params, short thread)
+static void tex_input(float *out, int num, bNodeStack *in, TexParams *params, short thread)
 {
   TexDelegate *dg = in->data;
   if (dg) {
@@ -76,7 +59,7 @@ static void tex_input(float *out, int sz, bNodeStack *in, TexParams *params, sho
       in->vec[1] = in->vec[2] = in->vec[0];
     }
   }
-  memcpy(out, in->vec, sz * sizeof(float));
+  memcpy(out, in->vec, num * sizeof(float));
 }
 
 void tex_input_vec(float *out, bNodeStack *in, TexParams *params, short thread)
@@ -119,19 +102,6 @@ void params_from_cdata(TexParams *out, TexCallData *in)
   out->mtex = in->mtex;
 }
 
-void tex_do_preview(bNodePreview *preview,
-                    const float coord[2],
-                    const float col[4],
-                    bool do_manage)
-{
-  if (preview) {
-    int xs = ((coord[0] + 1.0f) * 0.5f) * preview->xsize;
-    int ys = ((coord[1] + 1.0f) * 0.5f) * preview->ysize;
-
-    BKE_node_preview_set_pixel(preview, col, xs, ys, do_manage);
-  }
-}
-
 void tex_output(bNode *node,
                 bNodeExecData *execdata,
                 bNodeStack **in,
@@ -145,14 +115,13 @@ void tex_output(bNode *node,
     /* do not add a delegate if the node is muted */
     return;
   }
+
+  if (!out->data) {
+    /* Freed in tex_end_exec (node.cc) */
+    dg = out->data = MEM_mallocN(sizeof(TexDelegate), "tex delegate");
+  }
   else {
-    if (!out->data) {
-      /* Freed in tex_end_exec (node.c) */
-      dg = out->data = MEM_mallocN(sizeof(TexDelegate), "tex delegate");
-    }
-    else {
-      dg = out->data;
-    }
+    dg = out->data;
   }
 
   dg->cdata = cdata;

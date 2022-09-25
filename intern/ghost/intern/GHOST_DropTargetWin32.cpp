@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
@@ -178,8 +162,8 @@ DWORD GHOST_DropTargetWin32::allowedDropEffect(DWORD dwAllowed)
 GHOST_TDragnDropTypes GHOST_DropTargetWin32::getGhostType(IDataObject *pDataObject)
 {
   /* Text
-   * Note: Unicode text is available as CF_TEXT too, the system can do the
-   * conversion, but we do the conversion ourself with WC_NO_BEST_FIT_CHARS.
+   * NOTE: Unicode text is available as CF_TEXT too, the system can do the
+   * conversion, but we do the conversion our self with #WC_NO_BEST_FIT_CHARS.
    */
   FORMATETC fmtetc = {CF_TEXT, 0, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
   if (pDataObject->QueryGetData(&fmtetc) == S_OK) {
@@ -242,7 +226,7 @@ void *GHOST_DropTargetWin32::getDropDataAsFilenames(IDataObject *pDataObject)
 
       strArray = (GHOST_TStringArray *)::malloc(sizeof(GHOST_TStringArray));
       strArray->count = 0;
-      strArray->strings = (GHOST_TUns8 **)::malloc(totfiles * sizeof(GHOST_TUns8 *));
+      strArray->strings = (uint8_t **)::malloc(totfiles * sizeof(uint8_t *));
 
       for (UINT nfile = 0; nfile < totfiles; nfile++) {
         if (::DragQueryFileW(hdrop, nfile, fpath, MAX_PATH) > 0) {
@@ -251,7 +235,7 @@ void *GHOST_DropTargetWin32::getDropDataAsFilenames(IDataObject *pDataObject)
           }
           // Just ignore paths that could not be converted verbatim.
 
-          strArray->strings[nvalid] = (GHOST_TUns8 *)temp_path;
+          strArray->strings[nvalid] = (uint8_t *)temp_path;
           strArray->count = nvalid + 1;
           nvalid++;
         }

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2016 Kévin Dietrich.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Kévin Dietrich. All rights reserved. */
 
 /** \file
  * \ingroup balembic
@@ -27,6 +11,7 @@
 #include "abc_util.h"
 
 #include "DNA_mesh_types.h"
+#include "DNA_modifier_types.h"
 #include "DNA_object_types.h"
 
 #include "BKE_customdata.h"
@@ -42,6 +27,8 @@ using Alembic::AbcGeom::IN3fArrayProperty;
 using Alembic::AbcGeom::IPoints;
 using Alembic::AbcGeom::IPointsSchema;
 using Alembic::AbcGeom::ISampleSelector;
+
+namespace blender::io::alembic {
 
 AbcPointsReader::AbcPointsReader(const Alembic::Abc::IObject &object, ImportSettings &settings)
     : AbcObjectReader(object, settings)
@@ -79,7 +66,7 @@ bool AbcPointsReader::accepts_object_type(
 void AbcPointsReader::readObjectData(Main *bmain, const Alembic::Abc::ISampleSelector &sample_sel)
 {
   Mesh *mesh = BKE_mesh_add(bmain, m_data_name.c_str());
-  Mesh *read_mesh = this->read_mesh(mesh, sample_sel, 0, NULL);
+  Mesh *read_mesh = this->read_mesh(mesh, sample_sel, 0, "", 0.0f, nullptr);
 
   if (read_mesh != mesh) {
     BKE_mesh_nomain_to_mesh(read_mesh, mesh, m_object, &CD_MASK_MESH, true);
@@ -92,7 +79,7 @@ void AbcPointsReader::readObjectData(Main *bmain, const Alembic::Abc::ISampleSel
   m_object = BKE_object_add_only_object(bmain, OB_MESH, m_object_name.c_str());
   m_object->data = mesh;
 
-  if (has_animations(m_schema, m_settings)) {
+  if (m_settings->always_add_cache_reader || has_animations(m_schema, m_settings)) {
     addCacheModifier();
   }
 }
@@ -118,12 +105,14 @@ void read_points_sample(const IPointsSchema &schema,
     }
   }
 
-  read_mverts(config.mvert, positions, vnormals);
+  read_mverts(*config.mesh, positions, vnormals);
 }
 
 struct Mesh *AbcPointsReader::read_mesh(struct Mesh *existing_mesh,
                                         const ISampleSelector &sample_sel,
-                                        int /*read_flag*/,
+                                        int read_flag,
+                                        const char * /*velocity_name*/,
+                                        const float /*velocity_scale*/,
                                         const char **err_str)
 {
   IPointsSchema::Sample sample;
@@ -142,14 +131,18 @@ struct Mesh *AbcPointsReader::read_mesh(struct Mesh *existing_mesh,
 
   const P3fArraySamplePtr &positions = sample.getPositions();
 
-  Mesh *new_mesh = NULL;
+  Mesh *new_mesh = nullptr;
 
   if (existing_mesh->totvert != positions->size()) {
     new_mesh = BKE_mesh_new_nomain(positions->size(), 0, 0, 0, 0);
   }
 
-  CDStreamConfig config = get_config(new_mesh ? new_mesh : existing_mesh);
+  Mesh *mesh_to_export = new_mesh ? new_mesh : existing_mesh;
+  const bool use_vertex_interpolation = read_flag & MOD_MESHSEQ_INTERPOLATE_VERTICES;
+  CDStreamConfig config = get_config(mesh_to_export, use_vertex_interpolation);
   read_points_sample(m_schema, sample_sel, config);
 
-  return new_mesh ? new_mesh : existing_mesh;
+  return mesh_to_export;
 }
+
+}  // namespace blender::io::alembic

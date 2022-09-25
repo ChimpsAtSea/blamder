@@ -1,27 +1,17 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  *
  * Definition of GHOST_ContextCGL class.
  */
+
+/* Don't generate OpenGL deprecation warning. This is a known thing, and is not something easily
+ * solvable in a short term. */
+#ifdef __clang__
+#  pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
 
 #include "GHOST_ContextCGL.h"
 
@@ -217,7 +207,7 @@ static void makeAttribList(std::vector<NSOpenGLPixelFormatAttribute> &attribs,
   attribs.push_back(NSOpenGLPFAOpenGLProfile);
   attribs.push_back(coreProfile ? NSOpenGLProfileVersion3_2Core : NSOpenGLProfileVersionLegacy);
 
-  // Pixel Format Attributes for the windowed NSOpenGLContext
+  /* Pixel Format Attributes for the windowed NSOpenGLContext. */
   attribs.push_back(NSOpenGLPFADoubleBuffer);
 
   if (softwareGL) {
@@ -250,7 +240,8 @@ GHOST_TSuccess GHOST_ContextCGL::initializeDrawingContext()
   static const bool needAlpha = false;
 #endif
 
-  static bool softwareGL = getenv("BLENDER_SOFTWAREGL");  // command-line argument would be better
+  /* Command-line argument would be better. */
+  static bool softwareGL = getenv("BLENDER_SOFTWAREGL");
 
   std::vector<NSOpenGLPixelFormatAttribute> attribs;
   attribs.reserve(40);
@@ -278,7 +269,7 @@ GHOST_TSuccess GHOST_ContextCGL::initializeDrawingContext()
 #ifdef GHOST_WAIT_FOR_VSYNC
   {
     GLint swapInt = 1;
-    /* wait for vsync, to avoid tearing artifacts */
+    /* Wait for vertical-sync, to avoid tearing artifacts. */
     [m_openGLContext setValues:&swapInt forParameter:NSOpenGLCPSwapInterval];
   }
 #endif
@@ -287,7 +278,7 @@ GHOST_TSuccess GHOST_ContextCGL::initializeDrawingContext()
 
   if (m_metalView) {
     if (m_defaultFramebuffer == 0) {
-      // Create a virtual framebuffer
+      /* Create a virtual frame-buffer. */
       [m_openGLContext makeCurrentContext];
       metalInitFramebuffer();
       initClearGL();
@@ -342,11 +333,11 @@ void GHOST_ContextCGL::metalInit()
     /* clang-format on */
     id<MTLDevice> device = m_metalLayer.device;
 
-    // Create a command queue for blit/present operation
+    /* Create a command queue for blit/present operation. */
     m_metalCmdQueue = (MTLCommandQueue *)[device newCommandQueue];
     [m_metalCmdQueue retain];
 
-    // Create shaders for blit operation
+    /* Create shaders for blit operation. */
     NSString *source = @R"msl(
       using namespace metal;
 
@@ -387,7 +378,7 @@ void GHOST_ContextCGL::metalInit()
           "GHOST_ContextCGL::metalInit: newLibraryWithSource:options:error: failed!");
     }
 
-    // Create a render pipeline for blit operation
+    /* Create a render pipeline for blit operation. */
     MTLRenderPipelineDescriptor *desc = [[[MTLRenderPipelineDescriptor alloc] init] autorelease];
 
     desc.fragmentFunction = [library newFunctionWithName:@"fragment_shader"];
@@ -460,7 +451,7 @@ void GHOST_ContextCGL::metalUpdateFramebuffer()
         "GHOST_ContextCGL::metalUpdateFramebuffer: CVPixelBufferCreate failed!");
   }
 
-  // Create an OpenGL texture
+  /* Create an OpenGL texture. */
   CVOpenGLTextureCacheRef cvGLTexCache = nil;
   cvret = CVOpenGLTextureCacheCreate(kCFAllocatorDefault,
                                      nil,
@@ -485,7 +476,7 @@ void GHOST_ContextCGL::metalUpdateFramebuffer()
   unsigned int glTex;
   glTex = CVOpenGLTextureGetName(cvGLTex);
 
-  // Create a Metal texture
+  /* Create a Metal texture. */
   CVMetalTextureCacheRef cvMetalTexCache = nil;
   cvret = CVMetalTextureCacheCreate(
       kCFAllocatorDefault, nil, m_metalLayer.device, nil, &cvMetalTexCache);

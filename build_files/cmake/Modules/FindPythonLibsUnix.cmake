@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2011 Blender Foundation.
+
 # - Find Python libraries
 # Find the native Python includes and library
 #
@@ -22,23 +25,12 @@
 # also defined, but not for general use are
 #  PYTHON_LIBRARY, where to find the python library.
 
-#=============================================================================
-# Copyright 2011 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
-
 # If PYTHON_ROOT_DIR was defined in the environment, use it.
 IF(NOT PYTHON_ROOT_DIR AND NOT $ENV{PYTHON_ROOT_DIR} STREQUAL "")
   SET(PYTHON_ROOT_DIR $ENV{PYTHON_ROOT_DIR})
 ENDIF()
 
-SET(PYTHON_VERSION 3.7 CACHE STRING "Python Version (major and minor only)")
+SET(PYTHON_VERSION 3.10 CACHE STRING "Python Version (major and minor only)")
 MARK_AS_ADVANCED(PYTHON_VERSION)
 
 
@@ -48,7 +40,7 @@ SET(PYTHON_LINKFLAGS "-Xlinker -export-dynamic" CACHE STRING "Linker flags for p
 MARK_AS_ADVANCED(PYTHON_LINKFLAGS)
 
 
-# if the user passes these defines as args, we dont want to overwrite
+# if the user passes these defines as args, we don't want to overwrite
 SET(_IS_INC_DEF OFF)
 SET(_IS_INC_CONF_DEF OFF)
 SET(_IS_LIB_DEF OFF)
@@ -77,8 +69,8 @@ SET(_python_SEARCH_DIRS
 # only search for the dirs if we haven't already
 IF((NOT _IS_INC_DEF) OR (NOT _IS_INC_CONF_DEF) OR (NOT _IS_LIB_DEF) OR (NOT _IS_LIB_PATH_DEF))
   SET(_PYTHON_ABI_FLAGS_TEST
-    "m;mu;u; "    # release
-    "dm;dmu;du;d" # debug
+    "u; "  # release
+    "du;d" # debug
   )
 
   FOREACH(_CURRENT_ABI_FLAGS ${_PYTHON_ABI_FLAGS_TEST})
@@ -147,7 +139,7 @@ IF((NOT _IS_INC_DEF) OR (NOT _IS_INC_CONF_DEF) OR (NOT _IS_LIB_DEF) OR (NOT _IS_
       SET(_PYTHON_ABI_FLAGS "${_CURRENT_ABI_FLAGS}")
       break()
     ELSE()
-      # ensure we dont find values from 2 different ABI versions
+      # ensure we don't find values from 2 different ABI versions
       IF(NOT _IS_INC_DEF)
         UNSET(PYTHON_INCLUDE_DIR CACHE)
       ENDIF()
@@ -183,7 +175,9 @@ FIND_PACKAGE_HANDLE_STANDARD_ARGS(PythonLibsUnix  DEFAULT_MSG
 IF(PYTHONLIBSUNIX_FOUND)
   # Assign cache items
   SET(PYTHON_INCLUDE_DIRS ${PYTHON_INCLUDE_DIR} ${PYTHON_INCLUDE_CONFIG_DIR})
-  SET(PYTHON_LIBRARIES ${PYTHON_LIBRARY})
+  IF(NOT WITH_PYTHON_MODULE)
+    SET(PYTHON_LIBRARIES ${PYTHON_LIBRARY})
+  ENDIF()
 
   FIND_FILE(PYTHON_SITE_PACKAGES
     NAMES

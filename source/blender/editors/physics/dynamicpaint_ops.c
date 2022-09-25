@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edphys
@@ -92,7 +78,6 @@ static int surface_slot_add_exec(bContext *C, wmOperator *UNUSED(op))
   return OPERATOR_FINISHED;
 }
 
-/* add surface slot */
 void DPAINT_OT_surface_slot_add(wmOperatorType *ot)
 {
   /* identifiers */
@@ -102,7 +87,7 @@ void DPAINT_OT_surface_slot_add(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = surface_slot_add_exec;
-  ot->poll = ED_operator_object_active_editable;
+  ot->poll = ED_operator_object_active_local_editable;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -141,7 +126,6 @@ static int surface_slot_remove_exec(bContext *C, wmOperator *UNUSED(op))
   return OPERATOR_FINISHED;
 }
 
-/* remove surface slot */
 void DPAINT_OT_surface_slot_remove(wmOperatorType *ot)
 {
   /* identifiers */
@@ -151,7 +135,7 @@ void DPAINT_OT_surface_slot_remove(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = surface_slot_remove_exec;
-  ot->poll = ED_operator_object_active_editable;
+  ot->poll = ED_operator_object_active_local_editable;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -203,7 +187,7 @@ void DPAINT_OT_type_toggle(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = type_toggle_exec;
-  ot->poll = ED_operator_object_active_editable;
+  ot->poll = ED_operator_object_active_local_editable;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -233,7 +217,7 @@ static int output_toggle_exec(bContext *C, wmOperator *op)
 
   /* if type is already enabled, toggle it off */
   if (surface->format == MOD_DPAINT_SURFACE_F_VERTEX) {
-    int exists = dynamicPaint_outputLayerExists(surface, ob, output);
+    bool exists = dynamicPaint_outputLayerExists(surface, ob, output);
     const char *name;
 
     if (output == 0) {
@@ -246,7 +230,7 @@ static int output_toggle_exec(bContext *C, wmOperator *op)
     /* Vertex Color Layer */
     if (surface->type == MOD_DPAINT_SURFACE_T_PAINT) {
       if (!exists) {
-        ED_mesh_color_add(ob->data, name, true, true);
+        ED_mesh_color_add(ob->data, name, true, true, op->reports);
       }
       else {
         ED_mesh_color_remove_named(ob->data, name);
@@ -286,7 +270,7 @@ void DPAINT_OT_output_toggle(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = output_toggle_exec;
-  ot->poll = ED_operator_object_active_editable;
+  ot->poll = ED_operator_object_active_local_editable;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -375,7 +359,7 @@ static void dynamicPaint_bakeImageSequence(DynamicPaintBakeJob *job)
   /* Show progress bar. */
   *(job->do_update) = true;
 
-  /* Set frame to start point (also inits modifier data) */
+  /* Set frame to start point (also initializes modifier data). */
   frame = surface->start_frame;
   orig_frame = input_scene->r.cfra;
   input_scene->r.cfra = (int)frame;
@@ -415,27 +399,27 @@ static void dynamicPaint_bakeImageSequence(DynamicPaintBakeJob *job)
      * Save output images
      */
     {
-      char filename[FILE_MAX];
+      char filepath[FILE_MAX];
 
       /* primary output layer */
       if (surface->flags & MOD_DPAINT_OUT1) {
         /* set filepath */
         BLI_join_dirfile(
-            filename, sizeof(filename), surface->image_output_path, surface->output_name);
-        BLI_path_frame(filename, frame, 4);
+            filepath, sizeof(filepath), surface->image_output_path, surface->output_name);
+        BLI_path_frame(filepath, frame, 4);
 
         /* save image */
-        dynamicPaint_outputSurfaceImage(surface, filename, 0);
+        dynamicPaint_outputSurfaceImage(surface, filepath, 0);
       }
       /* secondary output */
       if (surface->flags & MOD_DPAINT_OUT2 && surface->type == MOD_DPAINT_SURFACE_T_PAINT) {
         /* set filepath */
         BLI_join_dirfile(
-            filename, sizeof(filename), surface->image_output_path, surface->output_name2);
-        BLI_path_frame(filename, frame, 4);
+            filepath, sizeof(filepath), surface->image_output_path, surface->output_name2);
+        BLI_path_frame(filepath, frame, 4);
 
         /* save image */
-        dynamicPaint_outputSurfaceImage(surface, filename, 1);
+        dynamicPaint_outputSurfaceImage(surface, filepath, 1);
       }
     }
   }
@@ -454,7 +438,7 @@ static void dpaint_bake_startjob(void *customdata, short *stop, short *do_update
   job->start = PIL_check_seconds_timer();
   job->success = 1;
 
-  G.is_break = false; /* reset BKE_blender_test_break*/
+  G.is_break = false;
 
   /* XXX annoying hack: needed to prevent data corruption when changing
    * scene frame in separate threads
@@ -538,5 +522,5 @@ void DPAINT_OT_bake(wmOperatorType *ot)
 
   /* api callbacks */
   ot->exec = dynamicpaint_bake_exec;
-  ot->poll = ED_operator_object_active_editable;
+  ot->poll = ED_operator_object_active_local_editable;
 }

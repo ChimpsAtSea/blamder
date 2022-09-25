@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
@@ -86,8 +72,7 @@ void SceneExporter::writeNodeList(std::vector<Object *> &child_objects, Object *
    * I really prefer to enforce the export of hidden
    * elements in an object hierarchy. When the children of
    * the hidden elements are exported as well. */
-  for (int i = 0; i < child_objects.size(); i++) {
-    Object *child = child_objects[i];
+  for (auto *child : child_objects) {
     writeNode(child);
     if (bc_is_marked(child)) {
       bc_remove_mark(child);
@@ -107,7 +92,7 @@ void SceneExporter::writeNode(Object *ob)
   bool armature_exported = false;
   Object *ob_arm = bc_get_assigned_armature(ob);
 
-  if (ob_arm != NULL) {
+  if (ob_arm != nullptr) {
     armature_exported = bc_is_in_Export_set(
         this->export_settings.get_export_set(), ob_arm, view_layer);
     if (armature_exported && bc_is_marked(ob_arm)) {
@@ -173,7 +158,7 @@ void SceneExporter::writeNode(Object *ob)
     else if (ob->type == OB_EMPTY) { /* TODO: handle groups (OB_DUPLICOLLECTION */
       if ((ob->transflag & OB_DUPLICOLLECTION) == OB_DUPLICOLLECTION && ob->instance_collection) {
         Collection *collection = ob->instance_collection;
-        /* printf("group detected '%s'\n", group->id.name + 2); */
+        // printf("group detected '%s'\n", group->id.name + 2);
         FOREACH_COLLECTION_OBJECT_RECURSIVE_BEGIN (collection, object) {
           printf("\t%s\n", object->id.name);
         }
@@ -204,16 +189,13 @@ void SceneExporter::writeNode(Object *ob)
               "blender", con_tag, "lin_error", con->lin_error);
 
           /* not ideal: add the target object name as another parameter.
-           * No real mapping in the .dae
+           * No real mapping in the `.dae`.
            * Need support for multiple target objects also. */
-          const bConstraintTypeInfo *cti = BKE_constraint_typeinfo_get(con);
-          ListBase targets = {NULL, NULL};
-          if (cti && cti->get_constraint_targets) {
 
+          ListBase targets = {nullptr, nullptr};
+          if (BKE_constraint_targets_get(con, &targets)) {
             bConstraintTarget *ct;
             Object *obtar;
-
-            cti->get_constraint_targets(con, &targets);
 
             for (ct = (bConstraintTarget *)targets.first; ct; ct = ct->next) {
               obtar = ct->tar;
@@ -221,9 +203,7 @@ void SceneExporter::writeNode(Object *ob)
               colladaNode.addExtraTechniqueChildParameter("blender", con_tag, "target_id", tar_id);
             }
 
-            if (cti->flush_constraint_targets) {
-              cti->flush_constraint_targets(con, &targets, 1);
-            }
+            BKE_constraint_targets_flush(con, &targets, true);
           }
 
           con = con->next;

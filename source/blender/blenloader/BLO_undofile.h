@@ -1,38 +1,23 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2004 Blender Foundation.
- * All rights reserved.
- * external writefile function prototypes
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2004 Blender Foundation. All rights reserved. */
 
-#ifndef __BLO_UNDOFILE_H__
-#define __BLO_UNDOFILE_H__
+#pragma once
 
 /** \file
  * \ingroup blenloader
+ * External write-file function prototypes.
  */
 
-struct Scene;
+#include "BLI_filereader.h"
+
 struct GHash;
+struct Scene;
 
 typedef struct {
   void *next, *prev;
   const char *buf;
   /** Size in bytes. */
-  unsigned int size;
+  size_t size;
   /** When true, this chunk doesn't own the memory, it's shared with a previous #MemFileChunk */
   bool is_identical;
   /** When true, this chunk is also identical to the one in the next step (used by undo code to
@@ -61,29 +46,58 @@ typedef struct MemFileWriteData {
 } MemFileWriteData;
 
 typedef struct MemFileUndoData {
-  char filename[1024]; /* FILE_MAX */
+  char filepath[1024]; /* FILE_MAX */
   MemFile memfile;
   size_t undo_size;
 } MemFileUndoData;
 
-/* actually only used writefile.c */
+/* FileReader-compatible wrapper for reading MemFiles */
+typedef struct {
+  FileReader reader;
+
+  MemFile *memfile;
+  int undo_direction;
+
+  bool memchunk_identical;
+} UndoReader;
+
+/* Actually only used `writefile.c`. */
 
 void BLO_memfile_write_init(MemFileWriteData *mem_data,
                             MemFile *written_memfile,
                             MemFile *reference_memfile);
 void BLO_memfile_write_finalize(MemFileWriteData *mem_data);
 
-void BLO_memfile_chunk_add(MemFileWriteData *mem_data, const char *buf, unsigned int size);
+void BLO_memfile_chunk_add(MemFileWriteData *mem_data, const char *buf, size_t size);
 
 /* exports */
+
+/**
+ * Not memfile itself.
+ */
+/* **************** support for memory-write, for undo buffers *************** */
+
 extern void BLO_memfile_free(MemFile *memfile);
+/**
+ * Result is that 'first' is being freed.
+ * to keep list of memfiles consistent, 'first' is always first in list.
+ */
 extern void BLO_memfile_merge(MemFile *first, MemFile *second);
+/**
+ * Clear is_identical_future before adding next memfile.
+ */
 extern void BLO_memfile_clear_future(MemFile *memfile);
 
-/* utilities */
+/* Utilities. */
+
 extern struct Main *BLO_memfile_main_get(struct MemFile *memfile,
                                          struct Main *bmain,
                                          struct Scene **r_scene);
-extern bool BLO_memfile_write_file(struct MemFile *memfile, const char *filename);
+/**
+ * Saves .blend using undo buffer.
+ *
+ * \return success.
+ */
+extern bool BLO_memfile_write_file(struct MemFile *memfile, const char *filepath);
 
-#endif /* __BLO_UNDOFILE_H__ */
+FileReader *BLO_memfile_new_filereader(MemFile *memfile, int undo_direction);

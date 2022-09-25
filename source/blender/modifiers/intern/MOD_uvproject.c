@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 by the Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup modifiers
@@ -31,6 +15,7 @@
 #include "BLT_translation.h"
 
 #include "DNA_camera_types.h"
+#include "DNA_defaults.h"
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
@@ -47,6 +32,7 @@
 #include "UI_resources.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "MOD_modifiertypes.h"
 #include "MOD_ui_common.h"
@@ -61,9 +47,9 @@ static void initData(ModifierData *md)
 {
   UVProjectModifierData *umd = (UVProjectModifierData *)md;
 
-  umd->num_projectors = 1;
-  umd->aspectx = umd->aspecty = 1.0f;
-  umd->scalex = umd->scaley = 1.0f;
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(umd, modifier));
+
+  MEMCPY_STRUCT_AFTER(umd, DNA_struct_default_get(UVProjectModifierData), modifier);
 }
 
 static void requiredDataMask(Object *UNUSED(ob),
@@ -71,33 +57,22 @@ static void requiredDataMask(Object *UNUSED(ob),
                              CustomData_MeshMasks *r_cddata_masks)
 {
   /* ask for UV coordinates */
-  r_cddata_masks->lmask |= CD_MLOOPUV;
-}
-
-static void foreachObjectLink(ModifierData *md, Object *ob, ObjectWalkFunc walk, void *userData)
-{
-  UVProjectModifierData *umd = (UVProjectModifierData *)md;
-  int i;
-
-  for (i = 0; i < MOD_UVPROJECT_MAXPROJECTORS; i++) {
-    walk(userData, ob, &umd->projectors[i], IDWALK_CB_NOP);
-  }
+  r_cddata_masks->lmask |= CD_MASK_MLOOPUV;
 }
 
 static void foreachIDLink(ModifierData *md, Object *ob, IDWalkFunc walk, void *userData)
 {
-#if 0
   UVProjectModifierData *umd = (UVProjectModifierData *)md;
-#endif
-
-  foreachObjectLink(md, ob, (ObjectWalkFunc)walk, userData);
+  for (int i = 0; i < MOD_UVPROJECT_MAXPROJECTORS; i++) {
+    walk(userData, ob, (ID **)&umd->projectors[i], IDWALK_CB_NOP);
+  }
 }
 
 static void updateDepsgraph(ModifierData *md, const ModifierUpdateDepsgraphContext *ctx)
 {
   UVProjectModifierData *umd = (UVProjectModifierData *)md;
   bool do_add_own_transform = false;
-  for (int i = 0; i < umd->num_projectors; i++) {
+  for (int i = 0; i < umd->projectors_num; i++) {
     if (umd->projectors[i] != NULL) {
       DEG_add_object_relation(
           ctx->node, umd->projectors[i], DEG_OB_COMP_TRANSFORM, "UV Project Modifier");
@@ -123,11 +98,11 @@ static Mesh *uvprojectModifier_do(UVProjectModifierData *umd,
 {
   float(*coords)[3], (*co)[3];
   MLoopUV *mloop_uv;
-  int i, numVerts, numPolys, numLoops;
+  int i, verts_num, polys_num, loops_num;
   MPoly *mpoly, *mp;
   MLoop *mloop;
   Projector projectors[MOD_UVPROJECT_MAXPROJECTORS];
-  int num_projectors = 0;
+  int projectors_num = 0;
   char uvname[MAX_CUSTOMDATA_LAYER_NAME];
   float aspx = umd->aspectx ? umd->aspectx : 1.0f;
   float aspy = umd->aspecty ? umd->aspecty : 1.0f;
@@ -135,27 +110,28 @@ static Mesh *uvprojectModifier_do(UVProjectModifierData *umd,
   float scay = umd->scaley ? umd->scaley : 1.0f;
   int free_uci = 0;
 
-  for (i = 0; i < umd->num_projectors; i++) {
+  for (i = 0; i < umd->projectors_num; i++) {
     if (umd->projectors[i] != NULL) {
-      projectors[num_projectors++].ob = umd->projectors[i];
+      projectors[projectors_num++].ob = umd->projectors[i];
     }
   }
 
-  if (num_projectors == 0) {
+  if (projectors_num == 0) {
     return mesh;
   }
 
-  /* make sure there are UV Maps available */
-
+  /* Create a new layer if no UV Maps are available
+   * (e.g. if a preceding modifier could not preserve it). */
   if (!CustomData_has_layer(&mesh->ldata, CD_MLOOPUV)) {
-    return mesh;
+    CustomData_add_layer_named(
+        &mesh->ldata, CD_MLOOPUV, CD_DEFAULT, NULL, mesh->totloop, umd->uvlayer_name);
   }
 
   /* make sure we're using an existing layer */
   CustomData_validate_layer_name(&mesh->ldata, CD_MLOOPUV, umd->uvlayer_name, uvname);
 
   /* calculate a projection matrix and normal for each projector */
-  for (i = 0; i < num_projectors; i++) {
+  for (i = 0; i < projectors_num; i++) {
     float tmpmat[4][4];
     float offsetmat[4][4];
     Camera *cam = NULL;
@@ -178,7 +154,7 @@ static Mesh *uvprojectModifier_do(UVProjectModifierData *umd,
         BKE_camera_params_init(&params);
         BKE_camera_params_from_object(&params, projectors[i].ob);
 
-        /* compute matrix, viewplane, .. */
+        /* Compute matrix, view-plane, etc. */
         BKE_camera_params_compute_viewplane(&params, 1, 1, aspx, aspy);
 
         /* scale the view-plane */
@@ -201,30 +177,30 @@ static Mesh *uvprojectModifier_do(UVProjectModifierData *umd,
 
     mul_m4_m4m4(projectors[i].projmat, offsetmat, tmpmat);
 
-    /* calculate worldspace projector normal (for best projector test) */
+    /* Calculate world-space projector normal (for best projector test). */
     projectors[i].normal[0] = 0;
     projectors[i].normal[1] = 0;
     projectors[i].normal[2] = 1;
     mul_mat3_m4_v3(projectors[i].ob->obmat, projectors[i].normal);
   }
 
-  numPolys = mesh->totpoly;
-  numLoops = mesh->totloop;
+  polys_num = mesh->totpoly;
+  loops_num = mesh->totloop;
 
   /* make sure we are not modifying the original UV map */
   mloop_uv = CustomData_duplicate_referenced_layer_named(
-      &mesh->ldata, CD_MLOOPUV, uvname, numLoops);
+      &mesh->ldata, CD_MLOOPUV, uvname, loops_num);
 
-  coords = BKE_mesh_vert_coords_alloc(mesh, &numVerts);
+  coords = BKE_mesh_vert_coords_alloc(mesh, &verts_num);
 
-  /* convert coords to world space */
-  for (i = 0, co = coords; i < numVerts; i++, co++) {
+  /* Convert coords to world-space. */
+  for (i = 0, co = coords; i < verts_num; i++, co++) {
     mul_m4_v3(ob->obmat, *co);
   }
 
   /* if only one projector, project coords to UVs */
-  if (num_projectors == 1 && projectors[0].uci == NULL) {
-    for (i = 0, co = coords; i < numVerts; i++, co++) {
+  if (projectors_num == 1 && projectors[0].uci == NULL) {
+    for (i = 0, co = coords; i < verts_num; i++, co++) {
       mul_project_m4_v3(projectors[0].projmat, *co);
     }
   }
@@ -233,8 +209,8 @@ static Mesh *uvprojectModifier_do(UVProjectModifierData *umd,
   mloop = mesh->mloop;
 
   /* apply coords as UVs */
-  for (i = 0, mp = mpoly; i < numPolys; i++, mp++) {
-    if (num_projectors == 1) {
+  for (i = 0, mp = mpoly; i < polys_num; i++, mp++) {
+    if (projectors_num == 1) {
       if (projectors[0].uci) {
         uint fidx = mp->totloop - 1;
         do {
@@ -270,7 +246,7 @@ static Mesh *uvprojectModifier_do(UVProjectModifierData *umd,
       best_dot = dot_v3v3(projectors[0].normal, face_no);
       best_projector = &projectors[0];
 
-      for (j = 1; j < num_projectors; j++) {
+      for (j = 1; j < projectors_num; j++) {
         float tmp_dot = dot_v3v3(projectors[j].normal, face_no);
         if (tmp_dot > best_dot) {
           best_dot = tmp_dot;
@@ -301,15 +277,14 @@ static Mesh *uvprojectModifier_do(UVProjectModifierData *umd,
 
   if (free_uci) {
     int j;
-    for (j = 0; j < num_projectors; j++) {
+    for (j = 0; j < projectors_num; j++) {
       if (projectors[j].uci) {
         MEM_freeN(projectors[j].uci);
       }
     }
   }
 
-  /* Mark tessellated CD layers as dirty. */
-  mesh->runtime.cd_dirty_vert |= CD_MASK_TESSLOOPNORMAL;
+  mesh->runtime.is_original = false;
 
   return mesh;
 }
@@ -324,36 +299,48 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   return result;
 }
 
-static void panel_draw(const bContext *C, Panel *panel)
+static void panel_draw(const bContext *UNUSED(C), Panel *panel)
 {
   uiLayout *sub;
   uiLayout *layout = panel->layout;
 
-  PointerRNA ptr;
   PointerRNA ob_ptr;
-  modifier_panel_get_property_pointers(C, panel, &ob_ptr, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
   PointerRNA obj_data_ptr = RNA_pointer_get(&ob_ptr, "data");
 
   uiLayoutSetPropSep(layout, true);
 
-  uiItemPointerR(layout, &ptr, "uv_layer", &obj_data_ptr, "uv_layers", NULL, ICON_NONE);
+  uiItemPointerR(layout, ptr, "uv_layer", &obj_data_ptr, "uv_layers", NULL, ICON_NONE);
+
+  /* Aspect and Scale are only used for camera projectors. */
+  bool has_camera = false;
+  RNA_BEGIN (ptr, projector_ptr, "projectors") {
+    PointerRNA ob_projector = RNA_pointer_get(&projector_ptr, "object");
+    if (!RNA_pointer_is_null(&ob_projector) && RNA_enum_get(&ob_projector, "type") == OB_CAMERA) {
+      has_camera = true;
+      break;
+    }
+  }
+  RNA_END;
 
   sub = uiLayoutColumn(layout, true);
-  uiItemR(sub, &ptr, "aspect_x", 0, IFACE_("Aspect X"), ICON_NONE);
-  uiItemR(sub, &ptr, "aspect_y", 0, IFACE_("Y"), ICON_NONE);
+  uiLayoutSetActive(sub, has_camera);
+  uiItemR(sub, ptr, "aspect_x", 0, NULL, ICON_NONE);
+  uiItemR(sub, ptr, "aspect_y", 0, IFACE_("Y"), ICON_NONE);
 
   sub = uiLayoutColumn(layout, true);
-  uiItemR(sub, &ptr, "scale_x", 0, IFACE_("Scale X"), ICON_NONE);
-  uiItemR(sub, &ptr, "scale_y", 0, IFACE_("Y"), ICON_NONE);
+  uiLayoutSetActive(sub, has_camera);
+  uiItemR(sub, ptr, "scale_x", 0, NULL, ICON_NONE);
+  uiItemR(sub, ptr, "scale_y", 0, IFACE_("Y"), ICON_NONE);
 
-  uiItemR(layout, &ptr, "projector_count", 0, IFACE_("Projectors"), ICON_NONE);
-  RNA_BEGIN (&ptr, projector_ptr, "projectors") {
+  uiItemR(layout, ptr, "projector_count", 0, IFACE_("Projectors"), ICON_NONE);
+  RNA_BEGIN (ptr, projector_ptr, "projectors") {
     uiItemR(layout, &projector_ptr, "object", 0, NULL, ICON_NONE);
   }
   RNA_END;
 
-  modifier_panel_end(layout, &ptr);
+  modifier_panel_end(layout, ptr);
 }
 
 static void panelRegister(ARegionType *region_type)
@@ -362,12 +349,14 @@ static void panelRegister(ARegionType *region_type)
 }
 
 ModifierTypeInfo modifierType_UVProject = {
-    /* name */ "UVProject",
+    /* name */ N_("UVProject"),
     /* structName */ "UVProjectModifierData",
     /* structSize */ sizeof(UVProjectModifierData),
+    /* srna */ &RNA_UVProjectModifier,
     /* type */ eModifierTypeType_NonGeometrical,
     /* flags */ eModifierTypeFlag_AcceptsMesh | eModifierTypeFlag_SupportsMapping |
         eModifierTypeFlag_SupportsEditmode | eModifierTypeFlag_EnableInEditmode,
+    /* icon */ ICON_MOD_UVPROJECT,
 
     /* copyData */ BKE_modifier_copydata_generic,
 
@@ -376,9 +365,7 @@ ModifierTypeInfo modifierType_UVProject = {
     /* deformVertsEM */ NULL,
     /* deformMatricesEM */ NULL,
     /* modifyMesh */ modifyMesh,
-    /* modifyHair */ NULL,
-    /* modifyPointCloud */ NULL,
-    /* modifyVolume */ NULL,
+    /* modifyGeometrySet */ NULL,
 
     /* initData */ initData,
     /* requiredDataMask */ requiredDataMask,
@@ -387,9 +374,10 @@ ModifierTypeInfo modifierType_UVProject = {
     /* updateDepsgraph */ updateDepsgraph,
     /* dependsOnTime */ NULL,
     /* dependsOnNormals */ NULL,
-    /* foreachObjectLink */ foreachObjectLink,
     /* foreachIDLink */ foreachIDLink,
     /* foreachTexLink */ NULL,
     /* freeRuntimeData */ NULL,
     /* panelRegister */ panelRegister,
+    /* blendWrite */ NULL,
+    /* blendRead */ NULL,
 };

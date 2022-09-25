@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -63,27 +48,26 @@ static void metaball_instance_data_set(
   mul_v3_v3fl(data->mat[1], ob->obmat[1], radius / 0.05f);
   mul_v3_v3fl(data->mat[2], ob->obmat[2], radius / 0.05f);
   mul_v3_m4v3(data->mat[3], ob->obmat, pos);
-  /* WATCH: Reminder, alpha is wiresize. */
+  /* WATCH: Reminder, alpha is wire-size. */
   OVERLAY_bone_instance_data_set_color(data, color);
 }
 
 void OVERLAY_edit_metaball_cache_populate(OVERLAY_Data *vedata, Object *ob)
 {
-  const bool do_in_front = (ob->dtx & OB_DRAWXRAY) != 0;
+  const bool do_in_front = (ob->dtx & OB_DRAW_IN_FRONT) != 0;
   const bool is_select = DRW_state_is_select();
   OVERLAY_PrivateData *pd = vedata->stl->pd;
   MetaBall *mb = ob->data;
 
   const float *color;
-  const float *col_radius = G_draw.block.colorMballRadius;
-  const float *col_radius_select = G_draw.block.colorMballRadiusSelect;
-  const float *col_stiffness = G_draw.block.colorMballStiffness;
-  const float *col_stiffness_select = G_draw.block.colorMballStiffnessSelect;
+  const float *col_radius = G_draw.block.color_mball_radius;
+  const float *col_radius_select = G_draw.block.color_mball_radius_select;
+  const float *col_stiffness = G_draw.block.color_mball_stiffness;
+  const float *col_stiffness_select = G_draw.block.color_mball_stiffness_select;
 
   int select_id = 0;
   if (is_select) {
-    const Object *orig_object = DEG_get_original_object(ob);
-    select_id = orig_object->runtime.select_id;
+    select_id = ob->runtime.select_id;
   }
 
   LISTBASE_FOREACH (MetaElem *, ml, mb->editelems) {
@@ -108,11 +92,16 @@ void OVERLAY_edit_metaball_cache_populate(OVERLAY_Data *vedata, Object *ob)
 
     select_id += 0x10000;
   }
+
+  /* Needed so object centers and geometry are not detected as meta-elements. */
+  if (is_select) {
+    DRW_select_load_id(-1);
+  }
 }
 
 void OVERLAY_metaball_cache_populate(OVERLAY_Data *vedata, Object *ob)
 {
-  const bool do_in_front = (ob->dtx & OB_DRAWXRAY) != 0;
+  const bool do_in_front = (ob->dtx & OB_DRAW_IN_FRONT) != 0;
   OVERLAY_PrivateData *pd = vedata->stl->pd;
   MetaBall *mb = ob->data;
   const DRWContextState *draw_ctx = DRW_context_state_get();

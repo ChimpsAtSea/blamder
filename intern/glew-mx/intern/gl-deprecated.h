@@ -1,24 +1,8 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2014 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2014 Blender Foundation. All rights reserved. */
 
 /** \file
- * \ingroup glew-mx
+ * \ingroup intern_glew-mx
  *  Utility used to check for use of deprecated functions.
  */
 
@@ -824,10 +808,12 @@
 #define GL_SOURCE0_ALPHA DO_NOT_USE_GL_SOURCE0_ALPHA
 #undef GL_SOURCE0_RGB
 #define GL_SOURCE0_RGB DO_NOT_USE_GL_SOURCE0_RGB
-#undef GL_SOURCE1_ALPHA
-#define GL_SOURCE1_ALPHA DO_NOT_USE_GL_SOURCE1_ALPHA
-#undef GL_SOURCE1_RGB
-#define GL_SOURCE1_RGB DO_NOT_USE_GL_SOURCE1_RGB
+#if 0 /* Those are reused as new valid enum! GL_SRC1_COLOR etc... */
+#  undef GL_SOURCE1_ALPHA
+#  define GL_SOURCE1_ALPHA DO_NOT_USE_GL_SOURCE1_ALPHA
+#  undef GL_SOURCE1_RGB
+#  define GL_SOURCE1_RGB DO_NOT_USE_GL_SOURCE1_RGB
+#endif
 #undef GL_SOURCE2_ALPHA
 #define GL_SOURCE2_ALPHA DO_NOT_USE_GL_SOURCE2_ALPHA
 #undef GL_SOURCE2_RGB

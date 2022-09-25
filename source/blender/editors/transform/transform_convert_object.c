@@ -1,48 +1,36 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
  */
 
-#include "DNA_mesh_types.h"
-
 #include "MEM_guardedalloc.h"
 
-#include "BLI_compiler_compat.h"
-#include "BLI_ghash.h"
 #include "BLI_listbase.h"
 #include "BLI_math.h"
 
+#include "BKE_animsys.h"
 #include "BKE_context.h"
 #include "BKE_layer.h"
+#include "BKE_lib_id.h"
 #include "BKE_main.h"
 #include "BKE_object.h"
+#include "BKE_pointcache.h"
 #include "BKE_report.h"
 #include "BKE_rigidbody.h"
 #include "BKE_scene.h"
 
+#include "ED_keyframing.h"
 #include "ED_object.h"
 
 #include "DEG_depsgraph_query.h"
 
 #include "transform.h"
+#include "transform_orientations.h"
+#include "transform_snap.h"
+
+/* Own include. */
 #include "transform_convert.h"
 
 /* -------------------------------------------------------------------- */
@@ -96,7 +84,7 @@ static void freeTransObjectCustomData(TransInfo *t,
  * Nearly all of the logic here is in the 'ED_object_data_xform_container_*' API.
  * \{ */
 
-void trans_obdata_in_obmode_update_all(TransInfo *t)
+static void trans_obdata_in_obmode_update_all(TransInfo *t)
 {
   TransDataObject *tdo = t->custom.type.data;
   if (tdo->xds == NULL) {
@@ -119,7 +107,7 @@ void trans_obdata_in_obmode_update_all(TransInfo *t)
  *
  * \{ */
 
-void trans_obchild_in_obmode_update_all(TransInfo *t)
+static void trans_obchild_in_obmode_update_all(TransInfo *t)
 {
   TransDataObject *tdo = t->custom.type.data;
   if (tdo->xcs == NULL) {
@@ -150,7 +138,7 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
 
   if (t->mode != TFM_DUMMY && ob->rigidbody_object) {
     float rot[3][3], scale[3];
-    float ctime = BKE_scene_frame_get(scene);
+    float ctime = BKE_scene_ctime_get(scene);
 
     /* only use rigid body transform if simulation is running,
      * avoids problems with initial setup of rigid bodies */
@@ -177,8 +165,12 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
   }
 
   /* axismtx has the real orientation */
-  copy_m3_m4(td->axismtx, ob->obmat);
-  normalize_m3(td->axismtx);
+  transform_orientations_create_from_axis(td->axismtx, UNPACK3(ob->obmat));
+  if (t->orient_type_mask & (1 << V3D_ORIENT_GIMBAL)) {
+    if (!gimbal_axis_object(ob, td->ext->axismtx_gimbal)) {
+      copy_m3_m3(td->ext->axismtx_gimbal, td->axismtx);
+    }
+  }
 
   td->con = ob->constraints.first;
 
@@ -219,7 +211,7 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
   copy_m4_m4(ob->obmat, object_eval->obmat);
   /* Only copy negative scale flag, this is the only flag which is modified by
    * the BKE_object_where_is_calc(). The rest of the flags we need to keep,
-   * otherwise we might loose dupli flags  (see T61787). */
+   * otherwise we might lose dupli flags  (see T61787). */
   ob->transflag &= ~OB_NEG_SCALE;
   ob->transflag |= (object_eval->transflag & OB_NEG_SCALE);
 
@@ -245,8 +237,11 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
 
     td->ext->irotAngle = ob->rotAngle;
     copy_v3_v3(td->ext->irotAxis, ob->rotAxis);
-    // td->ext->drotAngle = ob->drotAngle;          // XXX, not implemented
-    // copy_v3_v3(td->ext->drotAxis, ob->drotAxis); // XXX, not implemented
+    /* XXX, not implemented. */
+#if 0
+    td->ext->drotAngle = ob->drotAngle;
+    copy_v3_v3(td->ext->drotAxis, ob->drotAxis);
+#endif
   }
   else {
     td->ext->rot = NULL;
@@ -277,9 +272,17 @@ static void ObjectToTransData(TransInfo *t, TransData *td, Object *ob)
      */
     BKE_object_to_mat3(ob, obmtx);
     copy_m3_m4(totmat, ob->obmat);
-    invert_m3_m3(obinv, totmat);
+
+    /* If the object scale is zero on any axis, this might result in a zero matrix.
+     * In this case, the transformation would not do anything, see: T50103. */
+    orthogonalize_m3_zero_axes(obmtx, 1.0f);
+    orthogonalize_m3_zero_axes(totmat, 1.0f);
+
+    /* Use safe invert even though the input matrices have had zero axes set to unit length,
+     * in the unlikely case of failure (float precision for eg) this uses unit matrix fallback. */
+    invert_m3_m3_safe_ortho(obinv, totmat);
     mul_m3_m3m3(td->smtx, obmtx, obinv);
-    invert_m3_m3(td->mtx, td->smtx);
+    invert_m3_m3_safe_ortho(td->mtx, td->smtx);
   }
   else {
     /* no conversion to/from dataspace */
@@ -340,7 +343,7 @@ static void set_trans_object_base_flags(TransInfo *t)
   ViewLayer *view_layer = t->view_layer;
   View3D *v3d = t->view;
   Scene *scene = t->scene;
-  Depsgraph *depsgraph = BKE_scene_get_depsgraph(bmain, scene, view_layer, true);
+  Depsgraph *depsgraph = BKE_scene_ensure_depsgraph(bmain, scene, view_layer);
   /* NOTE: if Base selected and has parent selected:
    *   base->flag_legacy = BA_WAS_SEL
    */
@@ -351,7 +354,7 @@ static void set_trans_object_base_flags(TransInfo *t)
   /* Makes sure base flags and object flags are identical. */
   BKE_scene_base_flag_to_objects(t->view_layer);
   /* Make sure depsgraph is here. */
-  DEG_graph_relations_update(depsgraph, bmain, scene, view_layer);
+  DEG_graph_relations_update(depsgraph);
   /* Clear all flags we need. It will be used to detect dependencies. */
   trans_object_base_deps_flag_prepare(view_layer);
   /* Traverse all bases and set all possible flags. */
@@ -375,7 +378,7 @@ static void set_trans_object_base_flags(TransInfo *t)
       if (parsel != NULL) {
         /* Rotation around local centers are allowed to propagate. */
         if ((t->around == V3D_AROUND_LOCAL_ORIGINS) &&
-            (t->mode == TFM_ROTATION || t->mode == TFM_TRACKBALL)) {
+            (ELEM(t->mode, TFM_ROTATION, TFM_TRACKBALL))) {
           base->flag_legacy |= BA_TRANSFORM_CHILD;
         }
         else {
@@ -415,12 +418,11 @@ static int count_proportional_objects(TransInfo *t)
   View3D *v3d = t->view;
   struct Main *bmain = CTX_data_main(t->context);
   Scene *scene = t->scene;
-  Depsgraph *depsgraph = BKE_scene_get_depsgraph(bmain, scene, view_layer, true);
+  Depsgraph *depsgraph = BKE_scene_ensure_depsgraph(bmain, scene, view_layer);
   /* Clear all flags we need. It will be used to detect dependencies. */
   trans_object_base_deps_flag_prepare(view_layer);
   /* Rotations around local centers are allowed to propagate, so we take all objects. */
-  if (!((t->around == V3D_AROUND_LOCAL_ORIGINS) &&
-        (t->mode == TFM_ROTATION || t->mode == TFM_TRACKBALL))) {
+  if (!((t->around == V3D_AROUND_LOCAL_ORIGINS) && (ELEM(t->mode, TFM_ROTATION, TFM_TRACKBALL)))) {
     /* Mark all parents. */
     LISTBASE_FOREACH (Base *, base, &view_layer->object_bases) {
       if (BASE_SELECTED_EDITABLE(v3d, base) && BASE_SELECTABLE(v3d, base)) {
@@ -462,7 +464,7 @@ static int count_proportional_objects(TransInfo *t)
   return total;
 }
 
-void clear_trans_object_base_flags(TransInfo *t)
+static void clear_trans_object_base_flags(TransInfo *t)
 {
   ViewLayer *view_layer = t->view_layer;
   Base *base;
@@ -478,8 +480,9 @@ void clear_trans_object_base_flags(TransInfo *t)
   }
 }
 
-void createTransObject(bContext *C, TransInfo *t)
+static void createTransObject(bContext *C, TransInfo *t)
 {
+  Main *bmain = CTX_data_main(C);
   TransData *td = NULL;
   TransDataExtension *tx;
   const bool is_prop_edit = (t->flag & T_PROP_EDIT) != 0;
@@ -526,7 +529,7 @@ void createTransObject(bContext *C, TransInfo *t)
     }
 
     /* select linked objects, but skip them later */
-    if (ID_IS_LINKED(ob)) {
+    if (!BKE_id_is_editable(bmain, &ob->id)) {
       td->flag |= TD_SKIP;
     }
 
@@ -704,61 +707,294 @@ void createTransObject(bContext *C, TransInfo *t)
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name Texture Space Transform Creation
- *
- * Instead of transforming the selection, move the 2D/3D cursor.
- *
+/** \name Transform (Auto-Keyframing)
  * \{ */
 
-void createTransTexspace(TransInfo *t)
+/**
+ * Auto-keyframing feature - for objects
+ *
+ * \param tmode: A transform mode.
+ *
+ * \note Context may not always be available,
+ * so must check before using it as it's a luxury for a few cases.
+ */
+static void autokeyframe_object(
+    bContext *C, Scene *scene, ViewLayer *view_layer, Object *ob, int tmode)
 {
-  ViewLayer *view_layer = t->view_layer;
-  TransData *td;
-  Object *ob;
-  ID *id;
-  short *texflag;
+  Main *bmain = CTX_data_main(C);
+  ID *id = &ob->id;
+  FCurve *fcu;
 
-  ob = OBACT(view_layer);
+  /* TODO: this should probably be done per channel instead. */
+  if (autokeyframe_cfra_can_key(scene, id)) {
+    ReportList *reports = CTX_wm_reports(C);
+    ToolSettings *ts = scene->toolsettings;
+    KeyingSet *active_ks = ANIM_scene_get_active_keyingset(scene);
+    ListBase dsources = {NULL, NULL};
+    Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
+    const AnimationEvalContext anim_eval_context = BKE_animsys_eval_context_construct(
+        depsgraph, (float)scene->r.cfra);
+    eInsertKeyFlags flag = 0;
 
-  if (ob == NULL) {  // Shouldn't logically happen, but still...
-    return;
+    /* Get flags used for inserting keyframes. */
+    flag = ANIM_get_keyframing_flags(scene, true);
+
+    /* Add data-source override for the object. */
+    ANIM_relative_keyingset_add_source(&dsources, id, NULL, NULL);
+
+    if (IS_AUTOKEY_FLAG(scene, ONLYKEYINGSET) && (active_ks)) {
+      /* Only insert into active keyingset
+       * NOTE: we assume here that the active Keying Set
+       * does not need to have its iterator overridden.
+       */
+      ANIM_apply_keyingset(
+          C, &dsources, NULL, active_ks, MODIFYKEY_MODE_INSERT, anim_eval_context.eval_time);
+    }
+    else if (IS_AUTOKEY_FLAG(scene, INSERTAVAIL)) {
+      AnimData *adt = ob->adt;
+
+      /* only key on available channels */
+      if (adt && adt->action) {
+        ListBase nla_cache = {NULL, NULL};
+        for (fcu = adt->action->curves.first; fcu; fcu = fcu->next) {
+          insert_keyframe(bmain,
+                          reports,
+                          id,
+                          adt->action,
+                          (fcu->grp ? fcu->grp->name : NULL),
+                          fcu->rna_path,
+                          fcu->array_index,
+                          &anim_eval_context,
+                          ts->keyframe_type,
+                          &nla_cache,
+                          flag);
+        }
+
+        BKE_animsys_free_nla_keyframing_context_cache(&nla_cache);
+      }
+    }
+    else if (IS_AUTOKEY_FLAG(scene, INSERTNEEDED)) {
+      bool do_loc = false, do_rot = false, do_scale = false;
+
+      /* filter the conditions when this happens (assume that curarea->spacetype==SPACE_VIE3D) */
+      if (tmode == TFM_TRANSLATION) {
+        do_loc = true;
+      }
+      else if (ELEM(tmode, TFM_ROTATION, TFM_TRACKBALL)) {
+        if (scene->toolsettings->transform_pivot_point == V3D_AROUND_ACTIVE) {
+          if (ob != OBACT(view_layer)) {
+            do_loc = true;
+          }
+        }
+        else if (scene->toolsettings->transform_pivot_point == V3D_AROUND_CURSOR) {
+          do_loc = true;
+        }
+
+        if ((scene->toolsettings->transform_flag & SCE_XFORM_AXIS_ALIGN) == 0) {
+          do_rot = true;
+        }
+      }
+      else if (tmode == TFM_RESIZE) {
+        if (scene->toolsettings->transform_pivot_point == V3D_AROUND_ACTIVE) {
+          if (ob != OBACT(view_layer)) {
+            do_loc = true;
+          }
+        }
+        else if (scene->toolsettings->transform_pivot_point == V3D_AROUND_CURSOR) {
+          do_loc = true;
+        }
+
+        if ((scene->toolsettings->transform_flag & SCE_XFORM_AXIS_ALIGN) == 0) {
+          do_scale = true;
+        }
+      }
+
+      /* insert keyframes for the affected sets of channels using the builtin KeyingSets found */
+      if (do_loc) {
+        KeyingSet *ks = ANIM_builtin_keyingset_get_named(NULL, ANIM_KS_LOCATION_ID);
+        ANIM_apply_keyingset(
+            C, &dsources, NULL, ks, MODIFYKEY_MODE_INSERT, anim_eval_context.eval_time);
+      }
+      if (do_rot) {
+        KeyingSet *ks = ANIM_builtin_keyingset_get_named(NULL, ANIM_KS_ROTATION_ID);
+        ANIM_apply_keyingset(
+            C, &dsources, NULL, ks, MODIFYKEY_MODE_INSERT, anim_eval_context.eval_time);
+      }
+      if (do_scale) {
+        KeyingSet *ks = ANIM_builtin_keyingset_get_named(NULL, ANIM_KS_SCALING_ID);
+        ANIM_apply_keyingset(
+            C, &dsources, NULL, ks, MODIFYKEY_MODE_INSERT, anim_eval_context.eval_time);
+      }
+    }
+    /* insert keyframe in all (transform) channels */
+    else {
+      KeyingSet *ks = ANIM_builtin_keyingset_get_named(NULL, ANIM_KS_LOC_ROT_SCALE_ID);
+      ANIM_apply_keyingset(
+          C, &dsources, NULL, ks, MODIFYKEY_MODE_INSERT, anim_eval_context.eval_time);
+    }
+
+    /* free temp info */
+    BLI_freelistN(&dsources);
+  }
+}
+
+/* Return if we need to update motion paths, only if they already exist,
+ * and we will insert a keyframe at the end of transform. */
+static bool motionpath_need_update_object(Scene *scene, Object *ob)
+{
+  /* XXX: there's potential here for problems with unkeyed rotations/scale,
+   *      but for now (until proper data-locality for baking operations),
+   *      this should be a better fix for T24451 and T37755
+   */
+
+  if (autokeyframe_cfra_can_key(scene, &ob->id)) {
+    return (ob->avs.path_bakeflag & MOTIONPATH_BAKE_HAS_PATHS) != 0;
   }
 
-  id = ob->data;
-  if (id == NULL || !ELEM(GS(id->name), ID_ME, ID_CU, ID_MB)) {
-    BKE_report(t->reports, RPT_ERROR, "Unsupported object type for text-space transform");
-    return;
-  }
-
-  if (BKE_object_obdata_is_libdata(ob)) {
-    BKE_report(t->reports, RPT_ERROR, "Linked data can't text-space transform");
-    return;
-  }
-
-  {
-    BLI_assert(t->data_container_len == 1);
-    TransDataContainer *tc = t->data_container;
-    tc->data_len = 1;
-    td = tc->data = MEM_callocN(sizeof(TransData), "TransTexspace");
-    td->ext = tc->data_ext = MEM_callocN(sizeof(TransDataExtension), "TransTexspace");
-  }
-
-  td->flag = TD_SELECTED;
-  copy_v3_v3(td->center, ob->obmat[3]);
-  td->ob = ob;
-
-  copy_m3_m4(td->mtx, ob->obmat);
-  copy_m3_m4(td->axismtx, ob->obmat);
-  normalize_m3(td->axismtx);
-  pseudoinverse_m3_m3(td->smtx, td->mtx, PSEUDOINVERSE_EPSILON);
-
-  if (BKE_object_obdata_texspace_get(ob, &texflag, &td->loc, &td->ext->size)) {
-    ob->dtx |= OB_TEXSPACE;
-    *texflag &= ~ME_AUTOSPACE;
-  }
-
-  copy_v3_v3(td->iloc, td->loc);
-  copy_v3_v3(td->ext->isize, td->ext->size);
+  return false;
 }
 
 /** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Recalc Data object
+ * \{ */
+
+static void recalcData_objects(TransInfo *t)
+{
+  bool motionpath_update = false;
+
+  if (t->state != TRANS_CANCEL) {
+    applySnappingIndividual(t);
+  }
+
+  FOREACH_TRANS_DATA_CONTAINER (t, tc) {
+    TransData *td = tc->data;
+
+    for (int i = 0; i < tc->data_len; i++, td++) {
+      Object *ob = td->ob;
+      if (td->flag & TD_SKIP) {
+        continue;
+      }
+
+      /* if animtimer is running, and the object already has animation data,
+       * check if the auto-record feature means that we should record 'samples'
+       * (i.e. uneditable animation values)
+       */
+      /* TODO: autokeyframe calls need some setting to specify to add samples
+       * (FPoints) instead of keyframes? */
+      if ((t->animtimer) && IS_AUTOKEY_ON(t->scene)) {
+        animrecord_check_state(t, &ob->id);
+        autokeyframe_object(t->context, t->scene, t->view_layer, ob, t->mode);
+      }
+
+      motionpath_update |= motionpath_need_update_object(t->scene, ob);
+
+      /* sets recalc flags fully, instead of flushing existing ones
+       * otherwise proxies don't function correctly
+       */
+      DEG_id_tag_update(&ob->id, ID_RECALC_TRANSFORM);
+    }
+  }
+
+  if (motionpath_update) {
+    /* Update motion paths once for all transformed objects. */
+    ED_objects_recalculate_paths_selected(
+        t->context, t->scene, OBJECT_PATH_CALC_RANGE_CURRENT_FRAME);
+  }
+
+  if (t->options & CTX_OBMODE_XFORM_SKIP_CHILDREN) {
+    trans_obchild_in_obmode_update_all(t);
+  }
+
+  if (t->options & CTX_OBMODE_XFORM_OBDATA) {
+    trans_obdata_in_obmode_update_all(t);
+  }
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Special After Transform Object
+ * \{ */
+
+static void special_aftertrans_update__object(bContext *C, TransInfo *t)
+{
+  BLI_assert(t->options & CTX_OBJECT);
+
+  Object *ob;
+  const bool canceled = (t->state == TRANS_CANCEL);
+
+  TransDataContainer *tc = TRANS_DATA_CONTAINER_FIRST_SINGLE(t);
+  bool motionpath_update = false;
+
+  for (int i = 0; i < tc->data_len; i++) {
+    TransData *td = tc->data + i;
+    ListBase pidlist;
+    PTCacheID *pid;
+    ob = td->ob;
+
+    if (td->flag & TD_SKIP) {
+      continue;
+    }
+
+    /* flag object caches as outdated */
+    BKE_ptcache_ids_from_object(&pidlist, ob, t->scene, MAX_DUPLI_RECUR);
+    for (pid = pidlist.first; pid; pid = pid->next) {
+      if (pid->type != PTCACHE_TYPE_PARTICLES) {
+        /* particles don't need reset on geometry change */
+        pid->cache->flag |= PTCACHE_OUTDATED;
+      }
+    }
+    BLI_freelistN(&pidlist);
+
+    /* Point-cache refresh. */
+    if (BKE_ptcache_object_reset(t->scene, ob, PTCACHE_RESET_OUTDATED)) {
+      DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
+    }
+
+    /* Needed for proper updating of "quick cached" dynamics.
+     * Creates troubles for moving animated objects without
+     * auto-key though, probably needed is an animation-system override?
+     * NOTE(@jahka): Please remove if some other solution is found. */
+    DEG_id_tag_update(&ob->id, ID_RECALC_TRANSFORM);
+
+    /* Set auto-key if necessary. */
+    if (!canceled) {
+      autokeyframe_object(C, t->scene, t->view_layer, ob, t->mode);
+    }
+
+    motionpath_update |= motionpath_need_update_object(t->scene, ob);
+
+    /* Restore rigid body transform. */
+    if (ob->rigidbody_object && canceled) {
+      float ctime = BKE_scene_ctime_get(t->scene);
+      if (BKE_rigidbody_check_sim_running(t->scene->rigidbody_world, ctime)) {
+        BKE_rigidbody_aftertrans_update(ob,
+                                        td->ext->oloc,
+                                        td->ext->orot,
+                                        td->ext->oquat,
+                                        td->ext->orotAxis,
+                                        td->ext->orotAngle);
+      }
+    }
+  }
+
+  if (motionpath_update) {
+    /* Update motion paths once for all transformed objects. */
+    const eObjectPathCalcRange range = canceled ? OBJECT_PATH_CALC_RANGE_CURRENT_FRAME :
+                                                  OBJECT_PATH_CALC_RANGE_CHANGED;
+    ED_objects_recalculate_paths_selected(C, t->scene, range);
+  }
+
+  clear_trans_object_base_flags(t);
+}
+
+/** \} */
+
+TransConvertTypeInfo TransConvertType_Object = {
+    /* flags */ 0,
+    /* createTransData */ createTransObject,
+    /* recalcData */ recalcData_objects,
+    /* special_aftertrans_update */ special_aftertrans_update__object,
+};

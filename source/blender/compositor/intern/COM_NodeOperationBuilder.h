@@ -1,31 +1,14 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2013, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. */
 
-#ifndef __COM_NODEOPERATIONBUILDER_H__
-#define __COM_NODEOPERATIONBUILDER_H__
+#pragma once
 
-#include <map>
-#include <set>
-#include <vector>
+#include "BLI_map.hh"
+#include "BLI_vector.hh"
 
 #include "COM_NodeGraph.h"
 
-using std::vector;
+namespace blender::compositor {
 
 class CompositorContext;
 
@@ -42,116 +25,115 @@ class NodeOperationOutput;
 class PreviewOperation;
 class WriteBufferOperation;
 class ViewerOperation;
+class ConstantOperation;
 
 class NodeOperationBuilder {
  public:
   class Link {
    private:
-    NodeOperationOutput *m_from;
-    NodeOperationInput *m_to;
+    NodeOperationOutput *from_;
+    NodeOperationInput *to_;
 
    public:
-    Link(NodeOperationOutput *from, NodeOperationInput *to) : m_from(from), m_to(to)
+    Link(NodeOperationOutput *from, NodeOperationInput *to) : from_(from), to_(to)
     {
     }
 
     NodeOperationOutput *from() const
     {
-      return m_from;
+      return from_;
     }
     NodeOperationInput *to() const
     {
-      return m_to;
+      return to_;
     }
   };
 
-  typedef std::vector<NodeOperation *> Operations;
-  typedef std::vector<Link> Links;
-  typedef std::vector<ExecutionGroup *> Groups;
-
-  typedef std::map<NodeOperationInput *, NodeInput *> InputSocketMap;
-  typedef std::map<NodeOutput *, NodeOperationOutput *> OutputSocketMap;
-
-  typedef std::vector<NodeOperationInput *> OpInputs;
-  typedef std::map<NodeInput *, OpInputs> OpInputInverseMap;
-
  private:
-  const CompositorContext *m_context;
-  NodeGraph m_graph;
+  const CompositorContext *context_;
+  NodeGraph graph_;
+  ExecutionSystem *exec_system_;
 
-  Operations m_operations;
-  Links m_links;
-  Groups m_groups;
+  Vector<NodeOperation *> operations_;
+  Vector<Link> links_;
+  Vector<ExecutionGroup *> groups_;
 
   /** Maps operation inputs to node inputs */
-  InputSocketMap m_input_map;
+  Map<NodeOperationInput *, NodeInput *> input_map_;
   /** Maps node outputs to operation outputs */
-  OutputSocketMap m_output_map;
+  Map<NodeOutput *, NodeOperationOutput *> output_map_;
 
-  Node *m_current_node;
+  Node *current_node_;
 
   /** Operation that will be writing to the viewer image
    *  Only one operation can occupy this place at a time,
    *  to avoid race conditions
    */
-  ViewerOperation *m_active_viewer;
+  ViewerOperation *active_viewer_;
 
  public:
-  NodeOperationBuilder(const CompositorContext *context, bNodeTree *b_nodetree);
-  ~NodeOperationBuilder();
+  NodeOperationBuilder(const CompositorContext *context,
+                       bNodeTree *b_nodetree,
+                       ExecutionSystem *system);
 
   const CompositorContext &context() const
   {
-    return *m_context;
+    return *context_;
   }
 
-  void convertToOperations(ExecutionSystem *system);
+  void convert_to_operations(ExecutionSystem *system);
 
-  void addOperation(NodeOperation *operation);
+  void add_operation(NodeOperation *operation);
+  void replace_operation_with_constant(NodeOperation *operation,
+                                       ConstantOperation *constant_operation);
 
   /** Map input socket of the current node to an operation socket */
-  void mapInputSocket(NodeInput *node_socket, NodeOperationInput *operation_socket);
+  void map_input_socket(NodeInput *node_socket, NodeOperationInput *operation_socket);
   /** Map output socket of the current node to an operation socket */
-  void mapOutputSocket(NodeOutput *node_socket, NodeOperationOutput *operation_socket);
+  void map_output_socket(NodeOutput *node_socket, NodeOperationOutput *operation_socket);
 
-  void addLink(NodeOperationOutput *from, NodeOperationInput *to);
-  void removeInputLink(NodeOperationInput *to);
+  void add_link(NodeOperationOutput *from, NodeOperationInput *to);
+  void remove_input_link(NodeOperationInput *to);
 
   /** Add a preview operation for a operation output */
-  void addPreview(NodeOperationOutput *output);
+  void add_preview(NodeOperationOutput *output);
   /** Add a preview operation for a node input */
-  void addNodeInputPreview(NodeInput *input);
+  void add_node_input_preview(NodeInput *input);
 
   /** Define a viewer operation as the active output, if possible */
-  void registerViewer(ViewerOperation *viewer);
+  void register_viewer(ViewerOperation *viewer);
   /** The currently active viewer output operation */
   ViewerOperation *active_viewer() const
   {
-    return m_active_viewer;
+    return active_viewer_;
+  }
+
+  const Vector<NodeOperation *> &get_operations() const
+  {
+    return operations_;
+  }
+
+  const Vector<Link> &get_links() const
+  {
+    return links_;
   }
 
  protected:
-  static NodeInput *find_node_input(const InputSocketMap &map, NodeOperationInput *op_input);
-  static const OpInputs &find_operation_inputs(const OpInputInverseMap &map,
-                                               NodeInput *node_input);
-  static NodeOperationOutput *find_operation_output(const OutputSocketMap &map,
-                                                    NodeOutput *node_output);
-
   /** Add datatype conversion where needed */
   void add_datatype_conversions();
 
   /** Construct a constant value operation for every unconnected input */
   void add_operation_input_constants();
-  void add_input_constant_value(NodeOperationInput *input, NodeInput *node_input);
+  void add_input_constant_value(NodeOperationInput *input, const NodeInput *node_input);
 
   /** Replace proxy operations with direct links */
   void resolve_proxies();
 
-  /** Calculate resolution for each operation */
-  void determineResolutions();
+  /** Calculate canvas area for each operation. */
+  void determine_canvases();
 
   /** Helper function to store connected inputs for replacement */
-  OpInputs cache_output_links(NodeOperationOutput *output) const;
+  Vector<NodeOperationInput *> cache_output_links(NodeOperationOutput *output) const;
   /** Find a connected write buffer operation to an OpOutput */
   WriteBufferOperation *find_attached_write_buffer_operation(NodeOperationOutput *output) const;
   /** Add read/write buffer operations around complex operations */
@@ -171,10 +153,18 @@ class NodeOperationBuilder {
 
  private:
   PreviewOperation *make_preview_operation() const;
-
+  void unlink_inputs_and_relink_outputs(NodeOperation *unlinked_op, NodeOperation *linked_op);
+  /** Merge operations with same type, inputs and parameters that produce the same result. */
+  void merge_equal_operations();
+  void merge_equal_operations(NodeOperation *from, NodeOperation *into);
+  void save_graphviz(StringRefNull name = "");
 #ifdef WITH_CXX_GUARDEDALLOC
   MEM_CXX_CLASS_ALLOC_FUNCS("COM:NodeCompilerImpl")
 #endif
 };
 
-#endif /* __COM_NODEOPERATIONBUILDER_H__ */
+/** Create a graphviz representation of the NodeOperationBuilder. */
+std::ostream &operator<<(std::ostream &os, const NodeOperationBuilder &builder);
+std::ostream &operator<<(std::ostream &os, const NodeOperationBuilder::Link &link);
+
+}  // namespace blender::compositor

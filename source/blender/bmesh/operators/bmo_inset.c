@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -361,7 +347,7 @@ static void bmo_face_inset_individual(BMesh *bm,
 
     madd_v3_v3fl(v_new_co, tvec, thickness);
 
-    /* Set normal, add depth and write new vertex position*/
+    /* Set normal, add depth and write new vertex position. */
     copy_v3_v3(l_iter->v->no, f->no);
 
     if (depth != 0.0f) {
@@ -506,9 +492,7 @@ static BMLoop *bm_edge_is_mixed_face_tag(BMLoop *l)
 
     return ((tot_tag == 1) && (tot_untag >= 1)) ? l_tag : NULL;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
 static float bm_edge_info_average_length(BMVert *v, SplitEdgeInfo *edge_info)
@@ -530,12 +514,10 @@ static float bm_edge_info_average_length(BMVert *v, SplitEdgeInfo *edge_info)
   if (tot != 0) {
     return len / (float)tot;
   }
-  else {
-    return -1.0f;
-  }
+  return -1.0f;
 }
 
-/**.
+/**
  * Fill in any vertices that are in the inset region but not connected to an edge being inset.
  *
  *
@@ -663,9 +645,7 @@ static float bm_edge_info_average_length_with_fallback(
   if (length != -1.0f) {
     return length;
   }
-  else {
-    return bm_edge_info_average_length_fallback(v, edge_info, bm, vert_lengths_p);
-  }
+  return bm_edge_info_average_length_fallback(v, edge_info, bm, vert_lengths_p);
 }
 
 void bmo_inset_region_exec(BMesh *bm, BMOperator *op)
@@ -828,7 +808,7 @@ void bmo_inset_region_exec(BMesh *bm, BMOperator *op)
     /* this could go in its own loop,
      * only use the 'es->l->f' so we don't store loops for faces which have no mixed selection
      *
-     * note: faces on the other side of the inset will be interpolated too since this is hard to
+     * NOTE: faces on the other side of the inset will be interpolated too since this is hard to
      * detect, just allow it even though it will cause some redundant interpolation */
     if (use_interpolate) {
       BMIter viter;
@@ -973,10 +953,10 @@ void bmo_inset_region_exec(BMesh *bm, BMOperator *op)
                   is_mid = false;
                 }
 
-                /* distable gives odd results at times, see [#39288] */
+                /* Disable since this gives odd results at times, see T39288. */
 #if 0
                 else if (compare_v3v3(f_a->no, f_b->no, 0.001f) == false) {
-                  /* epsilon increased to fix [#32329] */
+                  /* epsilon increased to fix T32329. */
 
                   /* faces don't touch,
                    * just get cross product of their normals, its *good enough*
@@ -1022,8 +1002,8 @@ void bmo_inset_region_exec(BMesh *bm, BMOperator *op)
               if (use_even_boundary) {
 
                 /**
-                 * This case where only one edge attached to #v_split
-                 * is used - ei - the face to inset is on a boundary.
+                 * This case where only one edge attached to #v_split is used.
+                 * i.e. the face to inset is on a boundary.
                  *
                  * <pre>
                  *                  We want the inset to align flush with the

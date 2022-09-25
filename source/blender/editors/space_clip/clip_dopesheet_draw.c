@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2012 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2012 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spclip
@@ -43,13 +27,16 @@
 #include "BLF_api.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "GPU_immediate.h"
 #include "GPU_state.h"
 
 #include "clip_intern.h" /* own include */
 
-static void track_channel_color(MovieTrackingTrack *track, float default_color[3], float color[3])
+static void track_channel_color(MovieTrackingTrack *track,
+                                const float default_color[3],
+                                float color[3])
 {
   if (track->flag & TRACK_CUSTOMCOLOR) {
     float bg[3];
@@ -118,7 +105,7 @@ void clip_draw_dopesheet_main(SpaceClip *sc, ARegion *region, Scene *scene)
     MovieTrackingDopesheet *dopesheet = &tracking->dopesheet;
     MovieTrackingDopesheetChannel *channel;
     float strip[4], selected_strip[4];
-    float height = (dopesheet->tot_channel * CHANNEL_STEP) + (CHANNEL_HEIGHT);
+    float height = (dopesheet->tot_channel * CHANNEL_STEP) + CHANNEL_HEIGHT;
 
     uint keyframe_len = 0;
 
@@ -140,7 +127,7 @@ void clip_draw_dopesheet_main(SpaceClip *sc, ARegion *region, Scene *scene)
     strip[3] = 0.5f;
     selected_strip[3] = 1.0f;
 
-    GPU_blend(true);
+    GPU_blend(GPU_BLEND_ALPHA);
 
     clip_draw_dopesheet_background(region, clip, pos_id);
 
@@ -222,7 +209,7 @@ void clip_draw_dopesheet_main(SpaceClip *sc, ARegion *region, Scene *scene)
       uint flags_id = GPU_vertformat_attr_add(format, "flags", GPU_COMP_U32, 1, GPU_FETCH_INT);
 
       GPU_program_point_size(true);
-      immBindBuiltinProgram(GPU_SHADER_KEYFRAME_DIAMOND);
+      immBindBuiltinProgram(GPU_SHADER_KEYFRAME_SHAPE);
       immUniform1f("outline_scale", 1.0f);
       immUniform2f(
           "ViewportSize", BLI_rcti_size_x(&v2d->mask) + 1, BLI_rcti_size_y(&v2d->mask) + 1);
@@ -286,7 +273,7 @@ void clip_draw_dopesheet_main(SpaceClip *sc, ARegion *region, Scene *scene)
       immUnbindProgram();
     }
 
-    GPU_blend(false);
+    GPU_blend(GPU_BLEND_NONE);
   }
 }
 
@@ -305,7 +292,7 @@ void clip_draw_dopesheet_channels(const bContext *C, ARegion *region)
 
   MovieTracking *tracking = &clip->tracking;
   MovieTrackingDopesheet *dopesheet = &tracking->dopesheet;
-  int height = (dopesheet->tot_channel * CHANNEL_STEP) + (CHANNEL_HEIGHT);
+  int height = (dopesheet->tot_channel * CHANNEL_STEP) + CHANNEL_HEIGHT;
 
   if (height > BLI_rcti_size_y(&v2d->mask)) {
     /* don't use totrect set, as the width stays the same
@@ -387,7 +374,7 @@ void clip_draw_dopesheet_channels(const bContext *C, ARegion *region)
   PropertyRNA *chan_prop_lock = RNA_struct_type_find_property(&RNA_MovieTrackingTrack, "lock");
   BLI_assert(chan_prop_lock);
 
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
   for (channel = dopesheet->channels.first; channel; channel = channel->next) {
     float yminc = (float)(y - CHANNEL_HEIGHT_HALF);
     float ymaxc = (float)(y + CHANNEL_HEIGHT_HALF);
@@ -424,7 +411,7 @@ void clip_draw_dopesheet_channels(const bContext *C, ARegion *region)
     /* adjust y-position for next one */
     y -= CHANNEL_STEP;
   }
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 
   UI_block_end(C, block);
   UI_block_draw(C, block);

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2016 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup editor/io
@@ -35,19 +19,16 @@
 
 #  include "MEM_guardedalloc.h"
 
-#  include "DNA_mesh_types.h"
 #  include "DNA_modifier_types.h"
 #  include "DNA_object_types.h"
 #  include "DNA_scene_types.h"
 #  include "DNA_space_types.h"
 
 #  include "BKE_context.h"
-#  include "BKE_global.h"
 #  include "BKE_main.h"
 #  include "BKE_report.h"
 
 #  include "BLI_listbase.h"
-#  include "BLI_math_vector.h"
 #  include "BLI_path_util.h"
 #  include "BLI_string.h"
 #  include "BLI_utildefines.h"
@@ -66,9 +47,25 @@
 #  include "WM_api.h"
 #  include "WM_types.h"
 
+#  include "DEG_depsgraph.h"
+
 #  include "io_alembic.h"
 
 #  include "ABC_alembic.h"
+
+const EnumPropertyItem rna_enum_abc_export_evaluation_mode_items[] = {
+    {DAG_EVAL_RENDER,
+     "RENDER",
+     0,
+     "Render",
+     "Use Render settings for object visibility, modifier settings, etc"},
+    {DAG_EVAL_VIEWPORT,
+     "VIEWPORT",
+     0,
+     "Viewport",
+     "Use Viewport settings for object visibility, modifier settings, etc"},
+    {0, NULL, 0, NULL, NULL},
+};
 
 static int wm_alembic_export_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
@@ -124,20 +121,22 @@ static int wm_alembic_export_exec(bContext *C, wmOperator *op)
       .uvs = RNA_boolean_get(op->ptr, "uvs"),
       .normals = RNA_boolean_get(op->ptr, "normals"),
       .vcolors = RNA_boolean_get(op->ptr, "vcolors"),
+      .orcos = RNA_boolean_get(op->ptr, "orcos"),
       .apply_subdiv = RNA_boolean_get(op->ptr, "apply_subdiv"),
       .curves_as_mesh = RNA_boolean_get(op->ptr, "curves_as_mesh"),
       .flatten_hierarchy = RNA_boolean_get(op->ptr, "flatten"),
       .visible_objects_only = RNA_boolean_get(op->ptr, "visible_objects_only"),
-      .renderable_only = RNA_boolean_get(op->ptr, "renderable_only"),
       .face_sets = RNA_boolean_get(op->ptr, "face_sets"),
       .use_subdiv_schema = RNA_boolean_get(op->ptr, "subdiv_schema"),
       .export_hair = RNA_boolean_get(op->ptr, "export_hair"),
       .export_particles = RNA_boolean_get(op->ptr, "export_particles"),
-      .compression_type = RNA_enum_get(op->ptr, "compression_type"),
+      .export_custom_properties = RNA_boolean_get(op->ptr, "export_custom_properties"),
+      .use_instancing = RNA_boolean_get(op->ptr, "use_instancing"),
       .packuv = RNA_boolean_get(op->ptr, "packuv"),
       .triangulate = RNA_boolean_get(op->ptr, "triangulate"),
       .quad_method = RNA_enum_get(op->ptr, "quad_method"),
       .ngon_method = RNA_enum_get(op->ptr, "ngon_method"),
+      .evaluation_mode = RNA_enum_get(op->ptr, "evaluation_mode"),
 
       .global_scale = RNA_float_get(op->ptr, "global_scale"),
   };
@@ -145,10 +144,10 @@ static int wm_alembic_export_exec(bContext *C, wmOperator *op)
   /* Take some defaults from the scene, if not specified explicitly. */
   Scene *scene = CTX_data_scene(C);
   if (params.frame_start == INT_MIN) {
-    params.frame_start = SFRA;
+    params.frame_start = scene->r.sfra;
   }
   if (params.frame_end == INT_MIN) {
-    params.frame_end = EFRA;
+    params.frame_end = scene->r.efra;
   }
 
   const bool as_background_job = RNA_boolean_get(op->ptr, "as_background_job");
@@ -159,108 +158,84 @@ static int wm_alembic_export_exec(bContext *C, wmOperator *op)
 
 static void ui_alembic_export_settings(uiLayout *layout, PointerRNA *imfptr)
 {
-  uiLayout *box;
-  uiLayout *row;
-  uiLayout *col;
+  uiLayout *box, *row, *col, *sub;
 
-#  ifdef WITH_ALEMBIC_HDF5
-  box = uiLayoutBox(layout);
-  row = uiLayoutRow(box, false);
-  uiItemL(row, IFACE_("Archive Options:"), ICON_NONE);
-
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "compression_type", 0, NULL, ICON_NONE);
-#  endif
+  uiLayoutSetPropSep(layout, true);
+  uiLayoutSetPropDecorate(layout, false);
 
   box = uiLayoutBox(layout);
-  row = uiLayoutRow(box, false);
-  uiItemL(row, IFACE_("Manual Transform:"), ICON_NONE);
+  uiItemL(box, IFACE_("Manual Transform"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "global_scale", 0, NULL, ICON_NONE);
+  uiItemR(box, imfptr, "global_scale", 0, NULL, ICON_NONE);
 
   /* Scene Options */
   box = uiLayoutBox(layout);
   row = uiLayoutRow(box, false);
-  uiItemL(row, IFACE_("Scene Options:"), ICON_SCENE_DATA);
+  uiItemL(row, IFACE_("Scene Options"), ICON_SCENE_DATA);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "start", 0, NULL, ICON_NONE);
+  col = uiLayoutColumn(box, false);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "end", 0, NULL, ICON_NONE);
+  sub = uiLayoutColumn(col, true);
+  uiItemR(sub, imfptr, "start", 0, IFACE_("Frame Start"), ICON_NONE);
+  uiItemR(sub, imfptr, "end", 0, IFACE_("End"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "xsamples", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "xsamples", 0, IFACE_("Samples Transform"), ICON_NONE);
+  uiItemR(col, imfptr, "gsamples", 0, IFACE_("Geometry"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "gsamples", 0, NULL, ICON_NONE);
+  sub = uiLayoutColumn(col, true);
+  uiItemR(sub, imfptr, "sh_open", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
+  uiItemR(sub, imfptr, "sh_close", UI_ITEM_R_SLIDER, IFACE_("Close"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "sh_open", 0, NULL, ICON_NONE);
+  uiItemS(col);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "sh_close", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "flatten", 0, NULL, ICON_NONE);
+  uiItemR(sub, imfptr, "use_instancing", 0, IFACE_("Use Instancing"), ICON_NONE);
+  uiItemR(sub, imfptr, "export_custom_properties", 0, IFACE_("Custom Properties"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "selected", 0, NULL, ICON_NONE);
+  sub = uiLayoutColumnWithHeading(col, true, IFACE_("Only"));
+  uiItemR(sub, imfptr, "selected", 0, IFACE_("Selected Objects"), ICON_NONE);
+  uiItemR(sub, imfptr, "visible_objects_only", 0, IFACE_("Visible Objects"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "renderable_only", 0, NULL, ICON_NONE);
-
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "visible_objects_only", 0, NULL, ICON_NONE);
-
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "flatten", 0, NULL, ICON_NONE);
+  col = uiLayoutColumn(box, true);
+  uiItemR(col, imfptr, "evaluation_mode", 0, NULL, ICON_NONE);
 
   /* Object Data */
   box = uiLayoutBox(layout);
   row = uiLayoutRow(box, false);
-  uiItemL(row, IFACE_("Object Options:"), ICON_OBJECT_DATA);
+  uiItemL(row, IFACE_("Object Options"), ICON_OBJECT_DATA);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "uvs", 0, NULL, ICON_NONE);
+  col = uiLayoutColumn(box, false);
 
-  row = uiLayoutRow(box, false);
+  uiItemR(col, imfptr, "uvs", 0, NULL, ICON_NONE);
+  row = uiLayoutRow(col, false);
+  uiLayoutSetActive(row, RNA_boolean_get(imfptr, "uvs"));
   uiItemR(row, imfptr, "packuv", 0, NULL, ICON_NONE);
-  uiLayoutSetEnabled(row, RNA_boolean_get(imfptr, "uvs"));
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "normals", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "normals", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "vcolors", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "orcos", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "face_sets", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "curves_as_mesh", 0, NULL, ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "vcolors", 0, NULL, ICON_NONE);
+  uiItemS(col);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "face_sets", 0, NULL, ICON_NONE);
+  sub = uiLayoutColumnWithHeading(col, true, IFACE_("Subdivisions"));
+  uiItemR(sub, imfptr, "apply_subdiv", 0, IFACE_("Apply"), ICON_NONE);
+  uiItemR(sub, imfptr, "subdiv_schema", 0, IFACE_("Use Schema"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "subdiv_schema", 0, NULL, ICON_NONE);
+  uiItemS(col);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "apply_subdiv", 0, NULL, ICON_NONE);
+  col = uiLayoutColumn(box, false);
+  uiItemR(col, imfptr, "triangulate", 0, NULL, ICON_NONE);
+  sub = uiLayoutColumn(col, false);
+  uiLayoutSetActive(sub, RNA_boolean_get(imfptr, "triangulate"));
+  uiItemR(sub, imfptr, "quad_method", 0, IFACE_("Method Quads"), ICON_NONE);
+  uiItemR(sub, imfptr, "ngon_method", 0, IFACE_("Polygons"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "curves_as_mesh", 0, NULL, ICON_NONE);
-
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "triangulate", 0, NULL, ICON_NONE);
-
-  const bool triangulate = RNA_boolean_get(imfptr, "triangulate");
-
-  row = uiLayoutRow(box, false);
-  uiLayoutSetEnabled(row, triangulate);
-  uiItemR(row, imfptr, "quad_method", 0, NULL, ICON_NONE);
-
-  row = uiLayoutRow(box, false);
-  uiLayoutSetEnabled(row, triangulate);
-  uiItemR(row, imfptr, "ngon_method", 0, NULL, ICON_NONE);
-
-  /* Object Data */
+  /* Particle Data */
   box = uiLayoutBox(layout);
   row = uiLayoutRow(box, false);
-  uiItemL(row, IFACE_("Particle Systems:"), ICON_PARTICLE_DATA);
+  uiItemL(row, IFACE_("Particle Systems"), ICON_PARTICLE_DATA);
 
   col = uiLayoutColumn(box, true);
   uiItemR(col, imfptr, "export_hair", 0, NULL, ICON_NONE);
@@ -269,21 +244,17 @@ static void ui_alembic_export_settings(uiLayout *layout, PointerRNA *imfptr)
 
 static void wm_alembic_export_draw(bContext *C, wmOperator *op)
 {
-  PointerRNA ptr;
-
-  RNA_pointer_create(NULL, op->type->srna, op->properties, &ptr);
-
   /* Conveniently set start and end frame to match the scene's frame range. */
   Scene *scene = CTX_data_scene(C);
 
-  if (scene != NULL && RNA_boolean_get(&ptr, "init_scene_frame_range")) {
-    RNA_int_set(&ptr, "start", SFRA);
-    RNA_int_set(&ptr, "end", EFRA);
+  if (scene != NULL && RNA_boolean_get(op->ptr, "init_scene_frame_range")) {
+    RNA_int_set(op->ptr, "start", scene->r.sfra);
+    RNA_int_set(op->ptr, "end", scene->r.efra);
 
-    RNA_boolean_set(&ptr, "init_scene_frame_range", false);
+    RNA_boolean_set(op->ptr, "init_scene_frame_range", false);
   }
 
-  ui_alembic_export_settings(op->layout, &ptr);
+  ui_alembic_export_settings(op->layout, op->ptr);
 }
 
 static bool wm_alembic_export_check(bContext *UNUSED(C), wmOperator *op)
@@ -311,6 +282,7 @@ void WM_OT_alembic_export(wmOperatorType *ot)
   ot->poll = WM_operator_winactive;
   ot->ui = wm_alembic_export_draw;
   ot->check = wm_alembic_export_check;
+  ot->flag = OPTYPE_PRESET;
 
   WM_operator_properties_filesel(ot,
                                  FILE_TYPE_FOLDER | FILE_TYPE_ALEMBIC,
@@ -318,7 +290,7 @@ void WM_OT_alembic_export(wmOperatorType *ot)
                                  FILE_SAVE,
                                  WM_FILESEL_FILEPATH | WM_FILESEL_SHOW_PROPS,
                                  FILE_DEFAULTDISPLAY,
-                                 FILE_SORT_ALPHA);
+                                 FILE_SORT_DEFAULT);
 
   RNA_def_int(ot->srna,
               "start",
@@ -386,12 +358,6 @@ void WM_OT_alembic_export(wmOperatorType *ot)
       ot->srna, "selected", 0, "Selected Objects Only", "Export only selected objects");
 
   RNA_def_boolean(ot->srna,
-                  "renderable_only",
-                  1,
-                  "Renderable Objects Only",
-                  "Export only objects marked renderable in the outliner");
-
-  RNA_def_boolean(ot->srna,
                   "visible_objects_only",
                   0,
                   "Visible Objects Only",
@@ -409,7 +375,13 @@ void WM_OT_alembic_export(wmOperatorType *ot)
 
   RNA_def_boolean(ot->srna, "normals", 1, "Normals", "Export normals");
 
-  RNA_def_boolean(ot->srna, "vcolors", 0, "Vertex Colors", "Export vertex colors");
+  RNA_def_boolean(ot->srna, "vcolors", 0, "Color Attributes", "Export color attributes");
+
+  RNA_def_boolean(ot->srna,
+                  "orcos",
+                  true,
+                  "Generated Coordinates",
+                  "Export undeformed mesh vertex coordinates");
 
   RNA_def_boolean(
       ot->srna, "face_sets", 0, "Face Sets", "Export per face shading group assignments");
@@ -420,8 +392,11 @@ void WM_OT_alembic_export(wmOperatorType *ot)
                   "Use Subdivision Schema",
                   "Export meshes using Alembic's subdivision schema");
 
-  RNA_def_boolean(
-      ot->srna, "apply_subdiv", 0, "Apply Subsurf", "Export subdivision surfaces as meshes");
+  RNA_def_boolean(ot->srna,
+                  "apply_subdiv",
+                  0,
+                  "Apply Subdivision Surface",
+                  "Export subdivision surfaces as meshes");
 
   RNA_def_boolean(ot->srna,
                   "curves_as_mesh",
@@ -429,12 +404,12 @@ void WM_OT_alembic_export(wmOperatorType *ot)
                   "Curves as Mesh",
                   "Export curves and NURBS surfaces as meshes");
 
-  RNA_def_enum(ot->srna,
-               "compression_type",
-               rna_enum_abc_compression_items,
-               ABC_ARCHIVE_OGAWA,
-               "Compression",
-               "");
+  RNA_def_boolean(ot->srna,
+                  "use_instancing",
+                  true,
+                  "Use Instancing",
+                  "Export data of duplicated objects as Alembic instances; speeds up the export "
+                  "and can be disabled for compatibility with other software");
 
   RNA_def_float(
       ot->srna,
@@ -451,7 +426,7 @@ void WM_OT_alembic_export(wmOperatorType *ot)
                   "triangulate",
                   false,
                   "Triangulate",
-                  "Export Polygons (Quads & NGons) as Triangles");
+                  "Export polygons (quads and n-gons) as triangles");
 
   RNA_def_enum(ot->srna,
                "quad_method",
@@ -462,10 +437,10 @@ void WM_OT_alembic_export(wmOperatorType *ot)
 
   RNA_def_enum(ot->srna,
                "ngon_method",
-               rna_enum_modifier_triangulate_quad_method_items,
+               rna_enum_modifier_triangulate_ngon_method_items,
                MOD_TRIANGULATE_NGON_BEAUTY,
-               "Polygon Method",
-               "Method for splitting the polygons into triangles");
+               "N-gon Method",
+               "Method for splitting the n-gons into triangles");
 
   RNA_def_boolean(ot->srna,
                   "export_hair",
@@ -474,6 +449,12 @@ void WM_OT_alembic_export(wmOperatorType *ot)
                   "Exports hair particle systems as animated curves");
   RNA_def_boolean(
       ot->srna, "export_particles", 1, "Export Particles", "Exports non-hair particle systems");
+
+  RNA_def_boolean(ot->srna,
+                  "export_custom_properties",
+                  true,
+                  "Export Custom Properties",
+                  "Export custom properties to Alembic .userProperties");
 
   RNA_def_boolean(
       ot->srna,
@@ -484,10 +465,18 @@ void WM_OT_alembic_export(wmOperatorType *ot)
       "This option is deprecated; EXECUTE this operator to run in the foreground, and INVOKE it "
       "to run as a background job");
 
+  RNA_def_enum(ot->srna,
+               "evaluation_mode",
+               rna_enum_abc_export_evaluation_mode_items,
+               DAG_EVAL_RENDER,
+               "Use Settings for",
+               "Determines visibility of objects, modifier settings, and other areas where there "
+               "are different settings for viewport and rendering");
+
   /* This dummy prop is used to check whether we need to init the start and
    * end frame values to that of the scene's, otherwise they are reset at
    * every change, draw update. */
-  RNA_def_boolean(ot->srna, "init_scene_frame_range", false, "", "");
+  RNA_def_boolean(ot->srna, "init_scene_frame_range", true, "", "");
 }
 
 /* ************************************************************************** */
@@ -592,36 +581,31 @@ static int get_sequence_len(char *filename, int *ofs)
 
 static void ui_alembic_import_settings(uiLayout *layout, PointerRNA *imfptr)
 {
+
+  uiLayoutSetPropSep(layout, true);
+  uiLayoutSetPropDecorate(layout, false);
+
   uiLayout *box = uiLayoutBox(layout);
   uiLayout *row = uiLayoutRow(box, false);
-  uiItemL(row, IFACE_("Manual Transform:"), ICON_NONE);
+  uiItemL(row, IFACE_("Manual Transform"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "scale", 0, NULL, ICON_NONE);
+  uiItemR(box, imfptr, "scale", 0, NULL, ICON_NONE);
 
   box = uiLayoutBox(layout);
   row = uiLayoutRow(box, false);
-  uiItemL(row, IFACE_("Options:"), ICON_NONE);
+  uiItemL(row, IFACE_("Options"), ICON_NONE);
 
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "relative_path", 0, NULL, ICON_NONE);
-
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "set_frame_range", 0, NULL, ICON_NONE);
-
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "is_sequence", 0, NULL, ICON_NONE);
-
-  row = uiLayoutRow(box, false);
-  uiItemR(row, imfptr, "validate_meshes", 0, NULL, ICON_NONE);
+  uiLayout *col = uiLayoutColumn(box, false);
+  uiItemR(col, imfptr, "relative_path", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "set_frame_range", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "is_sequence", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "validate_meshes", 0, NULL, ICON_NONE);
+  uiItemR(col, imfptr, "always_add_cache_reader", 0, NULL, ICON_NONE);
 }
 
 static void wm_alembic_import_draw(bContext *UNUSED(C), wmOperator *op)
 {
-  PointerRNA ptr;
-
-  RNA_pointer_create(NULL, op->type->srna, op->properties, &ptr);
-  ui_alembic_import_settings(op->layout, &ptr);
+  ui_alembic_import_settings(op->layout, op->ptr);
 }
 
 /* op->invoke, opens fileselect if path property not set, otherwise executes */
@@ -647,6 +631,7 @@ static int wm_alembic_import_exec(bContext *C, wmOperator *op)
   const bool is_sequence = RNA_boolean_get(op->ptr, "is_sequence");
   const bool set_frame_range = RNA_boolean_get(op->ptr, "set_frame_range");
   const bool validate_meshes = RNA_boolean_get(op->ptr, "validate_meshes");
+  const bool always_add_cache_reader = RNA_boolean_get(op->ptr, "always_add_cache_reader");
   const bool as_background_job = RNA_boolean_get(op->ptr, "as_background_job");
 
   int offset = 0;
@@ -674,6 +659,7 @@ static int wm_alembic_import_exec(bContext *C, wmOperator *op)
                        sequence_len,
                        offset,
                        validate_meshes,
+                       always_add_cache_reader,
                        as_background_job);
 
   return as_background_job || ok ? OPERATOR_FINISHED : OPERATOR_CANCELLED;
@@ -684,6 +670,7 @@ void WM_OT_alembic_import(wmOperatorType *ot)
   ot->name = "Import Alembic";
   ot->description = "Load an Alembic archive";
   ot->idname = "WM_OT_alembic_import";
+  ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
   ot->invoke = wm_alembic_import_invoke;
   ot->exec = wm_alembic_import_exec;
@@ -693,10 +680,10 @@ void WM_OT_alembic_import(wmOperatorType *ot)
   WM_operator_properties_filesel(ot,
                                  FILE_TYPE_FOLDER | FILE_TYPE_ALEMBIC,
                                  FILE_BLENDER,
-                                 FILE_SAVE,
+                                 FILE_OPENFILE,
                                  WM_FILESEL_FILEPATH | WM_FILESEL_RELPATH | WM_FILESEL_SHOW_PROPS,
                                  FILE_DEFAULTDISPLAY,
-                                 FILE_SORT_ALPHA);
+                                 FILE_SORT_DEFAULT);
 
   RNA_def_float(
       ot->srna,
@@ -721,6 +708,13 @@ void WM_OT_alembic_import(wmOperatorType *ot)
                   0,
                   "Validate Meshes",
                   "Check imported mesh objects for invalid data (slow)");
+
+  RNA_def_boolean(ot->srna,
+                  "always_add_cache_reader",
+                  false,
+                  "Always Add Cache Reader",
+                  "Add cache modifiers and constraints to imported objects even if they are not "
+                  "animated so that they can be updated when reloading the Alembic archive");
 
   RNA_def_boolean(ot->srna,
                   "is_sequence",

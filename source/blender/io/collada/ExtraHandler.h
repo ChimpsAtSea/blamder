@@ -1,27 +1,12 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
  */
 
-#ifndef __EXTRAHANDLER_H__
-#define __EXTRAHANDLER_H__
+#pragma once
 
-#include <algorithm>  // sort()
+#include <algorithm> /* sort() */
 #include <map>
 #include <string>
 #include <vector>
@@ -40,9 +25,6 @@ class ExtraHandler : public COLLADASaxFWL::IExtraDataCallbackHandler {
  public:
   /** Constructor. */
   ExtraHandler(DocumentImporter *dimp, AnimationImporter *aimp);
-
-  /** Destructor. */
-  virtual ~ExtraHandler();
 
   /** Handle the beginning of an element. */
   bool elementBegin(const char *elementName, const char **attributes);
@@ -79,5 +61,3 @@ class ExtraHandler : public COLLADASaxFWL::IExtraDataCallbackHandler {
   ExtraTags *currentExtraTags;
   std::string currentElement;
 };
-
-#endif /* __EXTRAHANDLER_H__ */

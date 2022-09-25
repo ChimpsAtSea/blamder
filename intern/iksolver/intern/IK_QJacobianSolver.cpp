@@ -1,24 +1,8 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
- * \ingroup iksolver
+ * \ingroup intern_iksolver
  */
 
 #include <stdio.h>
@@ -89,7 +73,7 @@ bool IK_QJacobianSolver::Setup(IK_QSegment *root, std::list<IK_QTask *> &tasks)
   if (num_dof == 0)
     return false;
 
-  // compute task id's and assing weights to task
+  // compute task ids and assign weights to task
   int primary_size = 0, primary = 0;
   int secondary_size = 0, secondary = 0;
   double primary_weight = 0.0, secondary_weight = 0.0;
@@ -237,7 +221,7 @@ void IK_QJacobianSolver::ConstrainPoleVector(IK_QSegment *root, std::list<IK_QTa
 
 bool IK_QJacobianSolver::UpdateAngles(double &norm)
 {
-  // assing each segment a unique id for the jacobian
+  // assign each segment a unique id for the jacobian
   std::vector<IK_QSegment *>::iterator seg;
   IK_QSegment *qseg, *minseg = NULL;
   double minabsdelta = 1e10, absdelta;

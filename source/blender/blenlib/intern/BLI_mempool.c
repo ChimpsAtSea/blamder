@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 by Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -36,7 +20,8 @@
 
 #include "BLI_utildefines.h"
 
-#include "BLI_mempool.h" /* own include */
+#include "BLI_mempool.h"         /* own include */
+#include "BLI_mempool_private.h" /* own include */
 
 #include "MEM_guardedalloc.h"
 
@@ -46,7 +31,7 @@
 #  include "valgrind/memcheck.h"
 #endif
 
-/* note: copied from BLO_blend_defs.h, don't use here because we're in BLI */
+/* NOTE: copied from BLO_blend_defs.h, don't use here because we're in BLI. */
 #ifdef __BIG_ENDIAN__
 /* Big Endian */
 #  define MAKE_ID(a, b, c, d) ((int)(a) << 24 | (int)(b) << 16 | (c) << 8 | (d))
@@ -62,9 +47,9 @@
 #endif
 
 /**
- * Important that this value is an is _not_  aligned with ``sizeof(void *)``.
+ * Important that this value is an is _not_  aligned with `sizeof(void *)`.
  * So having a pointer to 2/4/8... aligned memory is enough to ensure
- * the freeword will never be used.
+ * the `freeword` will never be used.
  * To be safe, use a word that's the same in both directions.
  */
 #define FREEWORD \
@@ -76,7 +61,7 @@
  */
 #define USEDWORD MAKE_ID('u', 's', 'e', 'd')
 
-/* currently totalloc isnt used */
+/* Currently totalloc isn't used. */
 // #define USE_TOTALLOC
 
 /* optimize pool size */
@@ -125,7 +110,7 @@ struct BLI_mempool {
   uint flag;
   /* keeps aligned to 16 bits */
 
-  /** Free element list. Interleaved into chunk datas. */
+  /** Free element list. Interleaved into chunk data. */
   BLI_freenode *free;
   /** Use to know how many chunks to keep for #BLI_mempool_clear. */
   uint maxchunks;
@@ -174,9 +159,9 @@ BLI_INLINE BLI_mempool_chunk *mempool_chunk_find(BLI_mempool_chunk *head, uint i
  * \note for small pools 1 is a good default, the elements need to be initialized,
  * adding overhead on creation which is redundant if they aren't used.
  */
-BLI_INLINE uint mempool_maxchunks(const uint totelem, const uint pchunk)
+BLI_INLINE uint mempool_maxchunks(const uint elem_num, const uint pchunk)
 {
-  return (totelem <= pchunk) ? 1 : ((totelem / pchunk) + 1);
+  return (elem_num <= pchunk) ? 1 : ((elem_num / pchunk) + 1);
 }
 
 static BLI_mempool_chunk *mempool_chunk_alloc(BLI_mempool *pool)
@@ -265,7 +250,7 @@ static void mempool_chunk_free_all(BLI_mempool_chunk *mpchunk)
   }
 }
 
-BLI_mempool *BLI_mempool_create(uint esize, uint totelem, uint pchunk, uint flag)
+BLI_mempool *BLI_mempool_create(uint esize, uint elem_num, uint pchunk, uint flag)
 {
   BLI_mempool *pool;
   BLI_freenode *last_tail = NULL;
@@ -283,7 +268,7 @@ BLI_mempool *BLI_mempool_create(uint esize, uint totelem, uint pchunk, uint flag
     esize = MAX2(esize, (uint)sizeof(BLI_freenode));
   }
 
-  maxchunks = mempool_maxchunks(totelem, pchunk);
+  maxchunks = mempool_maxchunks(elem_num, pchunk);
 
   pool->chunks = NULL;
   pool->chunk_tail = NULL;
@@ -316,7 +301,7 @@ BLI_mempool *BLI_mempool_create(uint esize, uint totelem, uint pchunk, uint flag
 #endif
   pool->totused = 0;
 
-  if (totelem) {
+  if (elem_num) {
     /* Allocate the actual chunks. */
     for (i = 0; i < maxchunks; i++) {
       BLI_mempool_chunk *mpchunk = mempool_chunk_alloc(pool);
@@ -366,11 +351,6 @@ void *BLI_mempool_calloc(BLI_mempool *pool)
   return retval;
 }
 
-/**
- * Free an element from the mempool.
- *
- * \note doesn't protect against double frees, take care!
- */
 void BLI_mempool_free(BLI_mempool *pool, void *addr)
 {
   BLI_freenode *newhead = addr;
@@ -386,7 +366,7 @@ void BLI_mempool_free(BLI_mempool *pool, void *addr)
       }
     }
     if (!found) {
-      BLI_assert(!"Attempt to free data which is not in pool.\n");
+      BLI_assert_msg(0, "Attempt to free data which is not in pool.\n");
     }
   }
 
@@ -451,7 +431,7 @@ void BLI_mempool_free(BLI_mempool *pool, void *addr)
   }
 }
 
-int BLI_mempool_len(BLI_mempool *pool)
+int BLI_mempool_len(const BLI_mempool *pool)
 {
   return (int)pool->totused;
 }
@@ -474,13 +454,6 @@ void *BLI_mempool_findelem(BLI_mempool *pool, uint index)
   return NULL;
 }
 
-/**
- * Fill in \a data with pointers to each element of the mempool,
- * to create lookup table.
- *
- * \param pool: Pool to create a table from.
- * \param data: array of pointers at least the size of 'pool->totused'
- */
 void BLI_mempool_as_table(BLI_mempool *pool, void **data)
 {
   BLI_mempool_iter iter;
@@ -494,9 +467,6 @@ void BLI_mempool_as_table(BLI_mempool *pool, void **data)
   BLI_assert((uint)(p - data) == pool->totused);
 }
 
-/**
- * A version of #BLI_mempool_as_table that allocates and returns the data.
- */
 void **BLI_mempool_as_tableN(BLI_mempool *pool, const char *allocstr)
 {
   void **data = MEM_mallocN((size_t)pool->totused * sizeof(void *), allocstr);
@@ -504,9 +474,6 @@ void **BLI_mempool_as_tableN(BLI_mempool *pool, const char *allocstr)
   return data;
 }
 
-/**
- * Fill in \a data with the contents of the mempool.
- */
 void BLI_mempool_as_array(BLI_mempool *pool, void *data)
 {
   const uint esize = pool->esize;
@@ -521,9 +488,6 @@ void BLI_mempool_as_array(BLI_mempool *pool, void *data)
   BLI_assert((uint)(p - (char *)data) == pool->totused * esize);
 }
 
-/**
- * A version of #BLI_mempool_as_array that allocates and returns the data.
- */
 void *BLI_mempool_as_arrayN(BLI_mempool *pool, const char *allocstr)
 {
   char *data = MEM_malloc_arrayN(pool->totused, pool->esize, allocstr);
@@ -531,9 +495,6 @@ void *BLI_mempool_as_arrayN(BLI_mempool *pool, const char *allocstr)
   return data;
 }
 
-/**
- * Initialize a new mempool iterator, #BLI_MEMPOOL_ALLOW_ITER flag must be set.
- */
 void BLI_mempool_iternew(BLI_mempool *pool, BLI_mempool_iter *iter)
 {
   BLI_assert(pool->flag & BLI_MEMPOOL_ALLOW_ITER);
@@ -541,50 +502,39 @@ void BLI_mempool_iternew(BLI_mempool *pool, BLI_mempool_iter *iter)
   iter->pool = pool;
   iter->curchunk = pool->chunks;
   iter->curindex = 0;
-
-  iter->curchunk_threaded_shared = NULL;
 }
 
-/**
- * Initialize an array of mempool iterators, #BLI_MEMPOOL_ALLOW_ITER flag must be set.
- *
- * This is used in threaded code, to generate as much iterators as needed
- * (each task should have its own),
- * such that each iterator goes over its own single chunk,
- * and only getting the next chunk to iterate over has to be
- * protected against concurrency (which can be done in a lockless way).
- *
- * To be used when creating a task for each single item in the pool is totally overkill.
- *
- * See BLI_task_parallel_mempool implementation for detailed usage example.
- */
-BLI_mempool_iter *BLI_mempool_iter_threadsafe_create(BLI_mempool *pool, const size_t num_iter)
+static void mempool_threadsafe_iternew(BLI_mempool *pool, BLI_mempool_threadsafe_iter *ts_iter)
+{
+  BLI_mempool_iternew(pool, &ts_iter->iter);
+  ts_iter->curchunk_threaded_shared = NULL;
+}
+
+ParallelMempoolTaskData *mempool_iter_threadsafe_create(BLI_mempool *pool, const size_t iter_num)
 {
   BLI_assert(pool->flag & BLI_MEMPOOL_ALLOW_ITER);
 
-  BLI_mempool_iter *iter_arr = MEM_mallocN(sizeof(*iter_arr) * num_iter, __func__);
+  ParallelMempoolTaskData *iter_arr = MEM_mallocN(sizeof(*iter_arr) * iter_num, __func__);
   BLI_mempool_chunk **curchunk_threaded_shared = MEM_mallocN(sizeof(void *), __func__);
 
-  BLI_mempool_iternew(pool, iter_arr);
+  mempool_threadsafe_iternew(pool, &iter_arr->ts_iter);
 
-  *curchunk_threaded_shared = iter_arr->curchunk;
-  iter_arr->curchunk_threaded_shared = curchunk_threaded_shared;
-
-  for (size_t i = 1; i < num_iter; i++) {
-    iter_arr[i] = iter_arr[0];
-    *curchunk_threaded_shared = iter_arr[i].curchunk = ((*curchunk_threaded_shared) ?
-                                                            (*curchunk_threaded_shared)->next :
-                                                            NULL);
+  *curchunk_threaded_shared = iter_arr->ts_iter.iter.curchunk;
+  iter_arr->ts_iter.curchunk_threaded_shared = curchunk_threaded_shared;
+  for (size_t i = 1; i < iter_num; i++) {
+    iter_arr[i].ts_iter = iter_arr[0].ts_iter;
+    *curchunk_threaded_shared = iter_arr[i].ts_iter.iter.curchunk =
+        ((*curchunk_threaded_shared) ? (*curchunk_threaded_shared)->next : NULL);
   }
 
   return iter_arr;
 }
 
-void BLI_mempool_iter_threadsafe_free(BLI_mempool_iter *iter_arr)
+void mempool_iter_threadsafe_destroy(ParallelMempoolTaskData *iter_arr)
 {
-  BLI_assert(iter_arr->curchunk_threaded_shared != NULL);
+  BLI_assert(iter_arr->ts_iter.curchunk_threaded_shared != NULL);
 
-  MEM_freeN(iter_arr->curchunk_threaded_shared);
+  MEM_freeN(iter_arr->ts_iter.curchunk_threaded_shared);
   MEM_freeN(iter_arr);
 }
 
@@ -605,19 +555,6 @@ static void *bli_mempool_iternext(BLI_mempool_iter *iter)
 
   if (iter->curindex == iter->pool->pchunk) {
     iter->curindex = 0;
-    if (iter->curchunk_threaded_shared) {
-      while (1) {
-        iter->curchunk = *iter->curchunk_threaded_shared;
-        if (iter->curchunk == NULL) {
-          return ret;
-        }
-        if (atomic_cas_ptr((void **)iter->curchunk_threaded_shared,
-                           iter->curchunk,
-                           iter->curchunk->next) == iter->curchunk) {
-          break;
-        }
-      }
-    }
     iter->curchunk = iter->curchunk->next;
   }
 
@@ -635,13 +572,8 @@ void *BLI_mempool_iterstep(BLI_mempool_iter *iter)
   return ret;
 }
 
-#else
+#else /* Optimized version of code above. */
 
-/* optimized version of code above */
-
-/**
- * Step over the iterator, returning the mempool item or NULL.
- */
 void *BLI_mempool_iterstep(BLI_mempool_iter *iter)
 {
   if (UNLIKELY(iter->curchunk == NULL)) {
@@ -659,19 +591,49 @@ void *BLI_mempool_iterstep(BLI_mempool_iter *iter)
     }
     else {
       iter->curindex = 0;
-      if (iter->curchunk_threaded_shared) {
-        for (iter->curchunk = *iter->curchunk_threaded_shared;
-             (iter->curchunk != NULL) && (atomic_cas_ptr((void **)iter->curchunk_threaded_shared,
-                                                         iter->curchunk,
-                                                         iter->curchunk->next) != iter->curchunk);
-             iter->curchunk = *iter->curchunk_threaded_shared) {
-          /* pass. */
-        }
-
-        if (UNLIKELY(iter->curchunk == NULL)) {
-          return (ret->freeword == FREEWORD) ? NULL : ret;
-        }
+      iter->curchunk = iter->curchunk->next;
+      if (UNLIKELY(iter->curchunk == NULL)) {
+        return (ret->freeword == FREEWORD) ? NULL : ret;
       }
+      curnode = CHUNK_DATA(iter->curchunk);
+    }
+  } while (ret->freeword == FREEWORD);
+
+  return ret;
+}
+
+void *mempool_iter_threadsafe_step(BLI_mempool_threadsafe_iter *ts_iter)
+{
+  BLI_mempool_iter *iter = &ts_iter->iter;
+  if (UNLIKELY(iter->curchunk == NULL)) {
+    return NULL;
+  }
+
+  const uint esize = iter->pool->esize;
+  BLI_freenode *curnode = POINTER_OFFSET(CHUNK_DATA(iter->curchunk), (esize * iter->curindex));
+  BLI_freenode *ret;
+  do {
+    ret = curnode;
+
+    if (++iter->curindex != iter->pool->pchunk) {
+      curnode = POINTER_OFFSET(curnode, esize);
+    }
+    else {
+      iter->curindex = 0;
+
+      /* Begin unique to the `threadsafe` version of this function. */
+      for (iter->curchunk = *ts_iter->curchunk_threaded_shared;
+           (iter->curchunk != NULL) && (atomic_cas_ptr((void **)ts_iter->curchunk_threaded_shared,
+                                                       iter->curchunk,
+                                                       iter->curchunk->next) != iter->curchunk);
+           iter->curchunk = *ts_iter->curchunk_threaded_shared) {
+        /* pass. */
+      }
+      if (UNLIKELY(iter->curchunk == NULL)) {
+        return (ret->freeword == FREEWORD) ? NULL : ret;
+      }
+      /* End `threadsafe` exception. */
+
       iter->curchunk = iter->curchunk->next;
       if (UNLIKELY(iter->curchunk == NULL)) {
         return (ret->freeword == FREEWORD) ? NULL : ret;
@@ -685,12 +647,6 @@ void *BLI_mempool_iterstep(BLI_mempool_iter *iter)
 
 #endif
 
-/**
- * Empty the pool, as if it were just created.
- *
- * \param pool: The pool to clear.
- * \param totelem_reserve: Optionally reserve how many items should be kept from clearing.
- */
 void BLI_mempool_clear_ex(BLI_mempool *pool, const int totelem_reserve)
 {
   BLI_mempool_chunk *mpchunk;
@@ -743,17 +699,11 @@ void BLI_mempool_clear_ex(BLI_mempool *pool, const int totelem_reserve)
   }
 }
 
-/**
- * Wrap #BLI_mempool_clear_ex with no reserve set.
- */
 void BLI_mempool_clear(BLI_mempool *pool)
 {
   BLI_mempool_clear_ex(pool, -1);
 }
 
-/**
- * Free the mempool its self (and all elements).
- */
 void BLI_mempool_destroy(BLI_mempool *pool)
 {
   mempool_chunk_free_all(pool->chunks);

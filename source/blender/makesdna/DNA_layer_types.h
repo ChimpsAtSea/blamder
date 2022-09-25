@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_LAYER_TYPES_H__
-#define __DNA_LAYER_TYPES_H__
+#pragma once
 
 #include "DNA_freestyle_types.h"
 #include "DNA_listBase.h"
@@ -41,15 +26,39 @@ typedef enum eViewLayerEEVEEPassType {
   EEVEE_RENDER_PASS_DIFFUSE_COLOR = (1 << 5),
   EEVEE_RENDER_PASS_SPECULAR_LIGHT = (1 << 6),
   EEVEE_RENDER_PASS_SPECULAR_COLOR = (1 << 7),
-  EEVEE_RENDER_PASS_VOLUME_TRANSMITTANCE = (1 << 8),
-  EEVEE_RENDER_PASS_VOLUME_SCATTER = (1 << 9),
+  EEVEE_RENDER_PASS_UNUSED_8 = (1 << 8),
+  EEVEE_RENDER_PASS_VOLUME_LIGHT = (1 << 9),
   EEVEE_RENDER_PASS_EMIT = (1 << 10),
   EEVEE_RENDER_PASS_ENVIRONMENT = (1 << 11),
   EEVEE_RENDER_PASS_SHADOW = (1 << 12),
   EEVEE_RENDER_PASS_AO = (1 << 13),
   EEVEE_RENDER_PASS_BLOOM = (1 << 14),
+  EEVEE_RENDER_PASS_AOV = (1 << 15),
+  EEVEE_RENDER_PASS_CRYPTOMATTE = (1 << 16),
+  EEVEE_RENDER_PASS_VECTOR = (1 << 17),
 } eViewLayerEEVEEPassType;
-#define EEVEE_RENDER_PASS_MAX_BIT 15
+#define EEVEE_RENDER_PASS_MAX_BIT 17
+
+/* #ViewLayerAOV.type */
+typedef enum eViewLayerAOVType {
+  AOV_TYPE_VALUE = 0,
+  AOV_TYPE_COLOR = 1,
+} eViewLayerAOVType;
+
+/* #ViewLayerAOV.flag */
+typedef enum eViewLayerAOVFlag {
+  AOV_CONFLICT = (1 << 0),
+} eViewLayerAOVFlag;
+
+/* #ViewLayer.cryptomatte_flag */
+typedef enum eViewLayerCryptomatteFlags {
+  VIEW_LAYER_CRYPTOMATTE_OBJECT = (1 << 0),
+  VIEW_LAYER_CRYPTOMATTE_MATERIAL = (1 << 1),
+  VIEW_LAYER_CRYPTOMATTE_ASSET = (1 << 2),
+  VIEW_LAYER_CRYPTOMATTE_ACCURATE = (1 << 3),
+} eViewLayerCryptomatteFlags;
+#define VIEW_LAYER_CRYPTOMATTE_ALL \
+  (VIEW_LAYER_CRYPTOMATTE_OBJECT | VIEW_LAYER_CRYPTOMATTE_MATERIAL | VIEW_LAYER_CRYPTOMATTE_ASSET)
 
 typedef struct Base {
   struct Base *next, *prev;
@@ -105,6 +114,32 @@ typedef struct ViewLayerEEVEE {
   int _pad[1];
 } ViewLayerEEVEE;
 
+/** AOV Render-pass definition. */
+typedef struct ViewLayerAOV {
+  struct ViewLayerAOV *next, *prev;
+
+  /* Name of the AOV */
+  char name[64];
+  int flag;
+  /* Type of AOV (color/value)
+   * matches `eViewLayerAOVType` */
+  int type;
+} ViewLayerAOV;
+
+/** Light-group Render-pass definition. */
+typedef struct ViewLayerLightgroup {
+  struct ViewLayerLightgroup *next, *prev;
+
+  /* Name of the Lightgroup */
+  char name[64];
+} ViewLayerLightgroup;
+
+/* Lightgroup membership information. */
+typedef struct LightgroupMembership {
+  /* Name of the Lightgroup */
+  char name[64];
+} LightgroupMembership;
+
 typedef struct ViewLayer {
   struct ViewLayer *next, *prev;
   /** MAX_NAME. */
@@ -115,7 +150,6 @@ typedef struct ViewLayer {
   ListBase object_bases;
   /** Default allocated now. */
   struct SceneStats *stats;
-  char footer_str[128];
   struct Base *basact;
 
   /** A view layer has one top level layer collection, because a scene has only one top level
@@ -129,6 +163,10 @@ typedef struct ViewLayer {
   /** Pass_xor has to be after passflag. */
   int passflag;
   float pass_alpha_threshold;
+  short cryptomatte_flag;
+  short cryptomatte_levels;
+  char _pad1[4];
+
   int samples;
 
   struct Material *mat_override;
@@ -137,6 +175,14 @@ typedef struct ViewLayer {
 
   struct FreestyleConfig freestyle_config;
   struct ViewLayerEEVEE eevee;
+
+  /* List containing the `ViewLayerAOV`s */
+  ListBase aovs;
+  ViewLayerAOV *active_aov;
+
+  /* List containing the 'ViewLayerLightgroup`s */
+  ListBase lightgroups;
+  ViewLayerLightgroup *active_lightgroup;
 
   /* Runtime data */
   /** ViewLayerEngineData. */
@@ -178,11 +224,11 @@ enum {
 };
 
 /* Layer Collection->runtime_flag
-   Keep it synced with base->flag based on g_base_collection_flags. */
+ * Keep it synced with base->flag based on g_base_collection_flags. */
 enum {
   LAYER_COLLECTION_HAS_OBJECTS = (1 << 0),
   /* LAYER_COLLECTION_VISIBLE_DEPSGRAPH = (1 << 1), */ /* UNUSED */
-  LAYER_COLLECTION_RESTRICT_VIEWPORT = (1 << 2),
+  LAYER_COLLECTION_HIDE_VIEWPORT = (1 << 2),
   LAYER_COLLECTION_VISIBLE_VIEW_LAYER = (1 << 4),
 };
 
@@ -217,5 +263,3 @@ typedef struct SceneCollection {
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __DNA_LAYER_TYPES_H__ */

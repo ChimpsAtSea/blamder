@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2018 Blender Foundation, Alexander Gavrilov
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2018 Blender Foundation, Alexander Gavrilov. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -66,32 +50,35 @@
  * \{ */
 
 typedef enum eOpCode {
-  /* Double constant: (-> dval) */
+  /* Double constant: (-> dval). */
   OPCODE_CONST,
-  /* 1 argument function call: (a -> func1(a)) */
+  /* 1 argument function call: (a -> func1(a)). */
   OPCODE_FUNC1,
-  /* 2 argument function call: (a b -> func2(a,b)) */
+  /* 2 argument function call: (a b -> func2(a,b)). */
   OPCODE_FUNC2,
+  /* 3 argument function call: (a b c -> func3(a,b,c)). */
+  OPCODE_FUNC3,
   /* Parameter access: (-> params[ival]) */
   OPCODE_PARAMETER,
-  /* Minimum of multiple inputs: (a b c... -> min); ival = arg count */
+  /* Minimum of multiple inputs: (a b c... -> min); ival = arg count. */
   OPCODE_MIN,
-  /* Maximum of multiple inputs: (a b c... -> max); ival = arg count */
+  /* Maximum of multiple inputs: (a b c... -> max); ival = arg count. */
   OPCODE_MAX,
   /* Jump (pc += jmp_offset) */
   OPCODE_JMP,
-  /* Pop and jump if zero: (a -> ); JUMP IF NOT a */
+  /* Pop and jump if zero: (a -> ); JUMP IF NOT a. */
   OPCODE_JMP_ELSE,
-  /* Jump if nonzero, or pop: (a -> a JUMP) IF a ELSE (a -> ) */
+  /* Jump if nonzero, or pop: (a -> a JUMP) IF a ELSE (a -> ). */
   OPCODE_JMP_OR,
-  /* Jump if zero, or pop: (a -> a JUMP) IF NOT a ELSE (a -> )  */
+  /* Jump if zero, or pop: (a -> a JUMP) IF NOT a ELSE (a -> ). */
   OPCODE_JMP_AND,
-  /* For comparison chaining: (a b -> 0 JUMP) IF NOT func2(a,b) ELSE (a b -> b) */
+  /* For comparison chaining: (a b -> 0 JUMP) IF NOT func2(a,b) ELSE (a b -> b). */
   OPCODE_CMP_CHAIN,
 } eOpCode;
 
 typedef double (*UnaryOpFunc)(double);
 typedef double (*BinaryOpFunc)(double, double);
+typedef double (*TernaryOpFunc)(double, double, double);
 
 typedef struct ExprOp {
   eOpCode opcode;
@@ -104,6 +91,7 @@ typedef struct ExprOp {
     void *ptr;
     UnaryOpFunc func1;
     BinaryOpFunc func2;
+    TernaryOpFunc func3;
   } arg;
 } ExprOp;
 
@@ -120,7 +108,6 @@ struct ExprPyLike_Parsed {
 /** \name Public API
  * \{ */
 
-/** Free the parsed data; NULL argument is ok. */
 void BLI_expr_pylike_free(ExprPyLike_Parsed *expr)
 {
   if (expr != NULL) {
@@ -128,19 +115,16 @@ void BLI_expr_pylike_free(ExprPyLike_Parsed *expr)
   }
 }
 
-/** Check if the parsing result is valid for evaluation. */
 bool BLI_expr_pylike_is_valid(ExprPyLike_Parsed *expr)
 {
   return expr != NULL && expr->ops_count > 0;
 }
 
-/** Check if the parsed expression always evaluates to the same value. */
 bool BLI_expr_pylike_is_constant(ExprPyLike_Parsed *expr)
 {
   return expr != NULL && expr->ops_count == 1 && expr->ops[0].opcode == OPCODE_CONST;
 }
 
-/** Check if the parsed expression uses the parameter with the given index. */
 bool BLI_expr_pylike_is_using_param(ExprPyLike_Parsed *expr, int index)
 {
   int i;
@@ -164,10 +148,6 @@ bool BLI_expr_pylike_is_using_param(ExprPyLike_Parsed *expr, int index)
 /** \name Stack Machine Evaluation
  * \{ */
 
-/**
- * Evaluate the expression with the given parameters.
- * The order and number of parameters must match the names given to parse.
- */
 eExprPyLike_EvalStatus BLI_expr_pylike_eval(ExprPyLike_Parsed *expr,
                                             const double *param_values,
                                             int param_values_len,
@@ -215,6 +195,11 @@ eExprPyLike_EvalStatus BLI_expr_pylike_eval(ExprPyLike_Parsed *expr,
         FAIL_IF(sp < 2);
         stack[sp - 2] = ops[pc].arg.func2(stack[sp - 2], stack[sp - 1]);
         sp--;
+        break;
+      case OPCODE_FUNC3:
+        FAIL_IF(sp < 3);
+        stack[sp - 3] = ops[pc].arg.func3(stack[sp - 3], stack[sp - 2], stack[sp - 1]);
+        sp -= 2;
         break;
       case OPCODE_MIN:
         FAIL_IF(sp < ops[pc].arg.ival);
@@ -326,6 +311,35 @@ static double op_degrees(double arg)
   return arg * 180.0 / M_PI;
 }
 
+static double op_log2(double a, double b)
+{
+  return log(a) / log(b);
+}
+
+static double op_lerp(double a, double b, double x)
+{
+  return a * (1.0 - x) + b * x;
+}
+
+static double op_clamp(double arg)
+{
+  CLAMP(arg, 0.0, 1.0);
+  return arg;
+}
+
+static double op_clamp3(double arg, double minv, double maxv)
+{
+  CLAMP(arg, minv, maxv);
+  return arg;
+}
+
+static double op_smoothstep(double a, double b, double x)
+{
+  double t = (x - a) / (b - a);
+  CLAMP(t, 0.0, 1.0);
+  return t * t * (3.0 - 2.0 * t);
+}
+
 static double op_not(double a)
 {
   return a ? 0.0 : 1.0;
@@ -390,6 +404,7 @@ static BuiltinOpDef builtin_ops[] = {
     {"floor", OPCODE_FUNC1, floor},
     {"ceil", OPCODE_FUNC1, ceil},
     {"trunc", OPCODE_FUNC1, trunc},
+    {"round", OPCODE_FUNC1, round},
     {"int", OPCODE_FUNC1, trunc},
     {"sin", OPCODE_FUNC1, sin},
     {"cos", OPCODE_FUNC1, cos},
@@ -400,9 +415,14 @@ static BuiltinOpDef builtin_ops[] = {
     {"atan2", OPCODE_FUNC2, atan2},
     {"exp", OPCODE_FUNC1, exp},
     {"log", OPCODE_FUNC1, log},
+    {"log", OPCODE_FUNC2, op_log2},
     {"sqrt", OPCODE_FUNC1, sqrt},
     {"pow", OPCODE_FUNC2, pow},
     {"fmod", OPCODE_FUNC2, fmod},
+    {"lerp", OPCODE_FUNC3, op_lerp},
+    {"clamp", OPCODE_FUNC1, op_clamp},
+    {"clamp", OPCODE_FUNC3, op_clamp3},
+    {"smoothstep", OPCODE_FUNC3, op_smoothstep},
     {NULL, OPCODE_CONST, NULL},
 };
 
@@ -514,6 +534,22 @@ static void parse_set_jump(ExprParseState *state, int jump)
   state->ops[jump - 1].jmp_offset = state->ops_count - jump;
 }
 
+/* Returns the required argument count of the given function call code. */
+static int opcode_arg_count(eOpCode code)
+{
+  switch (code) {
+    case OPCODE_FUNC1:
+      return 1;
+    case OPCODE_FUNC2:
+      return 2;
+    case OPCODE_FUNC3:
+      return 3;
+    default:
+      BLI_assert_msg(0, "unexpected opcode");
+      return -1;
+  }
+}
+
 /* Add a function call operation, applying constant folding when possible. */
 static bool parse_add_func(ExprParseState *state, eOpCode code, int args, void *funcptr)
 {
@@ -560,6 +596,27 @@ static bool parse_add_func(ExprParseState *state, eOpCode code, int args, void *
       }
       break;
 
+    case OPCODE_FUNC3:
+      CHECK_ERROR(args == 3);
+
+      if (jmp_gap >= 3 && prev_ops[-3].opcode == OPCODE_CONST &&
+          prev_ops[-2].opcode == OPCODE_CONST && prev_ops[-1].opcode == OPCODE_CONST) {
+        TernaryOpFunc func = funcptr;
+
+        /* volatile because some compilers overly aggressive optimize this call out.
+         * see D6012 for details. */
+        volatile double result = func(
+            prev_ops[-3].arg.dval, prev_ops[-2].arg.dval, prev_ops[-1].arg.dval);
+
+        if (fetestexcept(FE_DIVBYZERO | FE_INVALID) == 0) {
+          prev_ops[-3].arg.dval = result;
+          state->ops_count -= 2;
+          state->stack_ptr -= 2;
+          return true;
+        }
+      }
+      break;
+
     default:
       BLI_assert(false);
       return false;
@@ -572,7 +629,7 @@ static bool parse_add_func(ExprParseState *state, eOpCode code, int args, void *
 /* Extract the next token from raw characters. */
 static bool parse_next_token(ExprParseState *state)
 {
-  /* Skip whitespace. */
+  /* Skip white-space. */
   while (isspace(*state->cur)) {
     state->cur++;
   }
@@ -755,24 +812,35 @@ static bool parse_unary(ExprParseState *state)
         if (STREQ(state->tokenbuf, builtin_ops[i].name)) {
           int args = parse_function_args(state);
 
+          /* Search for other arg count versions if necessary. */
+          if (args != opcode_arg_count(builtin_ops[i].op)) {
+            for (int j = i + 1; builtin_ops[j].name; j++) {
+              if (opcode_arg_count(builtin_ops[j].op) == args &&
+                  STREQ(builtin_ops[j].name, builtin_ops[i].name)) {
+                i = j;
+                break;
+              }
+            }
+          }
+
           return parse_add_func(state, builtin_ops[i].op, args, builtin_ops[i].funcptr);
         }
       }
 
       /* Specially supported functions. */
       if (STREQ(state->tokenbuf, "min")) {
-        int cnt = parse_function_args(state);
-        CHECK_ERROR(cnt > 0);
+        int count = parse_function_args(state);
+        CHECK_ERROR(count > 0);
 
-        parse_add_op(state, OPCODE_MIN, 1 - cnt)->arg.ival = cnt;
+        parse_add_op(state, OPCODE_MIN, 1 - count)->arg.ival = count;
         return true;
       }
 
       if (STREQ(state->tokenbuf, "max")) {
-        int cnt = parse_function_args(state);
-        CHECK_ERROR(cnt > 0);
+        int count = parse_function_args(state);
+        CHECK_ERROR(count > 0);
 
-        parse_add_op(state, OPCODE_MAX, 1 - cnt)->arg.ival = cnt;
+        parse_add_op(state, OPCODE_MAX, 1 - count)->arg.ival = count;
         return true;
       }
 
@@ -981,12 +1049,6 @@ static bool parse_expr(ExprParseState *state)
 /** \name Main Parsing Function
  * \{ */
 
-/**
- * Compile the expression and return the result.
- *
- * Parse the expression for evaluation later.
- * Returns non-NULL even on failure; use is_valid to check.
- */
 ExprPyLike_Parsed *BLI_expr_pylike_parse(const char *expression,
                                          const char **param_names,
                                          int param_names_len)

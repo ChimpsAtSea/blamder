@@ -1,28 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- * Armature EditMode tools - transforms, chain based editing, and other settings
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edarmature
+ * Armature EditMode tools - transforms, chain based editing, and other settings.
  */
-
-#include <assert.h>
 
 #include "DNA_armature_types.h"
 #include "DNA_constraint_types.h"
@@ -68,9 +50,6 @@
 
 /* NOTE: these functions are exported to the Object module to be called from the tools there */
 
-/**
- * See #BKE_armature_transform for object-mode transform.
- */
 void ED_armature_edit_transform(bArmature *arm, const float mat[4][4], const bool do_props)
 {
   EditBone *ebone;
@@ -118,8 +97,6 @@ void ED_armature_transform(bArmature *arm, const float mat[4][4], const bool do_
   }
 }
 
-/* exported for use in editors/object/ */
-/* 0 == do center, 1 == center new, 2 == center cursor */
 void ED_armature_origin_set(
     Main *bmain, Object *ob, const float cursor[3], int centermode, int around)
 {
@@ -128,19 +105,28 @@ void ED_armature_origin_set(
   bArmature *arm = ob->data;
   float cent[3];
 
-  /* Put the armature into editmode */
+  /* Put the armature into edit-mode. */
   if (is_editmode == false) {
     ED_armature_to_edit(arm);
   }
 
-  /* Find the centerpoint */
+  /* Find the center-point. */
   if (centermode == 2) {
     copy_v3_v3(cent, cursor);
     invert_m4_m4(ob->imat, ob->obmat);
     mul_m4_v3(ob->imat, cent);
   }
   else {
-    if (around == V3D_AROUND_CENTER_MEDIAN) {
+    if (around == V3D_AROUND_CENTER_BOUNDS) {
+      float min[3], max[3];
+      INIT_MINMAX(min, max);
+      for (ebone = arm->edbo->first; ebone; ebone = ebone->next) {
+        minmax_v3v3_v3(min, max, ebone->head);
+        minmax_v3v3_v3(min, max, ebone->tail);
+      }
+      mid_v3_v3v3(cent, min, max);
+    }
+    else { /* #V3D_AROUND_CENTER_MEDIAN. */
       int total = 0;
       zero_v3(cent);
       for (ebone = arm->edbo->first; ebone; ebone = ebone->next) {
@@ -151,15 +137,6 @@ void ED_armature_origin_set(
       if (total) {
         mul_v3_fl(cent, 1.0f / (float)total);
       }
-    }
-    else {
-      float min[3], max[3];
-      INIT_MINMAX(min, max);
-      for (ebone = arm->edbo->first; ebone; ebone = ebone->next) {
-        minmax_v3v3_v3(min, max, ebone->head);
-        minmax_v3v3_v3(min, max, ebone->tail);
-      }
-      mid_v3_v3v3(cent, min, max);
     }
   }
 
@@ -175,7 +152,7 @@ void ED_armature_origin_set(
     ED_armature_edit_free(arm);
   }
 
-  /* Adjust object location for new centerpoint */
+  /* Adjust object location for new center-point. */
   if (centermode && (is_editmode == false)) {
     mul_mat3_m4_v3(ob->obmat, cent); /* omit translation part */
     add_v3_v3(ob->loc, cent);
@@ -188,9 +165,6 @@ void ED_armature_origin_set(
 /** \name Bone Roll Calculate Operator
  * \{ */
 
-/* adjust bone roll to align Z axis with vector
- * vec is in local space and is normalized
- */
 float ED_armature_ebone_roll_to_vector(const EditBone *bone,
                                        const float align_axis[3],
                                        const bool axis_only)
@@ -230,7 +204,7 @@ float ED_armature_ebone_roll_to_vector(const EditBone *bone,
   return roll;
 }
 
-/* note, ranges arithmetic is used below */
+/* NOTE: ranges arithmetic is used below. */
 typedef enum eCalcRollTypes {
   /* pos */
   CALC_ROLL_POS_X = 0,
@@ -255,7 +229,7 @@ typedef enum eCalcRollTypes {
 } eCalcRollTypes;
 
 static const EnumPropertyItem prop_calc_roll_types[] = {
-    {0, "", 0, N_("Positive"), ""},
+    RNA_ENUM_ITEM_HEADING(N_("Positive"), NULL),
     {CALC_ROLL_TAN_POS_X, "POS_X", 0, "Local +X Tangent", ""},
     {CALC_ROLL_TAN_POS_Z, "POS_Z", 0, "Local +Z Tangent", ""},
 
@@ -263,8 +237,7 @@ static const EnumPropertyItem prop_calc_roll_types[] = {
     {CALC_ROLL_POS_Y, "GLOBAL_POS_Y", 0, "Global +Y Axis", ""},
     {CALC_ROLL_POS_Z, "GLOBAL_POS_Z", 0, "Global +Z Axis", ""},
 
-    {0, "", 0, N_("Negative"), ""},
-
+    RNA_ENUM_ITEM_HEADING(N_("Negative"), NULL),
     {CALC_ROLL_TAN_NEG_X, "NEG_X", 0, "Local -X Tangent", ""},
     {CALC_ROLL_TAN_NEG_Z, "NEG_Z", 0, "Local -Z Tangent", ""},
 
@@ -272,7 +245,7 @@ static const EnumPropertyItem prop_calc_roll_types[] = {
     {CALC_ROLL_NEG_Y, "GLOBAL_NEG_Y", 0, "Global -Y Axis", ""},
     {CALC_ROLL_NEG_Z, "GLOBAL_NEG_Z", 0, "Global -Z Axis", ""},
 
-    {0, "", 0, N_("Other"), ""},
+    RNA_ENUM_ITEM_HEADING(N_("Other"), NULL),
     {CALC_ROLL_ACTIVE, "ACTIVE", 0, "Active Bone", ""},
     {CALC_ROLL_VIEW, "VIEW", 0, "View Axis", ""},
     {CALC_ROLL_CURSOR, "CURSOR", 0, "Cursor", ""},
@@ -288,8 +261,9 @@ static int armature_calc_roll_exec(bContext *C, wmOperator *op)
   eCalcRollTypes type = RNA_enum_get(op->ptr, "type");
   const bool axis_only = RNA_boolean_get(op->ptr, "axis_only");
   /* axis_flip when matching the active bone never makes sense */
-  bool axis_flip = ((type >= CALC_ROLL_ACTIVE) ? RNA_boolean_get(op->ptr, "axis_flip") :
-                                                 (type >= CALC_ROLL_TAN_NEG_X) ? true : false);
+  bool axis_flip = ((type >= CALC_ROLL_ACTIVE)    ? RNA_boolean_get(op->ptr, "axis_flip") :
+                    (type >= CALC_ROLL_TAN_NEG_X) ? true :
+                                                    false);
 
   uint objects_len = 0;
   Object **objects = BKE_view_layer_array_from_objects_in_edit_mode_unique_data(
@@ -415,7 +389,7 @@ static int armature_calc_roll_exec(bContext *C, wmOperator *op)
         copy_v3_v3(vec, mat[2]);
       }
       else { /* Axis */
-        assert(type <= 5);
+        BLI_assert(type <= 5);
         if (type < 3) {
           vec[type] = 1.0f;
         }
@@ -451,7 +425,7 @@ static int armature_calc_roll_exec(bContext *C, wmOperator *op)
     }
 
     if (changed) {
-      /* note, notifier might evolve */
+      /* NOTE: notifier might evolve. */
       WM_event_add_notifier(C, NC_OBJECT | ND_BONE_SELECT, ob);
       DEG_id_tag_update(&arm->id, ID_RECALC_SELECT);
     }
@@ -521,7 +495,7 @@ static int armature_roll_clear_exec(bContext *C, wmOperator *op)
     }
 
     if (changed) {
-      /* Note, notifier might evolve. */
+      /* NOTE: notifier might evolve. */
       WM_event_add_notifier(C, NC_OBJECT | ND_BONE_SELECT, ob);
       DEG_id_tag_update(&arm->id, ID_RECALC_SELECT);
     }
@@ -579,7 +553,7 @@ static void chains_find_tips(ListBase *edbo, ListBase *list)
   EditBone *curBone, *ebo;
   LinkData *ld;
 
-  /* note: this is potentially very slow ... there's got to be a better way */
+  /* NOTE: this is potentially very slow ... there's got to be a better way. */
   for (curBone = edbo->first; curBone; curBone = curBone->next) {
     short stop = 0;
 
@@ -728,7 +702,8 @@ static int armature_fill_bones_exec(bContext *C, wmOperator *op)
     BKE_report(op->reports, RPT_ERROR, "No joints selected");
     return OPERATOR_CANCELLED;
   }
-  else if (mixed_object_error) {
+
+  if (mixed_object_error) {
     BKE_report(op->reports, RPT_ERROR, "Bones for different objects selected");
     BLI_freelistN(&points);
     return OPERATOR_CANCELLED;
@@ -877,7 +852,7 @@ void ARMATURE_OT_fill(wmOperatorType *ot)
   /* identifiers */
   ot->name = "Fill Between Joints";
   ot->idname = "ARMATURE_OT_fill";
-  ot->description = "Add bone between selected joint(s) and/or 3D-Cursor";
+  ot->description = "Add bone between selected joint(s) and/or 3D cursor";
 
   /* callbacks */
   ot->exec = armature_fill_bones_exec;
@@ -930,9 +905,9 @@ static int armature_switch_direction_exec(bContext *C, wmOperator *UNUSED(op))
     /* ensure that mirror bones will also be operated on */
     armature_tag_select_mirrored(arm);
 
-    /* clear BONE_TRANSFORM flags
-     * - used to prevent duplicate/canceling operations from occurring [#34123]
-     * - BONE_DONE cannot be used here as that's already used for mirroring
+    /* Clear BONE_TRANSFORM flags
+     * - Used to prevent duplicate/canceling operations from occurring T34123.
+     * - #BONE_DONE cannot be used here as that's already used for mirroring.
      */
     armature_clear_swap_done_flags(arm);
 
@@ -948,7 +923,7 @@ static int armature_switch_direction_exec(bContext *C, wmOperator *UNUSED(op))
          */
         parent = ebo->parent;
 
-        /* skip bone if already handled... [#34123] */
+        /* skip bone if already handled, see T34123. */
         if ((ebo->flag & BONE_TRANSFORM) == 0) {
           /* only if selected and editable */
           if (EBONE_VISIBLE(arm, ebo) && EBONE_EDITABLE(ebo)) {
@@ -1001,7 +976,7 @@ static int armature_switch_direction_exec(bContext *C, wmOperator *UNUSED(op))
     armature_clear_swap_done_flags(arm);
     armature_tag_unselect(arm);
 
-    /* note, notifier might evolve */
+    /* NOTE: notifier might evolve. */
     WM_event_add_notifier(C, NC_OBJECT | ND_BONE_SELECT, ob);
     DEG_id_tag_update(&arm->id, ID_RECALC_SELECT);
   }
@@ -1015,7 +990,7 @@ void ARMATURE_OT_switch_direction(wmOperatorType *ot)
   /* identifiers */
   ot->name = "Switch Direction";
   ot->idname = "ARMATURE_OT_switch_direction";
-  ot->description = "Change the direction that a chain of bones points in (head <-> tail swap)";
+  ot->description = "Change the direction that a chain of bones points in (head and tail swap)";
 
   /* api callbacks */
   ot->exec = armature_switch_direction_exec;
@@ -1031,7 +1006,7 @@ void ARMATURE_OT_switch_direction(wmOperatorType *ot)
 /** \name Align Operator
  * \{ */
 
-/* helper to fix a ebone position if its parent has moved due to alignment*/
+/* Helper to fix a ebone position if its parent has moved due to alignment. */
 static void fix_connected_bone(EditBone *ebone)
 {
   float diff[3];
@@ -1074,9 +1049,9 @@ static void bone_align_to_bone(ListBase *edbo, EditBone *selbone, EditBone *actb
   add_v3_v3v3(selbone->tail, selbone->head, actboneaxis);
   selbone->roll = actbone->roll;
 
-  /* if the bone being aligned has connected descendants they must be moved
+  /* If the bone being aligned has connected descendants they must be moved
    * according to their parent new position, otherwise they would be left
-   * in an inconsistent state: connected but away from the parent*/
+   * in an inconsistent state: connected but away from the parent. */
   fix_editbone_connected_children(edbo, selbone);
 }
 
@@ -1093,7 +1068,8 @@ static int armature_align_bones_exec(bContext *C, wmOperator *op)
     BKE_report(op->reports, RPT_ERROR, "Operation requires an active bone");
     return OPERATOR_CANCELLED;
   }
-  else if (arm->flag & ARM_MIRROR_EDIT) {
+
+  if (arm->flag & ARM_MIRROR_EDIT) {
     /* For X-Axis Mirror Editing option, we may need a mirror copy of actbone
      * - if there's a mirrored copy of selbone, try to find a mirrored copy of actbone
      *   (i.e.  selbone="child.L" and actbone="parent.L", find "child.R" and "parent.R").
@@ -1107,7 +1083,7 @@ static int armature_align_bones_exec(bContext *C, wmOperator *op)
     }
   }
 
-  /* if there is only 1 selected bone, we assume that that is the active bone,
+  /* if there is only 1 selected bone, we assume that it is the active bone,
    * since a user will need to have clicked on a bone (thus selecting it) to make it active
    */
   num_selected_bones = CTX_DATA_COUNT(C, selected_editable_bones);
@@ -1151,7 +1127,7 @@ static int armature_align_bones_exec(bContext *C, wmOperator *op)
         op->reports, RPT_INFO, "%d bones aligned to bone '%s'", num_selected_bones, actbone->name);
   }
 
-  /* note, notifier might evolve */
+  /* NOTE: notifier might evolve. */
   WM_event_add_notifier(C, NC_OBJECT | ND_BONE_SELECT, ob);
   DEG_id_tag_update(&arm->id, ID_RECALC_SELECT);
 

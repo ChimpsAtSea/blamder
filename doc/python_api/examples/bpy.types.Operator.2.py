@@ -37,13 +37,13 @@ class ExportSomeData(bpy.types.Operator):
         return {'RUNNING_MODAL'}
 
 
-# Only needed if you want to add into a dynamic menu
+# Only needed if you want to add into a dynamic menu.
 def menu_func(self, context):
     self.layout.operator_context = 'INVOKE_DEFAULT'
     self.layout.operator(ExportSomeData.bl_idname, text="Text Export Operator")
 
 
-# Register and add to the file selector
+# Register and add to the file selector (required to also use F3 search "Text Export Operator" for quick access)
 bpy.utils.register_class(ExportSomeData)
 bpy.types.TOPBAR_MT_file_export.append(menu_func)
 

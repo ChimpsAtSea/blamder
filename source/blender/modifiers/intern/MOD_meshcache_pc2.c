@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup modifiers
@@ -75,13 +61,13 @@ static bool meshcache_read_pc2_head(FILE *fp,
     *err_str = "Invalid frame total";
     return false;
   }
-  /* intentionally dont seek back */
+  /* Intentionally don't seek back. */
 
   return true;
 }
 
 /**
- * Gets the index frange and factor
+ * Gets the index range and factor
  *
  * currently same as for MDD
  */
@@ -146,16 +132,18 @@ bool MOD_meshcache_read_pc2_index(FILE *fp,
     return false;
   }
 
-  if (BLI_fseek(fp, sizeof(float) * 3 * index * pc2_head.verts_tot, SEEK_CUR) != 0) {
+  if (BLI_fseek(fp, sizeof(float[3]) * index * pc2_head.verts_tot, SEEK_CUR) != 0) {
     *err_str = "Failed to seek frame";
     return false;
   }
 
+  size_t verts_read_num = 0;
+  errno = 0;
   if (factor >= 1.0f) {
     float *vco = *vertexCos;
     uint i;
     for (i = pc2_head.verts_tot; i != 0; i--, vco += 3) {
-      fread(vco, sizeof(float) * 3, 1, fp);
+      verts_read_num += fread(vco, sizeof(float[3]), 1, fp);
 
 #ifdef __BIG_ENDIAN__
       BLI_endian_switch_float(vco + 0);
@@ -170,7 +158,7 @@ bool MOD_meshcache_read_pc2_index(FILE *fp,
     uint i;
     for (i = pc2_head.verts_tot; i != 0; i--, vco += 3) {
       float tvec[3];
-      fread(tvec, sizeof(float) * 3, 1, fp);
+      verts_read_num += fread(tvec, sizeof(float[3]), 1, fp);
 
 #ifdef __BIG_ENDIAN__
       BLI_endian_switch_float(tvec + 0);
@@ -182,6 +170,11 @@ bool MOD_meshcache_read_pc2_index(FILE *fp,
       vco[1] = (vco[1] * ifactor) + (tvec[1] * factor);
       vco[2] = (vco[2] * ifactor) + (tvec[2] * factor);
     }
+  }
+
+  if (verts_read_num != pc2_head.verts_tot) {
+    *err_str = errno ? strerror(errno) : "Vertex coordinate read failed";
+    return false;
   }
 
   return true;
@@ -213,22 +206,19 @@ bool MOD_meshcache_read_pc2_frame(FILE *fp,
         MOD_meshcache_read_pc2_index(fp, vertexCos, verts_tot, index_range[0], 1.0f, err_str)) {
       return true;
     }
-    else {
-      return false;
-    }
+
+    return false;
   }
-  else {
-    /* read both and interpolate */
-    if ((BLI_fseek(fp, 0, SEEK_SET) == 0) &&
-        MOD_meshcache_read_pc2_index(fp, vertexCos, verts_tot, index_range[0], 1.0f, err_str) &&
-        (BLI_fseek(fp, 0, SEEK_SET) == 0) &&
-        MOD_meshcache_read_pc2_index(fp, vertexCos, verts_tot, index_range[1], factor, err_str)) {
-      return true;
-    }
-    else {
-      return false;
-    }
+
+  /* read both and interpolate */
+  if ((BLI_fseek(fp, 0, SEEK_SET) == 0) &&
+      MOD_meshcache_read_pc2_index(fp, vertexCos, verts_tot, index_range[0], 1.0f, err_str) &&
+      (BLI_fseek(fp, 0, SEEK_SET) == 0) &&
+      MOD_meshcache_read_pc2_index(fp, vertexCos, verts_tot, index_range[1], factor, err_str)) {
+    return true;
   }
+
+  return false;
 }
 
 bool MOD_meshcache_read_pc2_times(const char *filepath,

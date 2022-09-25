@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup DNA
@@ -20,8 +6,11 @@
  * Enums typedef's for use in public headers.
  */
 
-#ifndef __DNA_OBJECT_ENUMS_H__
-#define __DNA_OBJECT_ENUMS_H__
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /** #Object.mode */
 typedef enum eObjectMode {
@@ -38,6 +27,7 @@ typedef enum eObjectMode {
   OB_MODE_SCULPT_GPENCIL = 1 << 9,
   OB_MODE_WEIGHT_GPENCIL = 1 << 10,
   OB_MODE_VERTEX_GPENCIL = 1 << 11,
+  OB_MODE_SCULPT_CURVES = 1 << 12,
 } eObjectMode;
 
 /** #Object.dt, #View3DShading.type */
@@ -61,6 +51,9 @@ typedef enum eDrawType {
 /** Any mode that uses Object.sculpt. */
 #define OB_MODE_ALL_SCULPT (OB_MODE_SCULPT | OB_MODE_VERTEX_PAINT | OB_MODE_WEIGHT_PAINT)
 
+/** Any mode that uses weightpaint. */
+#define OB_MODE_ALL_WEIGHT_PAINT (OB_MODE_WEIGHT_PAINT | OB_MODE_WEIGHT_GPENCIL)
+
 /**
  * Any mode that has data or for Grease Pencil modes, we need to free when switching modes,
  * see: #ED_object_mode_generic_exit
@@ -68,6 +61,8 @@ typedef enum eDrawType {
 #define OB_MODE_ALL_MODE_DATA \
   (OB_MODE_EDIT | OB_MODE_VERTEX_PAINT | OB_MODE_WEIGHT_PAINT | OB_MODE_SCULPT | OB_MODE_POSE | \
    OB_MODE_PAINT_GPENCIL | OB_MODE_EDIT_GPENCIL | OB_MODE_SCULPT_GPENCIL | \
-   OB_MODE_WEIGHT_GPENCIL | OB_MODE_VERTEX_GPENCIL)
+   OB_MODE_WEIGHT_GPENCIL | OB_MODE_VERTEX_GPENCIL | OB_MODE_SCULPT_CURVES)
 
-#endif /* __DNA_OBJECT_ENUMS_H__ */
+#ifdef __cplusplus
+}
+#endif

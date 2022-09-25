@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -327,7 +313,6 @@ void bmo_weld_verts_exec(BMesh *bm, BMOperator *op)
 }
 
 #define VERT_KEEP 8
-#define VERT_IN 32
 
 #define EDGE_MARK 1
 
@@ -387,7 +372,7 @@ void bmo_average_vert_facedata_exec(BMesh *bm, BMOperator *op)
   BMOIter siter;
   BMIter iter;
   BMVert *v;
-  BMLoop *l /* , *firstl = NULL */;
+  BMLoop *l;
   CDBlockBytes min, max;
   int i;
 
@@ -599,7 +584,7 @@ void bmo_collapse_uvs_exec(BMesh *bm, BMOperator *op)
   const short oflag = EDGE_MARK;
   int i;
 
-  /* check flags dont change once set */
+  /* Check flags don't change once set. */
 #ifndef NDEBUG
   int tot_test;
 #endif

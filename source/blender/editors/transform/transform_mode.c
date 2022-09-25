@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -39,29 +23,45 @@
 
 #include "RNA_access.h"
 
-#include "ED_screen.h"
-
 #include "UI_interface.h"
 
 #include "BLT_translation.h"
 
 #include "transform.h"
+#include "transform_convert.h"
+#include "transform_orientations.h"
 #include "transform_snap.h"
 
 /* Own include. */
 #include "transform_mode.h"
 
-bool transdata_check_local_center(TransInfo *t, short around)
+eTfmMode transform_mode_really_used(bContext *C, eTfmMode mode)
 {
-  return ((around == V3D_AROUND_LOCAL_ORIGINS) &&
-          ((t->flag & (T_OBJECT | T_POSE)) ||
-           /* implicit: (t->flag & T_EDIT) */
-           (ELEM(t->obedit_type, OB_MESH, OB_CURVE, OB_MBALL, OB_ARMATURE, OB_GPENCIL)) ||
-           (t->spacetype == SPACE_GRAPH) ||
-           (t->options & (CTX_MOVIECLIP | CTX_MASK | CTX_PAINT_CURVE))));
+  if (mode == TFM_BONESIZE) {
+    Object *ob = CTX_data_active_object(C);
+    BLI_assert(ob);
+    if (ob->type != OB_ARMATURE) {
+      return TFM_RESIZE;
+    }
+    bArmature *arm = ob->data;
+    if (arm->drawtype == ARM_ENVELOPE) {
+      return TFM_BONE_ENVELOPE_DIST;
+    }
+  }
+
+  return mode;
 }
 
-/* Informs if the mode can be switched during modal. */
+bool transdata_check_local_center(const TransInfo *t, short around)
+{
+  return ((around == V3D_AROUND_LOCAL_ORIGINS) &&
+          ((t->options & (CTX_OBJECT | CTX_POSE_BONE)) ||
+           /* implicit: (t->flag & T_EDIT) */
+           (ELEM(t->obedit_type, OB_MESH, OB_CURVES_LEGACY, OB_MBALL, OB_ARMATURE, OB_GPENCIL)) ||
+           (t->spacetype == SPACE_GRAPH) ||
+           (t->options & (CTX_MOVIECLIP | CTX_MASK | CTX_PAINT_CURVE | CTX_SEQUENCER_IMAGE))));
+}
+
 bool transform_mode_is_changeable(const int mode)
 {
   return ELEM(mode,
@@ -162,7 +162,7 @@ static void protectedRotateBits(short protectflag, float eul[3], const float old
 /* this function only does the delta rotation */
 /* axis-angle is usually internally stored as quats... */
 static void protectedAxisAngleBits(
-    short protectflag, float axis[3], float *angle, float oldAxis[3], float oldAngle)
+    short protectflag, float axis[3], float *angle, const float oldAxis[3], float oldAngle)
 {
   /* check that protection flags are set */
   if ((protectflag & (OB_LOCK_ROTX | OB_LOCK_ROTY | OB_LOCK_ROTZ | OB_LOCK_ROTW)) == 0) {
@@ -212,7 +212,7 @@ static void protectedAxisAngleBits(
   }
 }
 
-static void protectedSizeBits(short protectflag, float size[3])
+void protectedSizeBits(short protectflag, float size[3])
 {
   if (protectflag & OB_LOCK_SCALEX) {
     size[0] = 1.0f;
@@ -231,7 +231,7 @@ static void protectedSizeBits(short protectflag, float size[3])
 /** \name Transform Limits
  * \{ */
 
-void constraintTransLim(TransInfo *t, TransData *td)
+void constraintTransLim(const TransInfo *t, TransData *td)
 {
   if (td->con) {
     const bConstraintTypeInfo *ctiLoc = BKE_constraint_typeinfo_from_type(
@@ -292,6 +292,9 @@ void constraintTransLim(TransInfo *t, TransData *td)
           continue;
         }
 
+        /* Initialize the custom space for use in calculating the matrices. */
+        BKE_constraint_custom_object_space_init(&cob, con);
+
         /* get constraint targets if needed */
         BKE_constraint_targets_for_solving_get(t->depsgraph, con, &cob, &targets, ctime);
 
@@ -342,7 +345,7 @@ static void constraintob_from_transdata(bConstraintOb *cob, TransData *td)
   }
 }
 
-static void constraintRotLim(TransInfo *UNUSED(t), TransData *td)
+static void constraintRotLim(const TransInfo *UNUSED(t), TransData *td)
 {
   if (td->con) {
     const bConstraintTypeInfo *cti = BKE_constraint_typeinfo_from_type(CONSTRAINT_TYPE_ROTLIMIT);
@@ -415,7 +418,7 @@ static void constraintRotLim(TransInfo *UNUSED(t), TransData *td)
   }
 }
 
-static void constraintSizeLim(TransInfo *t, TransData *td)
+void constraintSizeLim(const TransInfo *t, TransData *td)
 {
   if (td->con && td->ext) {
     const bConstraintTypeInfo *cti = BKE_constraint_typeinfo_from_type(CONSTRAINT_TYPE_SIZELIMIT);
@@ -430,22 +433,21 @@ static void constraintSizeLim(TransInfo *t, TransData *td)
      */
     if ((td->flag & TD_SINGLESIZE) && !(t->con.mode & CON_APPLY)) {
       /* scale val and reset size */
-      return;  // TODO: fix this case
+      return; /* TODO: fix this case */
     }
-    else {
-      /* Reset val if SINGLESIZE but using a constraint */
-      if (td->flag & TD_SINGLESIZE) {
-        return;
-      }
 
-      /* separate out sign to apply back later */
-      for (i = 0; i < 3; i++) {
-        size_sign[i] = signf(td->ext->size[i]);
-        size_abs[i] = fabsf(td->ext->size[i]);
-      }
-
-      size_to_mat4(cob.matrix, size_abs);
+    /* Reset val if SINGLESIZE but using a constraint */
+    if (td->flag & TD_SINGLESIZE) {
+      return;
     }
+
+    /* separate out sign to apply back later */
+    for (i = 0; i < 3; i++) {
+      size_sign[i] = signf(td->ext->size[i]);
+      size_abs[i] = fabsf(td->ext->size[i]);
+    }
+
+    size_to_mat4(cob.matrix, size_abs);
 
     /* Evaluate valid constraints */
     for (con = td->con; con; con = con->next) {
@@ -490,28 +492,27 @@ static void constraintSizeLim(TransInfo *t, TransData *td)
     /* copy results from cob->matrix */
     if ((td->flag & TD_SINGLESIZE) && !(t->con.mode & CON_APPLY)) {
       /* scale val and reset size */
-      return;  // TODO: fix this case
+      return; /* TODO: fix this case. */
     }
-    else {
-      /* Reset val if SINGLESIZE but using a constraint */
-      if (td->flag & TD_SINGLESIZE) {
-        return;
-      }
 
-      /* extrace scale from matrix and apply back sign */
-      mat4_to_size(td->ext->size, cob.matrix);
-      mul_v3_v3(td->ext->size, size_sign);
+    /* Reset val if SINGLESIZE but using a constraint */
+    if (td->flag & TD_SINGLESIZE) {
+      return;
     }
+
+    /* Extract scale from matrix and apply back sign. */
+    mat4_to_size(td->ext->size, cob.matrix);
+    mul_v3_v3(td->ext->size, size_sign);
   }
 }
 
-/* -------------------------------------------------------------------- */
-/* Transform (Rotation Utils) */
+/** \} */
 
-/** \name Transform Rotation Utils
+/* -------------------------------------------------------------------- */
+/** \name Transform (Rotation Utils)
  * \{ */
-/* Used by Transform Rotation and Transform Normal Rotation */
-void headerRotation(TransInfo *t, char str[UI_MAX_DRAW_STR], float final)
+
+void headerRotation(TransInfo *t, char *str, const int str_size, float final)
 {
   size_t ofs = 0;
 
@@ -520,41 +521,26 @@ void headerRotation(TransInfo *t, char str[UI_MAX_DRAW_STR], float final)
 
     outputNumInput(&(t->num), c, &t->scene->unit);
 
-    ofs += BLI_snprintf(
-        str + ofs, UI_MAX_DRAW_STR - ofs, TIP_("Rot: %s %s %s"), &c[0], t->con.text, t->proptext);
+    ofs += BLI_snprintf_rlen(
+        str + ofs, str_size - ofs, TIP_("Rotation: %s %s %s"), &c[0], t->con.text, t->proptext);
   }
   else {
-    ofs += BLI_snprintf(str + ofs,
-                        UI_MAX_DRAW_STR - ofs,
-                        TIP_("Rot: %.2f%s %s"),
-                        RAD2DEGF(final),
-                        t->con.text,
-                        t->proptext);
+    ofs += BLI_snprintf_rlen(str + ofs,
+                             str_size - ofs,
+                             TIP_("Rotation: %.2f%s %s"),
+                             RAD2DEGF(final),
+                             t->con.text,
+                             t->proptext);
   }
 
   if (t->flag & T_PROP_EDIT_ALL) {
-    ofs += BLI_snprintf(
-        str + ofs, UI_MAX_DRAW_STR - ofs, TIP_(" Proportional size: %.2f"), t->prop_size);
+    ofs += BLI_snprintf_rlen(
+        str + ofs, str_size - ofs, TIP_(" Proportional size: %.2f"), t->prop_size);
   }
 }
 
-void postInputRotation(TransInfo *t, float values[3])
-{
-  float axis_final[3];
-  copy_v3_v3(axis_final, t->spacemtx[t->orient_axis]);
-  if ((t->con.mode & CON_APPLY) && t->con.applyRot) {
-    t->con.applyRot(t, NULL, NULL, axis_final, values);
-  }
-}
-
-/**
- * Applies values of rotation to `td->loc` and `td->ext->quat`
- * based on a rotation matrix (mat) and a pivot (center).
- *
- * Protected axis and other transform settings are taken into account.
- */
-void ElementRotation_ex(TransInfo *t,
-                        TransDataContainer *tc,
+void ElementRotation_ex(const TransInfo *t,
+                        const TransDataContainer *tc,
                         TransData *td,
                         const float mat[3][3],
                         const float *center)
@@ -566,18 +552,14 @@ void ElementRotation_ex(TransInfo *t,
     mul_m3_m3m3(totmat, mat, td->mtx);
     mul_m3_m3m3(smat, td->smtx, totmat);
 
-    /* apply gpencil falloff */
+    /* Apply gpencil falloff. */
     if (t->options & CTX_GPENCIL_STROKES) {
       bGPDstroke *gps = (bGPDstroke *)td->extra;
-      float sx = smat[0][0];
-      float sy = smat[1][1];
-      float sz = smat[2][2];
-
-      mul_m3_fl(smat, gps->runtime.multi_frame_falloff);
-      /* fix scale */
-      smat[0][0] = sx;
-      smat[1][1] = sy;
-      smat[2][2] = sz;
+      if (gps->runtime.multi_frame_falloff != 1.0f) {
+        float ident_mat[3][3];
+        unit_m3(ident_mat);
+        interp_m3_m3m3(smat, ident_mat, smat, gps->runtime.multi_frame_falloff);
+      }
     }
 
     sub_v3_v3v3(vec, td->iloc, center);
@@ -591,7 +573,7 @@ void ElementRotation_ex(TransInfo *t,
 
     if (td->flag & TD_USEQUAT) {
       mul_m3_series(fmat, td->smtx, mat, td->mtx);
-      mat3_to_quat(quat, fmat);  // Actual transform
+      mat3_to_quat(quat, fmat); /* Actual transform */
 
       if (td->ext->quat) {
         mul_qt_qtqt(td->ext->quat, quat, td->ext->iquat);
@@ -613,32 +595,32 @@ void ElementRotation_ex(TransInfo *t,
    * matrix (and inverse). That is not all though. Once the proper translation
    * has been computed, it has to be converted back into the bone's space.
    */
-  else if (t->flag & T_POSE) {
-    // Extract and invert armature object matrix
+  else if (t->options & CTX_POSE_BONE) {
+    /* Extract and invert armature object matrix */
 
     if ((td->flag & TD_NO_LOC) == 0) {
       sub_v3_v3v3(vec, td->center, center);
 
-      mul_m3_v3(tc->mat3, vec);   // To Global space
-      mul_m3_v3(mat, vec);        // Applying rotation
-      mul_m3_v3(tc->imat3, vec);  // To Local space
+      mul_m3_v3(tc->mat3, vec);  /* To Global space. */
+      mul_m3_v3(mat, vec);       /* Applying rotation. */
+      mul_m3_v3(tc->imat3, vec); /* To Local space. */
 
       add_v3_v3(vec, center);
       /* vec now is the location where the object has to be */
 
-      sub_v3_v3v3(vec, vec, td->center);  // Translation needed from the initial location
+      sub_v3_v3v3(vec, vec, td->center); /* Translation needed from the initial location */
 
       /* special exception, see TD_PBONE_LOCAL_MTX definition comments */
       if (td->flag & TD_PBONE_LOCAL_MTX_P) {
         /* do nothing */
       }
       else if (td->flag & TD_PBONE_LOCAL_MTX_C) {
-        mul_m3_v3(tc->mat3, vec);         // To Global space
-        mul_m3_v3(td->ext->l_smtx, vec);  // To Pose space (Local Location)
+        mul_m3_v3(tc->mat3, vec);        /* To Global space. */
+        mul_m3_v3(td->ext->l_smtx, vec); /* To Pose space (Local Location). */
       }
       else {
-        mul_m3_v3(tc->mat3, vec);  // To Global space
-        mul_m3_v3(td->smtx, vec);  // To Pose space
+        mul_m3_v3(tc->mat3, vec); /* To Global space. */
+        mul_m3_v3(td->smtx, vec); /* To Pose space. */
       }
 
       protectedTransBits(td->protectflag, vec);
@@ -689,7 +671,7 @@ void ElementRotation_ex(TransInfo *t,
         mul_m3_m3m3(totmat, mat, td->ext->r_mtx);
         mul_m3_m3m3(smat, td->ext->r_smtx, totmat);
 
-        /* calculate the total rotatation in eulers */
+        /* Calculate the total rotation in eulers. */
         copy_v3_v3(eul, td->ext->irot);
         eulO_to_mat3(eulmat, eul, td->ext->rotOrder);
 
@@ -724,15 +706,31 @@ void ElementRotation_ex(TransInfo *t,
     constraintTransLim(t, td);
 
     /* rotation */
-    if ((t->flag & T_V3D_ALIGN) == 0) {  // align mode doesn't rotate objects itself
+    if ((t->flag & T_V3D_ALIGN) == 0) { /* Align mode doesn't rotate objects itself. */
       /* euler or quaternion? */
       if ((td->ext->rotOrder == ROT_MODE_QUAT) || (td->flag & TD_USEQUAT)) {
         /* can be called for texture space translate for example, then opt out */
         if (td->ext->quat) {
           mul_m3_series(fmat, td->smtx, mat, td->mtx);
-          mat3_to_quat(quat, fmat);  // Actual transform
+
+          if (!is_zero_v3(td->ext->dquat)) {
+            /* Correct for delta quat */
+            float tmp_mat[3][3];
+            quat_to_mat3(tmp_mat, td->ext->dquat);
+            mul_m3_m3m3(fmat, fmat, tmp_mat);
+          }
+
+          mat3_to_quat(quat, fmat); /* Actual transform */
+
+          if (!is_zero_v4(td->ext->dquat)) {
+            /* Correct back for delta quat. */
+            float idquat[4];
+            invert_qt_qt_normalized(idquat, td->ext->dquat);
+            mul_qt_qtqt(quat, idquat, quat);
+          }
 
           mul_qt_qtqt(td->ext->quat, quat, td->ext->iquat);
+
           /* this function works on end result */
           protectedQuaternionBits(td->protectflag, td->ext->quat, td->ext->iquat);
         }
@@ -744,7 +742,7 @@ void ElementRotation_ex(TransInfo *t,
         axis_angle_to_quat(iquat, td->ext->irotAxis, td->ext->irotAngle);
 
         mul_m3_series(fmat, td->smtx, mat, td->mtx);
-        mat3_to_quat(quat, fmat);  // Actual transform
+        mat3_to_quat(quat, fmat); /* Actual transform */
         mul_qt_qtqt(tquat, quat, iquat);
 
         quat_to_axis_angle(td->ext->rotAxis, td->ext->rotAngle, tquat);
@@ -757,21 +755,28 @@ void ElementRotation_ex(TransInfo *t,
                                td->ext->irotAngle);
       }
       else {
+        /* Calculate the total rotation in eulers. */
         float obmat[3][3];
 
         mul_m3_m3m3(totmat, mat, td->mtx);
         mul_m3_m3m3(smat, td->smtx, totmat);
 
-        /* calculate the total rotatation in eulers */
-        add_v3_v3v3(eul, td->ext->irot, td->ext->drot); /* correct for delta rot */
-        eulO_to_mat3(obmat, eul, td->ext->rotOrder);
-        /* mat = transform, obmat = object rotation */
-        mul_m3_m3m3(fmat, smat, obmat);
+        if (!is_zero_v3(td->ext->drot)) {
+          /* Correct for delta rot */
+          add_eul_euleul(eul, td->ext->irot, td->ext->drot, td->ext->rotOrder);
+        }
+        else {
+          copy_v3_v3(eul, td->ext->irot);
+        }
 
+        eulO_to_mat3(obmat, eul, td->ext->rotOrder);
+        mul_m3_m3m3(fmat, smat, obmat);
         mat3_to_compatible_eulO(eul, td->ext->rot, td->ext->rotOrder, fmat);
 
-        /* correct back for delta rot */
-        sub_v3_v3v3(eul, eul, td->ext->drot);
+        if (!is_zero_v3(td->ext->drot)) {
+          /* Correct back for delta rot. */
+          sub_eul_euleul(eul, eul, td->ext->drot, td->ext->rotOrder);
+        }
 
         /* and apply */
         protectedRotateBits(td->protectflag, eul, td->ext->irot);
@@ -783,8 +788,11 @@ void ElementRotation_ex(TransInfo *t,
   }
 }
 
-void ElementRotation(
-    TransInfo *t, TransDataContainer *tc, TransData *td, float mat[3][3], const short around)
+void ElementRotation(const TransInfo *t,
+                     const TransDataContainer *tc,
+                     TransData *td,
+                     const float mat[3][3],
+                     const short around)
 {
   const float *center;
 
@@ -798,14 +806,14 @@ void ElementRotation(
 
   ElementRotation_ex(t, tc, td, mat, center);
 }
+
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/* Transform (Resize Utils) */
-
-/** \name Transform Resize Utils
+/** \name Transform (Resize Utils)
  * \{ */
-void headerResize(TransInfo *t, const float vec[3], char str[UI_MAX_DRAW_STR])
+
+void headerResize(TransInfo *t, const float vec[3], char *str, const int str_size)
 {
   char tvec[NUM_STR_REP_LEN * 3];
   size_t ofs = 0;
@@ -821,59 +829,55 @@ void headerResize(TransInfo *t, const float vec[3], char str[UI_MAX_DRAW_STR])
   if (t->con.mode & CON_APPLY) {
     switch (t->num.idx_max) {
       case 0:
-        ofs += BLI_snprintf(str + ofs,
-                            UI_MAX_DRAW_STR - ofs,
-                            TIP_("Scale: %s%s %s"),
-                            &tvec[0],
-                            t->con.text,
-                            t->proptext);
+        ofs += BLI_snprintf_rlen(
+            str + ofs, str_size - ofs, TIP_("Scale: %s%s %s"), &tvec[0], t->con.text, t->proptext);
         break;
       case 1:
-        ofs += BLI_snprintf(str + ofs,
-                            UI_MAX_DRAW_STR - ofs,
-                            TIP_("Scale: %s : %s%s %s"),
-                            &tvec[0],
-                            &tvec[NUM_STR_REP_LEN],
-                            t->con.text,
-                            t->proptext);
+        ofs += BLI_snprintf_rlen(str + ofs,
+                                 str_size - ofs,
+                                 TIP_("Scale: %s : %s%s %s"),
+                                 &tvec[0],
+                                 &tvec[NUM_STR_REP_LEN],
+                                 t->con.text,
+                                 t->proptext);
         break;
       case 2:
-        ofs += BLI_snprintf(str + ofs,
-                            UI_MAX_DRAW_STR - ofs,
-                            TIP_("Scale: %s : %s : %s%s %s"),
-                            &tvec[0],
-                            &tvec[NUM_STR_REP_LEN],
-                            &tvec[NUM_STR_REP_LEN * 2],
-                            t->con.text,
-                            t->proptext);
+        ofs += BLI_snprintf_rlen(str + ofs,
+                                 str_size - ofs,
+                                 TIP_("Scale: %s : %s : %s%s %s"),
+                                 &tvec[0],
+                                 &tvec[NUM_STR_REP_LEN],
+                                 &tvec[NUM_STR_REP_LEN * 2],
+                                 t->con.text,
+                                 t->proptext);
         break;
     }
   }
   else {
     if (t->flag & T_2D_EDIT) {
-      ofs += BLI_snprintf(str + ofs,
-                          UI_MAX_DRAW_STR - ofs,
-                          TIP_("Scale X: %s   Y: %s%s %s"),
-                          &tvec[0],
-                          &tvec[NUM_STR_REP_LEN],
-                          t->con.text,
-                          t->proptext);
+      ofs += BLI_snprintf_rlen(str + ofs,
+                               str_size - ofs,
+                               TIP_("Scale X: %s   Y: %s%s %s"),
+                               &tvec[0],
+                               &tvec[NUM_STR_REP_LEN],
+                               t->con.text,
+                               t->proptext);
     }
     else {
-      ofs += BLI_snprintf(str + ofs,
-                          UI_MAX_DRAW_STR - ofs,
-                          TIP_("Scale X: %s   Y: %s  Z: %s%s %s"),
-                          &tvec[0],
-                          &tvec[NUM_STR_REP_LEN],
-                          &tvec[NUM_STR_REP_LEN * 2],
-                          t->con.text,
-                          t->proptext);
+      ofs += BLI_snprintf_rlen(str + ofs,
+                               str_size - ofs,
+                               TIP_("Scale X: %s   Y: %s  Z: %s%s %s"),
+                               &tvec[0],
+                               &tvec[NUM_STR_REP_LEN],
+                               &tvec[NUM_STR_REP_LEN * 2],
+                               t->con.text,
+                               t->proptext);
     }
   }
 
   if (t->flag & T_PROP_EDIT_ALL) {
-    ofs += BLI_snprintf(
-        str + ofs, UI_MAX_DRAW_STR - ofs, TIP_(" Proportional size: %.2f"), t->prop_size);
+    ofs += BLI_snprintf_rlen(
+        str + ofs, str_size - ofs, TIP_(" Proportional size: %.2f"), t->prop_size);
   }
 }
 
@@ -882,13 +886,13 @@ void headerResize(TransInfo *t, const float vec[3], char str[UI_MAX_DRAW_STR])
  *
  * \note this is a tricky area, before making changes see: T29633, T42444
  */
-static void TransMat3ToSize(float mat[3][3], float smat[3][3], float size[3])
+static void TransMat3ToSize(const float mat[3][3], const float smat[3][3], float size[3])
 {
   float rmat[3][3];
 
   mat3_to_rot_size(rmat, size, mat);
 
-  /* first tried with dotproduct... but the sign flip is crucial */
+  /* First tried with dot-product... but the sign flip is crucial. */
   if (dot_v3v3(rmat[0], smat[0]) < 0.0f) {
     size[0] = -size[0];
   }
@@ -900,7 +904,10 @@ static void TransMat3ToSize(float mat[3][3], float smat[3][3], float size[3])
   }
 }
 
-void ElementResize(TransInfo *t, TransDataContainer *tc, TransData *td, float mat[3][3])
+void ElementResize(const TransInfo *t,
+                   const TransDataContainer *tc,
+                   TransData *td,
+                   const float mat[3][3])
 {
   float tmat[3][3], smat[3][3], center[3];
   float vec[3];
@@ -937,13 +944,17 @@ void ElementResize(TransInfo *t, TransDataContainer *tc, TransData *td, float ma
   if (td->ext && td->ext->size) {
     float fsize[3];
 
-    if ((t->options & CTX_SCULPT) || t->flag & (T_OBJECT | T_TEXTURE | T_POSE)) {
+    if (ELEM(t->data_type,
+             &TransConvertType_Sculpt,
+             &TransConvertType_Object,
+             &TransConvertType_ObjectTexSpace,
+             &TransConvertType_Pose)) {
       float obsizemat[3][3];
       /* Reorient the size mat to fit the oriented object. */
       mul_m3_m3m3(obsizemat, tmat, td->axismtx);
-      /* print_m3("obsizemat", obsizemat); */
+      // print_m3("obsizemat", obsizemat);
       TransMat3ToSize(obsizemat, td->axismtx, fsize);
-      /* print_v3("fsize", fsize); */
+      // print_v3("fsize", fsize);
     }
     else {
       mat3_to_size(fsize, tmat);
@@ -993,18 +1004,32 @@ void ElementResize(TransInfo *t, TransDataContainer *tc, TransData *td, float ma
     sub_v3_v3(vec, td->center);
   }
 
-  /* grease pencil falloff */
+  /* Grease pencil falloff.
+   *
+   * FIXME: This is bad on multiple levels!
+   *
+   * - #applyNumInput is not intended to be run for every element,
+   *   this writes back into the number input in a way that doesn't make sense to run many times.
+   *
+   * - Writing into #TransInfo should be avoided since it means order of operations
+   *   may impact the result and isn't thread-safe.
+   *
+   *   Operating on copies as a temporary solution.
+   */
   if (t->options & CTX_GPENCIL_STROKES) {
     bGPDstroke *gps = (bGPDstroke *)td->extra;
     mul_v3_fl(vec, td->factor * gps->runtime.multi_frame_falloff);
 
-    /* scale stroke thickness */
+    /* Scale stroke thickness. */
     if (td->val) {
-      snapGridIncrement(t, t->values_final);
-      applyNumInput(&t->num, t->values_final);
+      NumInput num_evil = t->num;
+      float values_final_evil[4];
+      copy_v4_v4(values_final_evil, t->values_final);
+      transform_snap_increment(t, values_final_evil);
+      applyNumInput(&num_evil, values_final_evil);
 
-      float ratio = t->values_final[0];
-      *td->val = td->ival * ratio * gps->runtime.multi_frame_falloff;
+      float ratio = values_final_evil[0];
+      *td->val = td->ival * fabs(ratio) * gps->runtime.multi_frame_falloff;
       CLAMP_MIN(*td->val, 0.001f);
     }
   }
@@ -1012,7 +1037,12 @@ void ElementResize(TransInfo *t, TransDataContainer *tc, TransData *td, float ma
     mul_v3_fl(vec, td->factor);
   }
 
-  if (t->flag & (T_OBJECT | T_POSE)) {
+  if (t->options & (CTX_OBJECT | CTX_POSE_BONE)) {
+    if (t->options & CTX_POSE_BONE) {
+      /* Without this, the resulting location of scaled bones aren't correct,
+       * especially noticeable scaling root or disconnected bones around the cursor, see T92515. */
+      mul_mat3_m4_v3(tc->poseobj->obmat, vec);
+    }
     mul_m3_v3(td->smtx, vec);
   }
 
@@ -1023,102 +1053,7 @@ void ElementResize(TransInfo *t, TransDataContainer *tc, TransData *td, float ma
 
   constraintTransLim(t, td);
 }
-/** \} */
 
-/* -------------------------------------------------------------------- */
-/* Transform (Frame Utils) */
-
-/** \name Transform Frame Utils
- * \{ */
-
-/* This function returns the snapping 'mode' for Animation Editors only
- * We cannot use the standard snapping due to NLA-strip scaling complexities.
- */
-// XXX these modifier checks should be keymappable
-short getAnimEdit_SnapMode(TransInfo *t)
-{
-  short autosnap = SACTSNAP_OFF;
-
-  if (t->spacetype == SPACE_ACTION) {
-    SpaceAction *saction = (SpaceAction *)t->area->spacedata.first;
-
-    if (saction) {
-      autosnap = saction->autosnap;
-    }
-  }
-  else if (t->spacetype == SPACE_GRAPH) {
-    SpaceGraph *sipo = (SpaceGraph *)t->area->spacedata.first;
-
-    if (sipo) {
-      autosnap = sipo->autosnap;
-    }
-  }
-  else if (t->spacetype == SPACE_NLA) {
-    SpaceNla *snla = (SpaceNla *)t->area->spacedata.first;
-
-    if (snla) {
-      autosnap = snla->autosnap;
-    }
-  }
-  else {
-    autosnap = SACTSNAP_OFF;
-  }
-
-  /* toggle autosnap on/off
-   * - when toggling on, prefer nearest frame over 1.0 frame increments
-   */
-  if (t->modifiers & MOD_SNAP_INVERT) {
-    if (autosnap) {
-      autosnap = SACTSNAP_OFF;
-    }
-    else {
-      autosnap = SACTSNAP_FRAME;
-    }
-  }
-
-  return autosnap;
-}
-
-/* This function is used by Animation Editor specific transform functions to do
- * the Snap Keyframe to Nearest Frame/Marker
- */
-void doAnimEdit_SnapFrame(
-    TransInfo *t, TransData *td, TransData2D *td2d, AnimData *adt, short autosnap)
-{
-  if (autosnap != SACTSNAP_OFF) {
-    float val;
-
-    /* convert frame to nla-action time (if needed) */
-    if (adt && (t->spacetype != SPACE_SEQ)) {
-      val = BKE_nla_tweakedit_remap(adt, *(td->val), NLATIME_CONVERT_MAP);
-    }
-    else {
-      val = *(td->val);
-    }
-
-    snapFrameTransform(t, autosnap, true, val, &val);
-
-    /* convert frame out of nla-action time */
-    if (adt && (t->spacetype != SPACE_SEQ)) {
-      *(td->val) = BKE_nla_tweakedit_remap(adt, val, NLATIME_CONVERT_UNMAP);
-    }
-    else {
-      *(td->val) = val;
-    }
-  }
-
-  /* If the handles are to be moved too
-   * (as side-effect of keyframes moving, to keep the general effect)
-   * offset them by the same amount so that the general angles are maintained
-   * (i.e. won't change while handles are free-to-roam and keyframes are snap-locked).
-   */
-  if ((td->flag & TD_MOVEHANDLE1) && td2d->h1) {
-    td2d->h1[0] = td2d->ih1[0] + *td->val - td->ival;
-  }
-  if ((td->flag & TD_MOVEHANDLE2) && td2d->h2) {
-    td2d->h2[0] = td2d->ih2[0] + *td->val - td->ival;
-  }
-}
 /** \} */
 
 /* -------------------------------------------------------------------- */
@@ -1136,9 +1071,24 @@ void transform_mode_init(TransInfo *t, wmOperator *op, const int mode)
     case TFM_ROTATION:
       initRotation(t);
       break;
-    case TFM_RESIZE:
-      initResize(t);
+    case TFM_RESIZE: {
+      float mouse_dir_constraint[3];
+      if (op) {
+        PropertyRNA *prop = RNA_struct_find_property(op->ptr, "mouse_dir_constraint");
+        if (prop) {
+          RNA_property_float_get_array(op->ptr, prop, mouse_dir_constraint);
+        }
+        else {
+          /* Resize is expected to have this property. */
+          BLI_assert(!STREQ(op->idname, "TRANSFORM_OT_resize"));
+        }
+      }
+      else {
+        zero_v3(mouse_dir_constraint);
+      }
+      initResize(t, mouse_dir_constraint);
       break;
+    }
     case TFM_SKIN_RESIZE:
       initSkinResize(t);
       break;
@@ -1172,28 +1122,18 @@ void transform_mode_init(TransInfo *t, wmOperator *op, const int mode)
     case TFM_PUSHPULL:
       initPushPull(t);
       break;
-    case TFM_CREASE:
-      initCrease(t);
+    case TFM_EDGE_CREASE:
+      initEgdeCrease(t);
       break;
-    case TFM_BONESIZE: { /* used for both B-Bone width (bonesize) as for deform-dist (envelope) */
-      /* Note: we have to pick one, use the active object. */
-      TransDataContainer *tc = TRANS_DATA_CONTAINER_FIRST_OK(t);
-      bArmature *arm = tc->poseobj->data;
-      if (arm->drawtype == ARM_ENVELOPE) {
-        initBoneEnvelope(t);
-        t->mode = TFM_BONE_ENVELOPE_DIST;
-      }
-      else {
-        initBoneSize(t);
-      }
+    case TFM_VERT_CREASE:
+      initVertCrease(t);
       break;
-    }
+    case TFM_BONESIZE:
+      initBoneSize(t);
+      break;
     case TFM_BONE_ENVELOPE:
-      initBoneEnvelope(t);
-      break;
     case TFM_BONE_ENVELOPE_DIST:
       initBoneEnvelope(t);
-      t->mode = TFM_BONE_ENVELOPE_DIST;
       break;
     case TFM_EDGE_SLIDE:
     case TFM_VERT_SLIDE: {
@@ -1268,9 +1208,57 @@ void transform_mode_init(TransInfo *t, wmOperator *op, const int mode)
       break;
   }
 
+  if (t->data_type == &TransConvertType_Mesh) {
+    /* Init Custom Data correction.
+     * Ideally this should be called when creating the TransData. */
+    transform_convert_mesh_customdatacorrect_init(t);
+  }
+
   /* TODO(germano): Some of these operations change the `t->mode`.
-   * This can be bad for Redo.
-   * BLI_assert(t->mode == mode); */
+   * This can be bad for Redo. */
+  // BLI_assert(t->mode == mode);
+}
+
+void transform_mode_default_modal_orientation_set(TransInfo *t, int type)
+{
+  /* Currently only these types are supported. */
+  BLI_assert(ELEM(type, V3D_ORIENT_GLOBAL, V3D_ORIENT_VIEW));
+
+  if (t->is_orient_default_overwrite) {
+    return;
+  }
+
+  if (!(t->flag & T_MODAL)) {
+    return;
+  }
+
+  if (t->orient[O_DEFAULT].type == type) {
+    return;
+  }
+
+  View3D *v3d = NULL;
+  RegionView3D *rv3d = NULL;
+  if ((type == V3D_ORIENT_VIEW) && (t->spacetype == SPACE_VIEW3D) && t->region &&
+      (t->region->regiontype == RGN_TYPE_WINDOW)) {
+    v3d = t->view;
+    rv3d = t->region->regiondata;
+  }
+
+  t->orient[O_DEFAULT].type = ED_transform_calc_orientation_from_type_ex(
+      t->scene,
+      t->view_layer,
+      v3d,
+      rv3d,
+      NULL,
+      NULL,
+      type,
+      V3D_AROUND_CENTER_BOUNDS,
+      t->orient[O_DEFAULT].matrix);
+
+  if (t->orient_curr == O_DEFAULT) {
+    /* Update Orientation. */
+    transform_orientations_current_set(t, O_DEFAULT);
+  }
 }
 
 /** \} */

@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # ######## Global feature set settings ########
 
 include("${CMAKE_CURRENT_LIST_DIR}/../../cmake/config/blender_release.cmake")
@@ -16,6 +18,7 @@ set(WITH_DOC_MANPAGE         OFF CACHE BOOL "" FORCE)
 # Options which are specific to Linux release builds only
 
 set(WITH_JACK_DYNLOAD        ON  CACHE BOOL "" FORCE)
+set(WITH_PULSEAUDIO_DYNLOAD  ON  CACHE BOOL "" FORCE)
 set(WITH_SDL_DYNLOAD         ON  CACHE BOOL "" FORCE)
 
 # ######## Release environment specific settings ########

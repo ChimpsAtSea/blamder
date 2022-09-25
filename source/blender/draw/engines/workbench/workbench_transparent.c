@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2020, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2020 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -35,8 +20,6 @@
 
 #include "ED_view3d.h"
 
-#include "GPU_extensions.h"
-
 #include "workbench_engine.h"
 #include "workbench_private.h"
 
@@ -48,7 +31,7 @@ void workbench_transparent_engine_init(WORKBENCH_Data *data)
   DrawEngineType *owner = (DrawEngineType *)&workbench_transparent_engine_init;
 
   /* Reuse same format as opaque pipeline to reuse the textures. */
-  /* Note: Floating point texture is required for the reveal_tex as it is used for
+  /* NOTE: Floating point texture is required for the reveal_tex as it is used for
    * the alpha accumulation component (see accumulation shader for more explanation). */
   const eGPUTextureFormat accum_tex_format = GPU_RGBA16F;
   const eGPUTextureFormat reveal_tex_format = NORMAL_ENCODING_ENABLED() ? GPU_RG16F : GPU_RGBA32F;
@@ -67,7 +50,7 @@ void workbench_transparent_engine_init(WORKBENCH_Data *data)
 static void workbench_transparent_lighting_uniforms(WORKBENCH_PrivateData *wpd,
                                                     DRWShadingGroup *grp)
 {
-  DRW_shgroup_uniform_block(grp, "world_block", wpd->world_ubo);
+  DRW_shgroup_uniform_block(grp, "world_data", wpd->world_ubo);
   DRW_shgroup_uniform_bool_copy(grp, "forceShadowing", false);
 
   if (STUDIOLIGHT_TYPE_MATCAP_ENABLED(wpd)) {
@@ -78,58 +61,60 @@ static void workbench_transparent_lighting_uniforms(WORKBENCH_PrivateData *wpd,
     struct GPUTexture *spec_tx = wpd->studio_light->matcap_specular.gputexture;
     const bool use_spec = workbench_is_specular_highlight_enabled(wpd);
     spec_tx = (use_spec && spec_tx) ? spec_tx : diff_tx;
-    DRW_shgroup_uniform_texture(grp, "matcapDiffuseImage", diff_tx);
-    DRW_shgroup_uniform_texture(grp, "matcapSpecularImage", spec_tx);
+    DRW_shgroup_uniform_texture(grp, "matcap_diffuse_tx", diff_tx);
+    DRW_shgroup_uniform_texture(grp, "matcap_specular_tx", spec_tx);
   }
 }
 
-void workbench_transparent_cache_init(WORKBENCH_Data *data)
+void workbench_transparent_cache_init(WORKBENCH_Data *vedata)
 {
-  WORKBENCH_PassList *psl = data->psl;
-  WORKBENCH_PrivateData *wpd = data->stl->wpd;
+  WORKBENCH_PassList *psl = vedata->psl;
+  WORKBENCH_PrivateData *wpd = vedata->stl->wpd;
   struct GPUShader *sh;
   DRWShadingGroup *grp;
 
   {
     int transp = 1;
     for (int infront = 0; infront < 2; infront++) {
-      DRWState state = DRW_STATE_WRITE_COLOR | DRW_STATE_DEPTH_LESS_EQUAL | DRW_STATE_BLEND_OIT;
+      DRWState state = DRW_STATE_WRITE_COLOR | DRW_STATE_DEPTH_LESS_EQUAL | DRW_STATE_BLEND_OIT |
+                       wpd->cull_state | wpd->clip_state;
 
       DRWPass *pass;
       if (infront) {
-        DRW_PASS_CREATE(psl->transp_accum_infront_ps, state | wpd->cull_state | wpd->clip_state);
-        pass = psl->transp_accum_infront_ps;
+        psl->transp_accum_infront_ps = pass = DRW_pass_create("transp_accum_infront", state);
+        DRW_PASS_INSTANCE_CREATE(
+            psl->transp_depth_infront_ps, pass, state | DRW_STATE_WRITE_DEPTH);
       }
       else {
-        DRW_PASS_CREATE(psl->transp_accum_ps, state | wpd->cull_state | wpd->clip_state);
-        pass = psl->transp_accum_ps;
+        psl->transp_accum_ps = pass = DRW_pass_create("transp_accum", state);
+        DRW_PASS_INSTANCE_CREATE(psl->transp_depth_ps, pass, state | DRW_STATE_WRITE_DEPTH);
       }
 
-      for (int hair = 0; hair < 2; hair++) {
-        wpd->prepass[transp][infront][hair].material_hash = BLI_ghash_ptr_new(__func__);
+      for (eWORKBENCH_DataType data = 0; data < WORKBENCH_DATATYPE_MAX; data++) {
+        wpd->prepass[transp][infront][data].material_hash = BLI_ghash_ptr_new(__func__);
 
-        sh = workbench_shader_transparent_get(wpd, hair);
+        sh = workbench_shader_transparent_get(wpd, data);
 
-        wpd->prepass[transp][infront][hair].common_shgrp = grp = DRW_shgroup_create(sh, pass);
-        DRW_shgroup_uniform_block(grp, "material_block", wpd->material_ubo_curr);
+        wpd->prepass[transp][infront][data].common_shgrp = grp = DRW_shgroup_create(sh, pass);
+        DRW_shgroup_uniform_block(grp, "materials_data", wpd->material_ubo_curr);
         DRW_shgroup_uniform_int_copy(grp, "materialIndex", -1);
         workbench_transparent_lighting_uniforms(wpd, grp);
 
-        wpd->prepass[transp][infront][hair].vcol_shgrp = grp = DRW_shgroup_create(sh, pass);
-        DRW_shgroup_uniform_block(grp, "material_block", wpd->material_ubo_curr);
+        wpd->prepass[transp][infront][data].vcol_shgrp = grp = DRW_shgroup_create(sh, pass);
+        DRW_shgroup_uniform_block(grp, "materials_data", wpd->material_ubo_curr);
         DRW_shgroup_uniform_int_copy(grp, "materialIndex", 0); /* Default material. (uses vcol) */
 
-        sh = workbench_shader_transparent_image_get(wpd, hair, false);
+        sh = workbench_shader_transparent_image_get(wpd, data, false);
 
-        wpd->prepass[transp][infront][hair].image_shgrp = grp = DRW_shgroup_create(sh, pass);
-        DRW_shgroup_uniform_block(grp, "material_block", wpd->material_ubo_curr);
+        wpd->prepass[transp][infront][data].image_shgrp = grp = DRW_shgroup_create(sh, pass);
+        DRW_shgroup_uniform_block(grp, "materials_data", wpd->material_ubo_curr);
         DRW_shgroup_uniform_int_copy(grp, "materialIndex", 0); /* Default material. */
         workbench_transparent_lighting_uniforms(wpd, grp);
 
-        sh = workbench_shader_transparent_image_get(wpd, hair, true);
+        sh = workbench_shader_transparent_image_get(wpd, data, true);
 
-        wpd->prepass[transp][infront][hair].image_tiled_shgrp = grp = DRW_shgroup_create(sh, pass);
-        DRW_shgroup_uniform_block(grp, "material_block", wpd->material_ubo_curr);
+        wpd->prepass[transp][infront][data].image_tiled_shgrp = grp = DRW_shgroup_create(sh, pass);
+        DRW_shgroup_uniform_block(grp, "materials_data", wpd->material_ubo_curr);
         DRW_shgroup_uniform_int_copy(grp, "materialIndex", 0); /* Default material. */
         workbench_transparent_lighting_uniforms(wpd, grp);
       }
@@ -149,32 +134,27 @@ void workbench_transparent_cache_init(WORKBENCH_Data *data)
   }
 }
 
-/* Redraw the transparent passes but with depth test
- * to output correct outline IDs and depth. */
 void workbench_transparent_draw_depth_pass(WORKBENCH_Data *data)
 {
   WORKBENCH_PrivateData *wpd = data->stl->wpd;
   WORKBENCH_FramebufferList *fbl = data->fbl;
   WORKBENCH_PassList *psl = data->psl;
 
-  const bool do_xray_depth_pass = XRAY_ALPHA(wpd) > 0.0f;
+  const bool do_xray_depth_pass = !XRAY_FLAG_ENABLED(wpd) || XRAY_ALPHA(wpd) > 0.0f;
   const bool do_transparent_depth_pass = psl->outline_ps || wpd->dof_enabled || do_xray_depth_pass;
 
   if (do_transparent_depth_pass) {
-    DRWState state = DRW_STATE_WRITE_COLOR | DRW_STATE_WRITE_DEPTH | DRW_STATE_DEPTH_LESS_EQUAL;
 
-    if (!DRW_pass_is_empty(psl->transp_accum_ps)) {
+    if (!DRW_pass_is_empty(psl->transp_depth_ps)) {
       GPU_framebuffer_bind(fbl->opaque_fb);
-      /* TODO(fclem) Disable writting to first two buffers. Unecessary waste of bandwidth. */
-      DRW_pass_state_set(psl->transp_accum_ps, state | wpd->cull_state | wpd->clip_state);
-      DRW_draw_pass(psl->transp_accum_ps);
+      /* TODO(fclem): Disable writing to first two buffers. Unnecessary waste of bandwidth. */
+      DRW_draw_pass(psl->transp_depth_ps);
     }
 
-    if (!DRW_pass_is_empty(psl->transp_accum_infront_ps)) {
+    if (!DRW_pass_is_empty(psl->transp_depth_infront_ps)) {
       GPU_framebuffer_bind(fbl->opaque_infront_fb);
-      /* TODO(fclem) Disable writting to first two buffers. Unecessary waste of bandwidth. */
-      DRW_pass_state_set(psl->transp_accum_infront_ps, state | wpd->cull_state | wpd->clip_state);
-      DRW_draw_pass(psl->transp_accum_infront_ps);
+      /* TODO(fclem): Disable writing to first two buffers. Unnecessary waste of bandwidth. */
+      DRW_draw_pass(psl->transp_depth_infront_ps);
     }
   }
 }

@@ -1,31 +1,9 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 Blender Foundation, Joshua Leung
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation, Joshua Leung. All rights reserved. */
 
 /** \file
  * \ingroup bke
  */
-
-// #include <float.h>
-// #include <math.h>
-// #include <stddef.h>
-// #include <stdio.h>
-// #include <string.h>
 
 #include "MEM_guardedalloc.h"
 
@@ -35,6 +13,7 @@
 
 #include "BLI_alloca.h"
 #include "BLI_expr_pylike_eval.h"
+#include "BLI_listbase.h"
 #include "BLI_math.h"
 #include "BLI_string_utils.h"
 #include "BLI_threads.h"
@@ -43,6 +22,7 @@
 #include "BLT_translation.h"
 
 #include "BKE_action.h"
+#include "BKE_animsys.h"
 #include "BKE_armature.h"
 #include "BKE_constraint.h"
 #include "BKE_fcurve_driver.h"
@@ -50,6 +30,7 @@
 #include "BKE_object.h"
 
 #include "RNA_access.h"
+#include "RNA_path.h"
 
 #include "atomic_ops.h"
 
@@ -65,17 +46,19 @@ static ThreadMutex python_driver_lock = BLI_MUTEX_INITIALIZER;
 
 static CLG_LogRef LOG = {"bke.fcurve"};
 
-/* Driver Variables --------------------------- */
+/* -------------------------------------------------------------------- */
+/** \name Driver Variables
+ * \{ */
 
 /* TypeInfo for Driver Variables (dvti) */
 typedef struct DriverVarTypeInfo {
-  /* evaluation callback */
+  /* Evaluation callback. */
   float (*get_value)(ChannelDriver *driver, DriverVar *dvar);
 
-  /* allocation of target slots */
-  int num_targets;                              /* number of target slots required */
-  const char *target_names[MAX_DRIVER_TARGETS]; /* UI names that should be given to the slots */
-  short target_flags[MAX_DRIVER_TARGETS];       /* flags defining the requirements for each slot */
+  /* Allocation of target slots. */
+  int num_targets;                              /* Number of target slots required. */
+  const char *target_names[MAX_DRIVER_TARGETS]; /* UI names that should be given to the slots. */
+  short target_flags[MAX_DRIVER_TARGETS]; /* Flags defining the requirements for each slot. */
 } DriverVarTypeInfo;
 
 /* Macro to begin definitions */
@@ -84,15 +67,11 @@ typedef struct DriverVarTypeInfo {
 /* Macro to end definitions */
 #define END_DVAR_TYPEDEF }
 
-/* ......... */
+/** \} */
 
-static ID *dtar_id_ensure_proxy_from(ID *id)
-{
-  if (id && GS(id->name) == ID_OB && ((Object *)id)->proxy_from) {
-    return (ID *)(((Object *)id)->proxy_from);
-  }
-  return id;
-}
+/* -------------------------------------------------------------------- */
+/** \name Driver Target Utilities
+ * \{ */
 
 /**
  * Helper function to obtain a value using RNA from the specified source
@@ -106,14 +85,14 @@ static float dtar_get_prop_val(ChannelDriver *driver, DriverTarget *dtar)
   int index = -1;
   float value = 0.0f;
 
-  /* sanity check */
+  /* Sanity check. */
   if (ELEM(NULL, driver, dtar)) {
     return 0.0f;
   }
 
-  id = dtar_id_ensure_proxy_from(dtar->id);
+  id = dtar->id;
 
-  /* error check for missing pointer... */
+  /* Error check for missing pointer. */
   if (id == NULL) {
     if (G.debug & G_DEBUG) {
       CLOG_ERROR(&LOG, "driver has an invalid target to use (path = %s)", dtar->rna_path);
@@ -124,12 +103,12 @@ static float dtar_get_prop_val(ChannelDriver *driver, DriverTarget *dtar)
     return 0.0f;
   }
 
-  /* get RNA-pointer for the ID-block given in target */
+  /* Get RNA-pointer for the ID-block given in target. */
   RNA_id_pointer_create(id, &id_ptr);
 
-  /* get property to read from, and get value as appropriate */
+  /* Get property to read from, and get value as appropriate. */
   if (!RNA_path_resolve_property_full(&id_ptr, dtar->rna_path, &ptr, &prop, &index)) {
-    /* path couldn't be resolved */
+    /* Path couldn't be resolved. */
     if (G.debug & G_DEBUG) {
       CLOG_ERROR(&LOG,
                  "Driver Evaluation Error: cannot resolve target for %s -> %s",
@@ -143,9 +122,9 @@ static float dtar_get_prop_val(ChannelDriver *driver, DriverTarget *dtar)
   }
 
   if (RNA_property_array_check(prop)) {
-    /* array */
+    /* Array. */
     if (index < 0 || index >= RNA_property_array_length(&ptr, prop)) {
-      /* out of bounds */
+      /* Out of bounds. */
       if (G.debug & G_DEBUG) {
         CLOG_ERROR(&LOG,
                    "Driver Evaluation Error: array index is out of bounds for %s -> %s (%d)",
@@ -174,7 +153,7 @@ static float dtar_get_prop_val(ChannelDriver *driver, DriverTarget *dtar)
     }
   }
   else {
-    /* not an array */
+    /* Not an array. */
     switch (RNA_property_type(prop)) {
       case PROP_BOOLEAN:
         value = (float)RNA_property_boolean_get(&ptr, prop);
@@ -193,14 +172,11 @@ static float dtar_get_prop_val(ChannelDriver *driver, DriverTarget *dtar)
     }
   }
 
-  /* if we're still here, we should be ok... */
+  /* If we're still here, we should be ok. */
   dtar->flag &= ~DTAR_FLAG_INVALID;
   return value;
 }
 
-/**
- * Same as 'dtar_get_prop_val'. but get the RNA property.
- */
 bool driver_get_variable_property(ChannelDriver *driver,
                                   DriverTarget *dtar,
                                   PointerRNA *r_ptr,
@@ -213,14 +189,14 @@ bool driver_get_variable_property(ChannelDriver *driver,
   ID *id;
   int index = -1;
 
-  /* sanity check */
+  /* Sanity check. */
   if (ELEM(NULL, driver, dtar)) {
     return false;
   }
 
-  id = dtar_id_ensure_proxy_from(dtar->id);
+  id = dtar->id;
 
-  /* error check for missing pointer... */
+  /* Error check for missing pointer. */
   if (id == NULL) {
     if (G.debug & G_DEBUG) {
       CLOG_ERROR(&LOG, "driver has an invalid target to use (path = %s)", dtar->rna_path);
@@ -231,19 +207,19 @@ bool driver_get_variable_property(ChannelDriver *driver,
     return false;
   }
 
-  /* get RNA-pointer for the ID-block given in target */
+  /* Get RNA-pointer for the ID-block given in target. */
   RNA_id_pointer_create(id, &id_ptr);
 
-  /* get property to read from, and get value as appropriate */
+  /* Get property to read from, and get value as appropriate. */
   if (dtar->rna_path == NULL || dtar->rna_path[0] == '\0') {
     ptr = PointerRNA_NULL;
-    prop = NULL; /* ok */
+    prop = NULL; /* OK. */
   }
-  else if (RNA_path_resolve_property_full(&id_ptr, dtar->rna_path, &ptr, &prop, &index)) {
-    /* ok */
+  else if (RNA_path_resolve_full(&id_ptr, dtar->rna_path, &ptr, &prop, &index)) {
+    /* OK. */
   }
   else {
-    /* path couldn't be resolved */
+    /* Path couldn't be resolved. */
     if (G.debug & G_DEBUG) {
       CLOG_ERROR(&LOG,
                  "Driver Evaluation Error: cannot resolve target for %s -> %s",
@@ -264,7 +240,7 @@ bool driver_get_variable_property(ChannelDriver *driver,
   *r_prop = prop;
   *r_index = index;
 
-  /* if we're still here, we should be ok... */
+  /* If we're still here, we should be ok. */
   dtar->flag &= ~DTAR_FLAG_INVALID;
   return true;
 }
@@ -274,16 +250,16 @@ static short driver_check_valid_targets(ChannelDriver *driver, DriverVar *dvar)
   short valid_targets = 0;
 
   DRIVER_TARGETS_USED_LOOPER_BEGIN (dvar) {
-    Object *ob = (Object *)dtar_id_ensure_proxy_from(dtar->id);
+    Object *ob = (Object *)dtar->id;
 
-    /* check if this target has valid data */
+    /* Check if this target has valid data. */
     if ((ob == NULL) || (GS(ob->id.name) != ID_OB)) {
-      /* invalid target, so will not have enough targets */
+      /* Invalid target, so will not have enough targets. */
       driver->flag |= DRIVER_FLAG_INVALID;
       dtar->flag |= DTAR_FLAG_INVALID;
     }
     else {
-      /* target seems to be OK now... */
+      /* Target seems to be OK now. */
       dtar->flag &= ~DTAR_FLAG_INVALID;
       valid_targets++;
     }
@@ -293,21 +269,25 @@ static short driver_check_valid_targets(ChannelDriver *driver, DriverVar *dvar)
   return valid_targets;
 }
 
-/* ......... */
+/** \} */
 
-/* evaluate 'single prop' driver variable */
+/* -------------------------------------------------------------------- */
+/** \name Driver Variable Utilities
+ * \{ */
+
+/* Evaluate 'single prop' driver variable. */
 static float dvar_eval_singleProp(ChannelDriver *driver, DriverVar *dvar)
 {
-  /* just evaluate the first target slot */
+  /* Just evaluate the first target slot. */
   return dtar_get_prop_val(driver, &dvar->targets[0]);
 }
 
-/* evaluate 'rotation difference' driver variable */
+/* Evaluate 'rotation difference' driver variable. */
 static float dvar_eval_rotDiff(ChannelDriver *driver, DriverVar *dvar)
 {
   short valid_targets = driver_check_valid_targets(driver, dvar);
 
-  /* make sure we have enough valid targets to use - all or nothing for now... */
+  /* Make sure we have enough valid targets to use - all or nothing for now. */
   if (driver_check_valid_targets(driver, dvar) != 2) {
     if (G.debug & G_DEBUG) {
       CLOG_WARN(&LOG,
@@ -321,33 +301,33 @@ static float dvar_eval_rotDiff(ChannelDriver *driver, DriverVar *dvar)
 
   float(*mat[2])[4];
 
-  /* NOTE: for now, these are all just worldspace */
+  /* NOTE: for now, these are all just world-space. */
   for (int i = 0; i < 2; i++) {
-    /* get pointer to loc values to store in */
+    /* Get pointer to loc values to store in. */
     DriverTarget *dtar = &dvar->targets[i];
-    Object *ob = (Object *)dtar_id_ensure_proxy_from(dtar->id);
+    Object *ob = (Object *)dtar->id;
     bPoseChannel *pchan;
 
-    /* after the checks above, the targets should be valid here... */
+    /* After the checks above, the targets should be valid here. */
     BLI_assert((ob != NULL) && (GS(ob->id.name) == ID_OB));
 
-    /* try to get posechannel */
+    /* Try to get pose-channel. */
     pchan = BKE_pose_channel_find_name(ob->pose, dtar->pchan_name);
 
-    /* check if object or bone */
+    /* Check if object or bone. */
     if (pchan) {
-      /* bone */
+      /* Bone. */
       mat[i] = pchan->pose_mat;
     }
     else {
-      /* object */
+      /* Object. */
       mat[i] = ob->obmat;
     }
   }
 
   float q1[4], q2[4], quat[4], angle;
 
-  /* use the final posed locations */
+  /* Use the final posed locations. */
   mat4_to_quat(q1, mat[0]);
   mat4_to_quat(q2, mat[1]);
 
@@ -359,15 +339,18 @@ static float dvar_eval_rotDiff(ChannelDriver *driver, DriverVar *dvar)
   return (angle > (float)M_PI) ? (float)((2.0f * (float)M_PI) - angle) : (float)(angle);
 }
 
-/* evaluate 'location difference' driver variable */
-/* TODO: this needs to take into account space conversions... */
+/**
+ * Evaluate 'location difference' driver variable.
+ *
+ * TODO: this needs to take into account space conversions.
+ */
 static float dvar_eval_locDiff(ChannelDriver *driver, DriverVar *dvar)
 {
   float loc1[3] = {0.0f, 0.0f, 0.0f};
   float loc2[3] = {0.0f, 0.0f, 0.0f};
   short valid_targets = driver_check_valid_targets(driver, dvar);
 
-  /* make sure we have enough valid targets to use - all or nothing for now... */
+  /* Make sure we have enough valid targets to use - all or nothing for now. */
   if (valid_targets < dvar->num_targets) {
     if (G.debug & G_DEBUG) {
       CLOG_WARN(&LOG,
@@ -380,72 +363,72 @@ static float dvar_eval_locDiff(ChannelDriver *driver, DriverVar *dvar)
   }
 
   /* SECOND PASS: get two location values */
-  /* NOTE: for now, these are all just worldspace */
+  /* NOTE: for now, these are all just world-space */
   DRIVER_TARGETS_USED_LOOPER_BEGIN (dvar) {
-    /* get pointer to loc values to store in */
-    Object *ob = (Object *)dtar_id_ensure_proxy_from(dtar->id);
+    /* Get pointer to loc values to store in. */
+    Object *ob = (Object *)dtar->id;
     bPoseChannel *pchan;
     float tmp_loc[3];
 
-    /* after the checks above, the targets should be valid here... */
+    /* After the checks above, the targets should be valid here. */
     BLI_assert((ob != NULL) && (GS(ob->id.name) == ID_OB));
 
-    /* try to get posechannel */
+    /* Try to get pose-channel. */
     pchan = BKE_pose_channel_find_name(ob->pose, dtar->pchan_name);
 
-    /* check if object or bone */
+    /* Check if object or bone. */
     if (pchan) {
-      /* bone */
+      /* Bone. */
       if (dtar->flag & DTAR_FLAG_LOCALSPACE) {
         if (dtar->flag & DTAR_FLAG_LOCAL_CONSTS) {
           float mat[4][4];
 
-          /* extract transform just like how the constraints do it! */
+          /* Extract transform just like how the constraints do it! */
           copy_m4_m4(mat, pchan->pose_mat);
           BKE_constraint_mat_convertspace(
-              ob, pchan, mat, CONSTRAINT_SPACE_POSE, CONSTRAINT_SPACE_LOCAL, false);
+              ob, pchan, NULL, mat, CONSTRAINT_SPACE_POSE, CONSTRAINT_SPACE_LOCAL, false);
 
-          /* ... and from that, we get our transform */
+          /* ... and from that, we get our transform. */
           copy_v3_v3(tmp_loc, mat[3]);
         }
         else {
-          /* transform space (use transform values directly) */
+          /* Transform space (use transform values directly). */
           copy_v3_v3(tmp_loc, pchan->loc);
         }
       }
       else {
-        /* convert to worldspace */
+        /* Convert to world-space. */
         copy_v3_v3(tmp_loc, pchan->pose_head);
         mul_m4_v3(ob->obmat, tmp_loc);
       }
     }
     else {
-      /* object */
+      /* Object. */
       if (dtar->flag & DTAR_FLAG_LOCALSPACE) {
         if (dtar->flag & DTAR_FLAG_LOCAL_CONSTS) {
-          /* XXX: this should practically be the same as transform space... */
+          /* XXX: this should practically be the same as transform space. */
           float mat[4][4];
 
-          /* extract transform just like how the constraints do it! */
+          /* Extract transform just like how the constraints do it! */
           copy_m4_m4(mat, ob->obmat);
           BKE_constraint_mat_convertspace(
-              ob, NULL, mat, CONSTRAINT_SPACE_WORLD, CONSTRAINT_SPACE_LOCAL, false);
+              ob, NULL, NULL, mat, CONSTRAINT_SPACE_WORLD, CONSTRAINT_SPACE_LOCAL, false);
 
-          /* ... and from that, we get our transform */
+          /* ... and from that, we get our transform. */
           copy_v3_v3(tmp_loc, mat[3]);
         }
         else {
-          /* transform space (use transform values directly) */
+          /* Transform space (use transform values directly). */
           copy_v3_v3(tmp_loc, ob->loc);
         }
       }
       else {
-        /* worldspace */
+        /* World-space. */
         copy_v3_v3(tmp_loc, ob->obmat[3]);
       }
     }
 
-    /* copy the location to the right place */
+    /* Copy the location to the right place. */
     if (tarIndex) {
       copy_v3_v3(loc2, tmp_loc);
     }
@@ -455,46 +438,46 @@ static float dvar_eval_locDiff(ChannelDriver *driver, DriverVar *dvar)
   }
   DRIVER_TARGETS_LOOPER_END;
 
-  /* if we're still here, there should now be two targets to use,
-   * so just take the length of the vector between these points
-   */
+  /* If we're still here, there should now be two targets to use,
+   * so just take the length of the vector between these points. */
   return len_v3v3(loc1, loc2);
 }
 
-/* evaluate 'transform channel' driver variable */
+/**
+ * Evaluate 'transform channel' driver variable.
+ */
 static float dvar_eval_transChan(ChannelDriver *driver, DriverVar *dvar)
 {
   DriverTarget *dtar = &dvar->targets[0];
-  Object *ob = (Object *)dtar_id_ensure_proxy_from(dtar->id);
+  Object *ob = (Object *)dtar->id;
   bPoseChannel *pchan;
   float mat[4][4];
   float oldEul[3] = {0.0f, 0.0f, 0.0f};
   bool use_eulers = false;
   short rot_order = ROT_MODE_EUL;
 
-  /* check if this target has valid data */
+  /* Check if this target has valid data. */
   if ((ob == NULL) || (GS(ob->id.name) != ID_OB)) {
-    /* invalid target, so will not have enough targets */
+    /* Invalid target, so will not have enough targets. */
     driver->flag |= DRIVER_FLAG_INVALID;
     dtar->flag |= DTAR_FLAG_INVALID;
     return 0.0f;
   }
-  else {
-    /* target should be valid now */
-    dtar->flag &= ~DTAR_FLAG_INVALID;
-  }
 
-  /* try to get posechannel */
+  /* Target should be valid now. */
+  dtar->flag &= ~DTAR_FLAG_INVALID;
+
+  /* Try to get pose-channel. */
   pchan = BKE_pose_channel_find_name(ob->pose, dtar->pchan_name);
 
-  /* check if object or bone, and get transform matrix accordingly
-   * - "useEulers" code is used to prevent the problems associated with non-uniqueness
-   *   of euler decomposition from matrices [#20870]
-   * - localspace is for [#21384], where parent results are not wanted
-   *   but local-consts is for all the common "corrective-shapes-for-limbs" situations
+  /* Check if object or bone, and get transform matrix accordingly:
+   * - "use_eulers" code is used to prevent the problems associated with non-uniqueness
+   *   of euler decomposition from matrices T20870.
+   * - "local-space" is for T21384, where parent results are not wanted
+   *   but #DTAR_FLAG_LOCAL_CONSTS is for all the common "corrective-shapes-for-limbs" situations.
    */
   if (pchan) {
-    /* bone */
+    /* Bone. */
     if (pchan->rotmode > 0) {
       copy_v3_v3(oldEul, pchan->eul);
       rot_order = pchan->rotmode;
@@ -503,26 +486,25 @@ static float dvar_eval_transChan(ChannelDriver *driver, DriverVar *dvar)
 
     if (dtar->flag & DTAR_FLAG_LOCALSPACE) {
       if (dtar->flag & DTAR_FLAG_LOCAL_CONSTS) {
-        /* just like how the constraints do it! */
+        /* Just like how the constraints do it! */
         copy_m4_m4(mat, pchan->pose_mat);
         BKE_constraint_mat_convertspace(
-            ob, pchan, mat, CONSTRAINT_SPACE_POSE, CONSTRAINT_SPACE_LOCAL, false);
+            ob, pchan, NULL, mat, CONSTRAINT_SPACE_POSE, CONSTRAINT_SPACE_LOCAL, false);
       }
       else {
-        /* specially calculate local matrix, since chan_mat is not valid
+        /* Specially calculate local matrix, since chan_mat is not valid
          * since it stores delta transform of pose_mat so that deforms work
-         * so it cannot be used here for "transform" space
-         */
+         * so it cannot be used here for "transform" space. */
         BKE_pchan_to_mat4(pchan, mat);
       }
     }
     else {
-      /* worldspace matrix */
+      /* World-space matrix. */
       mul_m4_m4m4(mat, ob->obmat, pchan->pose_mat);
     }
   }
   else {
-    /* object */
+    /* Object. */
     if (ob->rotmode > 0) {
       copy_v3_v3(oldEul, ob->rot);
       rot_order = ob->rotmode;
@@ -531,42 +513,39 @@ static float dvar_eval_transChan(ChannelDriver *driver, DriverVar *dvar)
 
     if (dtar->flag & DTAR_FLAG_LOCALSPACE) {
       if (dtar->flag & DTAR_FLAG_LOCAL_CONSTS) {
-        /* just like how the constraints do it! */
+        /* Just like how the constraints do it! */
         copy_m4_m4(mat, ob->obmat);
         BKE_constraint_mat_convertspace(
-            ob, NULL, mat, CONSTRAINT_SPACE_WORLD, CONSTRAINT_SPACE_LOCAL, false);
+            ob, NULL, NULL, mat, CONSTRAINT_SPACE_WORLD, CONSTRAINT_SPACE_LOCAL, false);
       }
       else {
-        /* transforms to matrix */
+        /* Transforms to matrix. */
         BKE_object_to_mat4(ob, mat);
       }
     }
     else {
-      /* worldspace matrix - just the good-old one */
+      /* World-space matrix - just the good-old one. */
       copy_m4_m4(mat, ob->obmat);
     }
   }
 
-  /* check which transform */
+  /* Check which transform. */
   if (dtar->transChan >= MAX_DTAR_TRANSCHAN_TYPES) {
-    /* not valid channel */
+    /* Not valid channel. */
     return 0.0f;
   }
-  else if (dtar->transChan == DTAR_TRANSCHAN_SCALE_AVG) {
+  if (dtar->transChan == DTAR_TRANSCHAN_SCALE_AVG) {
     /* Cubic root of the change in volume, equal to the geometric mean
      * of scale over all three axes unless the matrix includes shear. */
     return cbrtf(mat4_to_volume_scale(mat));
   }
-  else if (ELEM(dtar->transChan,
-                DTAR_TRANSCHAN_SCALEX,
-                DTAR_TRANSCHAN_SCALEY,
-                DTAR_TRANSCHAN_SCALEZ)) {
+  if (ELEM(dtar->transChan, DTAR_TRANSCHAN_SCALEX, DTAR_TRANSCHAN_SCALEY, DTAR_TRANSCHAN_SCALEZ)) {
     /* Extract scale, and choose the right axis,
      * inline 'mat4_to_size'. */
     return len_v3(mat[dtar->transChan - DTAR_TRANSCHAN_SCALEX]);
   }
-  else if (dtar->transChan >= DTAR_TRANSCHAN_ROTX) {
-    /* extract rotation as eulers (if needed)
+  if (dtar->transChan >= DTAR_TRANSCHAN_ROTX) {
+    /* Extract rotation as eulers (if needed)
      * - definitely if rotation order isn't eulers already
      * - if eulers, then we have 2 options:
      *     a) decompose transform matrix as required, then try to make eulers from
@@ -594,10 +573,9 @@ static float dvar_eval_transChan(ChannelDriver *driver, DriverVar *dvar)
 
     return quat[channel];
   }
-  else {
-    /* extract location and choose right axis */
-    return mat[3][dtar->transChan];
-  }
+
+  /* Extract location and choose right axis. */
+  return mat[3][dtar->transChan];
 }
 
 /* Convert a quaternion to pseudo-angles representing the weighted amount of rotation. */
@@ -618,7 +596,6 @@ static void quaternion_to_angles(float quat[4], int channel)
   }
 }
 
-/* Compute channel values for a rotational Transform Channel driver variable. */
 void BKE_driver_target_matrix_to_rot_channels(
     float mat[4][4], int auto_order, int rotation_mode, int channel, bool angles, float r_buf[4])
 {
@@ -665,96 +642,100 @@ void BKE_driver_target_matrix_to_rot_channels(
   }
 }
 
-/* ......... */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Driver Variable Type Info
+ * \{ */
 
 /* Table of Driver Variable Type Info Data */
 static DriverVarTypeInfo dvar_types[MAX_DVAR_TYPES] = {
-    BEGIN_DVAR_TYPEDEF(DVAR_TYPE_SINGLE_PROP) dvar_eval_singleProp, /* eval callback */
-    1,                                                              /* number of targets used */
+    BEGIN_DVAR_TYPEDEF(DVAR_TYPE_SINGLE_PROP) dvar_eval_singleProp, /* Eval callback. */
+    1,                                                              /* Number of targets used. */
     {"Property"},                                                   /* UI names for targets */
-    {0}                                                             /* flags */
+    {0}                                                             /* Flags. */
     END_DVAR_TYPEDEF,
 
-    BEGIN_DVAR_TYPEDEF(DVAR_TYPE_ROT_DIFF) dvar_eval_rotDiff, /* eval callback */
-    2,                                                        /* number of targets used */
+    BEGIN_DVAR_TYPEDEF(DVAR_TYPE_ROT_DIFF) dvar_eval_rotDiff, /* Eval callback. */
+    2,                                                        /* Number of targets used. */
     {"Object/Bone 1", "Object/Bone 2"},                       /* UI names for targets */
     {DTAR_FLAG_STRUCT_REF | DTAR_FLAG_ID_OB_ONLY,
-     DTAR_FLAG_STRUCT_REF | DTAR_FLAG_ID_OB_ONLY} /* flags */
+     DTAR_FLAG_STRUCT_REF | DTAR_FLAG_ID_OB_ONLY} /* Flags. */
     END_DVAR_TYPEDEF,
 
-    BEGIN_DVAR_TYPEDEF(DVAR_TYPE_LOC_DIFF) dvar_eval_locDiff, /* eval callback */
-    2,                                                        /* number of targets used */
+    BEGIN_DVAR_TYPEDEF(DVAR_TYPE_LOC_DIFF) dvar_eval_locDiff, /* Eval callback. */
+    2,                                                        /* Number of targets used. */
     {"Object/Bone 1", "Object/Bone 2"},                       /* UI names for targets */
     {DTAR_FLAG_STRUCT_REF | DTAR_FLAG_ID_OB_ONLY,
-     DTAR_FLAG_STRUCT_REF | DTAR_FLAG_ID_OB_ONLY} /* flags */
+     DTAR_FLAG_STRUCT_REF | DTAR_FLAG_ID_OB_ONLY} /* Flags. */
     END_DVAR_TYPEDEF,
 
-    BEGIN_DVAR_TYPEDEF(DVAR_TYPE_TRANSFORM_CHAN) dvar_eval_transChan, /* eval callback */
-    1,                                                                /* number of targets used */
+    BEGIN_DVAR_TYPEDEF(DVAR_TYPE_TRANSFORM_CHAN) dvar_eval_transChan, /* Eval callback. */
+    1,                                                                /* Number of targets used. */
     {"Object/Bone"},                                                  /* UI names for targets */
-    {DTAR_FLAG_STRUCT_REF | DTAR_FLAG_ID_OB_ONLY}                     /* flags */
+    {DTAR_FLAG_STRUCT_REF | DTAR_FLAG_ID_OB_ONLY}                     /* Flags. */
     END_DVAR_TYPEDEF,
 };
 
 /* Get driver variable typeinfo */
 static const DriverVarTypeInfo *get_dvar_typeinfo(int type)
 {
-  /* check if valid type */
+  /* Check if valid type. */
   if ((type >= 0) && (type < MAX_DVAR_TYPES)) {
     return &dvar_types[type];
   }
-  else {
-    return NULL;
-  }
+
+  return NULL;
 }
 
-/* Driver API --------------------------------- */
+/** \} */
 
-/* Perform actual freeing driver variable and remove it from the given list */
+/* -------------------------------------------------------------------- */
+/** \name Driver API
+ * \{ */
+
 void driver_free_variable(ListBase *variables, DriverVar *dvar)
 {
-  /* sanity checks */
+  /* Sanity checks. */
   if (dvar == NULL) {
     return;
   }
 
-  /* free target vars
+  /* Free target vars:
    * - need to go over all of them, not just up to the ones that are used
    *   currently, since there may be some lingering RNA paths from
    *   previous users needing freeing
    */
   DRIVER_TARGETS_LOOPER_BEGIN (dvar) {
-    /* free RNA path if applicable */
+    /* Free RNA path if applicable. */
     if (dtar->rna_path) {
       MEM_freeN(dtar->rna_path);
     }
   }
   DRIVER_TARGETS_LOOPER_END;
 
-  /* remove the variable from the driver */
+  /* Remove the variable from the driver. */
   BLI_freelinkN(variables, dvar);
 }
 
-/* Free the driver variable and do extra updates */
 void driver_free_variable_ex(ChannelDriver *driver, DriverVar *dvar)
 {
-  /* remove and free the driver variable */
+  /* Remove and free the driver variable. */
   driver_free_variable(&driver->variables, dvar);
 
-  /* since driver variables are cached, the expression needs re-compiling too */
+  /* Since driver variables are cached, the expression needs re-compiling too. */
   BKE_driver_invalidate_expression(driver, false, true);
 }
 
-/* Copy driver variables from src_vars list to dst_vars list */
 void driver_variables_copy(ListBase *dst_vars, const ListBase *src_vars)
 {
   BLI_assert(BLI_listbase_is_empty(dst_vars));
   BLI_duplicatelist(dst_vars, src_vars);
 
   LISTBASE_FOREACH (DriverVar *, dvar, dst_vars) {
-    /* need to go over all targets so that we don't leave any dangling paths */
+    /* Need to go over all targets so that we don't leave any dangling paths. */
     DRIVER_TARGETS_LOOPER_BEGIN (dvar) {
-      /* make a copy of target's rna path if available */
+      /* Make a copy of target's rna path if available. */
       if (dtar->rna_path) {
         dtar->rna_path = MEM_dupallocN(dtar->rna_path);
       }
@@ -763,30 +744,28 @@ void driver_variables_copy(ListBase *dst_vars, const ListBase *src_vars)
   }
 }
 
-/* Change the type of driver variable */
 void driver_change_variable_type(DriverVar *dvar, int type)
 {
   const DriverVarTypeInfo *dvti = get_dvar_typeinfo(type);
 
-  /* sanity check */
+  /* Sanity check. */
   if (ELEM(NULL, dvar, dvti)) {
     return;
   }
 
-  /* set the new settings */
+  /* Set the new settings. */
   dvar->type = type;
   dvar->num_targets = dvti->num_targets;
 
-  /* make changes to the targets based on the defines for these types
-   * NOTE: only need to make sure the ones we're using here are valid...
-   */
+  /* Make changes to the targets based on the defines for these types.
+   * NOTE: only need to make sure the ones we're using here are valid. */
   DRIVER_TARGETS_USED_LOOPER_BEGIN (dvar) {
     short flags = dvti->target_flags[tarIndex];
 
-    /* store the flags */
+    /* Store the flags. */
     dtar->flag = flags;
 
-    /* object ID types only, or idtype not yet initialized */
+    /* Object ID types only, or idtype not yet initialized. */
     if ((flags & DTAR_FLAG_ID_OB_ONLY) || (dtar->idtype == 0)) {
       dtar->idtype = ID_OB;
     }
@@ -794,7 +773,6 @@ void driver_change_variable_type(DriverVar *dvar, int type)
   DRIVER_TARGETS_LOOPER_END;
 }
 
-/* Validate driver name (after being renamed) */
 void driver_variable_name_validate(DriverVar *dvar)
 {
   /* Special character blacklist */
@@ -803,12 +781,12 @@ void driver_variable_name_validate(DriverVar *dvar)
       '?', ':', ';', '<', '>', '{', '}', '[', ']', '|', ' ', '.', '\t', '\n', '\r',
   };
 
-  /* sanity checks */
+  /* Sanity checks. */
   if (dvar == NULL) {
     return;
   }
 
-  /* clear all invalid-name flags */
+  /* Clear all invalid-name flags. */
   dvar->flag &= ~DVAR_ALL_INVALID_FLAGS;
 
   /* 0) Zero-length identifiers are not allowed */
@@ -864,21 +842,26 @@ void driver_variable_name_validate(DriverVar *dvar)
   }
 }
 
-/* Add a new driver variable */
+void driver_variable_unique_name(DriverVar *dvar)
+{
+  ListBase variables = BLI_listbase_from_link((Link *)dvar);
+  BLI_uniquename(&variables, dvar, dvar->name, '_', offsetof(DriverVar, name), sizeof(dvar->name));
+}
+
 DriverVar *driver_add_new_variable(ChannelDriver *driver)
 {
   DriverVar *dvar;
 
-  /* sanity checks */
+  /* Sanity checks. */
   if (driver == NULL) {
     return NULL;
   }
 
-  /* make a new variable */
+  /* Make a new variable. */
   dvar = MEM_callocN(sizeof(DriverVar), "DriverVar");
   BLI_addtail(&driver->variables, dvar);
 
-  /* give the variable a 'unique' name */
+  /* Give the variable a 'unique' name. */
   strcpy(dvar->name, CTX_DATA_(BLT_I18NCONTEXT_ID_ACTION, "var"));
   BLI_uniquename(&driver->variables,
                  dvar,
@@ -887,36 +870,35 @@ DriverVar *driver_add_new_variable(ChannelDriver *driver)
                  offsetof(DriverVar, name),
                  sizeof(dvar->name));
 
-  /* set the default type to 'single prop' */
+  /* Set the default type to 'single prop'. */
   driver_change_variable_type(dvar, DVAR_TYPE_SINGLE_PROP);
 
-  /* since driver variables are cached, the expression needs re-compiling too */
+  /* Since driver variables are cached, the expression needs re-compiling too. */
   BKE_driver_invalidate_expression(driver, false, true);
 
-  /* return the target */
+  /* Return the target. */
   return dvar;
 }
 
-/* This frees the driver itself */
 void fcurve_free_driver(FCurve *fcu)
 {
   ChannelDriver *driver;
   DriverVar *dvar, *dvarn;
 
-  /* sanity checks */
+  /* Sanity checks. */
   if (ELEM(NULL, fcu, fcu->driver)) {
     return;
   }
   driver = fcu->driver;
 
-  /* free driver targets */
+  /* Free driver targets. */
   for (dvar = driver->variables.first; dvar; dvar = dvarn) {
     dvarn = dvar->next;
     driver_free_variable_ex(driver, dvar);
   }
 
 #ifdef WITH_PYTHON
-  /* free compiled driver expression */
+  /* Free compiled driver expression. */
   if (driver->expr_comp) {
     BPY_DECREF(driver->expr_comp);
   }
@@ -930,32 +912,35 @@ void fcurve_free_driver(FCurve *fcu)
   fcu->driver = NULL;
 }
 
-/* This makes a copy of the given driver */
 ChannelDriver *fcurve_copy_driver(const ChannelDriver *driver)
 {
   ChannelDriver *ndriver;
 
-  /* sanity checks */
+  /* Sanity checks. */
   if (driver == NULL) {
     return NULL;
   }
 
-  /* copy all data */
+  /* Copy all data. */
   ndriver = MEM_dupallocN(driver);
   ndriver->expr_comp = NULL;
   ndriver->expr_simple = NULL;
 
-  /* copy variables */
+  /* Copy variables. */
 
-  /* to get rid of refs to non-copied data (that's still used on original) */
+  /* To get rid of refs to non-copied data (that's still used on original). */
   BLI_listbase_clear(&ndriver->variables);
   driver_variables_copy(&ndriver->variables, &driver->variables);
 
-  /* return the new driver */
+  /* Return the new driver. */
   return ndriver;
 }
 
-/* Driver Expression Evaluation --------------- */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Driver Expression Evaluation
+ * \{ */
 
 /* Index constants for the expression parameter array. */
 enum {
@@ -1025,7 +1010,7 @@ static bool driver_evaluate_simple_expr(ChannelDriver *driver,
       return true;
 
     default:
-      /* arriving here means a bug, not user error */
+      /* Arriving here means a bug, not user error. */
       CLOG_ERROR(&LOG, "simple driver expression evaluation failed: '%s'", driver->expression);
       return false;
   }
@@ -1069,7 +1054,6 @@ static bool driver_try_evaluate_simple_expr(ChannelDriver *driver,
          driver_evaluate_simple_expr(driver, driver_orig->expr_simple, result, time);
 }
 
-/* Check if the expression in the driver conforms to the simple subset. */
 bool BKE_driver_has_simple_expression(ChannelDriver *driver)
 {
   return driver_compile_simple_expr(driver) && BLI_expr_pylike_is_valid(driver->expr_simple);
@@ -1096,7 +1080,6 @@ static bool python_driver_exression_depends_on_time(const char *expression)
   return false;
 }
 
-/* Check if the expression in the driver may depend on the current frame. */
 bool BKE_driver_expression_depends_on_time(ChannelDriver *driver)
 {
   if (driver->type != DRIVER_TYPE_PYTHON) {
@@ -1107,13 +1090,11 @@ bool BKE_driver_expression_depends_on_time(ChannelDriver *driver)
     /* Simple expressions can be checked exactly. */
     return driver_check_simple_expr_depends_on_time(driver->expr_simple);
   }
-  else {
-    /* Otherwise, heuristically scan the expression string for certain patterns. */
-    return python_driver_exression_depends_on_time(driver->expression);
-  }
+
+  /* Otherwise, heuristically scan the expression string for certain patterns. */
+  return python_driver_exression_depends_on_time(driver->expression);
 }
 
-/* Reset cached compiled expression data */
 void BKE_driver_invalidate_expression(ChannelDriver *driver,
                                       bool expr_changed,
                                       bool varname_changed)
@@ -1134,22 +1115,24 @@ void BKE_driver_invalidate_expression(ChannelDriver *driver,
 #endif
 }
 
-/* Driver Evaluation -------------------------- */
+/** \} */
 
-/* Evaluate a Driver Variable to get a value that contributes to the final */
+/* -------------------------------------------------------------------- */
+/** \name Driver Evaluation
+ * \{ */
+
 float driver_get_variable_value(ChannelDriver *driver, DriverVar *dvar)
 {
   const DriverVarTypeInfo *dvti;
 
-  /* sanity check */
+  /* Sanity check. */
   if (ELEM(NULL, driver, dvar)) {
     return 0.0f;
   }
 
-  /* call the relevant callbacks to get the variable value
+  /* Call the relevant callbacks to get the variable value
    * using the variable type info, storing the obtained value
-   * in dvar->curval so that drivers can be debugged
-   */
+   * in `dvar->curval` so that drivers can be debugged. */
   dvti = get_dvar_typeinfo(dvar->type);
 
   if (dvti && dvti->get_value) {
@@ -1166,25 +1149,25 @@ static void evaluate_driver_sum(ChannelDriver *driver)
 {
   DriverVar *dvar;
 
-  /* check how many variables there are first (i.e. just one?) */
+  /* Check how many variables there are first (i.e. just one?). */
   if (BLI_listbase_is_single(&driver->variables)) {
-    /* just one target, so just use that */
+    /* Just one target, so just use that. */
     dvar = driver->variables.first;
     driver->curval = driver_get_variable_value(driver, dvar);
     return;
   }
 
-  /* more than one target, so average the values of the targets */
+  /* More than one target, so average the values of the targets. */
   float value = 0.0f;
   int tot = 0;
 
-  /* loop through targets, adding (hopefully we don't get any overflow!) */
+  /* Loop through targets, adding (hopefully we don't get any overflow!). */
   for (dvar = driver->variables.first; dvar; dvar = dvar->next) {
     value += driver_get_variable_value(driver, dvar);
     tot++;
   }
 
-  /* perform operations on the total if appropriate */
+  /* Perform operations on the total if appropriate. */
   if (driver->type == DRIVER_TYPE_AVERAGE) {
     driver->curval = tot ? (value / (float)tot) : 0.0f;
   }
@@ -1198,97 +1181,93 @@ static void evaluate_driver_min_max(ChannelDriver *driver)
   DriverVar *dvar;
   float value = 0.0f;
 
-  /* loop through the variables, getting the values and comparing them to existing ones */
+  /* Loop through the variables, getting the values and comparing them to existing ones. */
   for (dvar = driver->variables.first; dvar; dvar = dvar->next) {
-    /* get value */
+    /* Get value. */
     float tmp_val = driver_get_variable_value(driver, dvar);
 
-    /* store this value if appropriate */
+    /* Store this value if appropriate. */
     if (dvar->prev) {
-      /* check if greater/smaller than the baseline */
+      /* Check if greater/smaller than the baseline. */
       if (driver->type == DRIVER_TYPE_MAX) {
-        /* max? */
+        /* Max? */
         if (tmp_val > value) {
           value = tmp_val;
         }
       }
       else {
-        /* min? */
+        /* Min? */
         if (tmp_val < value) {
           value = tmp_val;
         }
       }
     }
     else {
-      /* first item - make this the baseline for comparisons */
+      /* First item - make this the baseline for comparisons. */
       value = tmp_val;
     }
   }
 
-  /* store value in driver */
+  /* Store value in driver. */
   driver->curval = value;
 }
 
 static void evaluate_driver_python(PathResolvedRNA *anim_rna,
                                    ChannelDriver *driver,
                                    ChannelDriver *driver_orig,
-                                   const float evaltime)
+                                   const AnimationEvalContext *anim_eval_context)
 {
-  /* check for empty or invalid expression */
+  /* Check for empty or invalid expression. */
   if ((driver_orig->expression[0] == '\0') || (driver_orig->flag & DRIVER_FLAG_INVALID)) {
     driver->curval = 0.0f;
   }
-  else if (!driver_try_evaluate_simple_expr(driver, driver_orig, &driver->curval, evaltime)) {
+  else if (!driver_try_evaluate_simple_expr(
+               driver, driver_orig, &driver->curval, anim_eval_context->eval_time)) {
 #ifdef WITH_PYTHON
-    /* this evaluates the expression using Python, and returns its result:
-     * - on errors it reports, then returns 0.0f
-     */
+    /* This evaluates the expression using Python, and returns its result:
+     * - on errors it reports, then returns 0.0f. */
     BLI_mutex_lock(&python_driver_lock);
 
-    driver->curval = BPY_driver_exec(anim_rna, driver, driver_orig, evaltime);
+    driver->curval = BPY_driver_exec(anim_rna, driver, driver_orig, anim_eval_context);
 
     BLI_mutex_unlock(&python_driver_lock);
-#else  /* WITH_PYTHON*/
-    UNUSED_VARS(anim_rna, evaltime);
-#endif /* WITH_PYTHON*/
+#else  /* WITH_PYTHON */
+    UNUSED_VARS(anim_rna, anim_eval_context);
+#endif /* WITH_PYTHON */
   }
 }
 
-/* Evaluate an Channel-Driver to get a 'time' value to use instead of "evaltime"
- * - "evaltime" is the frame at which F-Curve is being evaluated
- * - has to return a float value
- * - driver_orig is where we cache Python expressions, in case of COW
- */
 float evaluate_driver(PathResolvedRNA *anim_rna,
                       ChannelDriver *driver,
                       ChannelDriver *driver_orig,
-                      const float evaltime)
+                      const AnimationEvalContext *anim_eval_context)
 {
-  /* check if driver can be evaluated */
+  /* Check if driver can be evaluated. */
   if (driver_orig->flag & DRIVER_FLAG_INVALID) {
     return 0.0f;
   }
 
   switch (driver->type) {
-    case DRIVER_TYPE_AVERAGE: /* average values of driver targets */
-    case DRIVER_TYPE_SUM:     /* sum values of driver targets */
+    case DRIVER_TYPE_AVERAGE: /* Average values of driver targets. */
+    case DRIVER_TYPE_SUM:     /* Sum values of driver targets. */
       evaluate_driver_sum(driver);
       break;
-    case DRIVER_TYPE_MIN: /* smallest value */
-    case DRIVER_TYPE_MAX: /* largest value */
+    case DRIVER_TYPE_MIN: /* Smallest value. */
+    case DRIVER_TYPE_MAX: /* Largest value. */
       evaluate_driver_min_max(driver);
       break;
-    case DRIVER_TYPE_PYTHON: /* expression */
-      evaluate_driver_python(anim_rna, driver, driver_orig, evaltime);
+    case DRIVER_TYPE_PYTHON: /* Expression. */
+      evaluate_driver_python(anim_rna, driver, driver_orig, anim_eval_context);
       break;
     default:
-      /* special 'hack' - just use stored value
+      /* Special 'hack' - just use stored value
        * This is currently used as the mechanism which allows animated settings to be able
-       * to be changed via the UI.
-       */
+       * to be changed via the UI. */
       break;
   }
 
-  /* return value for driver */
+  /* Return value for driver. */
   return driver->curval;
 }
+
+/** \} */

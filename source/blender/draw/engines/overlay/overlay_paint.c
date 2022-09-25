@@ -1,26 +1,13 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
  */
 
 #include "DRW_render.h"
+
+#include "BKE_image.h"
 
 #include "DNA_mesh_types.h"
 
@@ -34,7 +21,7 @@ static bool paint_object_is_rendered_transparent(View3D *v3d, Object *ob)
   if (v3d->shading.type == OB_WIRE) {
     return true;
   }
-  else if (v3d->shading.type == OB_SOLID) {
+  if (v3d->shading.type == OB_SOLID) {
     if (v3d->shading.flag & V3D_SHADING_XRAY) {
       return true;
     }
@@ -42,17 +29,23 @@ static bool paint_object_is_rendered_transparent(View3D *v3d, Object *ob)
     if (ob && v3d->shading.color_type == V3D_SHADING_OBJECT_COLOR) {
       return ob->color[3] < 1.0f;
     }
-    else if (ob && ob->type == OB_MESH && ob->data &&
-             v3d->shading.color_type == V3D_SHADING_MATERIAL_COLOR) {
+    if (ob && ob->type == OB_MESH && ob->data &&
+        v3d->shading.color_type == V3D_SHADING_MATERIAL_COLOR) {
       Mesh *me = ob->data;
       for (int i = 0; i < me->totcol; i++) {
-        Material *mat = me->mat[i];
+        Material *mat = BKE_object_material_get_eval(ob, i + 1);
         if (mat && mat->a < 1.0f) {
           return true;
         }
       }
     }
   }
+
+  /* Check object display types. */
+  if (ob && ELEM(ob->dt, OB_WIRE, OB_BOUNDBOX)) {
+    return true;
+  }
+
   return false;
 }
 
@@ -63,7 +56,7 @@ void OVERLAY_paint_init(OVERLAY_Data *vedata)
   const DRWContextState *draw_ctx = DRW_context_state_get();
 
   pd->painting.in_front = pd->use_in_front && draw_ctx->obact &&
-                          (draw_ctx->obact->dtx & OB_DRAWXRAY);
+                          (draw_ctx->obact->dtx & OB_DRAW_IN_FRONT);
   pd->painting.alpha_blending = paint_object_is_rendered_transparent(draw_ctx->v3d,
                                                                      draw_ctx->obact);
 }
@@ -90,21 +83,29 @@ void OVERLAY_paint_cache_init(OVERLAY_Data *vedata)
     case CTX_MODE_PAINT_WEIGHT: {
       opacity = is_edit_mode ? 1.0 : pd->overlay.weight_paint_mode_opacity;
       if (opacity > 0.0f) {
-        state = DRW_STATE_WRITE_COLOR | DRW_STATE_DEPTH_EQUAL;
-        state |= pd->painting.alpha_blending ? DRW_STATE_BLEND_ALPHA : DRW_STATE_BLEND_MUL;
+        state = DRW_STATE_WRITE_COLOR | DRW_STATE_DEPTH_EQUAL | DRW_STATE_BLEND_ALPHA;
         DRW_PASS_CREATE(psl->paint_color_ps, state | pd->clipping_state);
 
-        sh = OVERLAY_shader_paint_weight();
+        const bool do_shading = draw_ctx->v3d->shading.type != OB_WIRE;
+
+        sh = OVERLAY_shader_paint_weight(do_shading);
         pd->paint_surf_grp = grp = DRW_shgroup_create(sh, psl->paint_color_ps);
         DRW_shgroup_uniform_block(grp, "globalsBlock", G_draw.block_ubo);
         DRW_shgroup_uniform_bool_copy(grp, "drawContours", draw_contours);
-        DRW_shgroup_uniform_bool_copy(grp, "useAlphaBlend", pd->painting.alpha_blending);
         DRW_shgroup_uniform_float_copy(grp, "opacity", opacity);
         DRW_shgroup_uniform_texture(grp, "colorramp", G_draw.weight_ramp);
 
+        /* Arbitrary light to give a hint of the geometry behind the weights. */
+        if (do_shading) {
+          float light_dir[3];
+          copy_v3_fl3(light_dir, 0.0f, 0.5f, 0.86602f);
+          normalize_v3(light_dir);
+          DRW_shgroup_uniform_vec3_copy(grp, "light_dir", light_dir);
+        }
+
         if (pd->painting.alpha_blending) {
           state = DRW_STATE_WRITE_DEPTH | DRW_STATE_DEPTH_LESS_EQUAL;
-          DRW_PASS_CREATE(psl->paint_depth_ps, state);
+          DRW_PASS_CREATE(psl->paint_depth_ps, state | pd->clipping_state);
           sh = OVERLAY_shader_depth_only();
           pd->paint_depth_grp = DRW_shgroup_create(sh, psl->paint_depth_ps);
         }
@@ -136,7 +137,7 @@ void OVERLAY_paint_cache_init(OVERLAY_Data *vedata)
         state = DRW_STATE_WRITE_COLOR | DRW_STATE_DEPTH_EQUAL | DRW_STATE_BLEND_ALPHA;
         DRW_PASS_CREATE(psl->paint_color_ps, state | pd->clipping_state);
 
-        GPUTexture *tex = GPU_texture_from_blender(imapaint->stencil, NULL, NULL, GL_TEXTURE_2D);
+        GPUTexture *tex = BKE_image_get_gpu_texture(imapaint->stencil, NULL, NULL);
 
         const bool mask_premult = (imapaint->stencil->alpha_mode == IMA_ALPHA_PREMUL);
         const bool mask_inverted = (imapaint->flag & IMAGEPAINT_PROJECT_LAYER_STENCIL_INV) != 0;
@@ -254,11 +255,11 @@ void OVERLAY_paint_draw(OVERLAY_Data *vedata)
   OVERLAY_PrivateData *pd = stl->pd;
 
   OVERLAY_PassList *psl = vedata->psl;
-  DefaultFramebufferList *dfbl = DRW_viewport_framebuffer_list_get();
+  OVERLAY_FramebufferList *fbl = vedata->fbl;
 
   if (DRW_state_is_fbo()) {
-    /* Paint overlay needs final color because of multiply blend mode. */
-    GPU_framebuffer_bind(pd->painting.in_front ? dfbl->in_front_fb : dfbl->default_fb);
+    GPU_framebuffer_bind(pd->painting.in_front ? fbl->overlay_in_front_fb :
+                                                 fbl->overlay_default_fb);
   }
 
   if (psl->paint_depth_ps) {

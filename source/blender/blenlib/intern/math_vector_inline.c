@@ -1,24 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- *
- * The Original Code is: some of this file.
- *
- * */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -102,6 +83,7 @@ MINLINE void copy_v4_fl(float r[4], float f)
 }
 
 /* unsigned char */
+
 MINLINE void copy_v2_v2_uchar(unsigned char r[2], const unsigned char a[2])
 {
   r[0] = a[0];
@@ -145,6 +127,7 @@ MINLINE void copy_v4_uchar(unsigned char r[4], const unsigned char a)
 }
 
 /* char */
+
 MINLINE void copy_v2_v2_char(char r[2], const char a[2])
 {
   r[0] = a[0];
@@ -225,6 +208,7 @@ MINLINE void copy_v4_v4_int(int r[4], const int a[4])
 }
 
 /* double */
+
 MINLINE void zero_v3_db(double r[3])
 {
   r[0] = 0.0;
@@ -253,7 +237,6 @@ MINLINE void copy_v4_v4_db(double r[4], const double a[4])
   r[3] = a[3];
 }
 
-/* int <-> float */
 MINLINE void round_v2i_v2fl(int r[2], const float a[2])
 {
   r[0] = (int)roundf(a[0]);
@@ -267,6 +250,7 @@ MINLINE void copy_v2fl_v2i(float r[2], const int a[2])
 }
 
 /* double -> float */
+
 MINLINE void copy_v2fl_v2db(float r[2], const double a[2])
 {
   r[0] = (float)a[0];
@@ -289,6 +273,7 @@ MINLINE void copy_v4fl_v4db(float r[4], const double a[4])
 }
 
 /* float -> double */
+
 MINLINE void copy_v2db_v2fl(double r[2], const float a[2])
 {
   r[0] = (double)a[0];
@@ -331,7 +316,29 @@ MINLINE void swap_v4_v4(float a[4], float b[4])
   SWAP(float, a[3], b[3]);
 }
 
+MINLINE void swap_v2_v2_db(double a[2], double b[2])
+{
+  SWAP(double, a[0], b[0]);
+  SWAP(double, a[1], b[1]);
+}
+
+MINLINE void swap_v3_v3_db(double a[3], double b[3])
+{
+  SWAP(double, a[0], b[0]);
+  SWAP(double, a[1], b[1]);
+  SWAP(double, a[2], b[2]);
+}
+
+MINLINE void swap_v4_v4_db(double a[4], double b[4])
+{
+  SWAP(double, a[0], b[0]);
+  SWAP(double, a[1], b[1]);
+  SWAP(double, a[2], b[2]);
+  SWAP(double, a[3], b[3]);
+}
+
 /* float args -> vec */
+
 MINLINE void copy_v2_fl2(float v[2], float x, float y)
 {
   v[0] = x;
@@ -434,13 +441,6 @@ MINLINE void add_v3fl_v3fl_v3i(float r[3], const float a[3], const int b[3])
   r[2] = a[2] + (float)b[2];
 }
 
-MINLINE void add_v3fl_v3fl_v3s(float r[3], const float a[3], const short b[3])
-{
-  r[0] = a[0] + (float)b[0];
-  r[1] = a[1] + (float)b[1];
-  r[2] = a[2] + (float)b[2];
-}
-
 MINLINE void add_v4_v4(float r[4], const float a[4])
 {
   r[0] += a[0];
@@ -509,6 +509,12 @@ MINLINE void sub_v3_v3v3_db(double r[3], const double a[3], const double b[3])
   r[2] = a[2] - b[2];
 }
 
+MINLINE void sub_v2db_v2fl_v2fl(double r[2], const float a[2], const float b[2])
+{
+  r[0] = (double)a[0] - (double)b[0];
+  r[1] = (double)a[1] - (double)b[1];
+}
+
 MINLINE void sub_v3db_v3fl_v3fl(double r[3], const float a[3], const float b[3])
 {
   r[0] = (double)a[0] - (double)b[0];
@@ -559,6 +565,13 @@ MINLINE void mul_v3db_db(double r[3], double f)
 }
 
 MINLINE void mul_v3_v3fl(float r[3], const float a[3], float f)
+{
+  r[0] = a[0] * f;
+  r[1] = a[1] * f;
+  r[2] = a[2] * f;
+}
+
+MINLINE void mul_v3_v3db_db(double r[3], const double a[3], double f)
 {
   r[0] = a[0] * f;
   r[1] = a[1] * f;
@@ -621,32 +634,17 @@ MINLINE void mul_v2_v2_cw(float r[2], const float mat[2], const float vec[2])
 
 MINLINE void mul_v2_v2_ccw(float r[2], const float mat[2], const float vec[2])
 {
-  BLI_assert(r != vec);
-
-  r[0] = mat[0] * vec[0] + (-mat[1]) * vec[1];
-  r[1] = mat[1] * vec[0] + (+mat[0]) * vec[1];
+  float r0 = mat[0] * vec[0] + (-mat[1]) * vec[1];
+  float r1 = mat[1] * vec[0] + (+mat[0]) * vec[1];
+  r[0] = r0;
+  r[1] = r1;
 }
 
-/**
- * Convenience function to get the projected depth of a position.
- * This avoids creating a temporary 4D vector and multiplying it - only for the 4th component.
- *
- * Matches logic for:
- *
- * \code{.c}
- * float co_4d[4] = {co[0], co[1], co[2], 1.0};
- * mul_m4_v4(mat, co_4d);
- * return co_4d[3];
- * \endcode
- */
 MINLINE float mul_project_m4_v3_zfac(const float mat[4][4], const float co[3])
 {
   return (mat[0][3] * co[0]) + (mat[1][3] * co[1]) + (mat[2][3] * co[2]) + mat[3][3];
 }
 
-/**
- * Has the effect of #mul_m3_v3(), on a single axis.
- */
 MINLINE float dot_m3_v3_row_x(const float M[3][3], const float a[3])
 {
   return M[0][0] * a[0] + M[1][0] * a[1] + M[2][0] * a[2];
@@ -660,10 +658,6 @@ MINLINE float dot_m3_v3_row_z(const float M[3][3], const float a[3])
   return M[0][2] * a[0] + M[1][2] * a[1] + M[2][2] * a[2];
 }
 
-/**
- * Has the effect of #mul_mat3_m4_v3(), on a single axis.
- * (no adding translation)
- */
 MINLINE float dot_m4_v3_row_x(const float M[4][4], const float a[3])
 {
   return M[0][0] * a[0] + M[1][0] * a[1] + M[2][0] * a[2];
@@ -704,6 +698,13 @@ MINLINE void madd_v2_v2v2fl(float r[2], const float a[2], const float b[2], floa
 }
 
 MINLINE void madd_v3_v3v3fl(float r[3], const float a[3], const float b[3], float f)
+{
+  r[0] = a[0] + b[0] * f;
+  r[1] = a[1] + b[1] * f;
+  r[2] = a[2] + b[2] * f;
+}
+
+MINLINE void madd_v3_v3v3db_db(double r[3], const double a[3], const double b[3], double f)
 {
   r[0] = a[0] + b[0] * f;
   r[1] = a[1] + b[1] * f;
@@ -798,7 +799,6 @@ MINLINE void negate_v4_v4(float r[4], const float a[4])
   r[3] = -a[3];
 }
 
-/* could add more... */
 MINLINE void negate_v3_short(short r[3])
 {
   r[0] = (short)-r[0];
@@ -826,6 +826,19 @@ MINLINE void invert_v3(float r[3])
   r[0] = 1.0f / r[0];
   r[1] = 1.0f / r[1];
   r[2] = 1.0f / r[2];
+}
+
+MINLINE void invert_v3_safe(float r[3])
+{
+  if (r[0] != 0.0f) {
+    r[0] = 1.0f / r[0];
+  }
+  if (r[1] != 0.0f) {
+    r[1] = 1.0f / r[1];
+  }
+  if (r[2] != 0.0f) {
+    r[2] = 1.0f / r[2];
+  }
 }
 
 MINLINE void abs_v2(float r[2])
@@ -917,6 +930,11 @@ MINLINE float cross_v2v2(const float a[2], const float b[2])
   return a[0] * b[1] - a[1] * b[0];
 }
 
+MINLINE double cross_v2v2_db(const double a[2], const double b[2])
+{
+  return a[0] * b[1] - a[1] * b[0];
+}
+
 MINLINE void cross_v3_v3v3(float r[3], const float a[3], const float b[3])
 {
   BLI_assert(r != a && r != b);
@@ -925,8 +943,6 @@ MINLINE void cross_v3_v3v3(float r[3], const float a[3], const float b[3])
   r[2] = a[0] * b[1] - a[1] * b[0];
 }
 
-/* cross product suffers from severe precision loss when vectors are
- * nearly parallel or opposite; doing the computation in double helps a lot */
 MINLINE void cross_v3_v3v3_hi_prec(float r[3], const float a[3], const float b[3])
 {
   BLI_assert(r != a && r != b);
@@ -943,10 +959,6 @@ MINLINE void cross_v3_v3v3_db(double r[3], const double a[3], const double b[3])
   r[2] = a[0] * b[1] - a[1] * b[0];
 }
 
-/* Newell's Method */
-/* excuse this fairly specific function,
- * its used for polygon normals all over the place
- * could use a better name */
 MINLINE void add_newell_cross_v3_v3v3(float n[3], const float v_prev[3], const float v_curr[3])
 {
   n[0] += (v_prev[1] - v_curr[1]) * (v_prev[2] + v_curr[2]);
@@ -954,7 +966,7 @@ MINLINE void add_newell_cross_v3_v3v3(float n[3], const float v_prev[3], const f
   n[2] += (v_prev[0] - v_curr[0]) * (v_prev[1] + v_curr[1]);
 }
 
-MINLINE void star_m3_v3(float rmat[3][3], float a[3])
+MINLINE void star_m3_v3(float rmat[3][3], const float a[3])
 {
   rmat[0][0] = rmat[1][1] = rmat[2][2] = 0.0;
   rmat[0][1] = -a[2];
@@ -977,6 +989,11 @@ MINLINE float len_squared_v3(const float v[3])
   return v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
 }
 
+MINLINE double len_squared_v3_db(const double v[3])
+{
+  return v[0] * v[0] + v[1] * v[1] + v[2] * v[2];
+}
+
 MINLINE float len_manhattan_v2(const float v[2])
 {
   return fabsf(v[0]) + fabsf(v[1]);
@@ -995,6 +1012,11 @@ MINLINE float len_manhattan_v3(const float v[3])
 MINLINE float len_v2(const float v[2])
 {
   return sqrtf(v[0] * v[0] + v[1] * v[1]);
+}
+
+MINLINE double len_v2_db(const double v[2])
+{
+  return sqrt(v[0] * v[0] + v[1] * v[1]);
 }
 
 MINLINE float len_v2v2(const float v1[2], const float v2[2])
@@ -1027,6 +1049,11 @@ MINLINE float len_v2v2_int(const int v1[2], const int v2[2])
 MINLINE float len_v3(const float a[3])
 {
   return sqrtf(dot_v3v3(a, a));
+}
+
+MINLINE double len_v3_db(const double a[3])
+{
+  return sqrt(dot_v3v3_db(a, a));
 }
 
 MINLINE float len_squared_v2v2(const float a[2], const float b[2])
@@ -1093,6 +1120,19 @@ MINLINE float len_v3v3(const float a[3], const float b[3])
   return len_v3(d);
 }
 
+MINLINE float len_v4(const float a[4])
+{
+  return sqrtf(dot_v4v4(a, a));
+}
+
+MINLINE float len_v4v4(const float a[4], const float b[4])
+{
+  float d[4];
+
+  sub_v4_v4v4(d, b, a);
+  return len_v4(d);
+}
+
 MINLINE float normalize_v2_v2_length(float r[2], const float a[2], const float unit_length)
 {
   float d = dot_v2v2(a, a);
@@ -1102,6 +1142,7 @@ MINLINE float normalize_v2_v2_length(float r[2], const float a[2], const float u
     mul_v2_v2fl(r, a, unit_length / d);
   }
   else {
+    /* Either the vector is small or one of it's values contained `nan`. */
     zero_v2(r);
     d = 0.0f;
   }
@@ -1127,13 +1168,13 @@ MINLINE float normalize_v3_v3_length(float r[3], const float a[3], const float u
 {
   float d = dot_v3v3(a, a);
 
-  /* a larger value causes normalize errors in a
-   * scaled down models with camera extreme close */
+  /* A larger value causes normalize errors in a scaled down models with camera extreme close. */
   if (d > 1.0e-35f) {
     d = sqrtf(d);
     mul_v3_v3fl(r, a, unit_length / d);
   }
   else {
+    /* Either the vector is small or one of it's values contained `nan`. */
     zero_v3(r);
     d = 0.0f;
   }
@@ -1145,7 +1186,29 @@ MINLINE float normalize_v3_v3(float r[3], const float a[3])
   return normalize_v3_v3_length(r, a, 1.0f);
 }
 
-MINLINE double normalize_v3_length_d(double n[3], const double unit_length)
+MINLINE double normalize_v3_v3_length_db(double r[3], const double a[3], double const unit_length)
+{
+  double d = dot_v3v3_db(a, a);
+
+  /* a larger value causes normalize errors in a
+   * scaled down models with camera extreme close */
+  if (d > 1.0e-70) {
+    d = sqrt(d);
+    mul_v3_v3db_db(r, a, unit_length / d);
+  }
+  else {
+    zero_v3_db(r);
+    d = 0.0;
+  }
+
+  return d;
+}
+MINLINE double normalize_v3_v3_db(double r[3], const double a[3])
+{
+  return normalize_v3_v3_length_db(r, a, 1.0);
+}
+
+MINLINE double normalize_v3_length_db(double n[3], const double unit_length)
 {
   double d = n[0] * n[0] + n[1] * n[1] + n[2] * n[2];
 
@@ -1168,9 +1231,9 @@ MINLINE double normalize_v3_length_d(double n[3], const double unit_length)
 
   return d;
 }
-MINLINE double normalize_v3_d(double n[3])
+MINLINE double normalize_v3_db(double n[3])
 {
-  return normalize_v3_length_d(n, 1.0);
+  return normalize_v3_length_db(n, 1.0);
 }
 
 MINLINE float normalize_v3_length(float n[3], const float unit_length)
@@ -1228,14 +1291,30 @@ MINLINE bool is_zero_v4(const float v[4])
   return (v[0] == 0.0f && v[1] == 0.0f && v[2] == 0.0f && v[3] == 0.0f);
 }
 
+MINLINE bool is_zero_v2_db(const double v[2])
+{
+  return (v[0] == 0.0 && v[1] == 0.0);
+}
+
+MINLINE bool is_zero_v3_db(const double v[3])
+{
+  return (v[0] == 0.0 && v[1] == 0.0 && v[2] == 0.0);
+}
+
+MINLINE bool is_zero_v4_db(const double v[4])
+{
+  return (v[0] == 0.0 && v[1] == 0.0 && v[2] == 0.0 && v[3] == 0.0);
+}
+
 MINLINE bool is_one_v3(const float v[3])
 {
   return (v[0] == 1.0f && v[1] == 1.0f && v[2] == 1.0f);
 }
 
+/* -------------------------------------------------------------------- */
 /** \name Vector Comparison
  *
- * \note use ``value <= limit``, so a limit of zero doesn't fail on an exact match.
+ * \note use `value <= limit`, so a limit of zero doesn't fail on an exact match.
  * \{ */
 
 MINLINE bool equals_v2v2(const float v1[2], const float v2[2])
@@ -1256,6 +1335,16 @@ MINLINE bool equals_v4v4(const float v1[4], const float v2[4])
 MINLINE bool equals_v2v2_int(const int v1[2], const int v2[2])
 {
   return ((v1[0] == v2[0]) && (v1[1] == v2[1]));
+}
+
+MINLINE bool equals_v3v3_int(const int v1[3], const int v2[3])
+{
+  return ((v1[0] == v2[0]) && (v1[1] == v2[1]) && (v1[2] == v2[2]));
+}
+
+MINLINE bool equals_v4v4_int(const int v1[4], const int v2[4])
+{
+  return ((v1[0] == v2[0]) && (v1[1] == v2[1]) && (v1[2] == v2[2]) && (v1[3] == v2[3]));
 }
 
 MINLINE bool compare_v2v2(const float v1[2], const float v2[2], const float limit)
@@ -1312,6 +1401,25 @@ MINLINE bool compare_len_v3v3(const float v1[3], const float v2[3], const float 
   return (dot_v3v3(d, d) <= (limit * limit));
 }
 
+MINLINE bool compare_size_v3v3(const float v1[3], const float v2[3], const float limit)
+{
+  for (int i = 0; i < 3; i++) {
+    if (v2[i] == 0.0f) {
+      /* Catch division by zero. */
+      if (v1[i] != v2[i]) {
+        return false;
+      }
+    }
+    else {
+      if (fabsf(v1[i] / v2[i] - 1.0f) > limit) {
+        return false;
+      }
+    }
+  }
+  return true;
+}
+
+/* -------------------------------------------------------------------- */
 /** \name Vector Clamping
  * \{ */
 
@@ -1359,18 +1467,6 @@ MINLINE void clamp_v4_v4v4(float vec[4], const float min[4], const float max[4])
 
 /** \} */
 
-/**
- * <pre>
- *        + l1
- *        |
- * neg <- | -> pos
- *        |
- *        + l2
- * </pre>
- *
- * \return Positive value when 'pt' is left-of-line
- * (looking from 'l1' -> 'l2').
- */
 MINLINE float line_point_side_v2(const float l1[2], const float l2[2], const float pt[2])
 {
   return (((l1[0] - pt[0]) * (l2[1] - pt[1])) - ((l2[0] - pt[0]) * (l1[1] - pt[1])));

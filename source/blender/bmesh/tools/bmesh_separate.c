@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -32,10 +18,6 @@
 #include "bmesh_separate.h" /* own include */
 #include "intern/bmesh_private.h"
 
-/**
- * Split all faces that match `filter_fn`.
- * \note
- */
 void BM_mesh_separate_faces(BMesh *bm, BMFaceFilterFunc filter_fn, void *user_data)
 {
   BMFace **faces_array_all = MEM_mallocN(bm->totface * sizeof(BMFace *), __func__);
@@ -67,7 +49,7 @@ void BM_mesh_separate_faces(BMesh *bm, BMFaceFilterFunc filter_fn, void *user_da
   BMFace **faces_a = faces_array_all;
   BMFace **faces_b = faces_array_all + faces_a_len;
 
-  /* Enable for all  */
+  /* Enable for all. */
   BM_mesh_elem_hflag_enable_all(bm, BM_VERT, BM_ELEM_TAG, false);
 
   /* Disable vert tag on faces_b */

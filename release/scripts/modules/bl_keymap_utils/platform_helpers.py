@@ -1,23 +1,7 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 
-def keyconfig_data_oskey_from_ctrl(keyconfig_data_src, filter_fn=None):
+def keyconfig_data_oskey_from_ctrl(keyconfig_data_src, *, filter_fn=None):
     keyconfig_data_dst = []
     for km_name, km_parms, km_items_data_src in keyconfig_data_src:
         km_items_data_dst = km_items_data_src.copy()
@@ -49,6 +33,7 @@ def keyconfig_data_oskey_from_ctrl_for_macos(keyconfig_data_src):
                     'W',
                     'ACCENT_GRAVE',
                     'PERIOD',
+                    'TAB',
             }):
                 if (not item_event.get("alt")) and (not item_event.get("shift")):
                     return False
@@ -60,4 +45,4 @@ def keyconfig_data_oskey_from_ctrl_for_macos(keyconfig_data_src):
                     return False
         return True
 
-    return keyconfig_data_oskey_from_ctrl(keyconfig_data_src, filter_fn)
+    return keyconfig_data_oskey_from_ctrl(keyconfig_data_src, filter_fn=filter_fn)

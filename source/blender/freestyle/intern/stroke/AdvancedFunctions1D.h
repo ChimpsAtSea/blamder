@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_ADVANCED_FUNCTIONS_1D_H__
-#define __FREESTYLE_ADVANCED_FUNCTIONS_1D_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -36,7 +21,7 @@ namespace Freestyle {
 namespace Functions1D {
 
 // DensityF1D
-/*! Returns the density evaluated for an Interface1D.
+/** Returns the density evaluated for an Interface1D.
  *  The density is evaluated for a set of points along the Interface1D (using the DensityF0D
  * functor) with a user-defined sampling and then integrated into a single value using a
  * user-defined integration method.
@@ -46,7 +31,7 @@ class DensityF1D : public UnaryFunction1D<double> {
   float _sampling;
 
  public:
-  /*! Builds the functor.
+  /** Builds the functor.
    *  \param sigma:
    *    Thesigma used in DensityF0D and determining the window size used in each density query.
    *  \param iType:
@@ -62,18 +47,18 @@ class DensityF1D : public UnaryFunction1D<double> {
     _sampling = sampling;
   }
 
-  /*! Destructor */
+  /** Destructor */
   virtual ~DensityF1D()
   {
   }
 
-  /*! Returns the string "DensityF1D"*/
+  /** Returns the string "DensityF1D". */
   string getName() const
   {
     return "DensityF1D";
   }
 
-  /*! the () operator.*/
+  /** the () operator. */
   int operator()(Interface1D &inter)
   {
     result = integrate(
@@ -86,14 +71,14 @@ class DensityF1D : public UnaryFunction1D<double> {
 };
 
 // LocalAverageDepthF1D
-/*! Returns the average depth evaluated for an Interface1D.
+/** Returns the average depth evaluated for an Interface1D.
  *  The average depth is evaluated for a set of points along the Interface1D (using the
  * LocalAverageDepthF0D functor) with a user-defined sampling and then integrated into a single
  * value using a user-defined integration method.
  */
 class LocalAverageDepthF1D : public UnaryFunction1D<double> {
  public:
-  /*! Builds the functor.
+  /** Builds the functor.
    *  \param sigma:
    *    The sigma used in DensityF0D and determining the window size used in each density query.
    *  \param iType:
@@ -104,13 +89,13 @@ class LocalAverageDepthF1D : public UnaryFunction1D<double> {
   {
   }
 
-  /*! Returns the string "LocalAverageDepthF1D" */
+  /** Returns the string "LocalAverageDepthF1D" */
   string getName() const
   {
     return "LocalAverageDepthF1D";
   }
 
-  /*! the () operator. */
+  /** the () operator. */
   int operator()(Interface1D &inter)
   {
     result = integrate(_fun, inter.verticesBegin(), inter.verticesEnd(), _integration);
@@ -122,14 +107,14 @@ class LocalAverageDepthF1D : public UnaryFunction1D<double> {
 };
 
 // GetCompleteViewMapDensity
-/*! Returns the density evaluated for an Interface1D in the complete viewmap image.
+/** Returns the density evaluated for an Interface1D in the complete viewmap image.
  *  The density is evaluated for a set of points along the Interface1D (using the
  * ReadCompleteViewMapPixelF0D functor) and then integrated into a single value using a
  * user-defined integration method.
  */
 class GetCompleteViewMapDensityF1D : public UnaryFunction1D<double> {
  public:
-  /*! Builds the functor.
+  /** Builds the functor.
    *  \param level:
    *    The level of the pyramid from which
    *    the pixel must be read.
@@ -148,13 +133,13 @@ class GetCompleteViewMapDensityF1D : public UnaryFunction1D<double> {
     _sampling = sampling;
   }
 
-  /*! Returns the string "GetCompleteViewMapDensityF1D" */
+  /** Returns the string "GetCompleteViewMapDensityF1D" */
   string getName() const
   {
     return "GetCompleteViewMapDensityF1D";
   }
 
-  /*! the () operator. */
+  /** the () operator. */
   int operator()(Interface1D &inter);
 
  private:
@@ -163,7 +148,7 @@ class GetCompleteViewMapDensityF1D : public UnaryFunction1D<double> {
 };
 
 // GetDirectionalViewMapDensity
-/*! Returns the density evaluated for an Interface1D in of the steerable viewmaps image.
+/** Returns the density evaluated for an Interface1D in of the steerable viewmaps image.
  *  The direction telling which Directional map to choose is explicitly specified by the user.
  *  The density is evaluated for a set of points along the Interface1D
  *  (using the ReadSteerableViewMapPixelF0D functor)
@@ -171,7 +156,7 @@ class GetCompleteViewMapDensityF1D : public UnaryFunction1D<double> {
  */
 class GetDirectionalViewMapDensityF1D : public UnaryFunction1D<double> {
  public:
-  /*! Builds the functor.
+  /** Builds the functor.
    *  \param iOrientation:
    *    The number of the directional map we must work with.
    *  \param level:
@@ -192,13 +177,13 @@ class GetDirectionalViewMapDensityF1D : public UnaryFunction1D<double> {
     _sampling = sampling;
   }
 
-  /*! Returns the string "GetDirectionalViewMapDensityF1D" */
+  /** Returns the string "GetDirectionalViewMapDensityF1D" */
   string getName() const
   {
     return "GetDirectionalViewMapDensityF1D";
   }
 
-  /*! the () operator. */
+  /** the () operator. */
   int operator()(Interface1D &inter);
 
  private:
@@ -207,7 +192,7 @@ class GetDirectionalViewMapDensityF1D : public UnaryFunction1D<double> {
 };
 
 // GetSteerableViewMapDensityF1D
-/*! Returns the density of the viewmap for a given Interface1D. The density of each FEdge is
+/** Returns the density of the viewmap for a given Interface1D. The density of each FEdge is
  * evaluated in the proper steerable ViewMap depending on its orientation.
  */
 class GetSteerableViewMapDensityF1D : public UnaryFunction1D<double> {
@@ -216,7 +201,7 @@ class GetSteerableViewMapDensityF1D : public UnaryFunction1D<double> {
   float _sampling;
 
  public:
-  /*! Builds the functor from the level of the pyramid from which the pixel must be read.
+  /** Builds the functor from the level of the pyramid from which the pixel must be read.
    *  \param level:
    *    The level of the pyramid from which the pixel must be read.
    *  \param iType:
@@ -233,23 +218,23 @@ class GetSteerableViewMapDensityF1D : public UnaryFunction1D<double> {
     _sampling = sampling;
   }
 
-  /*! Destructor */
+  /** Destructor */
   virtual ~GetSteerableViewMapDensityF1D()
   {
   }
 
-  /*! Returns the string "GetSteerableViewMapDensityF1D" */
+  /** Returns the string "GetSteerableViewMapDensityF1D" */
   string getName() const
   {
     return "GetSteerableViewMapDensityF1D";
   }
 
-  /*! the () operator. */
+  /** the () operator. */
   int operator()(Interface1D &inter);
 };
 
 // GetViewMapGradientNormF1D
-/*! Returns the density of the viewmap for a given Interface1D. The density of each FEdge is
+/** Returns the density of the viewmap for a given Interface1D. The density of each FEdge is
  * evaluated in the proper steerable ViewMap depending on its orientation.
  */
 class GetViewMapGradientNormF1D : public UnaryFunction1D<double> {
@@ -259,7 +244,7 @@ class GetViewMapGradientNormF1D : public UnaryFunction1D<double> {
   Functions0D::GetViewMapGradientNormF0D _func;
 
  public:
-  /*! Builds the functor from the level of the pyramid from which the pixel must be read.
+  /** Builds the functor from the level of the pyramid from which the pixel must be read.
    *  \param level:
    *    The level of the pyramid from which the pixel must be read.
    *  \param iType:
@@ -276,18 +261,16 @@ class GetViewMapGradientNormF1D : public UnaryFunction1D<double> {
     _sampling = sampling;
   }
 
-  /*! Returns the string "GetSteerableViewMapDensityF1D" */
+  /** Returns the string "GetSteerableViewMapDensityF1D" */
   string getName() const
   {
     return "GetViewMapGradientNormF1D";
   }
 
-  /*! the () operator. */
+  /** the () operator. */
   int operator()(Interface1D &inter);
 };
 
 }  // end of namespace Functions1D
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_ADVANCED_FUNCTIONS_1D_H__

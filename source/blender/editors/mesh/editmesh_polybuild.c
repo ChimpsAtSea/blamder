@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edmesh
@@ -154,8 +140,12 @@ static int edbm_polybuild_transform_at_cursor_invoke(bContext *C,
     BM_face_select_set(bm, (BMFace *)ele_act, true);
   }
 
-  EDBM_mesh_normals_update(em);
-  EDBM_update_generic(vc.obedit->data, true, true);
+  EDBM_update(vc.obedit->data,
+              &(const struct EDBMUpdate_Params){
+                  .calc_looptri = true,
+                  .calc_normals = true,
+                  .is_destructive = true,
+              });
   if (basact != NULL) {
     if (vc.view_layer->basact != basact) {
       ED_object_base_activate(C, basact);
@@ -237,8 +227,12 @@ static int edbm_polybuild_delete_at_cursor_invoke(bContext *C,
   }
 
   if (changed) {
-    EDBM_mesh_normals_update(em);
-    EDBM_update_generic(vc.obedit->data, true, true);
+    EDBM_update(vc.obedit->data,
+                &(const struct EDBMUpdate_Params){
+                    .calc_looptri = true,
+                    .calc_normals = true,
+                    .is_destructive = true,
+                });
     if (basact != NULL) {
       if (vc.view_layer->basact != basact) {
         ED_object_base_activate(C, basact);
@@ -247,9 +241,7 @@ static int edbm_polybuild_delete_at_cursor_invoke(bContext *C,
     WM_event_add_mousemove(vc.win);
     return OPERATOR_FINISHED;
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return OPERATOR_CANCELLED;
 }
 
 void MESH_OT_polybuild_delete_at_cursor(wmOperatorType *ot)
@@ -402,8 +394,12 @@ static int edbm_polybuild_face_at_cursor_invoke(bContext *C, wmOperator *op, con
   }
 
   if (changed) {
-    EDBM_mesh_normals_update(em);
-    EDBM_update_generic(vc.obedit->data, true, true);
+    EDBM_update(vc.obedit->data,
+                &(const struct EDBMUpdate_Params){
+                    .calc_looptri = true,
+                    .calc_normals = true,
+                    .is_destructive = true,
+                });
 
     if (basact != NULL) {
       if (vc.view_layer->basact != basact) {
@@ -415,9 +411,7 @@ static int edbm_polybuild_face_at_cursor_invoke(bContext *C, wmOperator *op, con
 
     return OPERATOR_FINISHED;
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return OPERATOR_CANCELLED;
 }
 
 void MESH_OT_polybuild_face_at_cursor(wmOperatorType *ot)
@@ -470,7 +464,7 @@ static int edbm_polybuild_split_at_cursor_invoke(bContext *C,
   if (ele_act == NULL || ele_act->head.hflag == BM_FACE) {
     return OPERATOR_PASS_THROUGH;
   }
-  else if (ele_act->head.htype == BM_EDGE) {
+  if (ele_act->head.htype == BM_EDGE) {
     BMEdge *e_act = (BMEdge *)ele_act;
     mid_v3_v3v3(center, e_act->v1->co, e_act->v2->co);
     mul_m4_v3(vc.obedit->obmat, center);
@@ -492,8 +486,12 @@ static int edbm_polybuild_split_at_cursor_invoke(bContext *C,
   }
 
   if (changed) {
-    EDBM_mesh_normals_update(em);
-    EDBM_update_generic(vc.obedit->data, true, true);
+    EDBM_update(vc.obedit->data,
+                &(const struct EDBMUpdate_Params){
+                    .calc_looptri = true,
+                    .calc_normals = true,
+                    .is_destructive = true,
+                });
 
     WM_event_add_mousemove(vc.win);
 
@@ -503,9 +501,7 @@ static int edbm_polybuild_split_at_cursor_invoke(bContext *C,
 
     return OPERATOR_FINISHED;
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return OPERATOR_CANCELLED;
 }
 
 void MESH_OT_polybuild_split_at_cursor(wmOperatorType *ot)
@@ -529,7 +525,6 @@ void MESH_OT_polybuild_split_at_cursor(wmOperatorType *ot)
 
 /* -------------------------------------------------------------------- */
 /** \name Dissolve at Cursor
- *
  * \{ */
 
 static int edbm_polybuild_dissolve_at_cursor_invoke(bContext *C,
@@ -566,7 +561,7 @@ static int edbm_polybuild_dissolve_at_cursor_invoke(bContext *C,
     else {
       /* too involved to do inline */
 
-      /* Avoid using selection so failure wont leave modified state. */
+      /* Avoid using selection so failure won't leave modified state. */
       EDBM_flag_disable_all(em, BM_ELEM_TAG);
       BM_elem_flag_enable(v_act, BM_ELEM_TAG);
 
@@ -585,8 +580,12 @@ static int edbm_polybuild_dissolve_at_cursor_invoke(bContext *C,
   if (changed) {
     edbm_flag_disable_all_multi(vc.view_layer, vc.v3d, BM_ELEM_SELECT);
 
-    EDBM_mesh_normals_update(em);
-    EDBM_update_generic(vc.obedit->data, true, true);
+    EDBM_update(vc.obedit->data,
+                &(const struct EDBMUpdate_Params){
+                    .calc_looptri = true,
+                    .calc_normals = true,
+                    .is_destructive = true,
+                });
 
     if (vc.view_layer->basact != basact) {
       ED_object_base_activate(C, basact);
@@ -596,9 +595,7 @@ static int edbm_polybuild_dissolve_at_cursor_invoke(bContext *C,
 
     return OPERATOR_FINISHED;
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return OPERATOR_CANCELLED;
 }
 
 void MESH_OT_polybuild_dissolve_at_cursor(wmOperatorType *ot)

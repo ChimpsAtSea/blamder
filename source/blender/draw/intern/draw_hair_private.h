@@ -1,33 +1,25 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2017 by Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2017 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup draw
  */
 
-#ifndef __DRAW_HAIR_PRIVATE_H__
-#define __DRAW_HAIR_PRIVATE_H__
+#pragma once
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #define MAX_LAYER_NAME_CT 4 /* u0123456789, u, au, a0123456789 */
-#define MAX_LAYER_NAME_LEN GPU_MAX_SAFE_ATTR_NAME + 2
+#define MAX_LAYER_NAME_LEN (GPU_MAX_SAFE_ATTR_NAME + 2)
 #define MAX_THICKRES 2    /* see eHairType */
 #define MAX_HAIR_SUBDIV 4 /* see hair_subdiv rna */
+
+typedef enum ParticleRefineShader {
+  PART_REFINE_CATMULL_ROM = 0,
+  PART_REFINE_MAX_SHADER,
+} ParticleRefineShader;
 
 struct ModifierData;
 struct Object;
@@ -58,6 +50,10 @@ typedef struct ParticleHairCache {
   GPUVertBuf *proc_strand_buf;
   GPUTexture *strand_tex;
 
+  /* Hair Length */
+  GPUVertBuf *proc_length_buf;
+  GPUTexture *length_tex;
+
   GPUVertBuf *proc_strand_seg_buf;
   GPUTexture *strand_seg_tex;
 
@@ -65,9 +61,9 @@ typedef struct ParticleHairCache {
   GPUTexture *uv_tex[MAX_MTFACE];
   char uv_layer_names[MAX_MTFACE][MAX_LAYER_NAME_CT][MAX_LAYER_NAME_LEN];
 
-  GPUVertBuf *proc_col_buf[MAX_MCOL];
-  GPUTexture *col_tex[MAX_MCOL];
-  char col_layer_names[MAX_MCOL][MAX_LAYER_NAME_CT][MAX_LAYER_NAME_LEN];
+  GPUVertBuf **proc_col_buf;
+  GPUTexture **col_tex;
+  char (*col_layer_names)[MAX_LAYER_NAME_CT][MAX_LAYER_NAME_LEN];
 
   int num_uv_layers;
   int num_col_layers;
@@ -79,18 +75,17 @@ typedef struct ParticleHairCache {
   int point_len;
 } ParticleHairCache;
 
-void particle_batch_cache_clear_hair(struct ParticleHairCache *hair_cache);
-
+/**
+ * Ensure all textures and buffers needed for GPU accelerated drawing.
+ */
 bool particles_ensure_procedural_data(struct Object *object,
                                       struct ParticleSystem *psys,
                                       struct ModifierData *md,
                                       struct ParticleHairCache **r_hair_cache,
+                                      struct GPUMaterial *gpu_material,
                                       int subdiv,
                                       int thickness_res);
 
-bool hair_ensure_procedural_data(struct Object *object,
-                                 struct ParticleHairCache **r_hair_cache,
-                                 int subdiv,
-                                 int thickness_res);
-
-#endif /* __DRAW_HAIR_PRIVATE_H__ */
+#ifdef __cplusplus
+}
+#endif

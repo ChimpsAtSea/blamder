@@ -1,24 +1,8 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
- * \ingroup MEM
+ * \ingroup intern_mem
  *
  * \brief Read \ref MEMPage
  *
@@ -39,8 +23,8 @@
  * second intern/ module with MEM_ prefix, for use in c++.
  *
  * \subsection memdependencies Dependencies
- * - stdlib
- * - stdio
+ * - `stdlib`
+ * - `stdio`
  *
  * \subsection memdocs API Documentation
  * See \ref MEM_guardedalloc.h
@@ -49,9 +33,7 @@
 #ifndef __MEM_GUARDEDALLOC_H__
 #define __MEM_GUARDEDALLOC_H__
 
-#include <stdio.h> /* needed for FILE* */
-
-/* needed for uintptr_t and attributes, exception, dont use BLI anywhere else in MEM_* */
+/* Needed for uintptr_t and attributes, exception, don't use BLI anywhere else in `MEM_*` */
 #include "../../source/blender/blenlib/BLI_compiler_attrs.h"
 #include "../../source/blender/blenlib/BLI_sys_types.h"
 
@@ -59,9 +41,11 @@
 extern "C" {
 #endif
 
-/** Returns the length of the allocated memory segment pointed at
+/**
+ * Returns the length of the allocated memory segment pointed at
  * by vmemh. If the pointer was not previously allocated by this
- * module, the result is undefined.*/
+ * module, the result is undefined.
+ */
 extern size_t (*MEM_allocN_len)(const void *vmemh) ATTR_WARN_UNUSED_RESULT;
 
 /**
@@ -71,14 +55,15 @@ extern void (*MEM_freeN)(void *vmemh);
 
 #if 0 /* UNUSED */
 /**
-   * Return zero if memory is not in allocated list
-   */
+ * Return zero if memory is not in allocated list
+ */
 extern short (*MEM_testN)(void *vmemh);
 #endif
 
 /**
  * Duplicates a block of memory, and returns a pointer to the
- * newly allocated block.  */
+ * newly allocated block.
+ * NULL-safe; will return NULL when receiving a NULL pointer. */
 extern void *(*MEM_dupallocN)(const void *vmemh) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT;
 
 /**
@@ -105,7 +90,8 @@ extern void *(*MEM_recallocN_id)(void *vmemh,
 /**
  * Allocate a block of memory of size len, with tag name str. The
  * memory is cleared. The name must be static, because only a
- * pointer to it is stored ! */
+ * pointer to it is stored!
+ */
 extern void *(*MEM_callocN)(size_t len, const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(2);
 
@@ -122,7 +108,7 @@ extern void *(*MEM_calloc_arrayN)(size_t len,
 /**
  * Allocate a block of memory of size len, with tag name str. The
  * name must be a static, because only a pointer to it is stored !
- * */
+ */
 extern void *(*MEM_mallocN)(size_t len, const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(2);
 
@@ -130,7 +116,7 @@ extern void *(*MEM_mallocN)(size_t len, const char *str) /* ATTR_MALLOC */ ATTR_
  * Allocate a block of memory of size (len * size), with tag name str,
  * aborting in case of integer overflow to prevent vulnerabilities. The
  * name must be a static, because only a pointer to it is stored !
- * */
+ */
 extern void *(*MEM_malloc_arrayN)(size_t len,
                                   size_t size,
                                   const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
@@ -139,18 +125,21 @@ extern void *(*MEM_malloc_arrayN)(size_t len,
 /**
  * Allocate an aligned block of memory of size len, with tag name str. The
  * name must be a static, because only a pointer to it is stored !
- * */
+ */
 extern void *(*MEM_mallocN_aligned)(size_t len,
                                     size_t alignment,
                                     const char *str) /* ATTR_MALLOC */ ATTR_WARN_UNUSED_RESULT
     ATTR_ALLOC_SIZE(1) ATTR_NONNULL(3);
 
-/** Print a list of the names and sizes of all allocated memory
- * blocks. as a python dict for easy investigation */
+/**
+ * Print a list of the names and sizes of all allocated memory
+ * blocks. as a python dict for easy investigation.
+ */
 extern void (*MEM_printmemlist_pydict)(void);
 
-/** Print a list of the names and sizes of all allocated memory
- * blocks. */
+/**
+ * Print a list of the names and sizes of all allocated memory blocks.
+ */
 extern void (*MEM_printmemlist)(void);
 
 /** calls the function on all allocated memory blocks. */
@@ -165,7 +154,8 @@ extern void (*MEM_set_error_callback)(void (*func)(const char *));
 /**
  * Are the start/end block markers still correct ?
  *
- * @retval true for correct memory, false for corrupted memory. */
+ * \retval true for correct memory, false for corrupted memory.
+ */
 extern bool (*MEM_consistency_check)(void);
 
 /** Attempt to enforce OSX (or other OS's) to have malloc and stack nonzero */
@@ -187,7 +177,8 @@ extern size_t (*MEM_get_peak_memory)(void) ATTR_WARN_UNUSED_RESULT;
     do { \
       typeof(&(v)) _v = &(v); \
       if (*_v) { \
-        MEM_freeN(*_v); \
+        /* Cast so we can free constant arrays. */ \
+        MEM_freeN((void *)*_v); \
         *_v = NULL; \
       } \
     } while (0)
@@ -210,7 +201,41 @@ extern size_t (*MEM_get_peak_memory)(void) ATTR_WARN_UNUSED_RESULT;
 extern const char *(*MEM_name_ptr)(void *vmemh);
 #endif
 
-/* Switch allocator to slower but fully guarded mode. */
+/**
+ * This should be called as early as possible in the program. When it has been called, information
+ * about memory leaks will be printed on exit.
+ */
+void MEM_init_memleak_detection(void);
+
+/**
+ * Use this if we want to call #exit during argument parsing for example,
+ * without having to free all data.
+ */
+void MEM_use_memleak_detection(bool enabled);
+
+/**
+ * When this has been called and memory leaks have been detected, the process will have an exit
+ * code that indicates failure. This can be used for when checking for memory leaks with automated
+ * tests.
+ */
+void MEM_enable_fail_on_memleak(void);
+
+/* Switch allocator to fast mode, with less tracking.
+ *
+ * Use in the production code where performance is the priority, and exact details about allocation
+ * is not. This allocator keeps track of number of allocation and amount of allocated bytes, but it
+ * does not track of names of allocated blocks.
+ *
+ * NOTE: The switch between allocator types can only happen before any allocation did happen. */
+void MEM_use_lockfree_allocator(void);
+
+/* Switch allocator to slow fully guarded mode.
+ *
+ * Use for debug purposes. This allocator contains lock section around every allocator call, which
+ * makes it slow. What is gained with this is the ability to have list of allocated blocks (in an
+ * addition to the tracking of number of allocations and amount of allocated bytes).
+ *
+ * NOTE: The switch between allocator types can only happen before any allocation did happen. */
 void MEM_use_guarded_allocator(void);
 
 #ifdef __cplusplus
@@ -218,7 +243,75 @@ void MEM_use_guarded_allocator(void);
 #endif /* __cplusplus */
 
 #ifdef __cplusplus
-/* alloc funcs for C++ only */
+
+#  include <new>
+#  include <type_traits>
+#  include <utility>
+
+/**
+ * Allocate new memory for and constructs an object of type #T.
+ * #MEM_delete should be used to delete the object. Just calling #MEM_freeN is not enough when #T
+ * is not a trivial type.
+ *
+ * Note that when no arguments are passed, C++ will do recursive member-wise value initialization.
+ * That is because C++ differentiates between creating an object with `T` (default initialization)
+ * and `T()` (value initialization), whereby this function does the latter. Value initialization
+ * rules are complex, but for C-style structs, memory will be zero-initialized. So this doesn't
+ * match a `malloc()`, but a `calloc()` call in this case. See https://stackoverflow.com/a/4982720.
+ */
+template<typename T, typename... Args>
+inline T *MEM_new(const char *allocation_name, Args &&...args)
+{
+  void *buffer = MEM_mallocN(sizeof(T), allocation_name);
+  return new (buffer) T(std::forward<Args>(args)...);
+}
+
+/**
+ * Allocates zero-initialized memory for an object of type #T. The constructor of #T is not called,
+ * therefor this should only used with trivial types (like all C types).
+ * It's valid to call #MEM_freeN on a pointer returned by this, because a destructor call is not
+ * necessary, because the type is trivial.
+ */
+template<typename T> inline T *MEM_cnew(const char *allocation_name)
+{
+  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new should be used.");
+  return static_cast<T *>(MEM_callocN(sizeof(T), allocation_name));
+}
+
+/**
+ * Allocate memory for an object of type #T and copy construct an object from `other`.
+ * Only applicable for a trivial types.
+ *
+ * This function works around problem of copy-constructing DNA structs which contains deprecated
+ * fields: some compilers will generate access deprecated field in implicitly defined copy
+ * constructors.
+ *
+ * This is a better alternative to #MEM_dupallocN.
+ */
+template<typename T> inline T *MEM_cnew(const char *allocation_name, const T &other)
+{
+  static_assert(std::is_trivial_v<T>, "For non-trivial types, MEM_new should be used.");
+  T *new_object = static_cast<T *>(MEM_mallocN(sizeof(T), allocation_name));
+  memcpy(new_object, &other, sizeof(T));
+  return new_object;
+}
+
+/**
+ * Destructs and deallocates an object previously allocated with any `MEM_*` function.
+ * Passing in null does nothing.
+ */
+template<typename T> inline void MEM_delete(const T *ptr)
+{
+  if (ptr == nullptr) {
+    /* Support #ptr being null, because C++ `delete` supports that as well. */
+    return;
+  }
+  /* C++ allows destruction of const objects, so the pointer is allowed to be const. */
+  ptr->~T();
+  MEM_freeN(const_cast<T *>(ptr));
+}
+
+/* Allocation functions (for C++ only). */
 #  define MEM_CXX_CLASS_ALLOC_FUNCS(_id) \
    public: \
     void *operator new(size_t num_bytes) \
@@ -227,8 +320,9 @@ void MEM_use_guarded_allocator(void);
     } \
     void operator delete(void *mem) \
     { \
-      if (mem) \
+      if (mem) { \
         MEM_freeN(mem); \
+      } \
     } \
     void *operator new[](size_t num_bytes) \
     { \
@@ -236,40 +330,20 @@ void MEM_use_guarded_allocator(void);
     } \
     void operator delete[](void *mem) \
     { \
-      if (mem) \
+      if (mem) { \
         MEM_freeN(mem); \
+      } \
+    } \
+    void *operator new(size_t /*count*/, void *ptr) \
+    { \
+      return ptr; \
+    } \
+    /* This is the matching delete operator to the placement-new operator above. Both parameters \
+     * will have the same value. Without this, we get the warning C4291 on windows. */ \
+    void operator delete(void * /*ptr_to_free*/, void * /*ptr*/) \
+    { \
     }
 
-/* Needed when type includes a namespace, then the namespace should not be
- * specified after ~, so using a macro fails. */
-template<class T> inline void OBJECT_GUARDED_DESTRUCTOR(T *what)
-{
-  what->~T();
-}
-
-#  if defined __GNUC__
-#    define OBJECT_GUARDED_NEW(type, args...) new (MEM_mallocN(sizeof(type), __func__)) type(args)
-#  else
-#    define OBJECT_GUARDED_NEW(type, ...) \
-      new (MEM_mallocN(sizeof(type), __FUNCTION__)) type(__VA_ARGS__)
-#  endif
-#  define OBJECT_GUARDED_DELETE(what, type) \
-    { \
-      if (what) { \
-        OBJECT_GUARDED_DESTRUCTOR((type *)what); \
-        MEM_freeN(what); \
-      } \
-    } \
-    (void)0
-#  define OBJECT_GUARDED_SAFE_DELETE(what, type) \
-    { \
-      if (what) { \
-        OBJECT_GUARDED_DESTRUCTOR((type *)what); \
-        MEM_freeN(what); \
-        what = NULL; \
-      } \
-    } \
-    (void)0
 #endif /* __cplusplus */
 
 #endif /* __MEM_GUARDEDALLOC_H__ */

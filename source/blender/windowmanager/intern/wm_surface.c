@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup wm
@@ -45,17 +31,33 @@ static wmSurface *g_drawable = NULL;
 
 void wm_surfaces_iter(bContext *C, void (*cb)(bContext *C, wmSurface *))
 {
-  LISTBASE_FOREACH (wmSurface *, surf, &global_surface_list) {
+  /* Mutable iterator in case a surface is freed. */
+  LISTBASE_FOREACH_MUTABLE (wmSurface *, surf, &global_surface_list) {
     cb(C, surf);
   }
+}
+
+static void wm_surface_do_depsgraph_fn(bContext *C, wmSurface *surface)
+{
+  if (surface->do_depsgraph) {
+    surface->do_depsgraph(C);
+  }
+}
+
+void wm_surfaces_do_depsgraph(bContext *C)
+{
+  wm_surfaces_iter(C, wm_surface_do_depsgraph_fn);
 }
 
 void wm_surface_clear_drawable(void)
 {
   if (g_drawable) {
-    BLF_batch_reset();
-    gpu_batch_presets_reset();
-    immDeactivate();
+    WM_opengl_context_release(g_drawable->ghost_ctx);
+    GPU_context_active_set(NULL);
+
+    if (g_drawable->deactivate) {
+      g_drawable->deactivate();
+    }
 
     g_drawable = NULL;
   }
@@ -67,16 +69,18 @@ void wm_surface_set_drawable(wmSurface *surface, bool activate)
 
   g_drawable = surface;
   if (activate) {
-    GHOST_ActivateOpenGLContext(surface->ghost_ctx);
+    if (surface->activate) {
+      surface->activate();
+    }
+    WM_opengl_context_activate(surface->ghost_ctx);
   }
 
   GPU_context_active_set(surface->gpu_ctx);
-  immActivate();
 }
 
 void wm_surface_make_drawable(wmSurface *surface)
 {
-  BLI_assert(GPU_framebuffer_active_get() == NULL);
+  BLI_assert(GPU_framebuffer_active_get() == GPU_framebuffer_back_get());
 
   if (surface != g_drawable) {
     wm_surface_clear_drawable();
@@ -87,7 +91,7 @@ void wm_surface_make_drawable(wmSurface *surface)
 void wm_surface_reset_drawable(void)
 {
   BLI_assert(BLI_thread_is_main());
-  BLI_assert(GPU_framebuffer_active_get() == NULL);
+  BLI_assert(GPU_framebuffer_active_get() == GPU_framebuffer_back_get());
 
   if (g_drawable) {
     wm_surface_clear_drawable();
@@ -102,6 +106,9 @@ void wm_surface_add(wmSurface *surface)
 
 void wm_surface_remove(wmSurface *surface)
 {
+  if (surface == g_drawable) {
+    wm_surface_clear_drawable();
+  }
   BLI_remlink(&global_surface_list, surface);
   surface->free_data(surface);
   MEM_freeN(surface);
@@ -109,8 +116,9 @@ void wm_surface_remove(wmSurface *surface)
 
 void wm_surfaces_free(void)
 {
-  for (wmSurface *surf = global_surface_list.first, *surf_next; surf; surf = surf_next) {
-    surf_next = surf->next;
+  wm_surface_clear_drawable();
+
+  LISTBASE_FOREACH_MUTABLE (wmSurface *, surf, &global_surface_list) {
     wm_surface_remove(surf);
   }
 

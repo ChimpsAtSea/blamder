@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -381,7 +367,7 @@ void bmo_extrude_face_region_exec(BMesh *bm, BMOperator *op)
 
   /* calculate verts to delete */
   BM_ITER_MESH (v, &iter, bm, BM_VERTS_OF_MESH) {
-    if (v->e) { /* only deal with verts attached to geometry [#33651] */
+    if (v->e) { /* only deal with verts attached to geometry T33651. */
       found = false;
 
       BM_ITER_ELEM (e, &viter, v, BM_EDGES_OF_VERT) {
@@ -459,8 +445,10 @@ void bmo_extrude_face_region_exec(BMesh *bm, BMOperator *op)
     }
 
     /* Allocate array to store possible vertices that will be dissolved. */
-    int boundary_verts_len = BMO_slot_map_count(dupeop.slots_out, "boundary_map.out");
-    dissolve_verts = MEM_mallocN((size_t)boundary_verts_len * sizeof(*dissolve_verts), __func__);
+    int boundary_edges_len = BMO_slot_map_len(dupeop.slots_out, "boundary_map.out");
+    /* We do not know the real number of boundary vertices. */
+    int boundary_verts_len_maybe = 2 * boundary_edges_len;
+    dissolve_verts = MEM_mallocN(boundary_verts_len_maybe * sizeof(*dissolve_verts), __func__);
   }
 
   BMO_slot_copy(&dupeop, slots_out, "geom.out", op, slots_out, "geom.out");
@@ -478,10 +466,10 @@ void bmo_extrude_face_region_exec(BMesh *bm, BMOperator *op)
       BMVert *v1 = e->v1, *v2 = e->v2;
 
       /* The original edge was excluded,
-       * this would result in a standalone wire edge - see [#30399] */
+       * this would result in a standalone wire edge - see T30399. */
       BM_edge_kill(bm, e);
 
-      /* kill standalone vertices from this edge - see [#32341] */
+      /* kill standalone vertices from this edge - see T32341. */
       if (!v1->e) {
         BM_vert_kill(bm, v1);
       }
@@ -492,7 +480,7 @@ void bmo_extrude_face_region_exec(BMesh *bm, BMOperator *op)
       continue;
     }
 
-    /* skip creating face for excluded edges see [#35503] */
+    /* skip creating face for excluded edges see T35503. */
     if (BMO_slot_map_contains(slot_edges_exclude, e)) {
       /* simply skip creating the face */
       continue;
@@ -572,6 +560,7 @@ void bmo_extrude_face_region_exec(BMesh *bm, BMOperator *op)
     f = BM_face_create_verts(bm, f_verts, 4, NULL, BM_CREATE_NOP, true);
 #endif
 
+    bm_extrude_copy_face_loop_attributes(bm, f);
     if (join_face) {
       BMVert *v1 = e->v1;
       BMVert *v2 = e->v2;
@@ -583,10 +572,10 @@ void bmo_extrude_face_region_exec(BMesh *bm, BMOperator *op)
         BMO_elem_flag_enable(bm, v2, EXT_TAG);
         dissolve_verts[dissolve_verts_len++] = v2;
       }
+      /* Tag the edges that can collapse. */
+      BMO_elem_flag_enable(bm, f_edges[0], EXT_TAG);
+      BMO_elem_flag_enable(bm, f_edges[1], EXT_TAG);
       bmesh_kernel_join_face_kill_edge(bm, join_face, f, e);
-    }
-    else {
-      bm_extrude_copy_face_loop_attributes(bm, f);
     }
   }
 
@@ -612,8 +601,8 @@ void bmo_extrude_face_region_exec(BMesh *bm, BMOperator *op)
       e = v->e;
       BMEdge *e_other = BM_DISK_EDGE_NEXT(e, v);
       if ((e_other == e) || (BM_DISK_EDGE_NEXT(e_other, v) == e)) {
-        /* Lose edge or BMVert is edge pair. */
-        BM_edge_collapse(bm, e, v, true, false);
+        /* Loose edge or BMVert is edge pair. */
+        BM_edge_collapse(bm, BMO_elem_flag_test(bm, e, EXT_TAG) ? e : e_other, v, true, true);
       }
       else {
         BLI_assert(!BM_vert_is_edge_pair(v));

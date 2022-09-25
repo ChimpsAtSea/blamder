@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 by the Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup modifiers
@@ -25,6 +9,7 @@
 
 #include "MEM_guardedalloc.h"
 
+#include "BLI_task.h"
 #include "BLI_utildefines.h"
 
 #include "BLT_translation.h"
@@ -48,6 +33,7 @@
 #include "UI_resources.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "DEG_depsgraph.h"
 #include "DEG_depsgraph_build.h"
@@ -59,13 +45,13 @@
 
 static void initData(ModifierData *md)
 {
-  FluidModifierData *mmd = (FluidModifierData *)md;
+  FluidModifierData *fmd = (FluidModifierData *)md;
 
-  mmd->domain = NULL;
-  mmd->flow = NULL;
-  mmd->effector = NULL;
-  mmd->type = 0;
-  mmd->time = -1;
+  fmd->domain = NULL;
+  fmd->flow = NULL;
+  fmd->effector = NULL;
+  fmd->type = 0;
+  fmd->time = -1;
 }
 
 static void copyData(const ModifierData *md, ModifierData *target, const int flag)
@@ -73,11 +59,11 @@ static void copyData(const ModifierData *md, ModifierData *target, const int fla
 #ifndef WITH_FLUID
   UNUSED_VARS(md, target, flag);
 #else
-  const FluidModifierData *mmd = (const FluidModifierData *)md;
-  FluidModifierData *tmmd = (FluidModifierData *)target;
+  const FluidModifierData *fmd = (const FluidModifierData *)md;
+  FluidModifierData *tfmd = (FluidModifierData *)target;
 
-  BKE_fluid_modifier_free(tmmd);
-  BKE_fluid_modifier_copy(mmd, tmmd, flag);
+  BKE_fluid_modifier_free(tfmd);
+  BKE_fluid_modifier_copy(fmd, tfmd, flag);
 #endif /* WITH_FLUID */
 }
 
@@ -86,9 +72,9 @@ static void freeData(ModifierData *md)
 #ifndef WITH_FLUID
   UNUSED_VARS(md);
 #else
-  FluidModifierData *mmd = (FluidModifierData *)md;
+  FluidModifierData *fmd = (FluidModifierData *)md;
 
-  BKE_fluid_modifier_free(mmd);
+  BKE_fluid_modifier_free(fmd);
 #endif /* WITH_FLUID */
 }
 
@@ -96,21 +82,46 @@ static void requiredDataMask(Object *UNUSED(ob),
                              ModifierData *md,
                              CustomData_MeshMasks *r_cddata_masks)
 {
-  FluidModifierData *mmd = (FluidModifierData *)md;
+  FluidModifierData *fmd = (FluidModifierData *)md;
 
-  if (mmd && (mmd->type & MOD_FLUID_TYPE_FLOW) && mmd->flow) {
-    if (mmd->flow->source == FLUID_FLOW_SOURCE_MESH) {
+  if (fmd && (fmd->type & MOD_FLUID_TYPE_FLOW) && fmd->flow) {
+    if (fmd->flow->source == FLUID_FLOW_SOURCE_MESH) {
       /* vertex groups */
-      if (mmd->flow->vgroup_density) {
+      if (fmd->flow->vgroup_density) {
         r_cddata_masks->vmask |= CD_MASK_MDEFORMVERT;
       }
       /* uv layer */
-      if (mmd->flow->texture_type == FLUID_FLOW_TEXTURE_MAP_UV) {
+      if (fmd->flow->texture_type == FLUID_FLOW_TEXTURE_MAP_UV) {
         r_cddata_masks->fmask |= CD_MASK_MTFACE;
       }
     }
   }
 }
+
+typedef struct FluidIsolationData {
+  Depsgraph *depsgraph;
+  Object *object;
+  Mesh *mesh;
+  FluidModifierData *fmd;
+
+  Mesh *result;
+} FluidIsolationData;
+
+#ifdef WITH_FLUID
+static void fluid_modifier_do_isolated(void *userdata)
+{
+  FluidIsolationData *isolation_data = (FluidIsolationData *)userdata;
+
+  Scene *scene = DEG_get_evaluated_scene(isolation_data->depsgraph);
+
+  Mesh *result = BKE_fluid_modifier_do(isolation_data->fmd,
+                                       isolation_data->depsgraph,
+                                       scene,
+                                       isolation_data->object,
+                                       isolation_data->mesh);
+  isolation_data->result = result ? result : isolation_data->mesh;
+}
+#endif /* WITH_FLUID */
 
 static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *me)
 {
@@ -118,103 +129,110 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   UNUSED_VARS(md, ctx);
   return me;
 #else
-  FluidModifierData *mmd = (FluidModifierData *)md;
-  Mesh *result = NULL;
+  FluidModifierData *fmd = (FluidModifierData *)md;
 
   if (ctx->flag & MOD_APPLY_ORCO) {
     return me;
   }
 
-  Scene *scene = DEG_get_evaluated_scene(ctx->depsgraph);
+  /* Isolate execution of Mantaflow when running from dependency graph. The reason for this is
+   * because Mantaflow uses TBB to parallel its own computation which without isolation will start
+   * stealing tasks from dependency graph. Stealing tasks from the dependency graph might cause
+   * a recursive lock when Python drivers are used (because Mantaflow is interfaced via Python as
+   * well. */
+  FluidIsolationData isolation_data;
+  isolation_data.depsgraph = ctx->depsgraph;
+  isolation_data.object = ctx->object;
+  isolation_data.mesh = me;
+  isolation_data.fmd = fmd;
+  BLI_task_isolate(fluid_modifier_do_isolated, &isolation_data);
 
-  result = BKE_fluid_modifier_do(mmd, ctx->depsgraph, scene, ctx->object, me);
-  return result ? result : me;
+  return isolation_data.result;
 #endif /* WITH_FLUID */
 }
 
-static bool dependsOnTime(ModifierData *UNUSED(md))
+static bool dependsOnTime(struct Scene *UNUSED(scene), ModifierData *UNUSED(md))
 {
   return true;
 }
 
 static bool is_flow_cb(Object *UNUSED(ob), ModifierData *md)
 {
-  FluidModifierData *mmd = (FluidModifierData *)md;
-  return (mmd->type & MOD_FLUID_TYPE_FLOW) && mmd->flow;
+  FluidModifierData *fmd = (FluidModifierData *)md;
+  return (fmd->type & MOD_FLUID_TYPE_FLOW) && fmd->flow;
 }
 
 static bool is_coll_cb(Object *UNUSED(ob), ModifierData *md)
 {
-  FluidModifierData *mmd = (FluidModifierData *)md;
-  return (mmd->type & MOD_FLUID_TYPE_EFFEC) && mmd->effector;
+  FluidModifierData *fmd = (FluidModifierData *)md;
+  return (fmd->type & MOD_FLUID_TYPE_EFFEC) && fmd->effector;
 }
 
 static void updateDepsgraph(ModifierData *md, const ModifierUpdateDepsgraphContext *ctx)
 {
-  FluidModifierData *mmd = (FluidModifierData *)md;
+  FluidModifierData *fmd = (FluidModifierData *)md;
 
-  if (mmd && (mmd->type & MOD_FLUID_TYPE_DOMAIN) && mmd->domain) {
+  if (fmd && (fmd->type & MOD_FLUID_TYPE_DOMAIN) && fmd->domain) {
     DEG_add_collision_relations(ctx->node,
                                 ctx->object,
-                                mmd->domain->fluid_group,
+                                fmd->domain->fluid_group,
                                 eModifierType_Fluid,
                                 is_flow_cb,
                                 "Fluid Flow");
     DEG_add_collision_relations(ctx->node,
                                 ctx->object,
-                                mmd->domain->effector_group,
+                                fmd->domain->effector_group,
                                 eModifierType_Fluid,
                                 is_coll_cb,
                                 "Fluid Effector");
     DEG_add_forcefield_relations(ctx->node,
                                  ctx->object,
-                                 mmd->domain->effector_weights,
+                                 fmd->domain->effector_weights,
                                  true,
                                  PFIELD_FLUIDFLOW,
                                  "Fluid Force Field");
 
-    if (mmd->domain->guide_parent != NULL) {
+    if (fmd->domain->guide_parent != NULL) {
       DEG_add_object_relation(
-          ctx->node, mmd->domain->guide_parent, DEG_OB_COMP_TRANSFORM, "Fluid Guiding Object");
+          ctx->node, fmd->domain->guide_parent, DEG_OB_COMP_TRANSFORM, "Fluid Guiding Object");
       DEG_add_object_relation(
-          ctx->node, mmd->domain->guide_parent, DEG_OB_COMP_GEOMETRY, "Fluid Guiding Object");
+          ctx->node, fmd->domain->guide_parent, DEG_OB_COMP_GEOMETRY, "Fluid Guiding Object");
     }
   }
 }
 
 static void foreachIDLink(ModifierData *md, Object *ob, IDWalkFunc walk, void *userData)
 {
-  FluidModifierData *mmd = (FluidModifierData *)md;
+  FluidModifierData *fmd = (FluidModifierData *)md;
 
-  if (mmd->type == MOD_FLUID_TYPE_DOMAIN && mmd->domain) {
-    walk(userData, ob, (ID **)&mmd->domain->effector_group, IDWALK_CB_NOP);
-    walk(userData, ob, (ID **)&mmd->domain->fluid_group, IDWALK_CB_NOP);
-    walk(userData, ob, (ID **)&mmd->domain->force_group, IDWALK_CB_NOP);
+  if (fmd->type == MOD_FLUID_TYPE_DOMAIN && fmd->domain) {
+    walk(userData, ob, (ID **)&fmd->domain->effector_group, IDWALK_CB_NOP);
+    walk(userData, ob, (ID **)&fmd->domain->fluid_group, IDWALK_CB_NOP);
+    walk(userData, ob, (ID **)&fmd->domain->force_group, IDWALK_CB_NOP);
 
-    if (mmd->domain->guide_parent) {
-      walk(userData, ob, (ID **)&mmd->domain->guide_parent, IDWALK_CB_NOP);
+    if (fmd->domain->guide_parent) {
+      walk(userData, ob, (ID **)&fmd->domain->guide_parent, IDWALK_CB_NOP);
     }
 
-    if (mmd->domain->effector_weights) {
-      walk(userData, ob, (ID **)&mmd->domain->effector_weights->group, IDWALK_CB_NOP);
+    if (fmd->domain->effector_weights) {
+      walk(userData, ob, (ID **)&fmd->domain->effector_weights->group, IDWALK_CB_USER);
     }
   }
 
-  if (mmd->type == MOD_FLUID_TYPE_FLOW && mmd->flow) {
-    walk(userData, ob, (ID **)&mmd->flow->noise_texture, IDWALK_CB_USER);
+  if (fmd->type == MOD_FLUID_TYPE_FLOW && fmd->flow) {
+    walk(userData, ob, (ID **)&fmd->flow->noise_texture, IDWALK_CB_USER);
   }
 }
 
-static void panel_draw(const bContext *C, Panel *panel)
+static void panel_draw(const bContext *UNUSED(C), Panel *panel)
 {
   uiLayout *layout = panel->layout;
 
-  PointerRNA ptr;
-  modifier_panel_get_property_pointers(C, panel, NULL, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, NULL);
 
-  uiItemL(layout, IFACE_("Settings are inside the Physics tab"), ICON_NONE);
+  uiItemL(layout, TIP_("Settings are inside the Physics tab"), ICON_NONE);
 
-  modifier_panel_end(layout, &ptr);
+  modifier_panel_end(layout, ptr);
 }
 
 static void panelRegister(ARegionType *region_type)
@@ -223,11 +241,13 @@ static void panelRegister(ARegionType *region_type)
 }
 
 ModifierTypeInfo modifierType_Fluid = {
-    /* name */ "Fluid",
+    /* name */ N_("Fluid"),
     /* structName */ "FluidModifierData",
     /* structSize */ sizeof(FluidModifierData),
+    /* srna */ &RNA_FluidModifier,
     /* type */ eModifierTypeType_Constructive,
     /* flags */ eModifierTypeFlag_AcceptsMesh | eModifierTypeFlag_Single,
+    /* icon */ ICON_MOD_FLUIDSIM,
 
     /* copyData */ copyData,
 
@@ -236,9 +256,7 @@ ModifierTypeInfo modifierType_Fluid = {
     /* deformVertsEM */ NULL,
     /* deformMatricesEM */ NULL,
     /* modifyMesh */ modifyMesh,
-    /* modifyHair */ NULL,
-    /* modifyPointCloud */ NULL,
-    /* modifyVolume */ NULL,
+    /* modifyGeometrySet */ NULL,
 
     /* initData */ initData,
     /* requiredDataMask */ requiredDataMask,
@@ -247,9 +265,10 @@ ModifierTypeInfo modifierType_Fluid = {
     /* updateDepsgraph */ updateDepsgraph,
     /* dependsOnTime */ dependsOnTime,
     /* dependsOnNormals */ NULL,
-    /* foreachObjectLink */ NULL,
     /* foreachIDLink */ foreachIDLink,
     /* foreachTexLink */ NULL,
     /* freeRuntimeData */ NULL,
     /* panelRegister */ panelRegister,
+    /* blendWrite */ NULL,
+    /* blendRead */ NULL,
 };

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2020 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2020 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edsculpt
@@ -146,14 +130,14 @@ static void pose_solve_translate_chain(SculptPoseIKChain *ik_chain, const float 
   }
 }
 
-static void pose_solve_scale_chain(SculptPoseIKChain *ik_chain, const float scale)
+static void pose_solve_scale_chain(SculptPoseIKChain *ik_chain, const float scale[3])
 {
   SculptPoseIKChainSegment *segments = ik_chain->segments;
   const int tot_segments = ik_chain->tot_segments;
 
   for (int i = 0; i < tot_segments; i++) {
     /* Assign the scale to each segment. */
-    segments[i].scale = scale;
+    copy_v3_v3(segments[i].scale, scale);
   }
 }
 
@@ -165,16 +149,16 @@ static void do_pose_brush_task_cb_ex(void *__restrict userdata,
   SculptSession *ss = data->ob->sculpt;
   SculptPoseIKChain *ik_chain = ss->cache->pose_ik_chain;
   SculptPoseIKChainSegment *segments = ik_chain->segments;
+  const Brush *brush = data->brush;
 
   PBVHVertexIter vd;
   float disp[3], new_co[3];
   float final_pos[3];
 
   SculptOrigVertData orig_data;
-  SCULPT_orig_vert_data_init(&orig_data, data->ob, data->nodes[n]);
+  SCULPT_orig_vert_data_init(&orig_data, data->ob, data->nodes[n], SCULPT_UNDO_COORDS);
 
-  BKE_pbvh_vertex_iter_begin(ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE)
-  {
+  BKE_pbvh_vertex_iter_begin (ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE) {
     SCULPT_orig_vert_data_update(&orig_data, &vd);
 
     float total_disp[3];
@@ -197,8 +181,9 @@ static void do_pose_brush_task_cb_ex(void *__restrict userdata,
       mul_v3_fl(disp, segments[ik].weights[vd.index]);
 
       /* Apply the vertex mask to the displacement. */
-      float mask = vd.mask ? *vd.mask : 0.0f;
-      mul_v3_fl(disp, 1.0f - mask);
+      const float mask = vd.mask ? 1.0f - *vd.mask : 1.0f;
+      const float automask = SCULPT_automasking_factor_get(ss->cache->automasking, ss, vd.index);
+      mul_v3_fl(disp, mask * automask);
 
       /* Accumulate the displacement. */
       add_v3_v3(total_disp, disp);
@@ -206,10 +191,12 @@ static void do_pose_brush_task_cb_ex(void *__restrict userdata,
 
     /* Apply the accumulated displacement to the vertex. */
     add_v3_v3v3(final_pos, orig_data.co, total_disp);
-    copy_v3_v3(vd.co, final_pos);
+
+    float *target_co = SCULPT_brush_deform_target_vertex_co_get(ss, brush->deform_target, &vd);
+    copy_v3_v3(target_co, final_pos);
 
     if (vd.mvert) {
-      vd.mvert->flag |= ME_VERT_PBVH_UPDATE;
+      BKE_pbvh_vert_tag_update_normal(ss->pbvh, vd.index);
     }
   }
   BKE_pbvh_vertex_iter_end;
@@ -227,10 +214,9 @@ static void pose_brush_grow_factor_task_cb_ex(void *__restrict userdata,
   SculptThreadedTaskData *data = userdata;
   PoseGrowFactorTLSData *gftd = tls->userdata_chunk;
   SculptSession *ss = data->ob->sculpt;
-  const char symm = data->sd->paint.symmetry_flags & PAINT_SYMM_AXIS_ALL;
+  const char symm = SCULPT_mesh_symmetry_xyz_get(data->ob);
   PBVHVertexIter vd;
-  BKE_pbvh_vertex_iter_begin(ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE)
-  {
+  BKE_pbvh_vertex_iter_begin (ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE) {
     SculptVertexNeighborIter ni;
     float max = 0.0f;
 
@@ -293,7 +279,7 @@ static void sculpt_pose_grow_pose_factor(Sculpt *sd,
   PoseGrowFactorTLSData gftd;
   gftd.pos_count = 0;
   zero_v3(gftd.pos_avg);
-  BKE_pbvh_parallel_range_settings(&settings, (sd->flags & SCULPT_USE_OPENMP), totnode);
+  BKE_pbvh_parallel_range_settings(&settings, true, totnode);
   settings.func_reduce = pose_brush_grow_factor_reduce;
   settings.userdata_chunk = &gftd;
   settings.userdata_chunk_size = sizeof(PoseGrowFactorTLSData);
@@ -430,7 +416,7 @@ static bool pose_topology_floodfill_cb(
           co, data->pose_initial_co, data->radius, data->symm)) {
     return true;
   }
-  else if (SCULPT_check_vertex_pivot_symmetry(co, data->pose_initial_co, data->symm)) {
+  if (SCULPT_check_vertex_pivot_symmetry(co, data->pose_initial_co, data->symm)) {
     if (!is_duplicate) {
       add_v3_v3(data->pose_origin, co);
       data->tot_co++;
@@ -487,59 +473,57 @@ static bool pose_face_sets_floodfill_cb(
     is_vertex_valid = SCULPT_vertex_has_face_set(ss, index, data->current_face_set);
   }
 
-  if (is_vertex_valid) {
+  if (!is_vertex_valid) {
+    return visit_next;
+  }
 
-    if (!BLI_BITMAP_TEST(data->is_weighted, index)) {
-      data->pose_factor[index] = 1.0f;
-      BLI_BITMAP_ENABLE(data->is_weighted, index);
-      visit_next = true;
-    }
+  if (!BLI_BITMAP_TEST(data->is_weighted, index)) {
+    data->pose_factor[index] = 1.0f;
+    BLI_BITMAP_ENABLE(data->is_weighted, index);
+    visit_next = true;
+  }
 
-    /* Fallback origin accumulation. */
-    if (symmetry_check) {
-      add_v3_v3(data->fallback_origin, SCULPT_vertex_co_get(ss, index));
-      data->fallback_count++;
-    }
+  /* Fallback origin accumulation. */
+  if (symmetry_check) {
+    add_v3_v3(data->fallback_origin, SCULPT_vertex_co_get(ss, index));
+    data->fallback_count++;
+  }
 
-    if (symmetry_check && !SCULPT_vertex_has_unique_face_set(ss, index)) {
+  if (!symmetry_check || SCULPT_vertex_has_unique_face_set(ss, index)) {
+    return visit_next;
+  }
 
-      /* We only add coordinates for calculating the origin when it is possible to go from this
-       * vertex to another vertex in a valid face set for the next iteration. */
-      bool count_as_boundary = false;
+  /* We only add coordinates for calculating the origin when it is possible to go from this
+   * vertex to another vertex in a valid face set for the next iteration. */
+  bool count_as_boundary = false;
 
-      SculptVertexNeighborIter ni;
-      SCULPT_VERTEX_NEIGHBORS_ITER_BEGIN (ss, index, ni) {
-        int next_face_set_candidate = SCULPT_vertex_face_set_get(ss, ni.index);
+  SculptVertexNeighborIter ni;
+  SCULPT_VERTEX_NEIGHBORS_ITER_BEGIN (ss, index, ni) {
+    int next_face_set_candidate = SCULPT_vertex_face_set_get(ss, ni.index);
 
-        /* Check if we can get a valid face set for the next iteration from this neighbor. */
-        if (SCULPT_vertex_has_unique_face_set(ss, ni.index) &&
-            !BLI_gset_haskey(data->visited_face_sets, POINTER_FROM_INT(next_face_set_candidate))) {
-          if (!data->next_face_set_found) {
-            data->next_face_set = next_face_set_candidate;
-            data->next_vertex = ni.index;
-            data->next_face_set_found = true;
-          }
-          count_as_boundary = true;
-        }
+    /* Check if we can get a valid face set for the next iteration from this neighbor. */
+    if (SCULPT_vertex_has_unique_face_set(ss, ni.index) &&
+        !BLI_gset_haskey(data->visited_face_sets, POINTER_FROM_INT(next_face_set_candidate))) {
+      if (!data->next_face_set_found) {
+        data->next_face_set = next_face_set_candidate;
+        data->next_vertex = ni.index;
+        data->next_face_set_found = true;
       }
-      SCULPT_VERTEX_NEIGHBORS_ITER_END(ni);
-
-      /* Origin accumulation. */
-      if (count_as_boundary) {
-        add_v3_v3(data->pose_origin, SCULPT_vertex_co_get(ss, index));
-        data->tot_co++;
-      }
+      count_as_boundary = true;
     }
+  }
+  SCULPT_VERTEX_NEIGHBORS_ITER_END(ni);
+
+  /* Origin accumulation. */
+  if (count_as_boundary) {
+    add_v3_v3(data->pose_origin, SCULPT_vertex_co_get(ss, index));
+    data->tot_co++;
   }
   return visit_next;
 }
 
 /* Public functions. */
 
-/* Calculate the pose origin and (Optionaly the pose factor) that is used when using the pose brush
- *
- * r_pose_origin must be a valid pointer. the r_pose_factor is optional. When set to NULL it won't
- * be calculated. */
 void SCULPT_pose_calc_pose_data(Sculpt *sd,
                                 Object *ob,
                                 SculptSession *ss,
@@ -549,7 +533,7 @@ void SCULPT_pose_calc_pose_data(Sculpt *sd,
                                 float *r_pose_origin,
                                 float *r_pose_factor)
 {
-  SCULPT_vertex_random_access_init(ss);
+  SCULPT_vertex_random_access_ensure(ss);
 
   /* Calculate the pose rotation point based on the boundaries of the brush factor. */
   SculptFloodFill flood;
@@ -558,7 +542,7 @@ void SCULPT_pose_calc_pose_data(Sculpt *sd,
 
   PoseFloodFillData fdata = {
       .radius = radius,
-      .symm = sd->paint.symmetry_flags & PAINT_SYMM_AXIS_ALL,
+      .symm = SCULPT_mesh_symmetry_xyz_get(ob),
       .pose_factor = r_pose_factor,
       .tot_co = 0,
   };
@@ -597,8 +581,7 @@ static void pose_brush_init_task_cb_ex(void *__restrict userdata,
   SculptThreadedTaskData *data = userdata;
   SculptSession *ss = data->ob->sculpt;
   PBVHVertexIter vd;
-  BKE_pbvh_vertex_iter_begin(ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE)
-  {
+  BKE_pbvh_vertex_iter_begin (ss->pbvh, data->nodes[n], vd, PBVH_ITER_UNIQUE) {
     SculptVertexNeighborIter ni;
     float avg = 0.0f;
     int total = 0;
@@ -645,9 +628,10 @@ static void pose_ik_chain_origin_heads_init(SculptPoseIKChain *ik_chain,
     }
     copy_v3_v3(ik_chain->segments[i].orig, origin);
     copy_v3_v3(ik_chain->segments[i].initial_orig, origin);
+    copy_v3_v3(ik_chain->segments[i].head, head);
     copy_v3_v3(ik_chain->segments[i].initial_head, head);
     ik_chain->segments[i].len = len_v3v3(head, origin);
-    ik_chain->segments[i].scale = 1.0f;
+    copy_v3_fl(ik_chain->segments[i].scale, 1.0f);
   }
 }
 
@@ -656,7 +640,9 @@ static int pose_brush_num_effective_segments(const Brush *brush)
   /* Scaling multiple segments at the same time is not supported as the IK solver can't handle
    * changes in the segment's length. It will also required a better weight distribution to avoid
    * artifacts in the areas affected by multiple segments. */
-  if (brush->pose_deform_type == BRUSH_POSE_DEFORM_SCALE_TRASLATE) {
+  if (ELEM(brush->pose_deform_type,
+           BRUSH_POSE_DEFORM_SCALE_TRASLATE,
+           BRUSH_POSE_DEFORM_SQUASH_STRETCH)) {
     return 1;
   }
   return brush->pose_ik_segments;
@@ -729,7 +715,7 @@ static SculptPoseIKChain *pose_ik_chain_init_topology(Sculpt *sd,
      * iteration an the current iteration. */
     for (int j = 0; j < totvert; j++) {
       ik_chain->segments[i].weights[j] = pose_factor_grow[j] - pose_factor_grow_prev[j];
-      /* Store the current grow factor status for the next interation. */
+      /* Store the current grow factor status for the next iteration. */
       pose_factor_grow_prev[j] = pose_factor_grow[j];
     }
   }
@@ -771,7 +757,7 @@ static SculptPoseIKChain *pose_ik_chain_init_face_sets(
 
     PoseFloodFillData fdata = {
         .radius = radius,
-        .symm = sd->paint.symmetry_flags & PAINT_SYMM_AXIS_ALL,
+        .symm = SCULPT_mesh_symmetry_xyz_get(ob),
         .pose_factor = ik_chain->segments[s].weights,
         .tot_co = 0,
         .fallback_count = 0,
@@ -827,17 +813,21 @@ static bool pose_face_sets_fk_find_masked_floodfill_cb(
   }
 
   const int to_face_set = SCULPT_vertex_face_set_get(ss, to_v);
-  if (SCULPT_vertex_has_unique_face_set(ss, to_v) &&
-      !SCULPT_vertex_has_unique_face_set(ss, from_v) &&
-      SCULPT_vertex_has_face_set(ss, from_v, to_face_set)) {
+  if (!BLI_gset_haskey(data->visited_face_sets, POINTER_FROM_INT(to_face_set))) {
+    if (SCULPT_vertex_has_unique_face_set(ss, to_v) &&
+        !SCULPT_vertex_has_unique_face_set(ss, from_v) &&
+        SCULPT_vertex_has_face_set(ss, from_v, to_face_set)) {
 
-    if (data->floodfill_it[to_v] > data->masked_face_set_it) {
-      data->masked_face_set = to_face_set;
-      data->masked_face_set_it = data->floodfill_it[to_v];
-    }
+      BLI_gset_add(data->visited_face_sets, POINTER_FROM_INT(to_face_set));
 
-    if (data->target_face_set == SCULPT_FACE_SET_NONE) {
-      data->target_face_set = to_face_set;
+      if (data->floodfill_it[to_v] >= data->masked_face_set_it) {
+        data->masked_face_set = to_face_set;
+        data->masked_face_set_it = data->floodfill_it[to_v];
+      }
+
+      if (data->target_face_set == SCULPT_FACE_SET_NONE) {
+        data->target_face_set = to_face_set;
+      }
     }
   }
 
@@ -872,8 +862,10 @@ static SculptPoseIKChain *pose_ik_chain_init_face_sets_fk(
   fdata.masked_face_set = SCULPT_FACE_SET_NONE;
   fdata.target_face_set = SCULPT_FACE_SET_NONE;
   fdata.masked_face_set_it = 0;
+  fdata.visited_face_sets = BLI_gset_int_new_ex("visited_face_sets", 3);
   SCULPT_floodfill_execute(ss, &flood, pose_face_sets_fk_find_masked_floodfill_cb, &fdata);
   SCULPT_floodfill_free(&flood);
+  BLI_gset_free(fdata.visited_face_sets, NULL);
 
   int origin_count = 0;
   float origin_acc[3] = {0.0f};
@@ -934,18 +926,32 @@ SculptPoseIKChain *SCULPT_pose_ik_chain_init(Sculpt *sd,
                                              const float initial_location[3],
                                              const float radius)
 {
+  SculptPoseIKChain *ik_chain = NULL;
+
+  const bool use_fake_neighbors = !(br->flag2 & BRUSH_USE_CONNECTED_ONLY);
+
+  if (use_fake_neighbors) {
+    SCULPT_fake_neighbors_ensure(sd, ob, br->disconnected_distance_max);
+    SCULPT_fake_neighbors_enable(ob);
+  }
+
   switch (br->pose_origin_type) {
     case BRUSH_POSE_ORIGIN_TOPOLOGY:
-      return pose_ik_chain_init_topology(sd, ob, ss, br, initial_location, radius);
+      ik_chain = pose_ik_chain_init_topology(sd, ob, ss, br, initial_location, radius);
       break;
     case BRUSH_POSE_ORIGIN_FACE_SETS:
-      return pose_ik_chain_init_face_sets(sd, ob, ss, br, radius);
+      ik_chain = pose_ik_chain_init_face_sets(sd, ob, ss, br, radius);
       break;
     case BRUSH_POSE_ORIGIN_FACE_SETS_FK:
-      return pose_ik_chain_init_face_sets_fk(sd, ob, ss, radius, initial_location);
+      ik_chain = pose_ik_chain_init_face_sets_fk(sd, ob, ss, radius, initial_location);
       break;
   }
-  return NULL;
+
+  if (use_fake_neighbors) {
+    SCULPT_fake_neighbors_disable(ob);
+  }
+
+  return ik_chain;
 }
 
 void SCULPT_pose_brush_init(Sculpt *sd, Object *ob, SculptSession *ss, Brush *br)
@@ -972,7 +978,7 @@ void SCULPT_pose_brush_init(Sculpt *sd, Object *ob, SculptSession *ss, Brush *br
     data.pose_factor = ss->cache->pose_ik_chain->segments[ik].weights;
     for (int i = 0; i < br->pose_smooth_iterations; i++) {
       TaskParallelSettings settings;
-      BKE_pbvh_parallel_range_settings(&settings, (sd->flags & SCULPT_USE_OPENMP), totnode);
+      BKE_pbvh_parallel_range_settings(&settings, true, totnode);
       BLI_task_parallel_range(0, totnode, &data, pose_brush_init_task_cb_ex, &settings);
     }
   }
@@ -983,8 +989,21 @@ void SCULPT_pose_brush_init(Sculpt *sd, Object *ob, SculptSession *ss, Brush *br
 static void sculpt_pose_do_translate_deform(SculptSession *ss, Brush *brush)
 {
   SculptPoseIKChain *ik_chain = ss->cache->pose_ik_chain;
-  BKE_curvemapping_initialize(brush->curve);
+  BKE_curvemapping_init(brush->curve);
   pose_solve_translate_chain(ik_chain, ss->cache->grab_delta);
+}
+
+/* Calculate a scale factor based on the grab delta. */
+static float sculpt_pose_get_scale_from_grab_delta(SculptSession *ss, const float ik_target[3])
+{
+  SculptPoseIKChain *ik_chain = ss->cache->pose_ik_chain;
+  float plane[4];
+  float segment_dir[3];
+  sub_v3_v3v3(segment_dir, ik_chain->segments[0].initial_head, ik_chain->segments[0].initial_orig);
+  normalize_v3(segment_dir);
+  plane_from_point_normal_v3(plane, ik_chain->segments[0].initial_head, segment_dir);
+  const float segment_len = ik_chain->segments[0].len;
+  return segment_len / (segment_len - dist_signed_to_plane_v3(ik_target, plane));
 }
 
 static void sculpt_pose_do_scale_deform(SculptSession *ss, Brush *brush)
@@ -995,17 +1014,13 @@ static void sculpt_pose_do_scale_deform(SculptSession *ss, Brush *brush)
   copy_v3_v3(ik_target, ss->cache->true_location);
   add_v3_v3(ik_target, ss->cache->grab_delta);
 
-  /* Solve the IK for the first segment to include rotation as part of scale. */
-  pose_solve_ik_chain(ik_chain, ik_target, brush->flag2 & BRUSH_POSE_IK_ANCHORED);
+  /* Solve the IK for the first segment to include rotation as part of scale if enabled. */
+  if (!(brush->flag2 & BRUSH_POSE_USE_LOCK_ROTATION)) {
+    pose_solve_ik_chain(ik_chain, ik_target, brush->flag2 & BRUSH_POSE_IK_ANCHORED);
+  }
 
-  /* Calculate a scale factor based on the grab delta. */
-  float plane[4];
-  float segment_dir[3];
-  sub_v3_v3v3(segment_dir, ik_chain->segments[0].initial_head, ik_chain->segments[0].initial_orig);
-  normalize_v3(segment_dir);
-  plane_from_point_normal_v3(plane, ik_chain->segments[0].initial_head, segment_dir);
-  const float segment_len = ik_chain->segments[0].len;
-  const float scale = segment_len / (segment_len - dist_signed_to_plane_v3(ik_target, plane));
+  float scale[3];
+  copy_v3_fl(scale, sculpt_pose_get_scale_from_grab_delta(ss, ik_target));
 
   /* Write the scale into the segments. */
   pose_solve_scale_chain(ik_chain, scale);
@@ -1017,7 +1032,7 @@ static void sculpt_pose_do_twist_deform(SculptSession *ss, Brush *brush)
 
   /* Calculate the maximum roll. 0.02 radians per pixel works fine. */
   float roll = (ss->cache->initial_mouse[0] - ss->cache->mouse[0]) * ss->cache->bstrength * 0.02f;
-  BKE_curvemapping_initialize(brush->curve);
+  BKE_curvemapping_init(brush->curve);
   pose_solve_roll_chain(ik_chain, brush, roll);
 }
 
@@ -1055,12 +1070,50 @@ static void sculpt_pose_do_scale_translate_deform(SculptSession *ss, Brush *brus
   }
 }
 
-/* Main Brush Function. */
+static void sculpt_pose_do_squash_stretch_deform(SculptSession *ss, Brush *UNUSED(brush))
+{
+  float ik_target[3];
+  SculptPoseIKChain *ik_chain = ss->cache->pose_ik_chain;
+
+  copy_v3_v3(ik_target, ss->cache->true_location);
+  add_v3_v3(ik_target, ss->cache->grab_delta);
+
+  float scale[3];
+  scale[2] = sculpt_pose_get_scale_from_grab_delta(ss, ik_target);
+  scale[0] = scale[1] = sqrtf(1.0f / scale[2]);
+
+  /* Write the scale into the segments. */
+  pose_solve_scale_chain(ik_chain, scale);
+}
+
+static void sculpt_pose_align_pivot_local_space(float r_mat[4][4],
+                                                ePaintSymmetryFlags symm,
+                                                ePaintSymmetryAreas symm_area,
+                                                SculptPoseIKChainSegment *segment,
+                                                const float grab_location[3])
+{
+  float segment_origin_head[3];
+  float symm_head[3];
+  float symm_orig[3];
+
+  copy_v3_v3(symm_head, segment->head);
+  copy_v3_v3(symm_orig, segment->orig);
+
+  SCULPT_flip_v3_by_symm_area(symm_head, symm, symm_area, grab_location);
+  SCULPT_flip_v3_by_symm_area(symm_orig, symm, symm_area, grab_location);
+
+  sub_v3_v3v3(segment_origin_head, symm_head, symm_orig);
+  normalize_v3(segment_origin_head);
+
+  copy_v3_v3(r_mat[2], segment_origin_head);
+  ortho_basis_v3v3_v3(r_mat[0], r_mat[1], r_mat[2]);
+}
+
 void SCULPT_do_pose_brush(Sculpt *sd, Object *ob, PBVHNode **nodes, int totnode)
 {
   SculptSession *ss = ob->sculpt;
   Brush *brush = BKE_paint_brush(&sd->paint);
-  const ePaintSymmetryFlags symm = sd->paint.symmetry_flags & PAINT_SYMM_AXIS_ALL;
+  const ePaintSymmetryFlags symm = SCULPT_mesh_symmetry_xyz_get(ob);
 
   /* The pose brush applies all enabled symmetry axis in a single iteration, so the rest can be
    * ignored. */
@@ -1076,6 +1129,9 @@ void SCULPT_do_pose_brush(Sculpt *sd, Object *ob, PBVHNode **nodes, int totnode)
       break;
     case BRUSH_POSE_DEFORM_SCALE_TRASLATE:
       sculpt_pose_do_scale_translate_deform(ss, brush);
+      break;
+    case BRUSH_POSE_DEFORM_SQUASH_STRETCH:
+      sculpt_pose_do_squash_stretch_deform(ss, brush);
       break;
   }
 
@@ -1101,17 +1157,38 @@ void SCULPT_do_pose_brush(Sculpt *sd, Object *ob, PBVHNode **nodes, int totnode)
       SCULPT_flip_v3_by_symm_area(
           symm_initial_orig, symm, symm_area, ss->cache->orig_grab_location);
 
-      /* Create the transform matrix and store it in the segment. */
-      unit_m4(ik_chain->segments[i].pivot_mat[symm_it]);
-      quat_to_mat4(ik_chain->segments[i].trans_mat[symm_it], symm_rot);
-      mul_m4_fl(ik_chain->segments[i].trans_mat[symm_it], ik_chain->segments[i].scale);
+      float pivot_local_space[4][4];
+      unit_m4(pivot_local_space);
+
+      /* Align the segment pivot local space to the Z axis. */
+      if (brush->pose_deform_type == BRUSH_POSE_DEFORM_SQUASH_STRETCH) {
+        sculpt_pose_align_pivot_local_space(pivot_local_space,
+                                            symm,
+                                            symm_area,
+                                            &ik_chain->segments[i],
+                                            ss->cache->orig_grab_location);
+        unit_m4(ik_chain->segments[i].trans_mat[symm_it]);
+      }
+      else {
+        quat_to_mat4(ik_chain->segments[i].trans_mat[symm_it], symm_rot);
+      }
+
+      /* Apply segment scale to the transform. */
+      for (int scale_i = 0; scale_i < 3; scale_i++) {
+        mul_v3_fl(ik_chain->segments[i].trans_mat[symm_it][scale_i],
+                  ik_chain->segments[i].scale[scale_i]);
+      }
 
       translate_m4(ik_chain->segments[i].trans_mat[symm_it],
                    symm_orig[0] - symm_initial_orig[0],
                    symm_orig[1] - symm_initial_orig[1],
                    symm_orig[2] - symm_initial_orig[2]);
+
+      unit_m4(ik_chain->segments[i].pivot_mat[symm_it]);
       translate_m4(
           ik_chain->segments[i].pivot_mat[symm_it], symm_orig[0], symm_orig[1], symm_orig[2]);
+      mul_m4_m4_post(ik_chain->segments[i].pivot_mat[symm_it], pivot_local_space);
+
       invert_m4_m4(ik_chain->segments[i].pivot_mat_inv[symm_it],
                    ik_chain->segments[i].pivot_mat[symm_it]);
     }
@@ -1125,7 +1202,7 @@ void SCULPT_do_pose_brush(Sculpt *sd, Object *ob, PBVHNode **nodes, int totnode)
   };
 
   TaskParallelSettings settings;
-  BKE_pbvh_parallel_range_settings(&settings, (sd->flags & SCULPT_USE_OPENMP), totnode);
+  BKE_pbvh_parallel_range_settings(&settings, true, totnode);
   BLI_task_parallel_range(0, totnode, &data, do_pose_brush_task_cb_ex, &settings);
 }
 

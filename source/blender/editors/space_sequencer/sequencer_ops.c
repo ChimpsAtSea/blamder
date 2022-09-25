@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spseq
@@ -29,12 +13,7 @@
 #include "WM_api.h"
 #include "WM_types.h"
 
-#include "ED_markers.h"
-#include "ED_select_utils.h"
 #include "ED_sequencer.h"
-#include "ED_transform.h" /* Transform keymap. */
-
-#include "BKE_sequencer.h"
 
 #include "sequencer_intern.h"
 
@@ -74,21 +53,19 @@ void sequencer_operatortypes(void)
   WM_operatortype_append(SEQUENCER_OT_copy);
   WM_operatortype_append(SEQUENCER_OT_paste);
 
-  WM_operatortype_append(SEQUENCER_OT_view_all);
-  WM_operatortype_append(SEQUENCER_OT_view_selected);
-  WM_operatortype_append(SEQUENCER_OT_view_frame);
-  WM_operatortype_append(SEQUENCER_OT_view_all_preview);
-  WM_operatortype_append(SEQUENCER_OT_view_toggle);
-  WM_operatortype_append(SEQUENCER_OT_view_zoom_ratio);
-  WM_operatortype_append(SEQUENCER_OT_view_ghost_border);
-
   WM_operatortype_append(SEQUENCER_OT_rebuild_proxy);
   WM_operatortype_append(SEQUENCER_OT_enable_proxies);
   WM_operatortype_append(SEQUENCER_OT_change_effect_input);
   WM_operatortype_append(SEQUENCER_OT_change_effect_type);
   WM_operatortype_append(SEQUENCER_OT_change_path);
+  WM_operatortype_append(SEQUENCER_OT_change_scene);
 
   WM_operatortype_append(SEQUENCER_OT_set_range_to_strips);
+  WM_operatortype_append(SEQUENCER_OT_strip_transform_clear);
+  WM_operatortype_append(SEQUENCER_OT_strip_transform_fit);
+
+  WM_operatortype_append(SEQUENCER_OT_strip_color_tag_set);
+  WM_operatortype_append(SEQUENCER_OT_cursor_set);
 
   /* sequencer_select.c */
   WM_operatortype_append(SEQUENCER_OT_select_all);
@@ -105,6 +82,7 @@ void sequencer_operatortypes(void)
 
   /* sequencer_add.c */
   WM_operatortype_append(SEQUENCER_OT_scene_strip_add);
+  WM_operatortype_append(SEQUENCER_OT_scene_strip_add_new);
   WM_operatortype_append(SEQUENCER_OT_movieclip_strip_add);
   WM_operatortype_append(SEQUENCER_OT_mask_strip_add);
   WM_operatortype_append(SEQUENCER_OT_movie_strip_add);
@@ -120,6 +98,15 @@ void sequencer_operatortypes(void)
 
   /* sequencer_view.h */
   WM_operatortype_append(SEQUENCER_OT_sample);
+  WM_operatortype_append(SEQUENCER_OT_view_all);
+  WM_operatortype_append(SEQUENCER_OT_view_frame);
+  WM_operatortype_append(SEQUENCER_OT_view_all_preview);
+  WM_operatortype_append(SEQUENCER_OT_view_zoom_ratio);
+  WM_operatortype_append(SEQUENCER_OT_view_selected);
+  WM_operatortype_append(SEQUENCER_OT_view_ghost_border);
+
+  /* sequencer_channels_edit.c */
+  WM_operatortype_append(SEQUENCER_OT_rename_channel);
 }
 
 void sequencer_keymap(wmKeyConfig *keyconf)
@@ -132,6 +119,9 @@ void sequencer_keymap(wmKeyConfig *keyconf)
 
   /* Preview Region ----------------------------------------------------------- */
   WM_keymap_ensure(keyconf, "SequencerPreview", SPACE_SEQ, 0);
+
+  /* Channels Region ----------------------------------------------------------- */
+  WM_keymap_ensure(keyconf, "Sequencer Channels", SPACE_SEQ, 0);
 }
 
 void ED_operatormacros_sequencer(void)

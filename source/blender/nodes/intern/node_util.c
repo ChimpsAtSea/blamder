@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2007 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2007 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup nodes
@@ -35,15 +19,21 @@
 
 #include "BKE_colortools.h"
 #include "BKE_node.h"
+#include "BKE_node_tree_update.h"
 
 #include "RNA_access.h"
 #include "RNA_enum_types.h"
+#include "RNA_prototypes.h"
 
 #include "MEM_guardedalloc.h"
 
+#include "NOD_common.h"
+
 #include "node_util.h"
 
-/**** Storage Data ****/
+/* -------------------------------------------------------------------- */
+/** \name Storage Data
+ * \{ */
 
 void node_free_curves(bNode *node)
 {
@@ -73,23 +63,35 @@ void *node_initexec_curves(bNodeExecContext *UNUSED(context),
                            bNode *node,
                            bNodeInstanceKey UNUSED(key))
 {
-  BKE_curvemapping_initialize(node->storage);
+  BKE_curvemapping_init(node->storage);
   return NULL; /* unused return */
 }
 
-/**** Updates ****/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Updates
+ * \{ */
 
 void node_sock_label(bNodeSocket *sock, const char *name)
 {
   BLI_strncpy(sock->label, name, MAX_NAME);
 }
 
-void node_math_update(bNodeTree *UNUSED(ntree), bNode *node)
+void node_sock_label_clear(bNodeSocket *sock)
+{
+  if (sock->label[0] != '\0') {
+    sock->label[0] = '\0';
+  }
+}
+
+void node_math_update(bNodeTree *ntree, bNode *node)
 {
   bNodeSocket *sock1 = BLI_findlink(&node->inputs, 0);
   bNodeSocket *sock2 = BLI_findlink(&node->inputs, 1);
   bNodeSocket *sock3 = BLI_findlink(&node->inputs, 2);
-  nodeSetSocketAvailability(sock2,
+  nodeSetSocketAvailability(ntree,
+                            sock2,
                             !ELEM(node->custom1,
                                   NODE_MATH_SQRT,
                                   NODE_MATH_SIGN,
@@ -113,7 +115,8 @@ void node_math_update(bNodeTree *UNUSED(ntree), bNode *node)
                                       NODE_MATH_COSH,
                                       NODE_MATH_SINH,
                                       NODE_MATH_TANH));
-  nodeSetSocketAvailability(sock3,
+  nodeSetSocketAvailability(ntree,
+                            sock3,
                             ELEM(node->custom1,
                                  NODE_MATH_COMPARE,
                                  NODE_MATH_MULTIPLY_ADD,
@@ -121,20 +124,14 @@ void node_math_update(bNodeTree *UNUSED(ntree), bNode *node)
                                  NODE_MATH_SMOOTH_MIN,
                                  NODE_MATH_SMOOTH_MAX));
 
-  if (sock1->label[0] != '\0') {
-    sock1->label[0] = '\0';
-  }
-  if (sock2->label[0] != '\0') {
-    sock2->label[0] = '\0';
-  }
-  if (sock3->label[0] != '\0') {
-    sock3->label[0] = '\0';
-  }
+  node_sock_label_clear(sock1);
+  node_sock_label_clear(sock2);
+  node_sock_label_clear(sock3);
 
   switch (node->custom1) {
     case NODE_MATH_WRAP:
-      node_sock_label(sock2, "Min");
-      node_sock_label(sock3, "Max");
+      node_sock_label(sock2, "Max");
+      node_sock_label(sock3, "Min");
       break;
     case NODE_MATH_MULTIPLY_ADD:
       node_sock_label(sock2, "Multiplier");
@@ -173,9 +170,13 @@ void node_math_update(bNodeTree *UNUSED(ntree), bNode *node)
   }
 }
 
-/**** Labels ****/
+/** \} */
 
-void node_blend_label(bNodeTree *UNUSED(ntree), bNode *node, char *label, int maxlen)
+/* -------------------------------------------------------------------- */
+/** \name Labels
+ * \{ */
+
+void node_blend_label(const bNodeTree *UNUSED(ntree), const bNode *node, char *label, int maxlen)
 {
   const char *name;
   bool enum_label = RNA_enum_name(rna_enum_ramp_blend_items, node->custom1, &name);
@@ -185,24 +186,27 @@ void node_blend_label(bNodeTree *UNUSED(ntree), bNode *node, char *label, int ma
   BLI_strncpy(label, IFACE_(name), maxlen);
 }
 
-void node_image_label(bNodeTree *UNUSED(ntree), bNode *node, char *label, int maxlen)
+void node_image_label(const bNodeTree *UNUSED(ntree), const bNode *node, char *label, int maxlen)
 {
   /* If there is no loaded image, return an empty string,
    * and let nodeLabel() fill in the proper type translation. */
   BLI_strncpy(label, (node->id) ? node->id->name + 2 : "", maxlen);
 }
 
-void node_math_label(bNodeTree *UNUSED(ntree), bNode *node, char *label, int maxlen)
+void node_math_label(const bNodeTree *UNUSED(ntree), const bNode *node, char *label, int maxlen)
 {
   const char *name;
   bool enum_label = RNA_enum_name(rna_enum_node_math_items, node->custom1, &name);
   if (!enum_label) {
     name = "Unknown";
   }
-  BLI_strncpy(label, IFACE_(name), maxlen);
+  BLI_strncpy(label, CTX_IFACE_(BLT_I18NCONTEXT_ID_NODETREE, name), maxlen);
 }
 
-void node_vector_math_label(bNodeTree *UNUSED(ntree), bNode *node, char *label, int maxlen)
+void node_vector_math_label(const bNodeTree *UNUSED(ntree),
+                            const bNode *node,
+                            char *label,
+                            int maxlen)
 {
   const char *name;
   bool enum_label = RNA_enum_name(rna_enum_node_vec_math_items, node->custom1, &name);
@@ -212,7 +216,7 @@ void node_vector_math_label(bNodeTree *UNUSED(ntree), bNode *node, char *label, 
   BLI_strncpy(label, IFACE_(name), maxlen);
 }
 
-void node_filter_label(bNodeTree *UNUSED(ntree), bNode *node, char *label, int maxlen)
+void node_filter_label(const bNodeTree *UNUSED(ntree), const bNode *node, char *label, int maxlen)
 {
   const char *name;
   bool enum_label = RNA_enum_name(rna_enum_node_filter_items, node->custom1, &name);
@@ -222,26 +226,60 @@ void node_filter_label(bNodeTree *UNUSED(ntree), bNode *node, char *label, int m
   BLI_strncpy(label, IFACE_(name), maxlen);
 }
 
-/*** Link Insertion ***/
-
-/* test if two sockets are interchangeable */
-static bool node_link_socket_match(bNodeSocket *a, bNodeSocket *b)
+void node_combsep_color_label(const ListBase *sockets, NodeCombSepColorMode mode)
 {
-  /* check if sockets are of the same type */
+  bNodeSocket *sock1 = (bNodeSocket *)sockets->first;
+  bNodeSocket *sock2 = sock1->next;
+  bNodeSocket *sock3 = sock2->next;
+
+  node_sock_label_clear(sock1);
+  node_sock_label_clear(sock2);
+  node_sock_label_clear(sock3);
+
+  switch (mode) {
+    case NODE_COMBSEP_COLOR_RGB:
+      node_sock_label(sock1, "Red");
+      node_sock_label(sock2, "Green");
+      node_sock_label(sock3, "Blue");
+      break;
+    case NODE_COMBSEP_COLOR_HSL:
+      node_sock_label(sock1, "Hue");
+      node_sock_label(sock2, "Saturation");
+      node_sock_label(sock3, "Lightness");
+      break;
+    case NODE_COMBSEP_COLOR_HSV:
+      node_sock_label(sock1, "Hue");
+      node_sock_label(sock2, "Saturation");
+      node_sock_label(sock3, "Value");
+      break;
+    default: {
+      BLI_assert_unreachable();
+      break;
+    }
+  }
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Link Insertion
+ * \{ */
+
+static bool node_link_socket_match(const bNodeSocket *a, const bNodeSocket *b)
+{
+  /* Check if sockets are of the same type. */
   if (a->typeinfo != b->typeinfo) {
     return false;
   }
 
-  /* tests if alphabetic prefix matches
-   * this allows for imperfect matches, such as numeric suffixes,
-   * like Color1/Color2
-   */
+  /* Test if alphabetic prefix matches, allowing for imperfect matches, such as numeric suffixes
+   * like Color1/Color2. */
   int prefix_len = 0;
-  char *ca = a->name, *cb = b->name;
+  const char *ca = a->name, *cb = b->name;
   for (; *ca != '\0' && *cb != '\0'; ca++, cb++) {
-    /* end of common prefix? */
+    /* End of common prefix? */
     if (*ca != *cb) {
-      /* prefix delimited by non-alphabetic char */
+      /* Prefix delimited by non-alphabetic char. */
       if (isalpha(*ca) || isalpha(*cb)) {
         return false;
       }
@@ -252,262 +290,77 @@ static bool node_link_socket_match(bNodeSocket *a, bNodeSocket *b)
   return prefix_len > 0;
 }
 
-static int node_count_links(bNodeTree *ntree, bNodeSocket *sock)
+static int node_count_links(const bNodeTree *ntree, const bNodeSocket *socket)
 {
-  bNodeLink *link;
   int count = 0;
-  for (link = ntree->links.first; link; link = link->next) {
-    if (link->fromsock == sock) {
-      count++;
-    }
-    if (link->tosock == sock) {
+  LISTBASE_FOREACH (bNodeLink *, link, &ntree->links) {
+    if (ELEM(socket, link->fromsock, link->tosock)) {
       count++;
     }
   }
   return count;
 }
 
-/* find an eligible socket for linking */
-static bNodeSocket *node_find_linkable_socket(bNodeTree *ntree, bNode *node, bNodeSocket *cur)
+static bNodeSocket *node_find_linkable_socket(bNodeTree *ntree,
+                                              bNode *node,
+                                              bNodeSocket *to_socket)
 {
-  /* link swapping: try to find a free slot with a matching name */
+  bNodeSocket *first = to_socket->in_out == SOCK_IN ? node->inputs.first : node->outputs.first;
 
-  bNodeSocket *first = cur->in_out == SOCK_IN ? node->inputs.first : node->outputs.first;
-  bNodeSocket *sock;
-
-  sock = cur->next ? cur->next : first; /* wrap around the list end */
-  while (sock != cur) {
-    if (!nodeSocketIsHidden(sock) && node_link_socket_match(sock, cur)) {
-      int link_count = node_count_links(ntree, sock);
-      /* take +1 into account since we would add a new link */
-      if (link_count + 1 <= nodeSocketLinkLimit(sock)) {
-        return sock; /* found a valid free socket we can swap to */
+  /* Wrap around the list end. */
+  bNodeSocket *socket_iter = to_socket->next ? to_socket->next : first;
+  while (socket_iter != to_socket) {
+    if (!nodeSocketIsHidden(socket_iter) && node_link_socket_match(socket_iter, to_socket)) {
+      const int link_count = node_count_links(ntree, socket_iter);
+      /* Add one to account for the new link being added. */
+      if (link_count + 1 <= nodeSocketLinkLimit(socket_iter)) {
+        return socket_iter; /* Found a valid free socket we can swap to. */
       }
     }
-
-    sock = sock->next ? sock->next : first; /* wrap around the list end */
+    socket_iter = socket_iter->next ? socket_iter->next : first; /* Wrap around the list end. */
   }
+
   return NULL;
 }
 
 void node_insert_link_default(bNodeTree *ntree, bNode *node, bNodeLink *link)
 {
-  bNodeSocket *sock = link->tosock;
-  bNodeLink *tlink, *tlink_next;
+  bNodeSocket *socket = link->tosock;
 
-  /* inputs can have one link only, outputs can have unlimited links */
   if (node != link->tonode) {
     return;
   }
 
-  for (tlink = ntree->links.first; tlink; tlink = tlink_next) {
-    bNodeSocket *new_sock;
-    tlink_next = tlink->next;
-
-    if (sock != tlink->tosock) {
-      continue;
-    }
-
-    new_sock = node_find_linkable_socket(ntree, node, sock);
-    if (new_sock && new_sock != sock) {
-      /* redirect existing link */
-      tlink->tosock = new_sock;
-    }
-    else if (!new_sock) {
-      /* no possible replacement, remove tlink */
-      nodeRemLink(ntree, tlink);
-      tlink = NULL;
-    }
-  }
-}
-
-/**** Internal Links (mute and disconnect) ****/
-
-/* common datatype priorities, works for compositor, shader and texture nodes alike
- * defines priority of datatype connection based on output type (to):
- *   < 0  : never connect these types
- *   >= 0 : priority of connection (higher values chosen first)
- */
-static int node_datatype_priority(eNodeSocketDatatype from, eNodeSocketDatatype to)
-{
-  switch (to) {
-    case SOCK_RGBA:
-      switch (from) {
-        case SOCK_RGBA:
-          return 4;
-        case SOCK_FLOAT:
-          return 3;
-        case SOCK_INT:
-          return 2;
-        case SOCK_BOOLEAN:
-          return 1;
-        default:
-          return -1;
-      }
-    case SOCK_VECTOR:
-      switch (from) {
-        case SOCK_VECTOR:
-          return 4;
-        case SOCK_FLOAT:
-          return 3;
-        case SOCK_INT:
-          return 2;
-        case SOCK_BOOLEAN:
-          return 1;
-        default:
-          return -1;
-      }
-    case SOCK_FLOAT:
-      switch (from) {
-        case SOCK_FLOAT:
-          return 5;
-        case SOCK_INT:
-          return 4;
-        case SOCK_BOOLEAN:
-          return 3;
-        case SOCK_RGBA:
-          return 2;
-        case SOCK_VECTOR:
-          return 1;
-        default:
-          return -1;
-      }
-    case SOCK_INT:
-      switch (from) {
-        case SOCK_INT:
-          return 5;
-        case SOCK_FLOAT:
-          return 4;
-        case SOCK_BOOLEAN:
-          return 3;
-        case SOCK_RGBA:
-          return 2;
-        case SOCK_VECTOR:
-          return 1;
-        default:
-          return -1;
-      }
-    case SOCK_BOOLEAN:
-      switch (from) {
-        case SOCK_BOOLEAN:
-          return 5;
-        case SOCK_INT:
-          return 4;
-        case SOCK_FLOAT:
-          return 3;
-        case SOCK_RGBA:
-          return 2;
-        case SOCK_VECTOR:
-          return 1;
-        default:
-          return -1;
-      }
-    case SOCK_SHADER:
-      switch (from) {
-        case SOCK_SHADER:
-          return 1;
-        default:
-          return -1;
-      }
-    case SOCK_STRING:
-      switch (from) {
-        case SOCK_STRING:
-          return 1;
-        default:
-          return -1;
-      }
-    default:
-      return -1;
-  }
-}
-
-/* select a suitable input socket for an output */
-static bNodeSocket *select_internal_link_input(bNode *node, bNodeSocket *output)
-{
-  bNodeSocket *selected = NULL, *input;
-  int i;
-  int sel_priority = -1;
-  bool sel_is_linked = false;
-
-  for (input = node->inputs.first, i = 0; input; input = input->next, i++) {
-    int priority = node_datatype_priority(input->type, output->type);
-    bool is_linked = (input->link != NULL);
-    bool preferred;
-
-    if (nodeSocketIsHidden(input) || /* ignore hidden sockets */
-        input->flag &
-            SOCK_NO_INTERNAL_LINK || /* ignore if input is not allowed for internal connections */
-        priority < 0 ||              /* ignore incompatible types */
-        priority < sel_priority)     /* ignore if we already found a higher priority input */
-    {
-      continue;
-    }
-
-    /* determine if this input is preferred over the currently selected */
-    preferred = (priority > sel_priority) ||   /* prefer higher datatype priority */
-                (is_linked && !sel_is_linked); /* prefer linked over unlinked */
-
-    if (preferred) {
-      selected = input;
-      sel_is_linked = is_linked;
-      sel_priority = priority;
-    }
-  }
-
-  return selected;
-}
-
-void node_update_internal_links_default(bNodeTree *ntree, bNode *node)
-{
-  bNodeLink *link;
-  bNodeSocket *output, *input;
-
-  /* sanity check */
-  if (!ntree) {
+  /* If we're not at the link limit of the target socket, we can skip
+   * trying to move existing links to another socket. */
+  const int to_link_limit = nodeSocketLinkLimit(socket);
+  if (socket->total_inputs + 1 < to_link_limit) {
     return;
   }
 
-  /* use link pointer as a tag for handled sockets (for outputs is unused anyway) */
-  for (output = node->outputs.first; output; output = output->next) {
-    output->link = NULL;
-  }
+  LISTBASE_FOREACH_MUTABLE (bNodeLink *, to_link, &ntree->links) {
+    if (socket == to_link->tosock) {
+      bNodeSocket *new_socket = node_find_linkable_socket(ntree, node, socket);
+      if (new_socket && new_socket != socket) {
+        /* Attempt to redirect the existing link to the new socket. */
+        to_link->tosock = new_socket;
+        return;
+      }
 
-  for (link = ntree->links.first; link; link = link->next) {
-    if (nodeLinkIsHidden(link)) {
-      continue;
+      if (new_socket == NULL) {
+        /* No possible replacement, remove the existing link. */
+        nodeRemLink(ntree, to_link);
+        return;
+      }
     }
-
-    output = link->fromsock;
-    if (link->fromnode != node || output->link) {
-      continue;
-    }
-    if (nodeSocketIsHidden(output) || output->flag & SOCK_NO_INTERNAL_LINK) {
-      continue;
-    }
-    output->link = link; /* not really used, just for tagging handled sockets */
-
-    /* look for suitable input */
-    input = select_internal_link_input(node, output);
-
-    if (input) {
-      bNodeLink *ilink = MEM_callocN(sizeof(bNodeLink), "internal node link");
-      ilink->fromnode = node;
-      ilink->fromsock = input;
-      ilink->tonode = node;
-      ilink->tosock = output;
-      /* internal link is always valid */
-      ilink->flag |= NODE_LINK_VALID;
-      BLI_addtail(&node->internal_links, ilink);
-    }
-  }
-
-  /* clean up */
-  for (output = node->outputs.first; output; output = output->next) {
-    output->link = NULL;
   }
 }
 
-/**** Default value RNA access ****/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Default value RNA access
+ * \{ */
 
 float node_socket_get_float(bNodeTree *ntree, bNode *UNUSED(node), bNodeSocket *sock)
 {
@@ -556,3 +409,5 @@ void node_socket_set_vector(bNodeTree *ntree,
   RNA_pointer_create((ID *)ntree, &RNA_NodeSocket, sock, &ptr);
   RNA_float_set_array(&ptr, "default_value", value);
 }
+
+/** \} */

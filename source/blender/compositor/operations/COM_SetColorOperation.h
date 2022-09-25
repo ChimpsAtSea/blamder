@@ -1,32 +1,19 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_SETCOLOROPERATION_H__
-#define __COM_SETCOLOROPERATION_H__
-#include "COM_NodeOperation.h"
+#pragma once
+
+#include "COM_ConstantOperation.h"
+
+namespace blender::compositor {
 
 /**
  * this program converts an input color to an output value.
  * it assumes we are in sRGB color space.
  */
-class SetColorOperation : public NodeOperation {
+class SetColorOperation : public ConstantOperation {
  private:
-  float m_color[4];
+  float color_[4];
 
  public:
   /**
@@ -34,52 +21,54 @@ class SetColorOperation : public NodeOperation {
    */
   SetColorOperation();
 
-  float getChannel1()
+  const float *get_constant_elem() override
   {
-    return this->m_color[0];
+    return color_;
   }
-  void setChannel1(float value)
+
+  float get_channel1()
   {
-    this->m_color[0] = value;
+    return color_[0];
   }
-  float getChannel2()
+  void set_channel1(float value)
   {
-    return this->m_color[1];
+    color_[0] = value;
   }
-  void setChannel2(float value)
+  float get_channel2()
   {
-    this->m_color[1] = value;
+    return color_[1];
   }
-  float getChannel3()
+  void set_channel2(float value)
   {
-    return this->m_color[2];
+    color_[1] = value;
   }
-  void setChannel3(float value)
+  float get_channel3()
   {
-    this->m_color[2] = value;
+    return color_[2];
   }
-  float getChannel4()
+  void set_channel3(float value)
   {
-    return this->m_color[3];
+    color_[2] = value;
   }
-  void setChannel4(const float value)
+  float get_channel4()
   {
-    this->m_color[3] = value;
+    return color_[3];
   }
-  void setChannels(const float value[4])
+  void set_channel4(const float value)
   {
-    copy_v4_v4(this->m_color, value);
+    color_[3] = value;
+  }
+  void set_channels(const float value[4])
+  {
+    copy_v4_v4(color_, value);
   }
 
   /**
-   * the inner loop of this program
+   * The inner loop of this operation.
    */
-  void executePixelSampled(float output[4], float x, float y, PixelSampler sampler);
+  void execute_pixel_sampled(float output[4], float x, float y, PixelSampler sampler) override;
 
-  void determineResolution(unsigned int resolution[2], unsigned int preferredResolution[2]);
-  bool isSetOperation() const
-  {
-    return true;
-  }
+  void determine_canvas(const rcti &preferred_area, rcti &r_area) override;
 };
-#endif
+
+}  // namespace blender::compositor

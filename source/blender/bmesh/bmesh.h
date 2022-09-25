@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __BMESH_H__
-#define __BMESH_H__
+#pragma once
 
 /** \file
  * \ingroup bmesh
@@ -38,11 +23,11 @@
  *
  * BMHeader flags should **never** be read or written to by bmesh operators (see Operators below).
  *
- * Access to header flags is done with ``BM_elem_flag_*()`` functions.
+ * Access to header flags is done with `BM_elem_flag_*()` functions.
  * \subsection bm_faces Faces
  *
  * Faces in BMesh are stored as a circular linked list of loops. Loops store per-face-vertex data
- * (amongst other things outlined later in this document), and define the face boundary.
+ * (among other things outlined later in this document), and define the face boundary.
  * \subsection bm_loop The Loop
  *
  * Loops can be thought of as a *face-corner*, since faces don't reference verts or edges directly.
@@ -56,7 +41,7 @@
  *
  * - BMLoop#v - pointer to the vertex associated with this loop.
  * - BMLoop#e - pointer to the edge associated with this loop,
- *   between verts ``(loop->v, loop->next->v)``
+ *   between verts `(loop->v, loop->next->v)`
  * - BMLoop#f - pointer to the face associated with this loop.
  * \subsection bm_two_side_face 2-Sided Faces
  *
@@ -114,20 +99,20 @@
  *
  * These slots are identified by name, using strings.
  *
- * Access to slots is done with ``BMO_slot_***()`` functions.
+ * Access to slots is done with `BMO_slot_***()` functions.
  * \subsection bm_tool_flags Tool Flags
  *
  * The BMesh API provides a set of flags for faces, edges and vertices,
  * which are private to an operator.
  * These flags may be used by the client operator code as needed
  * (a common example is flagging elements for use in another operator).
- * Each call to an operator allocates it's own set of tool flags when it's executed,
+ * Each call to an operator allocates its own set of tool flags when it's executed,
  * avoiding flag conflicts between operators.
  *
  * These flags should not be confused with header flags, which are used to store persistent flags
  * (e.g. selection, hide status, etc).
  *
- * Access to tool flags is done with ``BMO_elem_flag_***()`` functions.
+ * Access to tool flags is done with `BMO_elem_flag_***()` functions.
  *
  * \warning Operators are **never** allowed to read or write to header flags.
  * They act entirely on the data inside their input slots.
@@ -163,14 +148,14 @@
  *
  * These conventions should be used throughout the bmesh module.
  *
- * - ``bmesh_kernel_*()`` - Low level API, for primitive functions that others are built ontop of.
- * - ``bmesh_***()`` - Low level API function.
- * - ``bm_***()`` -     'static' functions, not apart of the API at all,
+ * - `bmesh_kernel_*()` - Low level API, for primitive functions that others are built ontop of.
+ * - `bmesh_***()` - Low level API function.
+ * - `bm_***()` -     'static' functions, not a part of the API at all,
  *   but use prefix since they operate on BMesh data.
- * - ``BM_***()`` -     High level BMesh API function for use anywhere.
- * - ``BMO_***()`` -    High level operator API function for use anywhere.
- * - ``bmo_***()`` -    Low level / internal operator API functions.
- * - ``_bm_***()`` -    Functions which are called via macros only.
+ * - `BM_***()` -     High level BMesh API function for use anywhere.
+ * - `BMO_***()` -    High level operator API function for use anywhere.
+ * - `bmo_***()` -    Low level / internal operator API functions.
+ * - `_bm_***()` -    Functions which are called via macros only.
  *
  * \section bm_todo BMesh TODO's
  *
@@ -191,7 +176,6 @@
 #include "DNA_customdata_types.h" /* BMesh struct in bmesh_class.h uses */
 #include "DNA_listBase.h"         /* selection history uses */
 
-#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -216,13 +200,18 @@ extern "C" {
 #include "intern/bmesh_marking.h"
 #include "intern/bmesh_mesh.h"
 #include "intern/bmesh_mesh_convert.h"
+#include "intern/bmesh_mesh_debug.h"
 #include "intern/bmesh_mesh_duplicate.h"
+#include "intern/bmesh_mesh_normals.h"
+#include "intern/bmesh_mesh_partial_update.h"
+#include "intern/bmesh_mesh_tessellate.h"
 #include "intern/bmesh_mesh_validate.h"
 #include "intern/bmesh_mods.h"
 #include "intern/bmesh_operators.h"
 #include "intern/bmesh_polygon.h"
 #include "intern/bmesh_polygon_edgenet.h"
 #include "intern/bmesh_query.h"
+#include "intern/bmesh_query_uv.h"
 #include "intern/bmesh_walkers.h"
 
 #include "intern/bmesh_inline.h"
@@ -230,5 +219,3 @@ extern "C" {
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __BMESH_H__ */

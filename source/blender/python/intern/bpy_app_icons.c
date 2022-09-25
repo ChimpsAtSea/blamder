@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
@@ -35,7 +21,7 @@
 /* We may want to load direct from file. */
 PyDoc_STRVAR(
     bpy_app_icons_new_triangles_doc,
-    ".. function:: new_triangles(range, coords, colors)"
+    ".. function:: new_triangles(range, coords, colors)\n"
     "\n"
     "   Create a new icon from triangle geometry.\n"
     "\n"
@@ -54,7 +40,14 @@ static PyObject *bpy_app_icons_new_triangles(PyObject *UNUSED(self), PyObject *a
   PyObject *py_coords, *py_colors;
 
   static const char *_keywords[] = {"range", "coords", "colors", NULL};
-  static _PyArg_Parser _parser = {"(BB)SS:new_triangles", _keywords, 0};
+  static _PyArg_Parser _parser = {
+      "(BB)" /* `range` */
+      "S"    /* `coords` */
+      "S"    /* `colors` */
+      ":new_triangles",
+      _keywords,
+      0,
+  };
   if (!_PyArg_ParseTupleAndKeywordsFast(
           args, kw, &_parser, &coords_range[0], &coords_range[1], &py_coords, &py_colors)) {
     return NULL;
@@ -71,8 +64,8 @@ static PyObject *bpy_app_icons_new_triangles(PyObject *UNUSED(self), PyObject *a
     return NULL;
   }
 
-  int coords_size = sizeof(uchar[2]) * tris_len * 3;
-  int colors_size = sizeof(uchar[4]) * tris_len * 3;
+  const int coords_size = sizeof(uchar[2]) * tris_len * 3;
+  const int colors_size = sizeof(uchar[4]) * tris_len * 3;
   uchar(*coords)[2] = MEM_mallocN(coords_size, __func__);
   uchar(*colors)[4] = MEM_mallocN(colors_size, __func__);
 
@@ -86,12 +79,12 @@ static PyObject *bpy_app_icons_new_triangles(PyObject *UNUSED(self), PyObject *a
   geom->coords = coords;
   geom->colors = colors;
   geom->icon_id = 0;
-  int icon_id = BKE_icon_geom_ensure(geom);
+  const int icon_id = BKE_icon_geom_ensure(geom);
   return PyLong_FromLong(icon_id);
 }
 
 PyDoc_STRVAR(bpy_app_icons_new_triangles_from_file_doc,
-             ".. function:: new_triangles_from_file(filename)"
+             ".. function:: new_triangles_from_file(filename)\n"
              "\n"
              "   Create a new icon from triangle geometry.\n"
              "\n"
@@ -107,7 +100,12 @@ static PyObject *bpy_app_icons_new_triangles_from_file(PyObject *UNUSED(self),
   char *filename;
 
   static const char *_keywords[] = {"filename", NULL};
-  static _PyArg_Parser _parser = {"s:new_triangles_from_file", _keywords, 0};
+  static _PyArg_Parser _parser = {
+      "s" /* `filename` */
+      ":new_triangles_from_file",
+      _keywords,
+      0,
+  };
   if (!_PyArg_ParseTupleAndKeywordsFast(args, kw, &_parser, &filename)) {
     return NULL;
   }
@@ -117,19 +115,24 @@ static PyObject *bpy_app_icons_new_triangles_from_file(PyObject *UNUSED(self),
     PyErr_SetString(PyExc_ValueError, "Unable to load from file");
     return NULL;
   }
-  int icon_id = BKE_icon_geom_ensure(geom);
+  const int icon_id = BKE_icon_geom_ensure(geom);
   return PyLong_FromLong(icon_id);
 }
 
 PyDoc_STRVAR(bpy_app_icons_release_doc,
-             ".. function:: release(icon_id)"
+             ".. function:: release(icon_id)\n"
              "\n"
              "   Release the icon.\n");
 static PyObject *bpy_app_icons_release(PyObject *UNUSED(self), PyObject *args, PyObject *kw)
 {
   int icon_id;
   static const char *_keywords[] = {"icon_id", NULL};
-  static _PyArg_Parser _parser = {"i:release", _keywords, 0};
+  static _PyArg_Parser _parser = {
+      "i" /* `icon_id` */
+      ":release",
+      _keywords,
+      0,
+  };
   if (!_PyArg_ParseTupleAndKeywordsFast(args, kw, &_parser, &icon_id)) {
     return NULL;
   }

@@ -32,11 +32,17 @@
 #define CERES_INTERNAL_CXSPARSE_H_
 
 // This include must come before any #ifndef check on Ceres compile options.
-#include "ceres/internal/port.h"
+#include "ceres/internal/config.h"
 
 #ifndef CERES_NO_CXSPARSE
 
+#include <memory>
+#include <string>
 #include <vector>
+
+#include "ceres/internal/disable_warnings.h"
+#include "ceres/linear_solver.h"
+#include "ceres/sparse_cholesky.h"
 #include "cs.h"
 
 namespace ceres {
@@ -47,21 +53,27 @@ class TripletSparseMatrix;
 
 // This object provides access to solving linear systems using Cholesky
 // factorization with a known symbolic factorization. This features does not
-// explicity exist in CXSparse. The methods in the class are nonstatic because
+// explicitly exist in CXSparse. The methods in the class are nonstatic because
 // the class manages internal scratch space.
-class CXSparse {
+class CERES_NO_EXPORT CXSparse {
  public:
   CXSparse();
   ~CXSparse();
 
-  // Solves a symmetric linear system A * x = b using Cholesky factorization.
-  //  A                      - The system matrix.
-  //  symbolic_factorization - The symbolic factorization of A. This is obtained
-  //                           from AnalyzeCholesky.
-  //  b                      - The right hand size of the linear equation. This
-  //                           array will also recieve the solution.
-  // Returns false if Cholesky factorization of A fails.
-  bool SolveCholesky(cs_di* A, cs_dis* symbolic_factorization, double* b);
+  // Solve the system lhs * solution = rhs in place by using an
+  // approximate minimum degree fill reducing ordering.
+  bool SolveCholesky(cs_di* lhs, double* rhs_and_solution);
+
+  // Solves a linear system given its symbolic and numeric factorization.
+  void Solve(cs_dis* symbolic_factor,
+             csn* numeric_factor,
+             double* rhs_and_solution);
+
+  // Compute the numeric Cholesky factorization of A, given its
+  // symbolic factorization.
+  //
+  // Caller owns the result.
+  csn* Cholesky(cs_di* A, cs_dis* symbolic_factor);
 
   // Creates a sparse matrix from a compressed-column form. No memory is
   // allocated or copied; the structure A is filled out with info from the
@@ -69,7 +81,7 @@ class CXSparse {
   cs_di CreateSparseMatrixTransposeView(CompressedRowSparseMatrix* A);
 
   // Creates a new matrix from a triplet form. Deallocate the returned matrix
-  // with Free. May return NULL if the compression or allocation fails.
+  // with Free. May return nullptr if the compression or allocation fails.
   cs_di* CreateSparseMatrix(TripletSparseMatrix* A);
 
   // B = A'
@@ -111,12 +123,13 @@ class CXSparse {
                                const std::vector<int>& col_blocks);
 
   // Compute an fill-reducing approximate minimum degree ordering of
-  // the matrix A. ordering should be non-NULL and should point to
+  // the matrix A. ordering should be non-nullptr and should point to
   // enough memory to hold the ordering for the rows of A.
   void ApproximateMinimumDegreeOrdering(cs_di* A, int* ordering);
 
   void Free(cs_di* sparse_matrix);
   void Free(cs_dis* symbolic_factorization);
+  void Free(csn* numeric_factorization);
 
  private:
   // Cached scratch space
@@ -124,10 +137,39 @@ class CXSparse {
   int scratch_size_;
 };
 
+// An implementation of SparseCholesky interface using the CXSparse
+// library.
+class CERES_NO_EXPORT CXSparseCholesky final : public SparseCholesky {
+ public:
+  // Factory
+  static std::unique_ptr<SparseCholesky> Create(OrderingType ordering_type);
+
+  // SparseCholesky interface.
+  ~CXSparseCholesky() override;
+  CompressedRowSparseMatrix::StorageType StorageType() const final;
+  LinearSolverTerminationType Factorize(CompressedRowSparseMatrix* lhs,
+                                        std::string* message) final;
+  LinearSolverTerminationType Solve(const double* rhs,
+                                    double* solution,
+                                    std::string* message) final;
+
+ private:
+  explicit CXSparseCholesky(const OrderingType ordering_type);
+  void FreeSymbolicFactorization();
+  void FreeNumericFactorization();
+
+  const OrderingType ordering_type_;
+  CXSparse cs_;
+  cs_dis* symbolic_factor_;
+  csn* numeric_factor_;
+};
+
 }  // namespace internal
 }  // namespace ceres
 
-#else  // CERES_NO_CXSPARSE
+#include "ceres/internal/reenable_warnings.h"
+
+#else
 
 typedef void cs_dis;
 

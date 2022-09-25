@@ -1,22 +1,5 @@
 #!/usr/bin/env python3
-
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENCE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 ######################################################
 # Importing modules
@@ -85,7 +68,7 @@ def openBlendFile(filename):
     '''
     handle = open(filename, 'rb')
     magic = ReadString(handle, 7)
-    if magic in ("BLENDER", "BULLETf"):
+    if magic in {"BLENDER", "BULLETf"}:
         log.debug("normal blendfile detected")
         handle.seek(0, os.SEEK_SET)
         return handle
@@ -123,7 +106,7 @@ def Align(handle):
 class BlendFile:
     '''
     Reads a blendfile and store the header, all the fileblocks, and catalogue
-    structs foound in the DNA fileblock
+    structs found in the DNA fileblock
 
     - BlendFile.Header  (BlendFileHeader instance)
     - BlendFile.Blocks  (list of BlendFileBlock instances)
@@ -137,7 +120,7 @@ class BlendFile:
         fileblock = BlendFileBlock(handle, self)
         found_dna_block = False
         while not found_dna_block:
-            if fileblock.Header.Code in ("DNA1", "SDNA"):
+            if fileblock.Header.Code in {"DNA1", "SDNA"}:
                 self.Catalog = DNACatalog(self.Header, handle)
                 found_dna_block = True
             else:

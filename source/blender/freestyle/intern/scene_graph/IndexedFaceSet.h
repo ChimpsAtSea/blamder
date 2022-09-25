@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_INDEXED_FACE_SET_H__
-#define __FREESTYLE_INDEXED_FACE_SET_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -34,14 +19,14 @@ namespace Freestyle {
 
 class IndexedFaceSet : public Rep {
  public:
-  /*! Triangles description style:*/
+  /** Triangles description style: */
   enum TRIANGLES_STYLE {
     TRIANGLE_STRIP,
     TRIANGLE_FAN,
     TRIANGLES,
   };
 
-  /*! User-specified face and edge marks for feature edge detection */
+  /** User-specified face and edge marks for feature edge detection */
   /* XXX Why in hell not use an enum here too? */
   typedef unsigned char FaceEdgeMark;
   static const FaceEdgeMark FACE_MARK = 1 << 0;
@@ -49,10 +34,10 @@ class IndexedFaceSet : public Rep {
   static const FaceEdgeMark EDGE_MARK_V2V3 = 1 << 2;
   static const FaceEdgeMark EDGE_MARK_V3V1 = 1 << 3;
 
-  /*! Builds an empty indexed face set  */
+  /** Builds an empty indexed face set. */
   IndexedFaceSet();
 
-  /*! Builds an indexed face set
+  /** Builds an indexed face set
    *    iVertices
    *      The array of object vertices 3D coordinates (for all faces).
    *      If iCopy != 0, the array is copied; you must deallocate iVertices. Else you must not.
@@ -127,7 +112,7 @@ class IndexedFaceSet : public Rep {
                  unsigned iTISize,
                  unsigned iCopy = 1);
 
-  /*! Builds an indexed face set from an other indexed face set */
+  /** Builds an indexed face set from an other indexed face set */
   IndexedFaceSet(const IndexedFaceSet &iBrother);
 
   void swap(IndexedFaceSet &ioOther)
@@ -167,18 +152,18 @@ class IndexedFaceSet : public Rep {
     return *this;
   }
 
-  /*! Destructor
+  /** Destructor
    *  deallocates all the resources
    */
   virtual ~IndexedFaceSet();
 
-  /*! Accept the corresponding visitor */
+  /** Accept the corresponding visitor */
   virtual void accept(SceneVisitor &v);
 
-  /*! Compute the Bounding Box */
+  /** Compute the Bounding Box */
   virtual void ComputeBBox();
 
-  /*! Accessors */
+  /** Accessors */
   virtual const float *vertices() const
   {
     return _Vertices;
@@ -311,5 +296,3 @@ class IndexedFaceSet : public Rep {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_INDEXED_FACE_SET_H__

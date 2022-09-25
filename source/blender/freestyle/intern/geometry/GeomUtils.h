@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __GEOMUTILS_H__
-#define __GEOMUTILS_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -41,7 +26,7 @@ namespace GeomUtils {
 //
 /////////////////////////////////////////////////////////////////////////////
 
-/*! Computes the distance from a point P to a segment AB */
+/** Computes the distance from a point P to a segment AB */
 template<class T> real distPointSegment(const T &P, const T &A, const T &B)
 {
   T AB, AP, BP;
@@ -98,16 +83,16 @@ intersection_test intersect2dSeg2dSegParametric(const Vec2r &p1,
                                                 real &u,          // I = P3 + u * P3P4
                                                 real epsilon = M_EPSILON);
 
-/*! check whether a 2D segment intersect a 2D region or not */
+/** check whether a 2D segment intersect a 2D region or not */
 bool intersect2dSeg2dArea(const Vec2r &min, const Vec2r &max, const Vec2r &A, const Vec2r &B);
 
-/*! check whether a 2D segment is included in a 2D region or not */
+/** check whether a 2D segment is included in a 2D region or not */
 bool include2dSeg2dArea(const Vec2r &min, const Vec2r &max, const Vec2r &A, const Vec2r &B);
 
-/*! Box-triangle overlap test, adapted from Tomas Akenine-Möller code */
+/** Box-triangle overlap test, adapted from Tomas Akenine-Möller code */
 bool overlapTriangleBox(Vec3r &boxcenter, Vec3r &boxhalfsize, Vec3r triverts[3]);
 
-/*! Fast, Minimum Storage Ray-Triangle Intersection, adapted from Tomas Möller and Ben Trumbore
+/** Fast, Minimum Storage Ray-Triangle Intersection, adapted from Tomas Möller and Ben Trumbore
  * code. */
 bool intersectRayTriangle(const Vec3r &orig,
                           const Vec3r &dir,
@@ -119,7 +104,7 @@ bool intersectRayTriangle(const Vec3r &orig,
                           real &v,  // I = (1 - u - v) * v0 + u * v1 + v * v2
                           const real epsilon = M_EPSILON);  // the epsilon to use
 
-/*! Intersection between plane and ray adapted from Graphics Gems, Didier Badouel */
+/** Intersection between plane and ray adapted from Graphics Gems, Didier Badouel */
 intersection_test intersectRayPlane(const Vec3r &orig,
                                     const Vec3r &dir,  // ray origin and direction
                                     // plane's normal and offset (plane = { P / P.N + d = 0 })
@@ -128,7 +113,7 @@ intersection_test intersectRayPlane(const Vec3r &orig,
                                     real &t,                          // I = orig + t * dir
                                     const real epsilon = M_EPSILON);  // the epsilon to use
 
-/*! Intersection Ray-Bounding box (axis aligned).
+/** Intersection Ray-Bounding box (axis aligned).
  *  Adapted from Williams et al, "An Efficient Robust Ray-Box Intersection Algorithm", JGT 10:1
  * (2005), pp. 49-54.
  */
@@ -143,7 +128,7 @@ bool intersectRayBBox(const Vec3r &orig,
                       real &tmax,  // Imax = orig + tmax * dir is the second intersection
                       real epsilon = M_EPSILON);  // the epsilon to use
 
-/*! Checks whether 3D point P lies inside or outside of the triangle ABC */
+/** Checks whether 3D point P lies inside or outside of the triangle ABC */
 bool includePointTriangle(const Vec3r &P, const Vec3r &A, const Vec3r &B, const Vec3r &C);
 
 void transformVertex(const Vec3r &vert, const Matrix44r &matrix, Vec3r &res);
@@ -157,7 +142,7 @@ Vec3r rotateVector(const Matrix44r &mat, const Vec3r &v);
 //
 /////////////////////////////////////////////////////////////////////////////
 
-/*! From world to image
+/** From world to image
  *  p
  *    point's coordinates expressed in world coordinates system
  *  q
@@ -177,7 +162,7 @@ void fromWorldToImage(const Vec3r &p,
                       const real projection_matrix[4][4],
                       const int viewport[4]);
 
-/*! From world to image
+/** From world to image
  *  p
  *    point's coordinates expressed in world coordinates system
  *  q
@@ -190,7 +175,7 @@ void fromWorldToImage(const Vec3r &p,
  */
 void fromWorldToImage(const Vec3r &p, Vec3r &q, const real transform[4][4], const int viewport[4]);
 
-/*! Projects from world coordinates to camera coordinates
+/** Projects from world coordinates to camera coordinates
  *  Returns the point's coordinates expressed in the camera's
  *  coordinates system.
  *  p
@@ -203,7 +188,7 @@ void fromWorldToImage(const Vec3r &p, Vec3r &q, const real transform[4][4], cons
  */
 void fromWorldToCamera(const Vec3r &p, Vec3r &q, const real model_view_matrix[4][4]);
 
-/*! Projects from World Coordinates to retina coordinates
+/** Projects from World Coordinates to retina coordinates
  *  Returns the point's coordinates expressed in Retina system.
  *  p
  *    point's coordinates expressed in camera system
@@ -215,7 +200,7 @@ void fromWorldToCamera(const Vec3r &p, Vec3r &q, const real model_view_matrix[4]
  */
 void fromCameraToRetina(const Vec3r &p, Vec3r &q, const real projection_matrix[4][4]);
 
-/*! From retina to image.
+/** From retina to image.
  *  Returns the coordinates expressed in Image coordinates system.
  *  p
  *    point's coordinates expressed in retina system
@@ -226,7 +211,7 @@ void fromCameraToRetina(const Vec3r &p, Vec3r &q, const real projection_matrix[4
  */
 void fromRetinaToImage(const Vec3r &p, Vec3r &q, const int viewport[4]);
 
-/*! From image to retina
+/** From image to retina
  *  p
  *    point's coordinates expressed in image system
  *  q
@@ -236,7 +221,7 @@ void fromRetinaToImage(const Vec3r &p, Vec3r &q, const int viewport[4]);
  */
 void fromImageToRetina(const Vec3r &p, Vec3r &q, const int viewport[4]);
 
-/*! computes the coordinates of q in the camera coordinates system,
+/** computes the coordinates of q in the camera coordinates system,
  *  using the known z coordinates of the 3D point.
  *  That means that this method does not inverse any matrices,
  *  it only computes X and Y from x,y and Z)
@@ -248,9 +233,9 @@ void fromImageToRetina(const Vec3r &p, Vec3r &q, const int viewport[4]);
  *    The projection matrix expressed in line major order (OpenGL
  *    matrices are column major ordered)
  */
-void fromRetinaToCamera(const Vec3r &p, Vec3r &q, real z, const real projection_matrix[4][4]);
+void fromRetinaToCamera(const Vec3r &p, Vec3r &q, real focal, const real projection_matrix[4][4]);
 
-/*! Projects from camera coordinates to world coordinates
+/** Projects from camera coordinates to world coordinates
  *  Returns the point's coordinates expressed in the world's
  *  coordinates system.
  *  p
@@ -266,5 +251,3 @@ void fromCameraToWorld(const Vec3r &p, Vec3r &q, const real model_view_matrix[4]
 }  // end of namespace GeomUtils
 
 } /* namespace Freestyle */
-
-#endif  // __GEOMUTILS_H__

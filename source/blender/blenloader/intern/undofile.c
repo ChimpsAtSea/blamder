@@ -1,22 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2004 Blender Foundation
- * All rights reserved.
- * .blend file reading entry point
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2004 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup blenloader
@@ -48,13 +31,13 @@
 
 #include "BKE_lib_id.h"
 #include "BKE_main.h"
+#include "BKE_undo_system.h"
 
 /* keep last */
 #include "BLI_strict_flags.h"
 
 /* **************** support for memory-write, for undo buffers *************** */
 
-/* not memfile itself */
 void BLO_memfile_free(MemFile *memfile)
 {
   MemFileChunk *chunk;
@@ -68,8 +51,6 @@ void BLO_memfile_free(MemFile *memfile)
   memfile->size = 0;
 }
 
-/* to keep list of memfiles consistent, 'first' is always first in list */
-/* result is that 'first' is being freed */
 void BLO_memfile_merge(MemFile *first, MemFile *second)
 {
   /* We use this mapping to store the memory buffers from second memfile chunks which are not owned
@@ -105,7 +86,6 @@ void BLO_memfile_merge(MemFile *first, MemFile *second)
   BLO_memfile_free(first);
 }
 
-/* Clear is_identical_future before adding next memfile. */
 void BLO_memfile_clear_future(MemFile *memfile)
 {
   LISTBASE_FOREACH (MemFileChunk *, chunk, &memfile->chunks) {
@@ -140,7 +120,7 @@ void BLO_memfile_write_init(MemFileWriteData *mem_data,
           *entry = mem_chunk;
         }
         else {
-          BLI_assert(0);
+          BLI_assert_unreachable();
         }
       }
     }
@@ -154,7 +134,7 @@ void BLO_memfile_write_finalize(MemFileWriteData *mem_data)
   }
 }
 
-void BLO_memfile_chunk_add(MemFileWriteData *mem_data, const char *buf, uint size)
+void BLO_memfile_chunk_add(MemFileWriteData *mem_data, const char *buf, size_t size)
 {
   MemFile *memfile = mem_data->written_memfile;
   MemFileChunk **compchunk_step = &mem_data->reference_current_chunk;
@@ -193,12 +173,12 @@ void BLO_memfile_chunk_add(MemFileWriteData *mem_data, const char *buf, uint siz
 }
 
 struct Main *BLO_memfile_main_get(struct MemFile *memfile,
-                                  struct Main *oldmain,
+                                  struct Main *bmain,
                                   struct Scene **r_scene)
 {
   struct Main *bmain_undo = NULL;
-  BlendFileData *bfd = BLO_read_from_memfile(oldmain,
-                                             BKE_main_blendfile_path(oldmain),
+  BlendFileData *bfd = BLO_read_from_memfile(bmain,
+                                             BKE_main_blendfile_path(bmain),
                                              memfile,
                                              &(const struct BlendFileReadParams){0},
                                              NULL);
@@ -215,17 +195,12 @@ struct Main *BLO_memfile_main_get(struct MemFile *memfile,
   return bmain_undo;
 }
 
-/**
- * Saves .blend using undo buffer.
- *
- * \return success.
- */
-bool BLO_memfile_write_file(struct MemFile *memfile, const char *filename)
+bool BLO_memfile_write_file(struct MemFile *memfile, const char *filepath)
 {
   MemFileChunk *chunk;
   int file, oflags;
 
-  /* note: This is currently used for autosave and 'quit.blend',
+  /* NOTE: This is currently used for autosave and 'quit.blend',
    * where _not_ following symlinks is OK,
    * however if this is ever executed explicitly by the user,
    * we may want to allow writing to symlinks.
@@ -241,18 +216,23 @@ bool BLO_memfile_write_file(struct MemFile *memfile, const char *filename)
 #    warning "Symbolic links will be followed on undo save, possibly causing CVE-2008-1103"
 #  endif
 #endif
-  file = BLI_open(filename, oflags, 0666);
+  file = BLI_open(filepath, oflags, 0666);
 
   if (file == -1) {
     fprintf(stderr,
             "Unable to save '%s': %s\n",
-            filename,
+            filepath,
             errno ? strerror(errno) : "Unknown error opening file");
     return false;
   }
 
   for (chunk = memfile->chunks.first; chunk; chunk = chunk->next) {
-    if ((size_t)write(file, chunk->buf, chunk->size) != chunk->size) {
+#ifdef _WIN32
+    if ((size_t)write(file, chunk->buf, (uint)chunk->size) != chunk->size)
+#else
+    if ((size_t)write(file, chunk->buf, chunk->size) != chunk->size)
+#endif
+    {
       break;
     }
   }
@@ -262,9 +242,103 @@ bool BLO_memfile_write_file(struct MemFile *memfile, const char *filename)
   if (chunk) {
     fprintf(stderr,
             "Unable to save '%s': %s\n",
-            filename,
+            filepath,
             errno ? strerror(errno) : "Unknown error writing file");
     return false;
   }
   return true;
+}
+
+static ssize_t undo_read(FileReader *reader, void *buffer, size_t size)
+{
+  UndoReader *undo = (UndoReader *)reader;
+
+  static size_t seek = SIZE_MAX; /* The current position. */
+  static size_t offset = 0;      /* Size of previous chunks. */
+  static MemFileChunk *chunk = NULL;
+  size_t chunkoffset, readsize, totread;
+
+  undo->memchunk_identical = true;
+
+  if (size == 0) {
+    return 0;
+  }
+
+  if (seek != (size_t)undo->reader.offset) {
+    chunk = undo->memfile->chunks.first;
+    seek = 0;
+
+    while (chunk) {
+      if (seek + chunk->size > (size_t)undo->reader.offset) {
+        break;
+      }
+      seek += chunk->size;
+      chunk = chunk->next;
+    }
+    offset = seek;
+    seek = (size_t)undo->reader.offset;
+  }
+
+  if (chunk) {
+    totread = 0;
+
+    do {
+      /* First check if it's on the end if current chunk. */
+      if (seek - offset == chunk->size) {
+        offset += chunk->size;
+        chunk = chunk->next;
+      }
+
+      /* Debug, should never happen. */
+      if (chunk == NULL) {
+        printf("illegal read, chunk zero\n");
+        return 0;
+      }
+
+      chunkoffset = seek - offset;
+      readsize = size - totread;
+
+      /* Data can be spread over multiple chunks, so clamp size
+       * to within this chunk, and then it will read further in
+       * the next chunk. */
+      if (chunkoffset + readsize > chunk->size) {
+        readsize = chunk->size - chunkoffset;
+      }
+
+      memcpy(POINTER_OFFSET(buffer, totread), chunk->buf + chunkoffset, readsize);
+      totread += readsize;
+      undo->reader.offset += (off64_t)readsize;
+      seek += readsize;
+
+      /* `is_identical` of current chunk represents whether it changed compared to previous undo
+       * step. this is fine in redo case, but not in undo case, where we need an extra flag
+       * defined when saving the next (future) step after the one we want to restore, as we are
+       * supposed to 'come from' that future undo step, and not the one before current one. */
+      undo->memchunk_identical &= undo->undo_direction == STEP_REDO ? chunk->is_identical :
+                                                                      chunk->is_identical_future;
+    } while (totread < size);
+
+    return (ssize_t)totread;
+  }
+
+  return 0;
+}
+
+static void undo_close(FileReader *reader)
+{
+  MEM_freeN(reader);
+}
+
+FileReader *BLO_memfile_new_filereader(MemFile *memfile, int undo_direction)
+{
+  UndoReader *undo = MEM_callocN(sizeof(UndoReader), __func__);
+
+  undo->memfile = memfile;
+  undo->undo_direction = undo_direction;
+
+  undo->reader.read = undo_read;
+  undo->reader.seek = NULL;
+  undo->reader.close = undo_close;
+
+  return (FileReader *)undo;
 }

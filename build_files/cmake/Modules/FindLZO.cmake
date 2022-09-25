@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2015 Blender Foundation.
+
 # - Find LZO library
 # Find the native LZO includes and library
 # This module defines
@@ -10,17 +13,6 @@
 #
 # also defined, but not for general use are
 #  LZO_LIBRARY, where to find the LZO library.
-
-#=============================================================================
-# Copyright 2015 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
 
 # If LZO_ROOT_DIR was defined in the environment, use it.
 IF(NOT LZO_ROOT_DIR AND NOT $ENV{LZO_ROOT_DIR} STREQUAL "")
@@ -56,7 +48,7 @@ FIND_PACKAGE_HANDLE_STANDARD_ARGS(LZO DEFAULT_MSG
 IF(LZO_FOUND)
   SET(LZO_LIBRARIES ${LZO_LIBRARY})
   SET(LZO_INCLUDE_DIRS ${LZO_INCLUDE_DIR})
-ENDIF(LZO_FOUND)
+ENDIF()
 
 MARK_AS_ADVANCED(
   LZO_INCLUDE_DIR

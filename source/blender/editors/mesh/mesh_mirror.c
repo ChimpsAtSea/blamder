@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edmesh
@@ -129,7 +115,7 @@ static int mirrtopo_hash_sort(const void *l1, const void *l2)
   if ((MirrTopoHash_t)(intptr_t)l1 > (MirrTopoHash_t)(intptr_t)l2) {
     return 1;
   }
-  else if ((MirrTopoHash_t)(intptr_t)l1 < (MirrTopoHash_t)(intptr_t)l2) {
+  if ((MirrTopoHash_t)(intptr_t)l1 < (MirrTopoHash_t)(intptr_t)l2) {
     return -1;
   }
   return 0;
@@ -140,7 +126,7 @@ static int mirrtopo_vert_sort(const void *v1, const void *v2)
   if (((MirrTopoVert_t *)v1)->hash > ((MirrTopoVert_t *)v2)->hash) {
     return 1;
   }
-  else if (((MirrTopoVert_t *)v1)->hash < ((MirrTopoVert_t *)v2)->hash) {
+  if (((MirrTopoVert_t *)v1)->hash < ((MirrTopoVert_t *)v2)->hash) {
     return -1;
   }
   return 0;
@@ -166,9 +152,7 @@ bool ED_mesh_mirrtopo_recalc_check(BMEditMesh *em, Mesh *me, MirrTopoStore_t *me
       (totvert != mesh_topo_store->prev_vert_tot) || (totedge != mesh_topo_store->prev_edge_tot)) {
     return true;
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
 void ED_mesh_mirrtopo_init(BMEditMesh *em,
@@ -182,7 +166,7 @@ void ED_mesh_mirrtopo_init(BMEditMesh *em,
   const bool is_editmode = (em != NULL);
   MEdge *medge = NULL, *med;
 
-  /* editmode*/
+  /* Edit-mode variables. */
   BMEdge *eed;
   BMIter iter;
 
@@ -278,10 +262,8 @@ void ED_mesh_mirrtopo_init(BMEditMesh *em,
        * higher number of unique values compared to the previous loop. */
       break;
     }
-    else {
-      tot_unique_prev = tot_unique;
-      tot_unique_edges_prev = tot_unique_edges;
-    }
+    tot_unique_prev = tot_unique;
+    tot_unique_edges_prev = tot_unique_edges;
     /* Copy the hash calculated this iteration, so we can use them next time */
     memcpy(topo_hash_prev, topo_hash, sizeof(MirrTopoHash_t) * totvert);
 
@@ -312,8 +294,9 @@ void ED_mesh_mirrtopo_init(BMEditMesh *em,
 
   last = 0;
 
-  /* Get the pairs out of the sorted hashes, note, totvert+1 means we can use the previous 2,
-   * but you cant ever access the last 'a' index of MirrTopoPairs */
+  /* Get the pairs out of the sorted hashes.
+   * NOTE: `totvert + 1` means we can use the previous 2,
+   * but you can't ever access the last 'a' index of #MirrTopoPairs. */
   if (em) {
     BMVert **vtable = em->bm->vtable;
     for (a = 1; a <= totvert; a++) {
@@ -368,10 +351,7 @@ void ED_mesh_mirrtopo_init(BMEditMesh *em,
 
 void ED_mesh_mirrtopo_free(MirrTopoStore_t *mesh_topo_store)
 {
-  if (mesh_topo_store->index_lookup) {
-    MEM_freeN(mesh_topo_store->index_lookup);
-  }
-  mesh_topo_store->index_lookup = NULL;
+  MEM_SAFE_FREE(mesh_topo_store->index_lookup);
   mesh_topo_store->prev_vert_tot = -1;
   mesh_topo_store->prev_edge_tot = -1;
 }

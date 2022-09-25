@@ -1,43 +1,33 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2017, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2017 Blender Foundation. */
 
 /** \file
  * \ingroup draw
  */
 
-#ifndef __GPENCIL_ENGINE_H__
-#define __GPENCIL_ENGINE_H__
+#pragma once
 
 #include "DNA_gpencil_types.h"
+
+#include "DRW_render.h"
 
 #include "BLI_bitmap.h"
 
 #include "GPU_batch.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+#include "gpencil_defines.h"
+#include "gpencil_shader_shared.h"
 
 extern DrawEngineType draw_engine_gpencil_type;
 
 struct GPENCIL_Data;
 struct GPENCIL_StorageList;
 struct GPUBatch;
-struct GPUVertBuf;
-struct GPUVertFormat;
 struct GpencilBatchCache;
-struct MaterialGPencilStyle;
 struct Object;
 struct RenderEngine;
 struct RenderLayer;
@@ -52,76 +42,26 @@ struct bGPDstroke;
 
 #define GP_MAX_MASKBITS 256
 
-/* UBO structure. Watch out for padding. Must match GLSL declaration. */
-typedef struct gpMaterial {
-  float stroke_color[4];
-  float fill_color[4];
-  float fill_mix_color[4];
-  float fill_uv_transform[3][2], _pad0[2];
-  float stroke_texture_mix;
-  float stroke_u_scale;
-  float fill_texture_mix;
-  int flag;
-} gpMaterial;
-
-/* gpMaterial->flag */
-/* WATCH Keep in sync with GLSL declaration. */
-#define GP_STROKE_ALIGNMENT_STROKE 1
-#define GP_STROKE_ALIGNMENT_OBJECT 2
-#define GP_STROKE_ALIGNMENT_FIXED 3
-#define GP_STROKE_ALIGNMENT 0x3
-#define GP_STROKE_OVERLAP (1 << 2)
-#define GP_STROKE_TEXTURE_USE (1 << 3)
-#define GP_STROKE_TEXTURE_STENCIL (1 << 4)
-#define GP_STROKE_TEXTURE_PREMUL (1 << 5)
-#define GP_STROKE_DOTS (1 << 6)
-#define GP_FILL_TEXTURE_USE (1 << 10)
-#define GP_FILL_TEXTURE_PREMUL (1 << 11)
-#define GP_FILL_TEXTURE_CLIP (1 << 12)
-#define GP_FILL_GRADIENT_USE (1 << 13)
-#define GP_FILL_GRADIENT_RADIAL (1 << 14)
-
-#define GPENCIL_LIGHT_BUFFER_LEN 128
-
-/* UBO structure. Watch out for padding. Must match GLSL declaration. */
-typedef struct gpLight {
-  float color[3], type;
-  float right[3], spotsize;
-  float up[3], spotblend;
-  float forward[4];
-  float position[4];
-} gpLight;
-
-/* gpLight->type */
-/* WATCH Keep in sync with GLSL declaration. */
-#define GP_LIGHT_TYPE_POINT 0.0
-#define GP_LIGHT_TYPE_SPOT 1.0
-#define GP_LIGHT_TYPE_SUN 2.0
-#define GP_LIGHT_TYPE_AMBIENT 3.0
-
-BLI_STATIC_ASSERT_ALIGN(gpMaterial, 16)
-BLI_STATIC_ASSERT_ALIGN(gpLight, 16)
-
-/* *********** Draw Datas *********** */
+/* *********** Draw Data *********** */
 typedef struct GPENCIL_MaterialPool {
-  /* Linklist. */
+  /* Single linked-list. */
   struct GPENCIL_MaterialPool *next;
-  /* GPU representatin of materials. */
-  gpMaterial mat_data[GP_MATERIAL_BUFFER_LEN];
+  /* GPU representation of materials. */
+  gpMaterial mat_data[GPENCIL_MATERIAL_BUFFER_LEN];
   /* Matching ubo. */
-  struct GPUUniformBuffer *ubo;
+  struct GPUUniformBuf *ubo;
   /* Texture per material. NULL means none. */
-  struct GPUTexture *tex_fill[GP_MATERIAL_BUFFER_LEN];
-  struct GPUTexture *tex_stroke[GP_MATERIAL_BUFFER_LEN];
+  struct GPUTexture *tex_fill[GPENCIL_MATERIAL_BUFFER_LEN];
+  struct GPUTexture *tex_stroke[GPENCIL_MATERIAL_BUFFER_LEN];
   /* Number of material used in this pool. */
   int used_count;
 } GPENCIL_MaterialPool;
 
 typedef struct GPENCIL_LightPool {
-  /* GPU representatin of materials. */
+  /* GPU representation of materials. */
   gpLight light_data[GPENCIL_LIGHT_BUFFER_LEN];
   /* Matching ubo. */
-  struct GPUUniformBuffer *ubo;
+  struct GPUUniformBuf *ubo;
   /* Number of light in the pool. */
   int light_used;
 } GPENCIL_LightPool;
@@ -144,15 +84,15 @@ typedef struct GPENCIL_ViewLayerData {
 /* *********** GPencil  *********** */
 
 typedef struct GPENCIL_tVfx {
-  /** Linklist */
+  /** Single linked-list. */
   struct GPENCIL_tVfx *next;
   DRWPass *vfx_ps;
-  /* Framebuffer reference since it may not be allocated yet. */
+  /* Frame-buffer reference since it may not be allocated yet. */
   GPUFrameBuffer **target_fb;
 } GPENCIL_tVfx;
 
 typedef struct GPENCIL_tLayer {
-  /** Linklist */
+  /** Single linked-list. */
   struct GPENCIL_tLayer *next;
   /** Geometry pass (draw all strokes). */
   DRWPass *geom_ps;
@@ -168,7 +108,7 @@ typedef struct GPENCIL_tLayer {
 } GPENCIL_tLayer;
 
 typedef struct GPENCIL_tObject {
-  /** Linklist */
+  /** Single linked-list. */
   struct GPENCIL_tObject *next;
 
   struct {
@@ -189,6 +129,10 @@ typedef struct GPENCIL_tObject {
   float plane_mat[4][4];
 
   bool is_drawmode3d;
+
+  /* Use Material Holdout. */
+  bool do_mat_holdout;
+
 } GPENCIL_tObject;
 
 /* *********** LISTS *********** */
@@ -289,13 +233,15 @@ typedef struct GPENCIL_PrivateData {
   int v3d_color_type;
   /* Current frame */
   int cfra;
-  /* If we are rendering for final render (F12). */
+  /* If we are rendering for final render (F12).
+   * NOTE: set to false for viewport and opengl rendering (including sequencer scene rendering),
+   * but set to true when rendering in #OB_RENDER shading mode (viewport or opengl rendering). */
   bool is_render;
   /* If we are in viewport display (used for VFX). */
   bool is_viewport;
   /* True in selection and auto_depth drawing */
   bool draw_depth_only;
-  /* Is shading set to wireframe. */
+  /* Is shading set to wire-frame. */
   bool draw_wireframe;
   /* Used by the depth merge step. */
   int is_stroke_order_3d;
@@ -334,6 +280,8 @@ typedef struct GPENCIL_PrivateData {
 
   /* Display onion skinning */
   bool do_onion;
+  /* Playing animation */
+  bool playing;
   /* simplify settings */
   bool simplify_fill;
   bool simplify_fx;
@@ -342,7 +290,7 @@ typedef struct GPENCIL_PrivateData {
   bool use_lighting;
   /* Use physical lights or just ambient lighting. */
   bool use_lights;
-  /* Do we need additional framebuffers? */
+  /* Do we need additional frame-buffers? */
   bool use_layer_fb;
   bool use_object_fb;
   bool use_mask_fb;
@@ -363,6 +311,8 @@ typedef struct GPENCIL_PrivateData {
   float xray_alpha;
   /* Mask invert uniform. */
   int mask_invert;
+  /* Vertex Paint opacity. */
+  float vertex_paint_opacity;
 } GPENCIL_PrivateData;
 
 /* geometry batch cache functions */
@@ -378,16 +328,24 @@ GPENCIL_tLayer *gpencil_layer_cache_add(GPENCIL_PrivateData *pd,
                                         GPENCIL_tObject *tgp_ob);
 GPENCIL_tLayer *gpencil_layer_cache_get(GPENCIL_tObject *tgp_ob, int number);
 
+/**
+ * Creates a linked list of material pool containing all materials assigned for a given object.
+ * We merge the material pools together if object does not contain a huge amount of materials.
+ * Also return an offset to the first material of the object in the UBO.
+ */
 GPENCIL_MaterialPool *gpencil_material_pool_create(GPENCIL_PrivateData *pd, Object *ob, int *ofs);
 void gpencil_material_resources_get(GPENCIL_MaterialPool *first_pool,
                                     int mat_id,
                                     struct GPUTexture **r_tex_stroke,
                                     struct GPUTexture **r_tex_fill,
-                                    struct GPUUniformBuffer **r_ubo_mat);
+                                    struct GPUUniformBuf **r_ubo_mat);
 
 void gpencil_light_ambient_add(GPENCIL_LightPool *lightpool, const float color[3]);
-void gpencil_light_pool_populate(GPENCIL_LightPool *matpool, Object *ob);
+void gpencil_light_pool_populate(GPENCIL_LightPool *lightpool, Object *ob);
 GPENCIL_LightPool *gpencil_light_pool_add(GPENCIL_PrivateData *pd);
+/**
+ * Creates a single pool containing all lights assigned (light linked) for a given object.
+ */
 GPENCIL_LightPool *gpencil_light_pool_create(GPENCIL_PrivateData *pd, Object *ob);
 
 /* effects */
@@ -396,7 +354,6 @@ void gpencil_vfx_cache_populate(GPENCIL_Data *vedata, Object *ob, GPENCIL_tObjec
 /* Shaders */
 struct GPUShader *GPENCIL_shader_antialiasing(int stage);
 struct GPUShader *GPENCIL_shader_geometry_get(void);
-struct GPUShader *GPENCIL_shader_composite_get(void);
 struct GPUShader *GPENCIL_shader_layer_blend_get(void);
 struct GPUShader *GPENCIL_shader_mask_invert_get(void);
 struct GPUShader *GPENCIL_shader_depth_merge_get(void);
@@ -423,6 +380,10 @@ void GPENCIL_cache_finish(void *vedata);
 void GPENCIL_draw_scene(void *vedata);
 
 /* render */
+
+/**
+ * Initialize render data.
+ */
 void GPENCIL_render_init(struct GPENCIL_Data *ved,
                          struct RenderEngine *engine,
                          struct RenderLayer *render_layer,
@@ -437,5 +398,6 @@ void GPENCIL_render_to_image(void *vedata,
 void gpencil_light_pool_free(void *storage);
 void gpencil_material_pool_free(void *storage);
 GPENCIL_ViewLayerData *GPENCIL_view_layer_data_ensure(void);
-
-#endif /* __GPENCIL_ENGINE_H__ */
+#ifdef __cplusplus
+}
+#endif

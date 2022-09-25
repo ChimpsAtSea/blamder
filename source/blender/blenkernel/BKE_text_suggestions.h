@@ -1,29 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008, Blender Foundation
- * All rights reserved.
- */
-#ifndef __BKE_TEXT_SUGGESTIONS_H__
-#define __BKE_TEXT_SUGGESTIONS_H__
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
+#pragma once
 
 /** \file
  * \ingroup bke
  */
-
-#include "DNA_text_types.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -63,13 +44,13 @@ typedef struct SuggList {
 void free_texttools(void);
 
 /* Used to identify which Text object the current tools should appear against */
-void texttool_text_set_active(Text *text);
+void texttool_text_set_active(struct Text *text);
 void texttool_text_clear(void);
-short texttool_text_is_active(Text *text);
+short texttool_text_is_active(struct Text *text);
 
 /* Suggestions */
 void texttool_suggest_add(const char *name, char type);
-void texttool_suggest_prefix(const char *prefix, const int prefix_len);
+void texttool_suggest_prefix(const char *prefix, int prefix_len);
 void texttool_suggest_clear(void);
 SuggItem *texttool_suggest_first(void);
 SuggItem *texttool_suggest_last(void);
@@ -85,5 +66,3 @@ void texttool_docs_clear(void);
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __BKE_TEXT_SUGGESTIONS_H__ */

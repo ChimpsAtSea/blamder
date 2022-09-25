@@ -1,23 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bke
  */
 
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -28,6 +15,7 @@
 
 #include "BLT_translation.h"
 
+#include "BKE_asset.h"
 #include "BKE_global.h"
 #include "BKE_idprop.h"
 #include "BKE_idtype.h"
@@ -48,7 +36,16 @@
 
 #include "MEM_guardedalloc.h"
 
+#include "BLO_read_write.h"
+
 /* -------------------------------------------------------------------- */
+
+static void workspace_init_data(ID *id)
+{
+  WorkSpace *workspace = (WorkSpace *)id;
+
+  BKE_asset_library_reference_init_default(&workspace->asset_library_ref);
+}
 
 static void workspace_free_data(ID *id)
 {
@@ -70,8 +67,111 @@ static void workspace_foreach_id(ID *id, LibraryForeachIDData *data)
 {
   WorkSpace *workspace = (WorkSpace *)id;
 
+  BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, workspace->pin_scene, IDWALK_CB_NOP);
+
   LISTBASE_FOREACH (WorkSpaceLayout *, layout, &workspace->layouts) {
-    BKE_LIB_FOREACHID_PROCESS(data, layout->screen, IDWALK_CB_USER);
+    BKE_LIB_FOREACHID_PROCESS_IDSUPER(data, layout->screen, IDWALK_CB_USER);
+  }
+}
+
+static void workspace_blend_write(BlendWriter *writer, ID *id, const void *id_address)
+{
+  WorkSpace *workspace = (WorkSpace *)id;
+
+  BLO_write_id_struct(writer, WorkSpace, id_address, &workspace->id);
+  BKE_id_blend_write(writer, &workspace->id);
+  BLO_write_struct_list(writer, WorkSpaceLayout, &workspace->layouts);
+  BLO_write_struct_list(writer, WorkSpaceDataRelation, &workspace->hook_layout_relations);
+  BLO_write_struct_list(writer, wmOwnerID, &workspace->owner_ids);
+  BLO_write_struct_list(writer, bToolRef, &workspace->tools);
+  LISTBASE_FOREACH (bToolRef *, tref, &workspace->tools) {
+    if (tref->properties) {
+      IDP_BlendWrite(writer, tref->properties);
+    }
+  }
+}
+
+static void workspace_blend_read_data(BlendDataReader *reader, ID *id)
+{
+  WorkSpace *workspace = (WorkSpace *)id;
+
+  BLO_read_list(reader, &workspace->layouts);
+  BLO_read_list(reader, &workspace->hook_layout_relations);
+  BLO_read_list(reader, &workspace->owner_ids);
+  BLO_read_list(reader, &workspace->tools);
+
+  LISTBASE_FOREACH (WorkSpaceDataRelation *, relation, &workspace->hook_layout_relations) {
+    /* Parent pointer does not belong to workspace data and is therefore restored in lib_link step
+     * of window manager. */
+    BLO_read_data_address(reader, &relation->value);
+  }
+
+  LISTBASE_FOREACH (bToolRef *, tref, &workspace->tools) {
+    tref->runtime = NULL;
+    BLO_read_data_address(reader, &tref->properties);
+    IDP_BlendDataRead(reader, &tref->properties);
+  }
+
+  workspace->status_text = NULL;
+
+  id_us_ensure_real(&workspace->id);
+}
+
+static void workspace_blend_read_lib(BlendLibReader *reader, ID *id)
+{
+  WorkSpace *workspace = (WorkSpace *)id;
+  Main *bmain = BLO_read_lib_get_main(reader);
+
+  /* Do not keep the scene reference when appending a workspace. Setting a scene for a workspace is
+   * a convenience feature, but the workspace should never truly depend on scene data. */
+  if (ID_IS_LINKED(id)) {
+    workspace->pin_scene = NULL;
+  }
+  else {
+    BLO_read_id_address(reader, NULL, &workspace->pin_scene);
+  }
+
+  /* Restore proper 'parent' pointers to relevant data, and clean up unused/invalid entries. */
+  LISTBASE_FOREACH_MUTABLE (WorkSpaceDataRelation *, relation, &workspace->hook_layout_relations) {
+    relation->parent = NULL;
+    LISTBASE_FOREACH (wmWindowManager *, wm, &bmain->wm) {
+      LISTBASE_FOREACH (wmWindow *, win, &wm->windows) {
+        if (win->winid == relation->parentid) {
+          relation->parent = win->workspace_hook;
+        }
+      }
+    }
+    if (relation->parent == NULL) {
+      BLI_freelinkN(&workspace->hook_layout_relations, relation);
+    }
+  }
+
+  LISTBASE_FOREACH_MUTABLE (WorkSpaceLayout *, layout, &workspace->layouts) {
+    BLO_read_id_address(reader, id->lib, &layout->screen);
+
+    if (layout->screen) {
+      if (ID_IS_LINKED(id)) {
+        layout->screen->winid = 0;
+        if (layout->screen->temp) {
+          /* delete temp layouts when appending */
+          BKE_workspace_layout_remove(bmain, workspace, layout);
+        }
+      }
+    }
+    else {
+      /* If we're reading a layout without screen stored, it's useless and we shouldn't keep it
+       * around. */
+      BKE_workspace_layout_remove(bmain, workspace, layout);
+    }
+  }
+}
+
+static void workspace_blend_read_expand(BlendExpander *expander, ID *id)
+{
+  WorkSpace *workspace = (WorkSpace *)id;
+
+  LISTBASE_FOREACH (WorkSpaceLayout *, layout, &workspace->layouts) {
+    BLO_expand(expander, BKE_workspace_layout_screen_get(layout));
   }
 }
 
@@ -83,15 +183,29 @@ IDTypeInfo IDType_ID_WS = {
     .name = "WorkSpace",
     .name_plural = "workspaces",
     .translation_context = BLT_I18NCONTEXT_ID_WORKSPACE,
-    .flags = IDTYPE_FLAGS_NO_COPY | IDTYPE_FLAGS_NO_MAKELOCAL,
+    .flags = IDTYPE_FLAGS_NO_COPY | IDTYPE_FLAGS_ONLY_APPEND | IDTYPE_FLAGS_NO_ANIMDATA,
+    .asset_type_info = NULL,
 
-    .init_data = NULL,
+    .init_data = workspace_init_data,
     .copy_data = NULL,
     .free_data = workspace_free_data,
     .make_local = NULL,
     .foreach_id = workspace_foreach_id,
+    .foreach_cache = NULL,
+    .foreach_path = NULL,
+    .owner_get = NULL,
+
+    .blend_write = workspace_blend_write,
+    .blend_read_data = workspace_blend_read_data,
+    .blend_read_lib = workspace_blend_read_lib,
+    .blend_read_expand = workspace_blend_read_expand,
+
+    .blend_read_undo_preserve = NULL,
+
+    .lib_override_apply_post = NULL,
 };
 
+/* -------------------------------------------------------------------- */
 /** \name Internal Utils
  * \{ */
 
@@ -119,10 +233,14 @@ static WorkSpaceLayout *workspace_layout_find_exec(const WorkSpace *workspace,
   return BLI_findptr(&workspace->layouts, screen, offsetof(WorkSpaceLayout, screen));
 }
 
-static void workspace_relation_add(ListBase *relation_list, void *parent, void *data)
+static void workspace_relation_add(ListBase *relation_list,
+                                   void *parent,
+                                   const int parentid,
+                                   void *data)
 {
   WorkSpaceDataRelation *relation = MEM_callocN(sizeof(*relation), __func__);
   relation->parent = parent;
+  relation->parentid = parentid;
   relation->value = data;
   /* add to head, if we switch back to it soon we find it faster. */
   BLI_addhead(relation_list, relation);
@@ -133,11 +251,15 @@ static void workspace_relation_remove(ListBase *relation_list, WorkSpaceDataRela
   MEM_freeN(relation);
 }
 
-static void workspace_relation_ensure_updated(ListBase *relation_list, void *parent, void *data)
+static void workspace_relation_ensure_updated(ListBase *relation_list,
+                                              void *parent,
+                                              const int parentid,
+                                              void *data)
 {
-  WorkSpaceDataRelation *relation = BLI_findptr(
-      relation_list, parent, offsetof(WorkSpaceDataRelation, parent));
+  WorkSpaceDataRelation *relation = BLI_listbase_bytes_find(
+      relation_list, &parentid, sizeof(parentid), offsetof(WorkSpaceDataRelation, parentid));
   if (relation != NULL) {
+    relation->parent = parent;
     relation->value = data;
     /* reinsert at the head of the list, so that more commonly used relations are found faster. */
     BLI_remlink(relation_list, relation);
@@ -145,7 +267,7 @@ static void workspace_relation_ensure_updated(ListBase *relation_list, void *par
   }
   else {
     /* no matching relation found, add new one */
-    workspace_relation_add(relation_list, parent, data);
+    workspace_relation_add(relation_list, parent, parentid, data);
   }
 }
 
@@ -157,9 +279,8 @@ static void *workspace_relation_get_data_matching_parent(const ListBase *relatio
   if (relation != NULL) {
     return relation->value;
   }
-  else {
-    return NULL;
-  }
+
+  return NULL;
 }
 
 /**
@@ -192,18 +313,11 @@ static bool UNUSED_FUNCTION(workspaces_is_screen_used)
 
 WorkSpace *BKE_workspace_add(Main *bmain, const char *name)
 {
-  WorkSpace *new_workspace = BKE_libblock_alloc(bmain, ID_WS, name, 0);
+  WorkSpace *new_workspace = BKE_id_new(bmain, ID_WS, name);
   id_us_ensure_real(&new_workspace->id);
   return new_workspace;
 }
 
-/**
- * Remove \a workspace by freeing itself and its data. This is a higher-level wrapper that
- * calls #workspace_free_data (through #BKE_id_free) to free the workspace data, and frees
- * other data-blocks owned by \a workspace and its layouts (currently that is screens only).
- *
- * Always use this to remove (and free) workspaces. Don't free non-ID workspace members here.
- */
 void BKE_workspace_remove(Main *bmain, WorkSpace *workspace)
 {
   for (WorkSpaceLayout *layout = workspace->layouts.first, *layout_next; layout;
@@ -214,13 +328,13 @@ void BKE_workspace_remove(Main *bmain, WorkSpace *workspace)
   BKE_id_free(bmain, workspace);
 }
 
-WorkSpaceInstanceHook *BKE_workspace_instance_hook_create(const Main *bmain)
+WorkSpaceInstanceHook *BKE_workspace_instance_hook_create(const Main *bmain, const int winid)
 {
   WorkSpaceInstanceHook *hook = MEM_callocN(sizeof(WorkSpaceInstanceHook), __func__);
 
   /* set an active screen-layout for each possible window/workspace combination */
   for (WorkSpace *workspace = bmain->workspaces.first; workspace; workspace = workspace->id.next) {
-    BKE_workspace_active_layout_set(hook, workspace, workspace->layouts.first);
+    BKE_workspace_active_layout_set(hook, winid, workspace, workspace->layouts.first);
   }
 
   return hook;
@@ -247,9 +361,6 @@ void BKE_workspace_instance_hook_free(const Main *bmain, WorkSpaceInstanceHook *
   MEM_freeN(hook);
 }
 
-/**
- * Add a new layout to \a workspace for \a screen.
- */
 WorkSpaceLayout *BKE_workspace_layout_add(Main *bmain,
                                           WorkSpace *workspace,
                                           bScreen *screen,
@@ -312,13 +423,6 @@ WorkSpaceLayout *BKE_workspace_layout_find(const WorkSpace *workspace, const bSc
   return NULL;
 }
 
-/**
- * Find the layout for \a screen without knowing which workspace to look in.
- * Can also be used to find the workspace that contains \a screen.
- *
- * \param r_workspace: Optionally return the workspace that contains the
- * looked up layout (if found).
- */
 WorkSpaceLayout *BKE_workspace_layout_find_global(const Main *bmain,
                                                   const bScreen *screen,
                                                   WorkSpace **r_workspace)
@@ -342,15 +446,6 @@ WorkSpaceLayout *BKE_workspace_layout_find_global(const Main *bmain,
   return NULL;
 }
 
-/**
- * Circular workspace layout iterator.
- *
- * \param callback: Custom function which gets executed for each layout.
- * Can return false to stop iterating.
- * \param arg: Custom data passed to each \a callback call.
- *
- * \return the layout at which \a callback returned false.
- */
 WorkSpaceLayout *BKE_workspace_layout_iter_circular(const WorkSpace *workspace,
                                                     WorkSpaceLayout *start,
                                                     bool (*callback)(const WorkSpaceLayout *layout,
@@ -397,10 +492,9 @@ bool BKE_workspace_owner_id_check(const WorkSpace *workspace, const char *owner_
   if ((*owner_id == '\0') || ((workspace->flags & WORKSPACE_USE_FILTER_BY_ORIGIN) == 0)) {
     return true;
   }
-  else {
-    /* We could use hash lookup, for now this list is highly likely under < ~16 items. */
-    return BLI_findstring(&workspace->owner_ids, owner_id, offsetof(wmOwnerID, name)) != NULL;
-  }
+
+  /* We could use hash lookup, for now this list is highly likely under < ~16 items. */
+  return BLI_findstring(&workspace->owner_ids, owner_id, offsetof(wmOwnerID, name)) != NULL;
 }
 
 void BKE_workspace_id_tag_all_visible(Main *bmain, int tag)
@@ -425,9 +519,13 @@ WorkSpace *BKE_workspace_active_get(WorkSpaceInstanceHook *hook)
 }
 void BKE_workspace_active_set(WorkSpaceInstanceHook *hook, WorkSpace *workspace)
 {
-  if (hook->active == workspace) {
-    return;
-  }
+  /* DO NOT check for `hook->active == workspace` here. Caller code is supposed to do it if
+   * that optimization is possible and needed.
+   * This code can be called from places where we might have this equality, but still want to
+   * ensure/update the active layout below.
+   * Known case where this is buggy and will crash later due to NULL active layout: reading
+   * a blend file, when the new read workspace ID happens to have the exact same memory address
+   * as when it was saved in the blend file (extremely unlikely, but possible). */
 
   hook->active = workspace;
   if (workspace) {
@@ -439,18 +537,11 @@ void BKE_workspace_active_set(WorkSpaceInstanceHook *hook, WorkSpace *workspace)
   }
 }
 
-/**
- * Get the layout that is active for \a hook (which is the visible layout for the active workspace
- * in \a hook).
- */
 WorkSpaceLayout *BKE_workspace_active_layout_get(const WorkSpaceInstanceHook *hook)
 {
   return hook->act_layout;
 }
 
-/**
- * Get the layout to be activated should \a workspace become or be the active workspace in \a hook.
- */
 WorkSpaceLayout *BKE_workspace_active_layout_for_workspace_get(const WorkSpaceInstanceHook *hook,
                                                                const WorkSpace *workspace)
 {
@@ -463,23 +554,13 @@ WorkSpaceLayout *BKE_workspace_active_layout_for_workspace_get(const WorkSpaceIn
   return workspace_relation_get_data_matching_parent(&workspace->hook_layout_relations, hook);
 }
 
-/**
- * \brief Activate a layout
- *
- * Sets \a layout as active for \a workspace when activated through or already active in \a hook.
- * So when the active workspace of \a hook is \a workspace, \a layout becomes the active layout of
- * \a hook too. See #BKE_workspace_active_set().
- *
- * \a workspace does not need to be active for this.
- *
- * WorkSpaceInstanceHook.act_layout should only be modified directly to update the layout pointer.
- */
 void BKE_workspace_active_layout_set(WorkSpaceInstanceHook *hook,
+                                     const int winid,
                                      WorkSpace *workspace,
                                      WorkSpaceLayout *layout)
 {
   hook->act_layout = layout;
-  workspace_relation_ensure_updated(&workspace->hook_layout_relations, hook, layout);
+  workspace_relation_ensure_updated(&workspace->hook_layout_relations, hook, winid, layout);
 }
 
 bScreen *BKE_workspace_active_screen_get(const WorkSpaceInstanceHook *hook)
@@ -487,12 +568,13 @@ bScreen *BKE_workspace_active_screen_get(const WorkSpaceInstanceHook *hook)
   return hook->act_layout->screen;
 }
 void BKE_workspace_active_screen_set(WorkSpaceInstanceHook *hook,
+                                     const int winid,
                                      WorkSpace *workspace,
                                      bScreen *screen)
 {
   /* we need to find the WorkspaceLayout that wraps this screen */
   WorkSpaceLayout *layout = BKE_workspace_layout_find(hook->active, screen);
-  BKE_workspace_active_layout_set(hook, workspace, layout);
+  BKE_workspace_active_layout_set(hook, winid, workspace, layout);
 }
 
 const char *BKE_workspace_layout_name_get(const WorkSpaceLayout *layout)

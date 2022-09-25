@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -24,15 +8,21 @@
 #include <math.h>
 
 #include "BLI_compiler_compat.h"
-#include "BLI_noise.h"
+#include "BLI_sys_types.h"
+
+#include "BLI_noise.h" /* Own include. */
 
 /* local */
-static float noise3_perlin(float vec[3]);
+static float noise3_perlin(const float vec[3]);
 // static float turbulence_perlin(const float point[3], float lofreq, float hifreq);
 // static float turbulencep(float noisesize, float x, float y, float z, int nr);
 
 /* UNUSED */
 // #define HASHVEC(x, y, z) hashvectf + 3 * hash[(hash[(hash[(z) & 255] + (y)) & 255] + (x)) & 255]
+
+/* -------------------------------------------------------------------- */
+/** \name Static Data
+ * \{ */
 
 /* needed for voronoi */
 #define HASHPNT(x, y, z) hashpntf + 3 * hash[(hash[(hash[(z)&255] + (y)) & 255] + (x)) & 255]
@@ -261,9 +251,11 @@ static const float hashvectf[768] = {
     0.64801,   -0.100586, 0.114716,  0.044525,  -0.992371, 0.966003,  0.244873,  -0.082764,
 };
 
-/**************************/
-/*  IMPROVED PERLIN NOISE */
-/**************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Improved Perlin Noise Implementation (New)
+ * \{ */
 
 BLI_INLINE float lerp(float t, float a, float b)
 {
@@ -319,17 +311,20 @@ static float newPerlin(float x, float y, float z)
            lerp(u, grad(hash[AB + 1], x, y - 1, z - 1), grad(hash[BB + 1], x - 1, y - 1, z - 1))));
 }
 
-/* for use with BLI_gNoise()/BLI_gTurbulence(), returns unsigned improved perlin noise */
+/* for use with BLI_noise_generic_noise()/BLI_noise_generic_turbulence(), returns unsigned improved
+ * perlin noise */
 static float newPerlinU(float x, float y, float z)
 {
   return (0.5f + 0.5f * newPerlin(x, y, z));
 }
 
-/**************************/
-/* END OF IMPROVED PERLIN */
-/**************************/
+/** \} */
 
-/* Was BLI_hnoise(), removed noisesize, so other functions can call it without scaling. */
+/* -------------------------------------------------------------------- */
+/** \name Improved Perlin Noise Implementation (Original)
+ * \{ */
+
+/* Was BLI_noise_hnoise(), removed noisesize, so other functions can call it without scaling. */
 static float orgBlenderNoise(float x, float y, float z)
 {
   float cn1, cn2, cn3, cn4, cn5, cn6, i;
@@ -418,15 +413,17 @@ static float orgBlenderNoise(float x, float y, float z)
   return n;
 }
 
-/* as orgBlenderNoise(), returning signed noise */
 static float orgBlenderNoiseS(float x, float y, float z)
 {
+  /* NOTE: As #orgBlenderNoise(), returning signed noise. */
+
   return (2.0f * orgBlenderNoise(x, y, z) - 1.0f);
 }
 
-/* separated from orgBlenderNoise above, with scaling */
-float BLI_hnoise(float noisesize, float x, float y, float z)
+float BLI_noise_hnoise(float noisesize, float x, float y, float z)
 {
+  /* NOTE: Separated from orgBlenderNoise, with scaling. */
+
   if (noisesize == 0.0f) {
     return 0.0f;
   }
@@ -436,33 +433,15 @@ float BLI_hnoise(float noisesize, float x, float y, float z)
   return orgBlenderNoise(x, y, z);
 }
 
-/* original turbulence functions */
-float BLI_turbulence(float noisesize, float x, float y, float z, int nr)
+float BLI_noise_turbulence(float noisesize, float x, float y, float z, int nr)
 {
   float s, d = 0.5, div = 1.0;
 
-  s = BLI_hnoise(noisesize, x, y, z);
+  s = BLI_noise_hnoise(noisesize, x, y, z);
 
   while (nr > 0) {
 
-    s += d * BLI_hnoise(noisesize * d, x, y, z);
-    div += d;
-    d *= 0.5f;
-
-    nr--;
-  }
-  return s / div;
-}
-
-float BLI_turbulence1(float noisesize, float x, float y, float z, int nr)
-{
-  float s, d = 0.5, div = 1.0;
-
-  s = fabsf((-1.0f + 2.0f * BLI_hnoise(noisesize, x, y, z)));
-
-  while (nr > 0) {
-
-    s += fabsf(d * (-1.0f + 2.0f * BLI_hnoise(noisesize * d, x, y, z)));
+    s += d * BLI_noise_hnoise(noisesize * d, x, y, z);
     div += d;
     d *= 0.5f;
 
@@ -779,21 +758,20 @@ static const float g_perlin_data_v3[512 + 2][3] = {
   } \
   (void)0
 
-static float noise3_perlin(float vec[3])
+static float noise3_perlin(const float vec[3])
 {
   const char *p = g_perlin_data_ub;
   const float(*g)[3] = g_perlin_data_v3;
   int bx0, bx1, by0, by1, bz0, bz1, b00, b10, b01, b11;
   float rx0, rx1, ry0, ry1, rz0, rz1, sx, sy, sz, a, b, c, d, t, u, v;
   const float *q;
-  int i, j;
 
   SETUP(vec[0], bx0, bx1, rx0, rx1);
   SETUP(vec[1], by0, by1, ry0, ry1);
   SETUP(vec[2], bz0, bz1, rz0, rz1);
 
-  i = p[bx0];
-  j = p[bx1];
+  int i = p[bx0];
+  int j = p[bx1];
 
   b00 = p[i + by0];
   b10 = p[j + by0];
@@ -843,31 +821,23 @@ static float noise3_perlin(float vec[3])
 #undef SURVE
 }
 
-/* for use with BLI_gNoise/gTurbulence, returns signed noise */
+/* for use with BLI_noise_generic_noise/gTurbulence, returns signed noise */
 static float orgPerlinNoise(float x, float y, float z)
 {
-  float v[3];
-
-  v[0] = x;
-  v[1] = y;
-  v[2] = z;
+  float v[3] = {x, y, z};
   return noise3_perlin(v);
 }
 
-/* for use with BLI_gNoise/gTurbulence, returns unsigned noise */
+/* for use with BLI_noise_generic_noise/gTurbulence, returns unsigned noise */
 static float orgPerlinNoiseU(float x, float y, float z)
 {
-  float v[3];
-
-  v[0] = x;
-  v[1] = y;
-  v[2] = z;
+  float v[3] = {x, y, z};
   return (0.5f + 0.5f * noise3_perlin(v));
 }
 
 /* *************** CALL AS: *************** */
 
-float BLI_hnoisep(float noisesize, float x, float y, float z)
+float BLI_noise_hnoisep(float noisesize, float x, float y, float z)
 {
   float vec[3];
 
@@ -878,9 +848,11 @@ float BLI_hnoisep(float noisesize, float x, float y, float z)
   return noise3_perlin(vec);
 }
 
-/******************/
-/* VORONOI/WORLEY */
-/******************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Voronoi/Worley Implementation
+ * \{ */
 
 /* distance metrics for voronoi, e parameter only used in Minkowski */
 /* Camberra omitted, didn't seem useful */
@@ -897,7 +869,7 @@ static float dist_Real(float x, float y, float z, float e)
   (void)e;
   return sqrtf(x * x + y * y + z * z);
 }
-/* manhattan/taxicab/cityblock distance */
+/* Manhattan/Taxi-Cab/City-Block distance. */
 static float dist_Manhattan(float x, float y, float z, float e)
 {
   (void)e;
@@ -906,13 +878,12 @@ static float dist_Manhattan(float x, float y, float z, float e)
 /* Chebychev */
 static float dist_Chebychev(float x, float y, float z, float e)
 {
-  float t;
   (void)e;
 
   x = fabsf(x);
   y = fabsf(y);
   z = fabsf(z);
-  t = (x > y) ? x : y;
+  float t = (x > y) ? x : y;
   return ((z > t) ? z : t);
 }
 
@@ -940,13 +911,8 @@ static float dist_Minkovsky(float x, float y, float z, float e)
   return powf(powf(fabsf(x), e) + powf(fabsf(y), e) + powf(fabsf(z), e), 1.0f / e);
 }
 
-/* Not 'pure' Worley, but the results are virtually the same.
- * Returns distances in da and point coords in pa */
-void voronoi(float x, float y, float z, float *da, float *pa, float me, int dtype)
+void BLI_noise_voronoi(float x, float y, float z, float *da, float *pa, float me, int dtype)
 {
-  int xx, yy, zz, xi, yi, zi;
-  float xd, yd, zd, d;
-
   float (*distfunc)(float, float, float, float);
   switch (dtype) {
     case 1:
@@ -973,18 +939,18 @@ void voronoi(float x, float y, float z, float *da, float *pa, float me, int dtyp
       break;
   }
 
-  xi = (int)(floor(x));
-  yi = (int)(floor(y));
-  zi = (int)(floor(z));
+  int xi = (int)(floor(x));
+  int yi = (int)(floor(y));
+  int zi = (int)(floor(z));
   da[0] = da[1] = da[2] = da[3] = 1e10f;
-  for (xx = xi - 1; xx <= xi + 1; xx++) {
-    for (yy = yi - 1; yy <= yi + 1; yy++) {
-      for (zz = zi - 1; zz <= zi + 1; zz++) {
+  for (int xx = xi - 1; xx <= xi + 1; xx++) {
+    for (int yy = yi - 1; yy <= yi + 1; yy++) {
+      for (int zz = zi - 1; zz <= zi + 1; zz++) {
         const float *p = HASHPNT(xx, yy, zz);
-        xd = x - (p[0] + xx);
-        yd = y - (p[1] + yy);
-        zd = z - (p[2] + zz);
-        d = distfunc(xd, yd, zd, me);
+        float xd = x - (p[0] + xx);
+        float yd = y - (p[1] + yy);
+        float zd = z - (p[2] + zz);
+        float d = distfunc(xd, yd, zd, me);
         if (d < da[0]) {
           da[3] = da[2];
           da[2] = da[1];
@@ -1038,39 +1004,39 @@ void voronoi(float x, float y, float z, float *da, float *pa, float me, int dtyp
   }
 }
 
-/* returns different feature points for use in BLI_gNoise() */
+/* returns different feature points for use in BLI_noise_generic_noise() */
 static float voronoi_F1(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return da[0];
 }
 
 static float voronoi_F2(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return da[1];
 }
 
 static float voronoi_F3(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return da[2];
 }
 
 static float voronoi_F4(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return da[3];
 }
 
 static float voronoi_F1F2(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return (da[1] - da[0]);
 }
 
@@ -1078,8 +1044,8 @@ static float voronoi_F1F2(float x, float y, float z)
 static float voronoi_Cr(float x, float y, float z)
 {
   float t = 10 * voronoi_F1F2(x, y, z);
-  if (t > 1.f) {
-    return 1.f;
+  if (t > 1.0f) {
+    return 1.0f;
   }
   return t;
 }
@@ -1090,35 +1056,35 @@ static float voronoi_Cr(float x, float y, float z)
 static float voronoi_F1S(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return (2.0f * da[0] - 1.0f);
 }
 
 static float voronoi_F2S(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return (2.0f * da[1] - 1.0f);
 }
 
 static float voronoi_F3S(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return (2.0f * da[2] - 1.0f);
 }
 
 static float voronoi_F4S(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return (2.0f * da[3] - 1.0f);
 }
 
 static float voronoi_F1F2S(float x, float y, float z)
 {
   float da[4], pa[12];
-  voronoi(x, y, z, da, pa, 1, 0);
+  BLI_noise_voronoi(x, y, z, da, pa, 1, 0);
   return (2.0f * (da[1] - da[0]) - 1.0f);
 }
 
@@ -1126,22 +1092,20 @@ static float voronoi_F1F2S(float x, float y, float z)
 static float voronoi_CrS(float x, float y, float z)
 {
   float t = 10 * voronoi_F1F2(x, y, z);
-  if (t > 1.f) {
-    return 1.f;
+  if (t > 1.0f) {
+    return 1.0f;
   }
   return (2.0f * t - 1.0f);
 }
 
-/***************/
-/* voronoi end */
-/***************/
+/** \} */
 
-/*************/
-/* CELLNOISE */
-/*************/
+/* -------------------------------------------------------------------- */
+/** \name Cell-Noise Implementation
+ * \{ */
 
-/* returns unsigned cellnoise */
-static float cellNoiseU(float x, float y, float z)
+/** Returns unsigned cell-noise. */
+static float BLI_cellNoiseU(float x, float y, float z)
 {
   /* avoid precision issues on unit coordinates */
   x = (x + 0.000001f) * 1.00001f;
@@ -1156,14 +1120,12 @@ static float cellNoiseU(float x, float y, float z)
   return ((float)(n * (n * n * 15731 + 789221) + 1376312589) / 4294967296.0f);
 }
 
-/* idem, signed */
-float cellNoise(float x, float y, float z)
+float BLI_noise_cell(float x, float y, float z)
 {
-  return (2.0f * cellNoiseU(x, y, z) - 1.0f);
+  return (2.0f * BLI_cellNoiseU(x, y, z) - 1.0f);
 }
 
-/* returns a vector/point/color in ca, using point hasharray directly */
-void cellNoiseV(float x, float y, float z, float ca[3])
+void BLI_noise_cell_v3(float x, float y, float z, float ca[3])
 {
   /* avoid precision issues on unit coordinates */
   x = (x + 0.000001f) * 1.00001f;
@@ -1179,12 +1141,14 @@ void cellNoiseV(float x, float y, float z, float ca[3])
   ca[2] = p[2];
 }
 
-/*****************/
-/* end cellnoise */
-/*****************/
+/** \} */
 
-/* newnoise: generic noise function for use with different noisebases */
-float BLI_gNoise(float noisesize, float x, float y, float z, int hard, int noisebasis)
+/* -------------------------------------------------------------------- */
+/** \name Public API's
+ * \{ */
+
+float BLI_noise_generic_noise(
+    float noisesize, float x, float y, float z, bool hard, int noisebasis)
 {
   float (*noisefunc)(float, float, float);
 
@@ -1214,12 +1178,12 @@ float BLI_gNoise(float noisesize, float x, float y, float z, int hard, int noise
       noisefunc = voronoi_Cr;
       break;
     case 14:
-      noisefunc = cellNoiseU;
+      noisefunc = BLI_cellNoiseU;
       break;
     case 0:
     default: {
       noisefunc = orgBlenderNoise;
-      /* add one to make return value same as BLI_hnoise */
+      /* add one to make return value same as BLI_noise_hnoise */
       x += 1;
       y += 1;
       z += 1;
@@ -1240,14 +1204,10 @@ float BLI_gNoise(float noisesize, float x, float y, float z, int hard, int noise
   return noisefunc(x, y, z);
 }
 
-/* newnoise: generic turbulence function for use with different noisebasis */
-float BLI_gTurbulence(
-    float noisesize, float x, float y, float z, int oct, int hard, int noisebasis)
+float BLI_noise_generic_turbulence(
+    float noisesize, float x, float y, float z, int oct, bool hard, int noisebasis)
 {
   float (*noisefunc)(float, float, float);
-  float sum, t, amp = 1, fscale = 1;
-  int i;
-
   switch (noisebasis) {
     case 1:
       noisefunc = orgPerlinNoiseU;
@@ -1274,7 +1234,7 @@ float BLI_gTurbulence(
       noisefunc = voronoi_Cr;
       break;
     case 14:
-      noisefunc = cellNoiseU;
+      noisefunc = BLI_cellNoiseU;
       break;
     case 0:
     default:
@@ -1292,9 +1252,9 @@ float BLI_gTurbulence(
     z *= noisesize;
   }
 
-  sum = 0;
-  for (i = 0; i <= oct; i++, amp *= 0.5f, fscale *= 2.0f) {
-    t = noisefunc(fscale * x, fscale * y, fscale * z);
+  float sum = 0, amp = 1, fscale = 1;
+  for (int i = 0; i <= oct; i++, amp *= 0.5f, fscale *= 2.0f) {
+    float t = noisefunc(fscale * x, fscale * y, fscale * z);
     if (hard) {
       t = fabsf(2.0f * t - 1.0f);
     }
@@ -1306,23 +1266,11 @@ float BLI_gTurbulence(
   return sum;
 }
 
-/*
- * The following code is based on Ken Musgrave's explanations and sample
- * source code in the book "Texturing and Modeling: A procedural approach"
- */
-
-/*
- * Procedural fBm evaluated at "point"; returns value stored in "value".
- *
- * Parameters:
- *    ``H''  is the fractal increment parameter
- *    ``lacunarity''  is the gap between successive frequencies
- *    ``octaves''  is the number of frequencies in the fBm
- */
-float mg_fBm(float x, float y, float z, float H, float lacunarity, float octaves, int noisebasis)
+float BLI_noise_mg_fbm(
+    float x, float y, float z, float H, float lacunarity, float octaves, int noisebasis)
 {
-  float rmd, value = 0.0, pwr = 1.0, pwHL = powf(lacunarity, -H);
-  int i;
+  /* The following code is based on Ken Musgrave's explanations and sample
+   * source code in the book "Texturing and Modeling: A procedural approach". */
 
   float (*noisefunc)(float, float, float);
   switch (noisebasis) {
@@ -1351,7 +1299,7 @@ float mg_fBm(float x, float y, float z, float H, float lacunarity, float octaves
       noisefunc = voronoi_CrS;
       break;
     case 14:
-      noisefunc = cellNoise;
+      noisefunc = BLI_noise_cell;
       break;
     case 0:
     default: {
@@ -1360,7 +1308,8 @@ float mg_fBm(float x, float y, float z, float H, float lacunarity, float octaves
     }
   }
 
-  for (i = 0; i < (int)octaves; i++) {
+  float value = 0.0, pwr = 1.0, pwHL = powf(lacunarity, -H);
+  for (int i = 0; i < (int)octaves; i++) {
     value += noisefunc(x, y, z) * pwr;
     pwr *= pwHL;
     x *= lacunarity;
@@ -1368,7 +1317,7 @@ float mg_fBm(float x, float y, float z, float H, float lacunarity, float octaves
     z *= lacunarity;
   }
 
-  rmd = octaves - floorf(octaves);
+  float rmd = octaves - floorf(octaves);
   if (rmd != 0.0f) {
     value += rmd * noisefunc(x, y, z) * pwr;
   }
@@ -1377,25 +1326,12 @@ float mg_fBm(float x, float y, float z, float H, float lacunarity, float octaves
 
 } /* fBm() */
 
-/*
- * Procedural multifractal evaluated at "point";
- * returns value stored in "value".
- *
- * Parameters:
- *    ``H''  determines the highest fractal dimension
- *    ``lacunarity''  is gap between successive frequencies
- *    ``octaves''  is the number of frequencies in the fBm
- *    ``offset''  is the zero offset, which determines multifractality (NOT USED??)
- */
-
-/* this one is in fact rather confusing,
- * there seem to be errors in the original source code (in all three versions of proc.text&mod),
- * I modified it to something that made sense to me, so it might be wrong... */
-float mg_MultiFractal(
+float BLI_noise_mg_multi_fractal(
     float x, float y, float z, float H, float lacunarity, float octaves, int noisebasis)
 {
-  float rmd, value = 1.0, pwr = 1.0, pwHL = powf(lacunarity, -H);
-  int i;
+  /* This one is in fact rather confusing,
+   * there seem to be errors in the original source code (in all three versions of proc.text&mod),
+   * I modified it to something that made sense to me, so it might be wrong. */
 
   float (*noisefunc)(float, float, float);
   switch (noisebasis) {
@@ -1424,7 +1360,7 @@ float mg_MultiFractal(
       noisefunc = voronoi_CrS;
       break;
     case 14:
-      noisefunc = cellNoise;
+      noisefunc = BLI_noise_cell;
       break;
     case 0:
     default: {
@@ -1433,46 +1369,31 @@ float mg_MultiFractal(
     }
   }
 
-  for (i = 0; i < (int)octaves; i++) {
+  float value = 1.0, pwr = 1.0, pwHL = powf(lacunarity, -H);
+  for (int i = 0; i < (int)octaves; i++) {
     value *= (pwr * noisefunc(x, y, z) + 1.0f);
     pwr *= pwHL;
     x *= lacunarity;
     y *= lacunarity;
     z *= lacunarity;
   }
-  rmd = octaves - floorf(octaves);
+  float rmd = octaves - floorf(octaves);
   if (rmd != 0.0f) {
     value *= (rmd * noisefunc(x, y, z) * pwr + 1.0f);
   }
 
   return value;
+}
 
-} /* multifractal() */
-
-/*
- * Heterogeneous procedural terrain function: stats by altitude method.
- * Evaluated at "point"; returns value stored in "value".
- *
- * Parameters:
- *       ``H''  determines the fractal dimension of the roughest areas
- *       ``lacunarity''  is the gap between successive frequencies
- *       ``octaves''  is the number of frequencies in the fBm
- *       ``offset''  raises the terrain from `sea level'
- */
-float mg_HeteroTerrain(float x,
-                       float y,
-                       float z,
-                       float H,
-                       float lacunarity,
-                       float octaves,
-                       float offset,
-                       int noisebasis)
+float BLI_noise_mg_hetero_terrain(float x,
+                                  float y,
+                                  float z,
+                                  float H,
+                                  float lacunarity,
+                                  float octaves,
+                                  float offset,
+                                  int noisebasis)
 {
-  float value, increment, rmd;
-  int i;
-  float pwHL = powf(lacunarity, -H);
-  float pwr = pwHL; /* starts with i=1 instead of 0 */
-
   float (*noisefunc)(float, float, float);
   switch (noisebasis) {
     case 1:
@@ -1500,7 +1421,7 @@ float mg_HeteroTerrain(float x,
       noisefunc = voronoi_CrS;
       break;
     case 14:
-      noisefunc = cellNoise;
+      noisefunc = BLI_noise_cell;
       break;
     case 0:
     default: {
@@ -1510,13 +1431,15 @@ float mg_HeteroTerrain(float x,
   }
 
   /* first unscaled octave of function; later octaves are scaled */
-  value = offset + noisefunc(x, y, z);
+  float value = offset + noisefunc(x, y, z);
   x *= lacunarity;
   y *= lacunarity;
   z *= lacunarity;
 
-  for (i = 1; i < (int)octaves; i++) {
-    increment = (noisefunc(x, y, z) + offset) * pwr * value;
+  float pwHL = powf(lacunarity, -H);
+  float pwr = pwHL; /* starts with i=1 instead of 0 */
+  for (int i = 1; i < (int)octaves; i++) {
+    float increment = (noisefunc(x, y, z) + offset) * pwr * value;
     value += increment;
     pwr *= pwHL;
     x *= lacunarity;
@@ -1524,37 +1447,25 @@ float mg_HeteroTerrain(float x,
     z *= lacunarity;
   }
 
-  rmd = octaves - floorf(octaves);
+  float rmd = octaves - floorf(octaves);
   if (rmd != 0.0f) {
-    increment = (noisefunc(x, y, z) + offset) * pwr * value;
+    float increment = (noisefunc(x, y, z) + offset) * pwr * value;
     value += rmd * increment;
   }
   return value;
 }
 
-/* Hybrid additive/multiplicative multifractal terrain model.
- *
- * Some good parameter values to start with:
- *
- *      H:           0.25
- *      offset:      0.7
- */
-float mg_HybridMultiFractal(float x,
-                            float y,
-                            float z,
-                            float H,
-                            float lacunarity,
-                            float octaves,
-                            float offset,
-                            float gain,
-                            int noisebasis)
+float BLI_noise_mg_hybrid_multi_fractal(float x,
+                                        float y,
+                                        float z,
+                                        float H,
+                                        float lacunarity,
+                                        float octaves,
+                                        float offset,
+                                        float gain,
+                                        int noisebasis)
 {
-  float result, signal, weight, rmd;
-  int i;
-  float pwHL = powf(lacunarity, -H);
-  float pwr = pwHL; /* starts with i=1 instead of 0 */
   float (*noisefunc)(float, float, float);
-
   switch (noisebasis) {
     case 1:
       noisefunc = orgPerlinNoise;
@@ -1581,7 +1492,7 @@ float mg_HybridMultiFractal(float x,
       noisefunc = voronoi_CrS;
       break;
     case 14:
-      noisefunc = cellNoise;
+      noisefunc = BLI_noise_cell;
       break;
     case 0:
     default: {
@@ -1590,17 +1501,19 @@ float mg_HybridMultiFractal(float x,
     }
   }
 
-  result = noisefunc(x, y, z) + offset;
-  weight = gain * result;
+  float result = noisefunc(x, y, z) + offset;
+  float weight = gain * result;
   x *= lacunarity;
   y *= lacunarity;
   z *= lacunarity;
 
-  for (i = 1; (weight > 0.001f) && (i < (int)octaves); i++) {
+  float pwHL = powf(lacunarity, -H);
+  float pwr = pwHL; /* starts with i=1 instead of 0 */
+  for (int i = 1; (weight > 0.001f) && (i < (int)octaves); i++) {
     if (weight > 1.0f) {
       weight = 1.0f;
     }
-    signal = (noisefunc(x, y, z) + offset) * pwr;
+    float signal = (noisefunc(x, y, z) + offset) * pwr;
     pwr *= pwHL;
     result += weight * signal;
     weight *= gain * signal;
@@ -1609,8 +1522,8 @@ float mg_HybridMultiFractal(float x,
     z *= lacunarity;
   }
 
-  rmd = octaves - floorf(octaves);
-  if (rmd != 0.f) {
+  float rmd = octaves - floorf(octaves);
+  if (rmd != 0.0f) {
     result += rmd * ((noisefunc(x, y, z) + offset) * pwr);
   }
 
@@ -1618,29 +1531,16 @@ float mg_HybridMultiFractal(float x,
 
 } /* HybridMultifractal() */
 
-/* Ridged multifractal terrain model.
- *
- * Some good parameter values to start with:
- *
- *      H:           1.0
- *      offset:      1.0
- *      gain:        2.0
- */
-float mg_RidgedMultiFractal(float x,
-                            float y,
-                            float z,
-                            float H,
-                            float lacunarity,
-                            float octaves,
-                            float offset,
-                            float gain,
-                            int noisebasis)
+float BLI_noise_mg_ridged_multi_fractal(float x,
+                                        float y,
+                                        float z,
+                                        float H,
+                                        float lacunarity,
+                                        float octaves,
+                                        float offset,
+                                        float gain,
+                                        int noisebasis)
 {
-  float result, signal, weight;
-  int i;
-  float pwHL = powf(lacunarity, -H);
-  float pwr = pwHL; /* starts with i=1 instead of 0 */
-
   float (*noisefunc)(float, float, float);
   switch (noisebasis) {
     case 1:
@@ -1668,7 +1568,7 @@ float mg_RidgedMultiFractal(float x,
       noisefunc = voronoi_CrS;
       break;
     case 14:
-      noisefunc = cellNoise;
+      noisefunc = BLI_noise_cell;
       break;
     case 0:
     default: {
@@ -1677,15 +1577,15 @@ float mg_RidgedMultiFractal(float x,
     }
   }
 
-  signal = offset - fabsf(noisefunc(x, y, z));
-  signal *= signal;
-  result = signal;
-
-  for (i = 1; i < (int)octaves; i++) {
+  float signal = powf(offset - fabsf(noisefunc(x, y, z)), 2);
+  float result = signal;
+  float pwHL = powf(lacunarity, -H);
+  float pwr = pwHL; /* starts with i=1 instead of 0 */
+  for (int i = 1; i < (int)octaves; i++) {
     x *= lacunarity;
     y *= lacunarity;
     z *= lacunarity;
-    weight = signal * gain;
+    float weight = signal * gain;
     if (weight > 1.0f) {
       weight = 1.0f;
     }
@@ -1702,15 +1602,10 @@ float mg_RidgedMultiFractal(float x,
   return result;
 } /* RidgedMultifractal() */
 
-/* "Variable Lacunarity Noise"
- * A distorted variety of Perlin noise.
- */
-float mg_VLNoise(float x, float y, float z, float distortion, int nbas1, int nbas2)
+float BLI_noise_mg_variable_lacunarity(
+    float x, float y, float z, float distortion, int nbas1, int nbas2)
 {
-  float rv[3];
   float (*noisefunc1)(float, float, float);
-  float (*noisefunc2)(float, float, float);
-
   switch (nbas1) {
     case 1:
       noisefunc1 = orgPerlinNoise;
@@ -1737,7 +1632,7 @@ float mg_VLNoise(float x, float y, float z, float distortion, int nbas1, int nba
       noisefunc1 = voronoi_CrS;
       break;
     case 14:
-      noisefunc1 = cellNoise;
+      noisefunc1 = BLI_noise_cell;
       break;
     case 0:
     default: {
@@ -1746,6 +1641,7 @@ float mg_VLNoise(float x, float y, float z, float distortion, int nbas1, int nba
     }
   }
 
+  float (*noisefunc2)(float, float, float);
   switch (nbas2) {
     case 1:
       noisefunc2 = orgPerlinNoise;
@@ -1772,7 +1668,7 @@ float mg_VLNoise(float x, float y, float z, float distortion, int nbas1, int nba
       noisefunc2 = voronoi_CrS;
       break;
     case 14:
-      noisefunc2 = cellNoise;
+      noisefunc2 = BLI_noise_cell;
       break;
     case 0:
     default: {
@@ -1782,12 +1678,13 @@ float mg_VLNoise(float x, float y, float z, float distortion, int nbas1, int nba
   }
 
   /* get a random vector and scale the randomization */
-  rv[0] = noisefunc1(x + 13.5f, y + 13.5f, z + 13.5f) * distortion;
-  rv[1] = noisefunc1(x, y, z) * distortion;
-  rv[2] = noisefunc1(x - 13.5f, y - 13.5f, z - 13.5f) * distortion;
+  float rv[3] = {
+      rv[0] = noisefunc1(x + 13.5f, y + 13.5f, z + 13.5f) * distortion,
+      rv[1] = noisefunc1(x, y, z) * distortion,
+      rv[2] = noisefunc1(x - 13.5f, y - 13.5f, z - 13.5f) * distortion,
+  };
+
   return noisefunc2(x + rv[0], y + rv[1], z + rv[2]); /* distorted-domain noise */
 }
 
-/****************/
-/* musgrave end */
-/****************/
+/** \} */

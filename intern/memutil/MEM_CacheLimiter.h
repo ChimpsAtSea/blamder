@@ -1,21 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
- * \ingroup memutil
+ * \ingroup intern_memutil
  */
 
 #ifndef __MEM_CACHELIMITER_H__
@@ -299,9 +285,9 @@ template<class T> class MEM_CacheLimiter {
         if (!can_destroy_element(elem))
           continue;
 
-        /* by default 0 means highest priority element */
-        /* casting a size type to int is questionable,
-           but unlikely to cause problems */
+        /* By default 0 means highest priority element. */
+        /* Casting a size type to int is questionable,
+         * but unlikely to cause problems. */
         int priority = -((int)(queue.size()) - i - 1);
         priority = item_priority_func(elem->get()->get_data(), priority);
 

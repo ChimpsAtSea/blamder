@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup editors
  */
 
-#ifndef __ED_VIEW3D_OFFSCREEN_H__
-#define __ED_VIEW3D_OFFSCREEN_H__
+#pragma once
 
 #include "DNA_object_enums.h"
 #include "DNA_view3d_types.h"
@@ -49,34 +32,46 @@ void ED_view3d_draw_offscreen(struct Depsgraph *depsgraph,
                               struct ARegion *region,
                               int winx,
                               int winy,
-                              float viewmat[4][4],
-                              float winmat[4][4],
+                              const float viewmat[4][4],
+                              const float winmat[4][4],
                               bool is_image_render,
-                              bool do_sky,
-                              bool is_persp,
+                              bool draw_background,
                               const char *viewname,
-                              const bool do_color_management,
+                              bool do_color_management,
+                              bool restore_rv3d_mats,
                               struct GPUOffScreen *ofs,
                               struct GPUViewport *viewport);
+/**
+ * Creates own fake 3d views (wrapping #ED_view3d_draw_offscreen). Similar too
+ * #ED_view_draw_offscreen_imbuf_simple, but takes view/projection matrices as arguments.
+ */
 void ED_view3d_draw_offscreen_simple(struct Depsgraph *depsgraph,
                                      struct Scene *scene,
                                      struct View3DShading *shading_override,
-                                     int drawtype,
+                                     eDrawType drawtype,
+                                     int object_type_exclude_viewport_override,
+                                     int object_type_exclude_select_override,
                                      int winx,
                                      int winy,
                                      unsigned int draw_flags,
-                                     float viewmat[4][4],
-                                     float winmat[4][4],
+                                     const float viewmat[4][4],
+                                     const float winmat[4][4],
                                      float clip_start,
                                      float clip_end,
+                                     bool is_xr_surface,
                                      bool is_image_render,
-                                     bool do_sky,
-                                     bool is_persp,
+                                     bool draw_background,
                                      const char *viewname,
-                                     const bool do_color_management,
+                                     bool do_color_management,
                                      struct GPUOffScreen *ofs,
                                      struct GPUViewport *viewport);
 
+/**
+ * Utility func for ED_view3d_draw_offscreen
+ *
+ * \param ofs: Optional off-screen buffer, can be NULL.
+ * (avoids re-creating when doing multiple GL renders).
+ */
 struct ImBuf *ED_view3d_draw_offscreen_imbuf(struct Depsgraph *depsgraph,
                                              struct Scene *scene,
                                              eDrawType drawtype,
@@ -87,8 +82,17 @@ struct ImBuf *ED_view3d_draw_offscreen_imbuf(struct Depsgraph *depsgraph,
                                              eImBufFlags imbuf_flag,
                                              int alpha_mode,
                                              const char *viewname,
+                                             bool restore_rv3d_mats,
                                              struct GPUOffScreen *ofs,
                                              char err_out[256]);
+/**
+ * Creates own fake 3d views (wrapping #ED_view3d_draw_offscreen_imbuf)
+ *
+ * \param ofs: Optional off-screen buffer can be NULL.
+ * (avoids re-creating when doing multiple GL renders).
+ *
+ * \note used by the sequencer
+ */
 struct ImBuf *ED_view3d_draw_offscreen_imbuf_simple(struct Depsgraph *depsgraph,
                                                     struct Scene *scene,
                                                     struct View3DShading *shading_override,
@@ -106,5 +110,3 @@ struct ImBuf *ED_view3d_draw_offscreen_imbuf_simple(struct Depsgraph *depsgraph,
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __ED_VIEW3D_H__ */

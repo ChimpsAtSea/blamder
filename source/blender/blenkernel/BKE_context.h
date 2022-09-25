@@ -1,28 +1,16 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
-#ifndef __BKE_CONTEXT_H__
-#define __BKE_CONTEXT_H__
+#pragma once
 
 /** \file
  * \ingroup bke
  */
+
+/* XXX temporary, until AssetHandle is designed properly and queries can return a pointer to it. */
+#include "DNA_asset_types.h"
+
+#include "BLI_utildefines.h"
 
 #include "DNA_listBase.h"
 #include "DNA_object_enums.h"
@@ -75,9 +63,26 @@ typedef struct bContext bContext;
 struct bContextDataResult;
 typedef struct bContextDataResult bContextDataResult;
 
-typedef int (*bContextDataCallback)(const bContext *C,
-                                    const char *member,
-                                    bContextDataResult *result);
+/* Result of context lookups.
+ * The specific values are important, and used implicitly in ctx_data_get(). Some functions also
+ * still accept/return `int` instead, to ensure that the compiler uses the correct storage size
+ * when mixing C/C++ code. */
+typedef enum eContextResult {
+  /* The context member was found, and its data is available. */
+  CTX_RESULT_OK = 1,
+
+  /* The context member was not found. */
+  CTX_RESULT_MEMBER_NOT_FOUND = 0,
+
+  /* The context member was found, but its data is not available.
+   * For example, "active_bone" is a valid context member, but has not data in Object mode. */
+  CTX_RESULT_NO_DATA = -1,
+} eContextResult;
+
+/* Function mapping a context member name to its value. */
+typedef int /*eContextResult*/ (*bContextDataCallback)(const bContext *C,
+                                                       const char *member,
+                                                       bContextDataResult *result);
 
 typedef struct bContextStoreEntry {
   struct bContextStoreEntry *next, *prev;
@@ -103,6 +108,7 @@ typedef enum eContextObjectMode {
   CTX_MODE_EDIT_ARMATURE,
   CTX_MODE_EDIT_METABALL,
   CTX_MODE_EDIT_LATTICE,
+  CTX_MODE_EDIT_CURVES,
   CTX_MODE_POSE,
   CTX_MODE_SCULPT,
   CTX_MODE_PAINT_WEIGHT,
@@ -115,8 +121,9 @@ typedef enum eContextObjectMode {
   CTX_MODE_SCULPT_GPENCIL,
   CTX_MODE_WEIGHT_GPENCIL,
   CTX_MODE_VERTEX_GPENCIL,
+  CTX_MODE_SCULPT_CURVES,
 } eContextObjectMode;
-#define CTX_MODE_NUM (CTX_MODE_VERTEX_GPENCIL + 1)
+#define CTX_MODE_NUM (CTX_MODE_SCULPT_CURVES + 1)
 
 /* Context */
 
@@ -127,9 +134,13 @@ bContext *CTX_copy(const bContext *C);
 
 /* Stored Context */
 
-bContextStore *CTX_store_add(ListBase *contexts, const char *name, PointerRNA *ptr);
+bContextStore *CTX_store_add(ListBase *contexts, const char *name, const PointerRNA *ptr);
 bContextStore *CTX_store_add_all(ListBase *contexts, bContextStore *context);
+bContextStore *CTX_store_get(bContext *C);
 void CTX_store_set(bContext *C, bContextStore *store);
+const PointerRNA *CTX_store_ptr_lookup(const bContextStore *store,
+                                       const char *name,
+                                       const StructRNA *type CPP_ARG_DEFAULT(nullptr));
 bContextStore *CTX_store_copy(bContextStore *store);
 void CTX_store_free(bContextStore *store);
 void CTX_store_free_list(ListBase *contexts);
@@ -139,7 +150,14 @@ bool CTX_py_init_get(bContext *C);
 void CTX_py_init_set(bContext *C, bool value);
 
 void *CTX_py_dict_get(const bContext *C);
-void CTX_py_dict_set(bContext *C, void *value);
+void *CTX_py_dict_get_orig(const bContext *C);
+
+struct bContext_PyState {
+  void *py_context;
+  void *py_context_orig;
+};
+void CTX_py_state_push(bContext *C, struct bContext_PyState *pystate, void *value);
+void CTX_py_state_pop(bContext *C, struct bContext_PyState *pystate);
 
 /* Window Manager Context */
 
@@ -173,6 +191,7 @@ struct SpaceInfo *CTX_wm_space_info(const bContext *C);
 struct SpaceUserPref *CTX_wm_space_userpref(const bContext *C);
 struct SpaceClip *CTX_wm_space_clip(const bContext *C);
 struct SpaceTopBar *CTX_wm_space_topbar(const bContext *C);
+struct SpaceSpreadsheet *CTX_wm_space_spreadsheet(const bContext *C);
 
 void CTX_wm_manager_set(bContext *C, struct wmWindowManager *wm);
 void CTX_wm_window_set(bContext *C, struct wmWindow *win);
@@ -181,14 +200,32 @@ void CTX_wm_area_set(bContext *C, struct ScrArea *area);
 void CTX_wm_region_set(bContext *C, struct ARegion *region);
 void CTX_wm_menu_set(bContext *C, struct ARegion *menu);
 void CTX_wm_gizmo_group_set(bContext *C, struct wmGizmoGroup *gzgroup);
-const char *CTX_wm_operator_poll_msg_get(struct bContext *C);
+
+/**
+ * Values to create the message that describes the reason poll failed.
+ *
+ * \note This must be called in the same context as the poll function that created it.
+ */
+struct bContextPollMsgDyn_Params {
+  /** The result is allocated . */
+  char *(*get_fn)(bContext *C, void *user_data);
+  /** Optionally free the user-data. */
+  void (*free_fn)(bContext *C, void *user_data);
+  void *user_data;
+};
+
+const char *CTX_wm_operator_poll_msg_get(struct bContext *C, bool *r_free);
 void CTX_wm_operator_poll_msg_set(struct bContext *C, const char *msg);
+void CTX_wm_operator_poll_msg_set_dynamic(bContext *C,
+                                          const struct bContextPollMsgDyn_Params *params);
+void CTX_wm_operator_poll_msg_clear(struct bContext *C);
 
 /* Data Context
  *
- * - listbases consist of CollectionPointerLink items and must be
- *   freed with BLI_freelistN!
- * - the dir listbase consists of LinkData items */
+ * - #ListBase consists of #CollectionPointerLink items and must be
+ *   freed with #BLI_freelistN!
+ * - The dir #ListBase consists of #LinkData items.
+ */
 
 /* data type, needed so we can tell between a NULL pointer and an empty list */
 enum {
@@ -202,21 +239,26 @@ PointerRNA CTX_data_pointer_get_type_silent(const bContext *C,
                                             const char *member,
                                             StructRNA *type);
 ListBase CTX_data_collection_get(const bContext *C, const char *member);
-ListBase CTX_data_dir_get_ex(const bContext *C,
-                             const bool use_store,
-                             const bool use_rna,
-                             const bool use_all);
+/**
+ * \param C: Context.
+ * \param use_store: Use 'C->wm.store'.
+ * \param use_rna: Use Include the properties from 'RNA_Context'.
+ * \param use_all: Don't skip values (currently only "scene").
+ */
+ListBase CTX_data_dir_get_ex(const bContext *C, bool use_store, bool use_rna, bool use_all);
 ListBase CTX_data_dir_get(const bContext *C);
-int CTX_data_get(
+int /*eContextResult*/ CTX_data_get(
     const bContext *C, const char *member, PointerRNA *r_ptr, ListBase *r_lb, short *r_type);
 
 void CTX_data_id_pointer_set(bContextDataResult *result, struct ID *id);
+void CTX_data_pointer_set_ptr(bContextDataResult *result, const PointerRNA *ptr);
 void CTX_data_pointer_set(bContextDataResult *result, struct ID *id, StructRNA *type, void *data);
 
 void CTX_data_id_list_add(bContextDataResult *result, struct ID *id);
+void CTX_data_list_add_ptr(bContextDataResult *result, const PointerRNA *ptr);
 void CTX_data_list_add(bContextDataResult *result, struct ID *id, StructRNA *type, void *data);
 
-void CTX_data_dir_set(bContextDataResult *result, const char **member);
+void CTX_data_dir_set(bContextDataResult *result, const char **dir);
 
 void CTX_data_type_set(struct bContextDataResult *result, short type);
 short CTX_data_type_get(struct bContextDataResult *result);
@@ -229,8 +271,9 @@ bool CTX_data_dir(const char *member);
     ListBase ctx_data_list; \
     CollectionPointerLink *ctx_link; \
     CTX_data_##member(C, &ctx_data_list); \
-    for (ctx_link = ctx_data_list.first; ctx_link; ctx_link = ctx_link->next) { \
-      Type instance = ctx_link->ptr.data;
+    for (ctx_link = (CollectionPointerLink *)ctx_data_list.first; ctx_link; \
+         ctx_link = ctx_link->next) { \
+      Type instance = (Type)ctx_link->ptr.data;
 
 #define CTX_DATA_END \
   } \
@@ -250,6 +293,13 @@ int ctx_data_list_count(const bContext *C, int (*func)(const bContext *, ListBas
 
 struct Main *CTX_data_main(const bContext *C);
 struct Scene *CTX_data_scene(const bContext *C);
+/**
+ * This is tricky. Sometimes the user overrides the render_layer
+ * but not the scene_collection. In this case what to do?
+ *
+ * If the scene_collection is linked to the #ViewLayer we use it.
+ * Otherwise we fallback to the active one of the #ViewLayer.
+ */
 struct LayerCollection *CTX_data_layer_collection(const bContext *C);
 struct Collection *CTX_data_collection(const bContext *C);
 struct ViewLayer *CTX_data_view_layer(const bContext *C);
@@ -259,11 +309,14 @@ struct ToolSettings *CTX_data_tool_settings(const bContext *C);
 const char *CTX_data_mode_string(const bContext *C);
 enum eContextObjectMode CTX_data_mode_enum_ex(const struct Object *obedit,
                                               const struct Object *ob,
-                                              const eObjectMode object_mode);
+                                              eObjectMode object_mode);
 enum eContextObjectMode CTX_data_mode_enum(const bContext *C);
 
 void CTX_data_main_set(bContext *C, struct Main *bmain);
-void CTX_data_scene_set(bContext *C, struct Scene *bmain);
+void CTX_data_scene_set(bContext *C, struct Scene *scene);
+
+/* Only Outliner currently! */
+int CTX_data_selected_ids(const bContext *C, ListBase *list);
 
 int CTX_data_selected_editable_objects(const bContext *C, ListBase *list);
 int CTX_data_selected_editable_bases(const bContext *C, ListBase *list);
@@ -312,28 +365,39 @@ int CTX_data_visible_gpencil_layers(const bContext *C, ListBase *list);
 int CTX_data_editable_gpencil_layers(const bContext *C, ListBase *list);
 int CTX_data_editable_gpencil_strokes(const bContext *C, ListBase *list);
 
-/* Gets pointer to the dependency graph.
+const struct AssetLibraryReference *CTX_wm_asset_library_ref(const bContext *C);
+struct AssetHandle CTX_wm_asset_handle(const bContext *C, bool *r_is_valid);
+
+bool CTX_wm_interface_locked(const bContext *C);
+
+/**
+ * Gets pointer to the dependency graph.
  * If it doesn't exist yet, it will be allocated.
  *
  * The result dependency graph is NOT guaranteed to be up-to-date neither from relation nor from
  * evaluated data points of view.
  *
- * NOTE: Can not be used if access to a fully evaluated datablock is needed. */
+ * \note Can not be used if access to a fully evaluated data-block is needed.
+ */
 struct Depsgraph *CTX_data_depsgraph_pointer(const bContext *C);
 
-/* Get dependency graph which is expected to be fully evaluated.
+/**
+ * Get dependency graph which is expected to be fully evaluated.
  *
  * In the release builds it is the same as CTX_data_depsgraph_pointer(). In the debug builds extra
  * sanity checks are done. Additionally, this provides more semantic meaning to what is exactly
- * expected to happen. */
+ * expected to happen.
+ */
 struct Depsgraph *CTX_data_expect_evaluated_depsgraph(const bContext *C);
 
-/* Gets fully updated and evaluated dependency graph.
+/**
+ * Gets fully updated and evaluated dependency graph.
  *
  * All the relations and evaluated objects are guaranteed to be up to date.
  *
- * NOTE: Will be expensive if there are relations or objects tagged for update.
- * NOTE: If there are pending updates depsgraph hooks will be invoked. */
+ * \note Will be expensive if there are relations or objects tagged for update.
+ * \note If there are pending updates depsgraph hooks will be invoked.
+ */
 struct Depsgraph *CTX_data_ensure_evaluated_depsgraph(const bContext *C);
 
 /* Will Return NULL if depsgraph is not allocated yet.
@@ -343,6 +407,4 @@ struct Depsgraph *CTX_data_depsgraph_on_load(const bContext *C);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

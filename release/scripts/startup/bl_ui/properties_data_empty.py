@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 from bpy.types import Panel
 
 
@@ -54,34 +36,20 @@ class DATA_PT_empty(DataButtonsPanel, Panel):
             depth_row.prop(ob, "empty_image_depth", text="Depth", expand=True)
             col.row().prop(ob, "empty_image_side", text="Side", expand=True)
 
-            col = layout.column(heading="Show in", align=True)
+            col = layout.column(heading="Show In", align=True)
             col.prop(ob, "show_empty_image_orthographic", text="Orthographic")
             col.prop(ob, "show_empty_image_perspective", text="Perspective")
             col.prop(ob, "show_empty_image_only_axis_aligned", text="Only Axis Aligned")
 
-
-class DATA_PT_empty_alpha(DataButtonsPanel, Panel):
-    bl_label = "Transparency"
-    bl_parent_id = "DATA_PT_empty"
-
-    @classmethod
-    def poll(cls, context):
-        ob = context.object
-        return (ob and ob.type == 'EMPTY' and ob.empty_display_type == 'IMAGE')
-
-    def draw_header(self, context):
-        ob = context.object
-
-        self.layout.prop(ob, "use_empty_image_alpha", text="")
-
-    def draw(self, context):
-        layout = self.layout
-        layout.use_property_split = True
-
-        ob = context.object
-
-        layout.active = ob.use_empty_image_alpha
-        layout.prop(ob, "color", text="Opacity", index=3, slider=True)
+            col = layout.column(align=False, heading="Opacity")
+            col.use_property_decorate = False
+            row = col.row(align=True)
+            sub = row.row(align=True)
+            sub.prop(ob, "use_empty_image_alpha", text="")
+            sub = sub.row(align=True)
+            sub.active = ob.use_empty_image_alpha
+            sub.prop(ob, "color", text="", index=3, slider=True)
+            row.prop_decorator(ob, "color", index=3)
 
 
 class DATA_PT_empty_image(DataButtonsPanel, Panel):
@@ -102,7 +70,6 @@ class DATA_PT_empty_image(DataButtonsPanel, Panel):
 
 classes = (
     DATA_PT_empty,
-    DATA_PT_empty_alpha,
     DATA_PT_empty_image,
 )
 

@@ -1,51 +1,87 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_ROTATEOPERATION_H__
-#define __COM_ROTATEOPERATION_H__
+#pragma once
 
-#include "COM_NodeOperation.h"
+#include "COM_MultiThreadedOperation.h"
 
-class RotateOperation : public NodeOperation {
+namespace blender::compositor {
+
+class RotateOperation : public MultiThreadedOperation {
  private:
-  SocketReader *m_imageSocket;
-  SocketReader *m_degreeSocket;
-  float m_centerX;
-  float m_centerY;
-  float m_cosine;
-  float m_sine;
-  bool m_doDegree2RadConversion;
-  bool m_isDegreeSet;
+  constexpr static int IMAGE_INPUT_INDEX = 0;
+  constexpr static int DEGREE_INPUT_INDEX = 1;
+
+  SocketReader *image_socket_;
+  SocketReader *degree_socket_;
+  /* TODO(manzanilla): to be removed with tiled implementation. */
+  float center_x_;
+  float center_y_;
+
+  float cosine_;
+  float sine_;
+  bool do_degree2_rad_conversion_;
+  bool is_degree_set_;
+  PixelSampler sampler_;
 
  public:
   RotateOperation();
-  bool determineDependingAreaOfInterest(rcti *input,
-                                        ReadBufferOperation *readOperation,
-                                        rcti *output);
-  void executePixelSampled(float output[4], float x, float y, PixelSampler sampler);
-  void initExecution();
-  void deinitExecution();
-  void setDoDegree2RadConversion(bool abool)
+
+  static void rotate_coords(
+      float &x, float &y, float center_x, float center_y, float sine, float cosine)
   {
-    this->m_doDegree2RadConversion = abool;
+    const float dx = x - center_x;
+    const float dy = y - center_y;
+    x = center_x + (cosine * dx + sine * dy);
+    y = center_y + (-sine * dx + cosine * dy);
   }
 
-  void ensureDegree();
+  static void get_rotation_center(const rcti &area, float &r_x, float &r_y);
+  static void get_rotation_offset(const rcti &input_canvas,
+                                  const rcti &rotate_canvas,
+                                  float &r_offset_x,
+                                  float &r_offset_y);
+  static void get_area_rotation_bounds(
+      const rcti &area, float center_x, float center_y, float sine, float cosine, rcti &r_bounds);
+  static void get_area_rotation_bounds_inverted(
+      const rcti &area, float center_x, float center_y, float sine, float cosine, rcti &r_bounds);
+  static void get_rotation_area_of_interest(const rcti &input_canvas,
+                                            const rcti &rotate_canvas,
+                                            float sine,
+                                            float cosine,
+                                            const rcti &output_area,
+                                            rcti &r_input_area);
+  static void get_rotation_canvas(const rcti &input_canvas,
+                                  float sine,
+                                  float cosine,
+                                  rcti &r_canvas);
+
+  bool determine_depending_area_of_interest(rcti *input,
+                                            ReadBufferOperation *read_operation,
+                                            rcti *output) override;
+  void execute_pixel_sampled(float output[4], float x, float y, PixelSampler sampler) override;
+  void init_data() override;
+  void init_execution() override;
+  void deinit_execution() override;
+
+  void set_do_degree2_rad_conversion(bool abool)
+  {
+    do_degree2_rad_conversion_ = abool;
+  }
+
+  void set_sampler(PixelSampler sampler)
+  {
+    sampler_ = sampler;
+  }
+
+  void ensure_degree();
+
+  void get_area_of_interest(int input_idx, const rcti &output_area, rcti &r_input_area) override;
+  void update_memory_buffer_partial(MemoryBuffer *output,
+                                    const rcti &area,
+                                    Span<MemoryBuffer *> inputs) override;
+
+  void determine_canvas(const rcti &preferred_area, rcti &r_area) override;
 };
 
-#endif
+}  // namespace blender::compositor

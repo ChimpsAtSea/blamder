@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_NODE_GROUP_H__
-#define __FREESTYLE_NODE_GROUP_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -43,33 +28,33 @@ class NodeGroup : public Node {
   {
   }
 
-  /*! Adds a child. Makes a addRef on the iChild reference counter */
+  /** Adds a child. Makes a addRef on the iChild reference counter */
   virtual void AddChild(Node *iChild);
 
-  /*! destroys all the underlying nodes
+  /** destroys all the underlying nodes
    *  Returns the reference counter after having done a release()
    */
   virtual int destroy();
 
-  /*! Detaches all the children */
+  /** Detaches all the children */
   virtual void DetachChildren();
 
-  /*! Detached the specified child */
+  /** Detached the specified child */
   virtual void DetachChild(Node *iChild);
 
-  /*! Retrieve children */
+  /** Retrieve children */
   virtual void RetrieveChildren(vector<Node *> &oNodes);
 
-  /*! Renders every children */
+  /** Renders every children */
   //  virtual void Render(Renderer *iRenderer);
 
-  /*! Accept the corresponding visitor */
+  /** Accept the corresponding visitor */
   virtual void accept(SceneVisitor &v);
 
-  /*! Updates the BBox */
+  /** Updates the BBox */
   virtual const BBox<Vec3r> &UpdateBBox();
 
-  /*! Returns the number of children */
+  /** Returns the number of children */
   virtual int numberOfChildren()
   {
     return _Children.size();
@@ -80,5 +65,3 @@ class NodeGroup : public Node {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_NODE_GROUP_H__

@@ -1,24 +1,5 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
+# SPDX-License-Identifier: GPL-2.0-or-later
 
-# <pep8 compliant>
-
-import bpy
 from bpy.types import Operator
 
 from bpy.props import (
@@ -160,7 +141,12 @@ def extend(obj, EXTEND_MODE):
         l_b_uv = [l[uv_act].uv for l in l_b]
 
         if EXTEND_MODE == 'LENGTH_AVERAGE':
-            fac = edge_lengths[l_b[2].edge.index][0] / edge_lengths[l_a[1].edge.index][0]
+            d1 = edge_lengths[l_a[1].edge.index][0]
+            d2 = edge_lengths[l_b[2].edge.index][0]
+            try:
+                fac = d2 / d1
+            except ZeroDivisionError:
+                fac = 1.0
         elif EXTEND_MODE == 'LENGTH':
             a0, b0, c0 = l_a[3].vert.co, l_a[0].vert.co, l_b[3].vert.co
             a1, b1, c1 = l_a[2].vert.co, l_a[1].vert.co, l_b[2].vert.co
@@ -219,7 +205,7 @@ def extend(obj, EXTEND_MODE):
     for f_triple in walk_face(f_act):
         apply_uv(*f_triple)
 
-    bmesh.update_edit_mesh(me, False)
+    bmesh.update_edit_mesh(me, loop_triangles=False)
     return STATUS_OK
 
 

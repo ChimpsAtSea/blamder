@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bli
@@ -20,7 +6,7 @@
  * Task parallel range functions.
  */
 
-#include <stdlib.h>
+#include <cstdlib>
 
 #include "MEM_guardedalloc.h"
 
@@ -32,9 +18,10 @@
 #include "atomic_ops.h"
 
 #ifdef WITH_TBB
-/* Quiet top level deprecation message, unrelated to API usage here. */
-#  define TBB_SUPPRESS_DEPRECATED_MESSAGES 1
-#  include <tbb/tbb.h>
+#  include <tbb/blocked_range.h>
+#  include <tbb/enumerable_thread_specific.h>
+#  include <tbb/parallel_for.h>
+#  include <tbb/parallel_reduce.h>
 #endif
 
 #ifdef WITH_TBB
@@ -62,7 +49,7 @@ struct RangeTask {
   }
 
   /* Splitting constructor for parallel reduce. */
-  RangeTask(RangeTask &other, tbb::split)
+  RangeTask(RangeTask &other, tbb::split /* unused */)
       : func(other.func), userdata(other.userdata), settings(other.settings)
   {
     init_chunk(settings->userdata_chunk);
@@ -70,7 +57,7 @@ struct RangeTask {
 
   ~RangeTask()
   {
-    if (settings->func_free != NULL) {
+    if (settings->func_free != nullptr) {
       settings->func_free(userdata, userdata_chunk);
     }
     MEM_SAFE_FREE(userdata_chunk);
@@ -83,19 +70,17 @@ struct RangeTask {
       memcpy(userdata_chunk, from_chunk, settings->userdata_chunk_size);
     }
     else {
-      userdata_chunk = NULL;
+      userdata_chunk = nullptr;
     }
   }
 
   void operator()(const tbb::blocked_range<int> &r) const
   {
-    tbb::this_task_arena::isolate([this, r] {
-      TaskParallelTLS tls;
-      tls.userdata_chunk = userdata_chunk;
-      for (int i = r.begin(); i != r.end(); ++i) {
-        func(userdata, i, &tls);
-      }
-    });
+    TaskParallelTLS tls;
+    tls.userdata_chunk = userdata_chunk;
+    for (int i = r.begin(); i != r.end(); ++i) {
+      func(userdata, i, &tls);
+    }
   }
 
   void join(const RangeTask &other)
@@ -139,7 +124,7 @@ void BLI_task_parallel_range(const int start,
   for (int i = start; i < stop; i++) {
     func(userdata, i, &tls);
   }
-  if (settings->func_free != NULL) {
+  if (settings->func_free != nullptr) {
     settings->func_free(userdata, settings->userdata_chunk);
   }
 }
@@ -157,7 +142,7 @@ int BLI_task_parallel_thread_id(const TaskParallelTLS *UNUSED(tls))
   if (thread_id == -1) {
     thread_id = atomic_fetch_and_add_int32(&tbb_thread_id_counter, 1);
     if (thread_id >= BLENDER_MAX_THREADS) {
-      BLI_assert(!"Maximum number of threads exceeded for sculpting");
+      BLI_assert_msg(0, "Maximum number of threads exceeded for sculpting");
       thread_id = thread_id % BLENDER_MAX_THREADS;
     }
   }

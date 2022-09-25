@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edcurve
@@ -55,6 +41,7 @@
 
 #include "RNA_access.h"
 #include "RNA_define.h"
+#include "RNA_prototypes.h"
 
 #include "RNA_enum_types.h"
 
@@ -102,7 +89,7 @@ struct CurveDrawData {
 
     /* offset projection by this value */
     bool use_offset;
-    float offset[3]; /* worldspace */
+    float offset[3]; /* world-space */
     float surface_offset;
     bool use_surface_offset_absolute;
   } project;
@@ -118,7 +105,7 @@ struct CurveDrawData {
   } radius;
 
   struct {
-    float mouse[2];
+    float mval[2];
     /* Used in case we can't calculate the depth. */
     float location_world[3];
 
@@ -128,6 +115,7 @@ struct CurveDrawData {
   } prev;
 
   ViewContext vc;
+  ViewDepths *depths;
   enum {
     CURVE_DRAW_IDLE = 0,
     CURVE_DRAW_PAINTING = 1,
@@ -143,7 +131,7 @@ static float stroke_elem_radius_from_pressure(const struct CurveDrawData *cdd,
                                               const float pressure)
 {
   const Curve *cu = cdd->vc.obedit->data;
-  return ((pressure * cdd->radius.range) + cdd->radius.min) * cu->ext2;
+  return ((pressure * cdd->radius.range) + cdd->radius.min) * cu->bevel_radius;
 }
 
 static float stroke_elem_radius(const struct CurveDrawData *cdd, const struct StrokeElem *selem)
@@ -188,7 +176,6 @@ static bool stroke_elem_project(const struct CurveDrawData *cdd,
                                 float r_normal_world[3])
 {
   ARegion *region = cdd->vc.region;
-  RegionView3D *rv3d = cdd->vc.rv3d;
 
   bool is_location_world_set = false;
 
@@ -204,11 +191,13 @@ static bool stroke_elem_project(const struct CurveDrawData *cdd,
     }
   }
   else {
-    const ViewDepths *depths = rv3d->depths;
+    const ViewDepths *depths = cdd->depths;
     if (depths && ((uint)mval_i[0] < depths->w) && ((uint)mval_i[1] < depths->h)) {
-      const double depth = (double)ED_view3d_depth_read_cached(&cdd->vc, mval_i);
+      float depth_fl = 1.0f;
+      ED_view3d_depth_read_cached(depths, mval_i, 0, &depth_fl);
+      const double depth = (double)depth_fl;
       if ((depth > depths->depth_range[0]) && (depth < depths->depth_range[1])) {
-        if (ED_view3d_depth_unproject(region, mval_i, depth, r_location_world)) {
+        if (ED_view3d_depth_unproject_v3(region, mval_i, depth, r_location_world)) {
           is_location_world_set = true;
           if (r_normal_world) {
             zero_v3(r_normal_world);
@@ -217,7 +206,7 @@ static bool stroke_elem_project(const struct CurveDrawData *cdd,
           if (surface_offset != 0.0f) {
             const float offset = cdd->project.use_surface_offset_absolute ? 1.0f : radius;
             float normal[3];
-            if (ED_view3d_depth_read_cached_normal(&cdd->vc, mval_i, normal)) {
+            if (ED_view3d_depth_read_cached_normal(region, depths, mval_i, normal)) {
               madd_v3_v3fl(r_location_world, normal, offset * surface_offset);
               if (r_normal_world) {
                 copy_v3_v3(r_normal_world, normal);
@@ -362,7 +351,7 @@ static void curve_draw_stroke_3d(const struct bContext *UNUSED(C),
   Object *obedit = cdd->vc.obedit;
   Curve *cu = obedit->data;
 
-  if (cu->ext2 > 0.0f) {
+  if (cu->bevel_radius > 0.0f) {
     BLI_mempool_iter iter;
     const struct StrokeElem *selem;
 
@@ -385,7 +374,6 @@ static void curve_draw_stroke_3d(const struct bContext *UNUSED(C),
       GPU_matrix_translate_3f(selem->location_local[0] - location_prev[0],
                               selem->location_local[1] - location_prev[1],
                               selem->location_local[2] - location_prev[2]);
-      location_prev = selem->location_local;
 
       const float radius = stroke_elem_radius(cdd, selem);
 
@@ -419,8 +407,8 @@ static void curve_draw_stroke_3d(const struct bContext *UNUSED(C),
       uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
       immBindBuiltinProgram(GPU_SHADER_3D_UNIFORM_COLOR);
 
-      GPU_depth_test(false);
-      GPU_blend(true);
+      GPU_depth_test(GPU_DEPTH_NONE);
+      GPU_blend(GPU_BLEND_ALPHA);
       GPU_line_smooth(true);
       GPU_line_width(3.0f);
 
@@ -441,8 +429,8 @@ static void curve_draw_stroke_3d(const struct bContext *UNUSED(C),
       immEnd();
 
       /* Reset defaults */
-      GPU_depth_test(true);
-      GPU_blend(false);
+      GPU_depth_test(GPU_DEPTH_LESS_EQUAL);
+      GPU_blend(GPU_BLEND_NONE);
       GPU_line_smooth(false);
 
       immUnbindProgram();
@@ -475,8 +463,8 @@ static void curve_draw_event_add(wmOperator *op, const wmEvent *event)
   }
   copy_v3_v3(cdd->prev.location_world, selem->location_world);
 
-  float len_sq = len_squared_v2v2(cdd->prev.mouse, selem->mval);
-  copy_v2_v2(cdd->prev.mouse, selem->mval);
+  float len_sq = len_squared_v2v2(cdd->prev.mval, selem->mval);
+  copy_v2_v2(cdd->prev.mval, selem->mval);
 
   if (cdd->sample.use_substeps && cdd->prev.selem) {
     const struct StrokeElem selem_target = *selem;
@@ -527,7 +515,7 @@ static void curve_draw_event_add_first(wmOperator *op, const wmEvent *event)
     if (ELEM(cps->surface_plane,
              CURVE_PAINT_SURFACE_PLANE_NORMAL_VIEW,
              CURVE_PAINT_SURFACE_PLANE_NORMAL_SURFACE)) {
-      if (ED_view3d_depth_read_cached_normal(&cdd->vc, event->mval, normal)) {
+      if (ED_view3d_depth_read_cached_normal(cdd->vc.region, cdd->depths, event->mval, normal)) {
         if (cps->surface_plane == CURVE_PAINT_SURFACE_PLANE_NORMAL_VIEW) {
           float cross_a[3], cross_b[3];
           cross_v3_v3v3(cross_a, rv3d->viewinv[2], normal);
@@ -587,6 +575,14 @@ static bool curve_draw_init(bContext *C, wmOperator *op, bool is_invoke)
     cdd->vc.scene = CTX_data_scene(C);
     cdd->vc.view_layer = CTX_data_view_layer(C);
     cdd->vc.obedit = CTX_data_edit_object(C);
+
+    /* Using an empty stroke complicates logic later,
+     * it's simplest to disallow early on (see: T94085). */
+    if (RNA_collection_is_empty(op->ptr, "stroke")) {
+      MEM_freeN(cdd);
+      BKE_report(op->reports, RPT_ERROR, "The \"stroke\" cannot be empty");
+      return false;
+    }
   }
 
   op->customdata = cdd;
@@ -621,6 +617,9 @@ static void curve_draw_exit(wmOperator *op)
       BLI_mempool_destroy(cdd->stroke_elem_pool);
     }
 
+    if (cdd->depths) {
+      ED_view3d_depths_free(cdd->depths);
+    }
     MEM_freeN(cdd);
     op->customdata = NULL;
   }
@@ -650,7 +649,7 @@ static void curve_draw_exec_precalc(wmOperator *op)
   prop = RNA_struct_find_property(op->ptr, "error_threshold");
   if (!RNA_property_is_set(op->ptr, prop)) {
 
-    /* error isnt set so we'll have to calculate it from the pixel values */
+    /* Error isn't set so we'll have to calculate it from the pixel values. */
     BLI_mempool_iter iter;
     const struct StrokeElem *selem, *selem_prev;
 
@@ -666,7 +665,7 @@ static void curve_draw_exec_precalc(wmOperator *op)
       selem_prev = selem;
     }
     scale_px = ((len_3d > 0.0f) && (len_2d > 0.0f)) ? (len_3d / len_2d) : 0.0f;
-    float error_threshold = (cps->error_threshold * U.pixelsize) * scale_px;
+    float error_threshold = (cps->error_threshold * U.dpi_fac) * scale_px;
     RNA_property_float_set(op->ptr, prop, error_threshold);
   }
 
@@ -685,7 +684,7 @@ static void curve_draw_exec_precalc(wmOperator *op)
       }
 
       if (len_squared_v2v2(selem_first->mval, selem_last->mval) <=
-          square_f(STROKE_CYCLIC_DIST_PX * U.pixelsize)) {
+          square_f(STROKE_CYCLIC_DIST_PX * U.dpi_fac)) {
         use_cyclic = true;
       }
     }
@@ -694,7 +693,7 @@ static void curve_draw_exec_precalc(wmOperator *op)
   }
 
   if ((cps->radius_taper_start != 0.0f) || (cps->radius_taper_end != 0.0f)) {
-    /* note, we could try to de-duplicate the length calculations above */
+    /* NOTE: we could try to de-duplicate the length calculations above. */
     const int stroke_len = BLI_mempool_len(cdd->stroke_elem_pool);
 
     BLI_mempool_iter iter;
@@ -1072,7 +1071,7 @@ static int curve_draw_invoke(bContext *C, wmOperator *op, const wmEvent *event)
     const float *plane_no = NULL;
     const float *plane_co = NULL;
 
-    if ((cu->flag & CU_3D) == 0) {
+    if (CU_IS_2D(cu)) {
       /* 2D overrides other options */
       plane_co = obedit->obmat[3];
       plane_no = obedit->obmat[2];
@@ -1083,15 +1082,14 @@ static int curve_draw_invoke(bContext *C, wmOperator *op, const wmEvent *event)
         /* needed or else the draw matrix can be incorrect */
         view3d_operator_needs_opengl(C);
 
-        ED_view3d_autodist_init(cdd->vc.depsgraph, cdd->vc.region, cdd->vc.v3d, 0);
+        ED_view3d_depth_override(cdd->vc.depsgraph,
+                                 cdd->vc.region,
+                                 cdd->vc.v3d,
+                                 NULL,
+                                 V3D_DEPTH_NO_GPENCIL,
+                                 &cdd->depths);
 
-        if (cdd->vc.rv3d->depths) {
-          cdd->vc.rv3d->depths->damaged = true;
-        }
-
-        ED_view3d_depth_update(cdd->vc.region);
-
-        if (cdd->vc.rv3d->depths != NULL) {
+        if (cdd->depths != NULL) {
           cdd->project.use_depth = true;
         }
         else {
@@ -1164,10 +1162,10 @@ static int curve_draw_modal(bContext *C, wmOperator *op, const wmEvent *event)
       curve_draw_event_add_first(op, event);
     }
   }
-  else if (ELEM(event->type, MOUSEMOVE, INBETWEEN_MOUSEMOVE)) {
+  else if (ISMOUSE_MOTION(event->type)) {
     if (cdd->state == CURVE_DRAW_PAINTING) {
       const float mval_fl[2] = {UNPACK2(event->mval)};
-      if (len_squared_v2v2(mval_fl, cdd->prev.mouse) > square_f(STROKE_SAMPLE_DIST_MIN_PX)) {
+      if (len_squared_v2v2(mval_fl, cdd->prev.mval) > square_f(STROKE_SAMPLE_DIST_MIN_PX)) {
         curve_draw_event_add(op, event);
       }
     }

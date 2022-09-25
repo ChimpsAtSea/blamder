@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 import bpy
 
 
@@ -25,7 +7,7 @@ class NodeCategory:
     def poll(cls, _context):
         return True
 
-    def __init__(self, identifier, name, description="", items=None):
+    def __init__(self, identifier, name, *, description="", items=None):
         self.identifier = identifier
         self.name = name
         self.description = description
@@ -43,7 +25,7 @@ class NodeCategory:
 
 
 class NodeItem:
-    def __init__(self, nodetype, label=None, settings=None, poll=None):
+    def __init__(self, nodetype, *, label=None, settings=None, poll=None):
 
         if settings is None:
             settings = {}
@@ -77,7 +59,7 @@ class NodeItem:
             else:
                 return bpy.app.translations.contexts.default
 
-    # NB: is a staticmethod because called with an explicit self argument
+    # NOTE: is a staticmethod because called with an explicit self argument
     # NodeItemCustom sets this as a variable attribute in __init__
     @staticmethod
     def draw(self, layout, _context):
@@ -92,7 +74,7 @@ class NodeItem:
 
 
 class NodeItemCustom:
-    def __init__(self, poll=None, draw=None):
+    def __init__(self, *, poll=None, draw=None):
         self.poll = poll
         self.draw = draw
 
@@ -108,7 +90,7 @@ def register_node_categories(identifier, cat_list):
     # works as draw function for menus
     def draw_node_item(self, context):
         layout = self.layout
-        col = layout.column()
+        col = layout.column(align=True)
         for item in self.category.items(context):
             item.draw(item, col, context)
 
@@ -142,6 +124,14 @@ def node_categories_iter(context):
         for cat in cat_type[0]:
             if cat.poll and ((context is None) or cat.poll(context)):
                 yield cat
+
+
+def has_node_categories(context):
+    for cat_type in _node_categories.values():
+        for cat in cat_type[0]:
+            if cat.poll and ((context is None) or cat.poll(context)):
+                return True
+    return False
 
 
 def node_items_iter(context):

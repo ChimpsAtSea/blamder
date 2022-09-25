@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edtransform
@@ -22,6 +8,7 @@
 #include <stdlib.h>
 
 #include "DNA_screen_types.h"
+#include "DNA_space_types.h"
 
 #include "BKE_context.h"
 
@@ -32,6 +19,7 @@
 #include "WM_types.h"
 
 #include "transform.h"
+#include "transform_mode.h"
 
 #include "MEM_guardedalloc.h"
 
@@ -67,7 +55,7 @@ static void InputSpringFlip(TransInfo *t, MouseInput *mi, const double mval[2], 
   InputSpring(t, mi, mval, output);
 
   /* flip scale */
-  /* values can become really big when zoomed in so use longs [#26598] */
+  /* values can become really big when zoomed in so use longs T26598. */
   if (((int64_t)((int)mi->center[0] - mval[0]) * (int64_t)((int)mi->center[0] - mi->imval[0]) +
        (int64_t)((int)mi->center[1] - mval[1]) * (int64_t)((int)mi->center[1] - mi->imval[1])) <
       0) {
@@ -124,8 +112,8 @@ static void InputVerticalRatio(TransInfo *t, MouseInput *mi, const double mval[2
 {
   const int winy = t->region ? t->region->winy : 1;
 
-  /* Flip so dragging up increases (matching viewport zoom). */
-  output[0] = ((mval[1] - mi->imval[1]) / winy) * -2.0f;
+  /* Dragging up increases (matching viewport zoom). */
+  output[0] = ((mval[1] - mi->imval[1]) / winy) * 2.0f;
 }
 
 /** Callback for #INPUT_VERTICAL_ABSOLUTE */
@@ -139,8 +127,8 @@ static void InputVerticalAbsolute(TransInfo *t,
   InputVector(t, mi, mval, vec);
   project_v3_v3v3(vec, vec, t->viewinv[1]);
 
-  /* Flip so dragging up increases (matching viewport zoom). */
-  output[0] = dot_v3v3(t->viewinv[1], vec) * -2.0f;
+  /* Dragging up increases (matching viewport zoom). */
+  output[0] = dot_v3v3(t->viewinv[1], vec) * 2.0f;
 }
 
 /** Callback for #INPUT_CUSTOM_RATIO_FLIP */
@@ -186,57 +174,24 @@ struct InputAngle_Data {
 static void InputAngle(TransInfo *UNUSED(t), MouseInput *mi, const double mval[2], float output[3])
 {
   struct InputAngle_Data *data = mi->data;
-  double dx2 = mval[0] - (double)mi->center[0];
-  double dy2 = mval[1] - (double)mi->center[1];
-  double B = sqrt(dx2 * dx2 + dy2 * dy2);
+  float dir_prev[2], dir_curr[2], mi_center[2];
+  copy_v2_v2(mi_center, mi->center);
 
-  double dx1 = data->mval_prev[0] - (double)mi->center[0];
-  double dy1 = data->mval_prev[1] - (double)mi->center[1];
-  double A = sqrt(dx1 * dx1 + dy1 * dy1);
+  sub_v2_v2v2(dir_prev, (const float[2]){UNPACK2(data->mval_prev)}, mi_center);
+  sub_v2_v2v2(dir_curr, (const float[2]){UNPACK2(mval)}, mi_center);
 
-  double dx3 = mval[0] - data->mval_prev[0];
-  double dy3 = mval[1] - data->mval_prev[1];
+  if (normalize_v2(dir_prev) && normalize_v2(dir_curr)) {
+    float dphi = angle_normalized_v2v2(dir_prev, dir_curr);
 
-  /* use doubles here, to make sure a "1.0" (no rotation)
-   * doesn't become 9.999999e-01, which gives 0.02 for acos */
-  double deler = (((dx1 * dx1 + dy1 * dy1) + (dx2 * dx2 + dy2 * dy2) - (dx3 * dx3 + dy3 * dy3)) /
-                  (2.0 * (((A * B) != 0.0) ? (A * B) : 1.0)));
-  /* ((A * B) ? (A * B) : 1.0) this takes care of potential divide by zero errors */
-
-  float dphi;
-
-  dphi = saacos((float)deler);
-  if ((dx1 * dy2 - dx2 * dy1) > 0.0) {
-    dphi = -dphi;
-  }
-
-  /* If the angle is zero, because of lack of precision close to the 1.0 value in acos
-   * approximate the angle with the opposite side of the normalized triangle
-   * This is a good approximation here since the smallest acos value seems to be around
-   * 0.02 degree and lower values don't even have a 0.01% error compared to the approximation
-   */
-  if (dphi == 0) {
-    double dx, dy;
-
-    dx2 /= A;
-    dy2 /= A;
-
-    dx1 /= B;
-    dy1 /= B;
-
-    dx = dx1 - dx2;
-    dy = dy1 - dy2;
-
-    dphi = sqrt(dx * dx + dy * dy);
-    if ((dx1 * dy2 - dx2 * dy1) > 0.0) {
+    if (cross_v2v2(dir_prev, dir_curr) > 0.0f) {
       dphi = -dphi;
     }
+
+    data->angle += ((double)dphi) * (mi->precision ? (double)mi->precision_factor : 1.0);
+
+    data->mval_prev[0] = mval[0];
+    data->mval_prev[1] = mval[1];
   }
-
-  data->angle += ((double)dphi) * (mi->precision ? (double)mi->precision_factor : 1.0);
-
-  data->mval_prev[0] = mval[0];
-  data->mval_prev[1] = mval[1];
 
   output[0] = data->angle;
 }
@@ -267,7 +222,7 @@ void setCustomPoints(TransInfo *UNUSED(t),
 {
   int *data;
 
-  mi->data = MEM_reallocN(mi->data, sizeof(int) * 4);
+  mi->data = MEM_reallocN(mi->data, sizeof(int[4]));
 
   data = mi->data;
 
@@ -298,11 +253,8 @@ void setCustomPointsFromDirection(TransInfo *t, MouseInput *mi, const float dir[
 /** \name Setup & Handle Mouse Input
  * \{ */
 
-void initMouseInput(TransInfo *UNUSED(t),
-                    MouseInput *mi,
-                    const float center[2],
-                    const int mval[2],
-                    const bool precision)
+void initMouseInput(
+    TransInfo *t, MouseInput *mi, const float center[2], const int mval[2], const bool precision)
 {
   mi->factor = 0;
   mi->precision = precision;
@@ -312,6 +264,12 @@ void initMouseInput(TransInfo *UNUSED(t),
 
   mi->imval[0] = mval[0];
   mi->imval[1] = mval[1];
+
+  if ((t->spacetype == SPACE_VIEW3D) && (t->region->regiontype == RGN_TYPE_WINDOW)) {
+    float delta[3] = {mval[0] - center[0], mval[1] - center[1]};
+    ED_view3d_win_to_delta(t->region, delta, t->zfac, delta);
+    add_v3_v3v3(mi->imval_unproj, t->center_global, delta);
+  }
 
   mi->post = NULL;
 }
@@ -438,7 +396,7 @@ void initMouseInputMode(TransInfo *t, MouseInput *mi, MouseInputMode mode)
   }
 
   /* if we've allocated new data, free the old data
-   * less hassle then checking before every alloc above */
+   * less hassle than checking before every alloc above */
   if (mi_data_prev && (mi_data_prev != mi->data)) {
     MEM_freeN(mi_data_prev);
   }
@@ -483,44 +441,57 @@ void applyMouseInput(TransInfo *t, MouseInput *mi, const int mval[2], float outp
     mi->apply(t, mi, mval_db, output);
   }
 
-  if (!is_zero_v3(t->values_modal_offset)) {
-    float values_ofs[3];
-    if (t->con.mode & CON_APPLY) {
-      mul_v3_m3v3(values_ofs, t->spacemtx, t->values_modal_offset);
-    }
-    else {
-      copy_v3_v3(values_ofs, t->values_modal_offset);
-    }
-    add_v3_v3(t->values, values_ofs);
-  }
-
   if (mi->post) {
     mi->post(t, output);
   }
 }
 
-eRedrawFlag handleMouseInput(TransInfo *t, MouseInput *mi, const wmEvent *event)
+void transform_input_update(TransInfo *t, const float fac)
 {
-  eRedrawFlag redraw = TREDRAW_NOTHING;
+  MouseInput *mi = &t->mouse;
+  t->mouse.factor *= fac;
+  if ((t->spacetype == SPACE_VIEW3D) && (t->region->regiontype == RGN_TYPE_WINDOW)) {
+    projectIntView(t, mi->imval_unproj, mi->imval);
+  }
+  else {
+    int offset[2], center_2d_int[2] = {mi->center[0], mi->center[1]};
+    sub_v2_v2v2_int(offset, mi->imval, center_2d_int);
+    offset[0] *= fac;
+    offset[1] *= fac;
 
-  switch (event->type) {
-    case EVT_LEFTSHIFTKEY:
-    case EVT_RIGHTSHIFTKEY:
-      if (event->val == KM_PRESS) {
-        t->modifiers |= MOD_PRECISION;
-        /* shift is modifier for higher precision transforn */
-        mi->precision = 1;
-        redraw = TREDRAW_HARD;
-      }
-      else if (event->val == KM_RELEASE) {
-        t->modifiers &= ~MOD_PRECISION;
-        mi->precision = 0;
-        redraw = TREDRAW_HARD;
-      }
-      break;
+    center_2d_int[0] = t->center2d[0];
+    center_2d_int[1] = t->center2d[1];
+    add_v2_v2v2_int(mi->imval, center_2d_int, offset);
   }
 
-  return redraw;
+  float center_old[2];
+  copy_v2_v2(center_old, mi->center);
+  copy_v2_v2(mi->center, t->center2d);
+
+  if (mi->use_virtual_mval) {
+    /* Update accumulator. */
+    double mval_delta[2];
+    sub_v2_v2v2_db(mval_delta, mi->virtual_mval.accum, mi->virtual_mval.prev);
+    mval_delta[0] *= fac;
+    mval_delta[1] *= fac;
+    copy_v2_v2_db(mi->virtual_mval.accum, mi->virtual_mval.prev);
+    add_v2_v2_db(mi->virtual_mval.accum, mval_delta);
+  }
+
+  if (ELEM(mi->apply, InputAngle, InputAngleSpring)) {
+    float offset_center[2];
+    sub_v2_v2v2(offset_center, mi->center, center_old);
+    struct InputAngle_Data *data = mi->data;
+    data->mval_prev[0] += offset_center[0];
+    data->mval_prev[1] += offset_center[1];
+  }
+
+  if (t->mode == TFM_EDGE_SLIDE) {
+    transform_mode_edge_slide_reproject_input(t);
+  }
+  else if (t->mode == TFM_VERT_SLIDE) {
+    transform_mode_vert_slide_reproject_input(t);
+  }
 }
 
 /** \} */

@@ -1,29 +1,12 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  * Declaration of GHOST_EventManager class.
  */
 
-#ifndef __GHOST_EVENTMANAGER_H__
-#define __GHOST_EVENTMANAGER_H__
+#pragma once
 
 #include <deque>
 #include <vector>
@@ -54,20 +37,20 @@ class GHOST_EventManager {
    * Returns the number of events currently on the stack.
    * \return The number of events on the stack.
    */
-  GHOST_TUns32 getNumEvents();
+  uint32_t getNumEvents();
 
   /**
    * Returns the number of events of a certain type currently on the stack.
-   * \param type The type of events to be counted.
+   * \param type: The type of events to be counted.
    * \return The number of events on the stack of this type.
    */
-  GHOST_TUns32 getNumEvents(GHOST_TEventType type);
+  uint32_t getNumEvents(GHOST_TEventType type);
 
   /**
    * Pushes an event on the stack.
    * To dispatch it, call dispatchEvent() or dispatchEvents().
    * Do not delete the event!
-   * \param event The event to push on the stack.
+   * \param event: The event to push on the stack.
    */
   GHOST_TSuccess pushEvent(GHOST_IEvent *event);
 
@@ -90,30 +73,30 @@ class GHOST_EventManager {
 
   /**
    * Adds a consumer to the list of event consumers.
-   * \param consumer The consumer added to the list.
+   * \param consumer: The consumer added to the list.
    * \return Indication as to whether addition has succeeded.
    */
   GHOST_TSuccess addConsumer(GHOST_IEventConsumer *consumer);
 
   /**
    * Removes a consumer from the list of event consumers.
-   * \param consumer The consumer removed from the list.
+   * \param consumer: The consumer removed from the list.
    * \return Indication as to whether removal has succeeded.
    */
   GHOST_TSuccess removeConsumer(GHOST_IEventConsumer *consumer);
 
   /**
    * Removes all events for a window from the stack.
-   * \param   window  The window to remove events for.
+   * \param window: The window to remove events for.
    */
   void removeWindowEvents(GHOST_IWindow *window);
 
   /**
    * Removes all events of a certain type from the stack.
-   * The window parameter is optional. If non-null, the routine will remove
-   * events only associated with that window.
-   * \param   type    The type of events to be removed.
-   * \param   window  The window to remove the events for.
+   * The window parameter is optional.
+   * If non-null, the routine will remove events only associated with that window.
+   * \param type: The type of events to be removed.
+   * \param window: The window to remove the events for.
    */
   void removeTypeEvents(GHOST_TEventType type, GHOST_IWindow *window = NULL);
 
@@ -140,5 +123,3 @@ class GHOST_EventManager {
   MEM_CXX_CLASS_ALLOC_FUNCS("GHOST:GHOST_EventManager")
 #endif
 };
-
-#endif  // __GHOST_EVENTMANAGER_H__

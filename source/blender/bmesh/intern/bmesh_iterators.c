@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -47,9 +33,6 @@ const char bm_iter_itype_htype_map[BM_ITYPE_MAX] = {
     BM_LOOP, /* BM_LOOPS_OF_EDGE */
 };
 
-/**
- * Utility function.
- */
 int BM_iter_mesh_count(const char itype, BMesh *bm)
 {
   int count;
@@ -73,9 +56,6 @@ int BM_iter_mesh_count(const char itype, BMesh *bm)
   return count;
 }
 
-/**
- * \note Use #BM_vert_at_index / #BM_edge_at_index / #BM_face_at_index for mesh arrays.
- */
 void *BM_iter_at_index(BMesh *bm, const char itype, void *data, int index)
 {
   BMIter iter;
@@ -98,12 +78,6 @@ void *BM_iter_at_index(BMesh *bm, const char itype, void *data, int index)
   return val;
 }
 
-/**
- * \brief Iterator as Array
- *
- * Sometimes its convenient to get the iterator as an array
- * to avoid multiple calls to #BM_iter_at_index.
- */
 int BM_iter_as_array(BMesh *bm, const char itype, void *data, void **array, const int len)
 {
   int i = 0;
@@ -124,11 +98,6 @@ int BM_iter_as_array(BMesh *bm, const char itype, void *data, void **array, cons
 
   return i;
 }
-/**
- * \brief Operator Iterator as Array
- *
- * Sometimes its convenient to get the iterator as an array.
- */
 int BMO_iter_as_array(BMOpSlot slot_args[BMO_OP_MAX_SLOTS],
                       const char *slot_name,
                       const char restrictmask,
@@ -155,16 +124,6 @@ int BMO_iter_as_array(BMOpSlot slot_args[BMO_OP_MAX_SLOTS],
   return i;
 }
 
-/**
- * \brief Iterator as Array
- *
- * Allocates a new array, has the advantage that you dont need to know the size ahead of time.
- *
- * Takes advantage of less common iterator usage to avoid counting twice,
- * which you might end up doing when #BM_iter_as_array is used.
- *
- * Caller needs to free the array.
- */
 void *BM_iter_as_arrayN(BMesh *bm,
                         const char itype,
                         void *data,
@@ -177,7 +136,7 @@ void *BM_iter_as_arrayN(BMesh *bm,
 
   BLI_assert(stack_array_size == 0 || (stack_array_size && stack_array));
 
-  /* we can't rely on coun't being set */
+  /* We can't rely on #BMIter.count being set. */
   switch (itype) {
     case BM_VERTS_OF_MESH:
       iter.count = bm->totvert;
@@ -206,10 +165,9 @@ void *BM_iter_as_arrayN(BMesh *bm,
     }
     return array;
   }
-  else {
-    *r_len = 0;
-    return NULL;
-  }
+
+  *r_len = 0;
+  return NULL;
 }
 
 void *BMO_iter_as_arrayN(BMOpSlot slot_args[BMO_OP_MAX_SLOTS],
@@ -222,21 +180,21 @@ void *BMO_iter_as_arrayN(BMOpSlot slot_args[BMO_OP_MAX_SLOTS],
 {
   BMOIter iter;
   BMElem *ele;
-  int count = BMO_slot_buffer_count(slot_args, slot_name);
+  const int slot_len = BMO_slot_buffer_len(slot_args, slot_name);
 
   BLI_assert(stack_array_size == 0 || (stack_array_size && stack_array));
 
-  if ((ele = BMO_iter_new(&iter, slot_args, slot_name, restrictmask)) && count > 0) {
-    BMElem **array = count > stack_array_size ? MEM_mallocN(sizeof(ele) * count, __func__) :
-                                                stack_array;
+  if ((ele = BMO_iter_new(&iter, slot_args, slot_name, restrictmask)) && slot_len > 0) {
+    BMElem **array = slot_len > stack_array_size ? MEM_mallocN(sizeof(ele) * slot_len, __func__) :
+                                                   stack_array;
     int i = 0;
 
     do {
       array[i++] = ele;
     } while ((ele = BMO_iter_step(&iter)));
-    BLI_assert(i <= count);
+    BLI_assert(i <= slot_len);
 
-    if (i != count) {
+    if (i != slot_len) {
       if ((void **)array != stack_array) {
         array = MEM_reallocN(array, sizeof(ele) * i);
       }
@@ -244,10 +202,9 @@ void *BMO_iter_as_arrayN(BMOpSlot slot_args[BMO_OP_MAX_SLOTS],
     *r_len = i;
     return array;
   }
-  else {
-    *r_len = 0;
-    return NULL;
-  }
+
+  *r_len = 0;
+  return NULL;
 }
 
 int BM_iter_mesh_bitmap_from_filter(const char itype,
@@ -274,9 +231,6 @@ int BM_iter_mesh_bitmap_from_filter(const char itype,
   return bitmap_enabled;
 }
 
-/**
- * Needed when we want to check faces, but return a loop aligned array.
- */
 int BM_iter_mesh_bitmap_from_filter_tessface(BMesh *bm,
                                              BLI_bitmap *bitmap,
                                              bool (*test_fn)(BMFace *, void *user_data),
@@ -307,11 +261,6 @@ int BM_iter_mesh_bitmap_from_filter_tessface(BMesh *bm,
   return bitmap_enabled;
 }
 
-/**
- * \brief Elem Iter Flag Count
- *
- * Counts how many flagged / unflagged items are found in this element.
- */
 int BM_iter_elem_count_flag(const char itype, void *data, const char hflag, const bool value)
 {
   BMIter iter;
@@ -327,11 +276,6 @@ int BM_iter_elem_count_flag(const char itype, void *data, const char hflag, cons
   return count;
 }
 
-/**
- * \brief Elem Iter Tool Flag Count
- *
- * Counts how many flagged / unflagged items are found in this element.
- */
 int BMO_iter_elem_count_flag(
     BMesh *bm, const char itype, void *data, const short oflag, const bool value)
 {
@@ -373,11 +317,6 @@ int BMO_iter_elem_count_flag(
   return count;
 }
 
-/**
- * \brief Mesh Iter Flag Count
- *
- * Counts how many flagged / unflagged items are found in this mesh.
- */
 int BM_iter_mesh_count_flag(const char itype, BMesh *bm, const char hflag, const bool value)
 {
   BMIter iter;
@@ -411,8 +350,8 @@ int BM_iter_mesh_count_flag(const char itype, BMesh *bm, const char hflag, const
  * VERT OF MESH CALLBACKS
  */
 
-/* see bug [#36923] for why we need this,
- * allow adding but not removing, this isnt _totally_ safe since
+/* see bug T36923 for why we need this,
+ * allow adding but not removing, this isn't _totally_ safe since
  * you could add/remove within the same loop, but catches common cases
  */
 #ifdef DEBUG

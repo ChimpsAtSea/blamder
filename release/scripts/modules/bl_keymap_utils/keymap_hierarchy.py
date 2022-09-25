@@ -1,26 +1,9 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 __all__ = (
     "generate",
 )
+
 
 def _km_expand_from_toolsystem(space_type, context_mode):
     def _fn():
@@ -105,6 +88,10 @@ _km_hierarchy = [
             _km_expand_from_toolsystem('VIEW_3D', 'SCULPT'),
         ]),
 
+        ('Sculpt Curves', 'EMPTY', 'WINDOW', [
+            _km_expand_from_toolsystem('VIEW_3D', 'CURVES_SCULPT'),
+        ]),
+
         ('Particle', 'EMPTY', 'WINDOW', [
             _km_expand_from_toolsystem('VIEW_3D', 'PARTICLE'),
         ]),
@@ -113,10 +100,13 @@ _km_hierarchy = [
         ('Custom Normals Modal Map', 'EMPTY', 'WINDOW', []),
         ('Bevel Modal Map', 'EMPTY', 'WINDOW', []),
         ('Paint Stroke Modal', 'EMPTY', 'WINDOW', []),
+        ('Sculpt Expand Modal', 'EMPTY', 'WINDOW', []),
         ('Paint Curve', 'EMPTY', 'WINDOW', []),
+        ('Curve Pen Modal Map', 'EMPTY', 'WINDOW', []),
 
         ('Object Non-modal', 'EMPTY', 'WINDOW', []),  # mode change
 
+        ('View3D Placement Modal', 'EMPTY', 'WINDOW', []),
         ('View3D Walk Modal', 'EMPTY', 'WINDOW', []),
         ('View3D Fly Modal', 'EMPTY', 'WINDOW', []),
         ('View3D Rotate Modal', 'EMPTY', 'WINDOW', []),
@@ -165,9 +155,13 @@ _km_hierarchy = [
     ('Node Editor', 'NODE_EDITOR', 'WINDOW', [
         ('Node Generic', 'NODE_EDITOR', 'WINDOW', []),
     ]),
-    ('Sequencer', 'SEQUENCE_EDITOR', 'WINDOW', [
-        ('SequencerCommon', 'SEQUENCE_EDITOR', 'WINDOW', []),
-        ('SequencerPreview', 'SEQUENCE_EDITOR', 'WINDOW', []),
+    ('SequencerCommon', 'SEQUENCE_EDITOR', 'WINDOW', [
+        ('Sequencer', 'SEQUENCE_EDITOR', 'WINDOW', [
+            _km_expand_from_toolsystem('SEQUENCE_EDITOR', 'SEQUENCER'),
+        ]),
+        ('SequencerPreview', 'SEQUENCE_EDITOR', 'WINDOW', [
+            _km_expand_from_toolsystem('SEQUENCE_EDITOR', 'PREVIEW'),
+        ]),
     ]),
 
     ('File Browser', 'FILE_BROWSER', 'WINDOW', [
@@ -190,6 +184,7 @@ _km_hierarchy = [
     ]),
 
     ('Grease Pencil', 'EMPTY', 'WINDOW', [  # grease pencil stuff (per region)
+        ('Grease Pencil Stroke Curve Edit Mode', 'EMPTY', 'WINDOW', []),
         ('Grease Pencil Stroke Edit Mode', 'EMPTY', 'WINDOW', []),
         ('Grease Pencil Stroke Paint (Draw brush)', 'EMPTY', 'WINDOW', []),
         ('Grease Pencil Stroke Paint (Fill)', 'EMPTY', 'WINDOW', []),

@@ -1,20 +1,4 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 set(PYTHON_POSTFIX)
 if(BUILD_MODE STREQUAL Debug)
@@ -37,18 +21,24 @@ if(WIN32)
   cmake_to_dos_path(${DOWNLOADS_EXTERNALS_FOLDER} DOWNLOADS_EXTERNALS_FOLDER_DOS)
 
   ExternalProject_Add(external_python
-    URL ${PYTHON_URI}
+    URL file://${PACKAGE_DIR}/${PYTHON_FILE}
     DOWNLOAD_DIR ${DOWNLOAD_DIR}
-    URL_HASH MD5=${PYTHON_HASH}
+    URL_HASH ${PYTHON_HASH_TYPE}=${PYTHON_HASH}
     PREFIX ${BUILD_DIR}/python
     CONFIGURE_COMMAND ""
-    BUILD_COMMAND cd ${BUILD_DIR}/python/src/external_python/pcbuild/ && set IncludeTkinter=false && call build.bat -e -p ${PYTHON_ARCH} -c ${BUILD_MODE}
-    INSTALL_COMMAND ${PYTHON_BINARY_INTERNAL} ${PYTHON_SRC}/PC/layout/main.py -b ${PYTHON_SRC}/PCbuild/amd64 -s ${PYTHON_SRC} -t ${PYTHON_SRC}/tmp/  --include-underpth --include-stable --include-pip --include-dev --include-launchers  --include-venv --include-symbols ${PYTHON_EXTRA_INSTLAL_FLAGS} --copy ${LIBDIR}/python
+    BUILD_COMMAND cd ${BUILD_DIR}/python/src/external_python/pcbuild/ && set IncludeTkinter=false && call build.bat -e -p x64 -c ${BUILD_MODE}
+    PATCH_COMMAND ${PATCH_CMD} --verbose -p1 -d ${BUILD_DIR}/python/src/external_python < ${PATCH_DIR}/python_windows.diff
+    INSTALL_COMMAND ${PYTHON_BINARY_INTERNAL} ${PYTHON_SRC}/PC/layout/main.py -b ${PYTHON_SRC}/PCbuild/amd64 -s ${PYTHON_SRC} -t ${PYTHON_SRC}/tmp/ --include-stable --include-pip --include-dev --include-launchers  --include-venv --include-symbols ${PYTHON_EXTRA_INSTLAL_FLAGS} --copy ${LIBDIR}/python
   )
 
 else()
   if(APPLE)
-    # disable functions that can be in 10.13 sdk but aren't available on 10.9 target
+    # Disable functions that can be in 10.13 sdk but aren't available on 10.9 target.
+    #
+    # Disable libintl (gettext library) as it might come from Homebrew, which makes
+    # it so test program compiles, but the Python does not. This is because for Python
+    # we use isysroot, which seems to forbid using libintl.h.
+    # The gettext functionality seems to come from CoreFoundation, so should be all fine.
     set(PYTHON_FUNC_CONFIGS
       export ac_cv_func_futimens=no &&
       export ac_cv_func_utimensat=no &&
@@ -60,28 +50,34 @@ else()
       export ac_cv_func_getentropy=no &&
       export ac_cv_func_mkostemp=no &&
       export ac_cv_func_mkostemps=no &&
-      export ac_cv_func_timingsafe_bcmp=no)
+      export ac_cv_func_timingsafe_bcmp=no &&
+      export ac_cv_header_libintl_h=no &&
+      export ac_cv_lib_intl_textdomain=no
+    )
+    if("${CMAKE_OSX_ARCHITECTURES}" STREQUAL "arm64")
+      set(PYTHON_FUNC_CONFIGS ${PYTHON_FUNC_CONFIGS} && export PYTHON_DECIMAL_WITH_MACHINE=ansi64)
+    endif()
     set(PYTHON_CONFIGURE_ENV ${CONFIGURE_ENV} && ${PYTHON_FUNC_CONFIGS})
     set(PYTHON_BINARY ${BUILD_DIR}/python/src/external_python/python.exe)
   else()
     set(PYTHON_CONFIGURE_ENV ${CONFIGURE_ENV})
     set(PYTHON_BINARY ${BUILD_DIR}/python/src/external_python/python)
   endif()
-
+  # Link against zlib statically (Unix). Avoid rpath issues (macOS).
+  set(PYTHON_PATCH ${PATCH_CMD} --verbose -p1 -d ${BUILD_DIR}/python/src/external_python < ${PATCH_DIR}/python_unix.diff)
   set(PYTHON_CONFIGURE_EXTRA_ARGS "--with-openssl=${LIBDIR}/ssl")
-  set(PYTHON_CFLAGS "-I${LIBDIR}/sqlite/include -I${LIBDIR}/bzip2/include -I${LIBDIR}/lzma/include -I${LIBDIR}/zlib/include")
-  set(PYTHON_LDFLAGS "-L${LIBDIR}/ffi/lib -L${LIBDIR}/sqlite/lib -L${LIBDIR}/bzip2/lib -L${LIBDIR}/lzma/lib -L${LIBDIR}/zlib/lib")
+  set(PYTHON_CFLAGS "-I${LIBDIR}/sqlite/include -I${LIBDIR}/bzip2/include -I${LIBDIR}/lzma/include -I${LIBDIR}/zlib/include ${PLATFORM_CFLAGS}")
+  set(PYTHON_LDFLAGS "-L${LIBDIR}/ffi/lib -L${LIBDIR}/sqlite/lib -L${LIBDIR}/bzip2/lib -L${LIBDIR}/lzma/lib -L${LIBDIR}/zlib/lib ${PLATFORM_LDFLAGS}")
   set(PYTHON_CONFIGURE_EXTRA_ENV
     export CFLAGS=${PYTHON_CFLAGS} &&
     export CPPFLAGS=${PYTHON_CFLAGS} &&
     export LDFLAGS=${PYTHON_LDFLAGS} &&
     export PKG_CONFIG_PATH=${LIBDIR}/ffi/lib/pkgconfig)
-  set(PYTHON_PATCH ${PATCH_CMD} --verbose -p1 -d ${BUILD_DIR}/python/src/external_python < ${PATCH_DIR}/python_linux.diff)
 
   ExternalProject_Add(external_python
-    URL ${PYTHON_URI}
+    URL file://${PACKAGE_DIR}/${PYTHON_FILE}
     DOWNLOAD_DIR ${DOWNLOAD_DIR}
-    URL_HASH MD5=${PYTHON_HASH}
+    URL_HASH ${PYTHON_HASH_TYPE}=${PYTHON_HASH}
     PREFIX ${BUILD_DIR}/python
     PATCH_COMMAND ${PYTHON_PATCH}
     CONFIGURE_COMMAND ${PYTHON_CONFIGURE_ENV} && ${PYTHON_CONFIGURE_EXTRA_ENV} && cd ${BUILD_DIR}/python/src/external_python/ && ${CONFIGURE_COMMAND} --prefix=${LIBDIR}/python ${PYTHON_CONFIGURE_EXTRA_ARGS}

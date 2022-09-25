@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edarmature
@@ -26,6 +10,7 @@
 #include "DNA_anim_types.h"
 #include "DNA_armature_types.h"
 #include "DNA_constraint_types.h"
+#include "DNA_gpencil_modifier_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 
@@ -37,6 +22,7 @@
 #include "BKE_armature.h"
 #include "BKE_constraint.h"
 #include "BKE_context.h"
+#include "BKE_gpencil_modifier.h"
 #include "BKE_layer.h"
 #include "BKE_modifier.h"
 #include "BKE_object.h"
@@ -67,7 +53,7 @@
 
 /* ***************** Pose Select Utilities ********************* */
 
-/* Note: SEL_TOGGLE is assumed to have already been handled! */
+/* NOTE: SEL_TOGGLE is assumed to have already been handled! */
 static void pose_do_bone_select(bPoseChannel *pchan, const int select_mode)
 {
   /* select pchan only if selectable, but deselect works always */
@@ -106,13 +92,12 @@ void ED_pose_bone_select_tag_update(Object *ob)
   DEG_id_tag_update(&arm->id, ID_RECALC_SELECT);
 }
 
-/* Utility method for changing the selection status of a bone */
 void ED_pose_bone_select(Object *ob, bPoseChannel *pchan, bool select)
 {
   bArmature *arm;
 
   /* sanity checks */
-  // XXX: actually, we can probably still get away with no object - at most we have no updates
+  /* XXX: actually, we can probably still get away with no object - at most we have no updates */
   if (ELEM(NULL, ob, ob->pose, pchan, pchan->bone)) {
     return;
   }
@@ -131,21 +116,139 @@ void ED_pose_bone_select(Object *ob, bPoseChannel *pchan, bool select)
       arm->act_bone = NULL;
     }
 
-    // TODO: select and activate corresponding vgroup?
+    /* TODO: select and activate corresponding vgroup? */
     ED_pose_bone_select_tag_update(ob);
   }
 }
 
-/* called from editview.c, for mode-less pose selection */
-/* assumes scene obact and basact is still on old situation */
+bool ED_armature_pose_select_pick_bone(ViewLayer *view_layer,
+                                       View3D *v3d,
+                                       Object *ob,
+                                       Bone *bone,
+                                       const struct SelectPick_Params *params)
+{
+  bool found = false;
+  bool changed = false;
+
+  if (ob || ob->pose) {
+    if (bone && ((bone->flag & BONE_UNSELECTABLE) == 0)) {
+      found = true;
+    }
+  }
+
+  if (params->sel_op == SEL_OP_SET) {
+    if ((found && params->select_passthrough) && (bone->flag & BONE_SELECTED)) {
+      found = false;
+    }
+    else if (found || params->deselect_all) {
+      /* Deselect everything. */
+      /* Don't use 'BKE_object_pose_base_array_get_unique'
+       * because we may be selecting from object mode. */
+      FOREACH_VISIBLE_BASE_BEGIN (view_layer, v3d, base_iter) {
+        Object *ob_iter = base_iter->object;
+        if ((ob_iter->type == OB_ARMATURE) && (ob_iter->mode & OB_MODE_POSE)) {
+          if (ED_pose_deselect_all(ob_iter, SEL_DESELECT, true)) {
+            ED_pose_bone_select_tag_update(ob_iter);
+          }
+        }
+      }
+      FOREACH_VISIBLE_BASE_END;
+      changed = true;
+    }
+  }
+
+  if (found) {
+    Object *ob_act = OBACT(view_layer);
+    BLI_assert(OBEDIT_FROM_VIEW_LAYER(view_layer) == NULL);
+
+    /* If the bone cannot be affected, don't do anything. */
+    bArmature *arm = ob->data;
+
+    /* Since we do unified select, we don't shift+select a bone if the
+     * armature object was not active yet.
+     * NOTE(campbell): special exception for armature mode so we can do multi-select
+     * we could check for multi-select explicitly but think its fine to
+     * always give predictable behavior in weight paint mode. */
+    if ((ob_act == NULL) || ((ob_act != ob) && (ob_act->mode & OB_MODE_ALL_WEIGHT_PAINT) == 0)) {
+      /* When we are entering into posemode via toggle-select,
+       * from another active object - always select the bone. */
+      if (params->sel_op == SEL_OP_SET) {
+        /* Re-select the bone again later in this function. */
+        bone->flag &= ~BONE_SELECTED;
+      }
+    }
+
+    switch (params->sel_op) {
+      case SEL_OP_ADD: {
+        bone->flag |= (BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
+        arm->act_bone = bone;
+        break;
+      }
+      case SEL_OP_SUB: {
+        bone->flag &= ~(BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
+        break;
+      }
+      case SEL_OP_XOR: {
+        if (bone->flag & BONE_SELECTED) {
+          /* If not active, we make it active. */
+          if (bone != arm->act_bone) {
+            arm->act_bone = bone;
+          }
+          else {
+            bone->flag &= ~(BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
+          }
+        }
+        else {
+          bone->flag |= (BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
+          arm->act_bone = bone;
+        }
+        break;
+      }
+      case SEL_OP_SET: {
+        bone->flag |= (BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
+        arm->act_bone = bone;
+        break;
+      }
+      case SEL_OP_AND: {
+        BLI_assert_unreachable(); /* Doesn't make sense for picking. */
+        break;
+      }
+    }
+
+    if (ob_act) {
+      /* In weightpaint we select the associated vertex group too. */
+      if (ob_act->mode & OB_MODE_ALL_WEIGHT_PAINT) {
+        if (bone == arm->act_bone) {
+          ED_vgroup_select_by_name(ob_act, bone->name);
+          DEG_id_tag_update(&ob_act->id, ID_RECALC_GEOMETRY);
+        }
+      }
+      /* If there are some dependencies for visualizing armature state
+       * (e.g. Mask Modifier in 'Armature' mode), force update.
+       */
+      else if (arm->flag & ARM_HAS_VIZ_DEPS) {
+        /* NOTE: ob not ob_act here is intentional - it's the source of the
+         *       bones being selected  [T37247]
+         */
+        DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
+      }
+
+      /* Tag armature for copy-on-write update (since act_bone is in armature not object). */
+      DEG_id_tag_update(&arm->id, ID_RECALC_COPY_ON_WRITE);
+    }
+
+    changed = true;
+  }
+
+  return changed || found;
+}
+
 bool ED_armature_pose_select_pick_with_buffer(ViewLayer *view_layer,
                                               View3D *v3d,
                                               Base *base,
-                                              const uint *buffer,
-                                              short hits,
-                                              bool extend,
-                                              bool deselect,
-                                              bool toggle,
+                                              const struct GPUSelectResult *buffer,
+                                              const short hits,
+                                              const struct SelectPick_Params *params,
                                               bool do_nearest)
 {
   Object *ob = base->object;
@@ -155,123 +258,51 @@ bool ED_armature_pose_select_pick_with_buffer(ViewLayer *view_layer,
     return 0;
   }
 
-  Object *ob_act = OBACT(view_layer);
-  BLI_assert(OBEDIT_FROM_VIEW_LAYER(view_layer) == NULL);
-
   /* Callers happen to already get the active base */
   Base *base_dummy = NULL;
   nearBone = ED_armature_pick_bone_from_selectbuffer(
       &base, 1, buffer, hits, 1, do_nearest, &base_dummy);
 
-  /* if the bone cannot be affected, don't do anything */
-  if ((nearBone) && !(nearBone->flag & BONE_UNSELECTABLE)) {
-    bArmature *arm = ob->data;
-
-    /* since we do unified select, we don't shift+select a bone if the
-     * armature object was not active yet.
-     * note, special exception for armature mode so we can do multi-select
-     * we could check for multi-select explicitly but think its fine to
-     * always give predictable behavior in weight paint mode - campbell */
-    if ((ob_act == NULL) || ((ob_act != ob) && (ob_act->mode & OB_MODE_WEIGHT_PAINT) == 0)) {
-      /* when we are entering into posemode via toggle-select,
-       * from another active object - always select the bone. */
-      if (!extend && !deselect && toggle) {
-        /* re-select below */
-        nearBone->flag &= ~BONE_SELECTED;
-      }
-    }
-
-    if (!extend && !deselect && !toggle) {
-      {
-        /* Don't use 'BKE_object_pose_base_array_get_unique'
-         * because we may be selecting from object mode. */
-        FOREACH_VISIBLE_BASE_BEGIN (view_layer, v3d, base_iter) {
-          Object *ob_iter = base_iter->object;
-          if ((ob_iter->type == OB_ARMATURE) && (ob_iter->mode & OB_MODE_POSE)) {
-            if (ED_pose_deselect_all(ob_iter, SEL_DESELECT, true)) {
-              ED_pose_bone_select_tag_update(ob_iter);
-            }
-          }
-        }
-        FOREACH_VISIBLE_BASE_END;
-      }
-      nearBone->flag |= (BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
-      arm->act_bone = nearBone;
-    }
-    else {
-      if (extend) {
-        nearBone->flag |= (BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
-        arm->act_bone = nearBone;
-      }
-      else if (deselect) {
-        nearBone->flag &= ~(BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
-      }
-      else if (toggle) {
-        if (nearBone->flag & BONE_SELECTED) {
-          /* if not active, we make it active */
-          if (nearBone != arm->act_bone) {
-            arm->act_bone = nearBone;
-          }
-          else {
-            nearBone->flag &= ~(BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
-          }
-        }
-        else {
-          nearBone->flag |= (BONE_SELECTED | BONE_TIPSEL | BONE_ROOTSEL);
-          arm->act_bone = nearBone;
-        }
-      }
-    }
-
-    if (ob_act) {
-      /* in weightpaint we select the associated vertex group too */
-      if (ob_act->mode & OB_MODE_WEIGHT_PAINT) {
-        if (nearBone == arm->act_bone) {
-          ED_vgroup_select_by_name(ob_act, nearBone->name);
-          DEG_id_tag_update(&ob_act->id, ID_RECALC_GEOMETRY);
-        }
-      }
-      /* if there are some dependencies for visualizing armature state
-       * (e.g. Mask Modifier in 'Armature' mode), force update
-       */
-      else if (arm->flag & ARM_HAS_VIZ_DEPS) {
-        /* NOTE: ob not ob_act here is intentional - it's the source of the
-         *       bones being selected  [T37247]
-         */
-        DEG_id_tag_update(&ob->id, ID_RECALC_GEOMETRY);
-      }
-
-      /* tag armature for copy-on-write update (since act_bone is in armature not object) */
-      DEG_id_tag_update(&arm->id, ID_RECALC_COPY_ON_WRITE);
-    }
-  }
-
-  return nearBone != NULL;
+  return ED_armature_pose_select_pick_bone(view_layer, v3d, ob, nearBone, params);
 }
 
-/**
- * While in weight-paint mode, a single pose may be active as well.
- * While not common, it's possible we have multiple armatures deforming a mesh.
- *
- * This function de-selects all other objects, and selects the new base.
- * It can't be set to the active object because we need
- * to keep this set to the weight paint object.
- */
 void ED_armature_pose_select_in_wpaint_mode(ViewLayer *view_layer, Base *base_select)
 {
   BLI_assert(base_select && (base_select->object->type == OB_ARMATURE));
   Object *ob_active = OBACT(view_layer);
-  BLI_assert(ob_active && (ob_active->mode & OB_MODE_WEIGHT_PAINT));
-  VirtualModifierData virtualModifierData;
-  ModifierData *md = BKE_modifiers_get_virtual_modifierlist(ob_active, &virtualModifierData);
-  for (; md; md = md->next) {
-    if (md->type == eModifierType_Armature) {
-      ArmatureModifierData *amd = (ArmatureModifierData *)md;
-      Object *ob_arm = amd->object;
-      if (ob_arm != NULL) {
-        Base *base_arm = BKE_view_layer_base_find(view_layer, ob_arm);
-        if ((base_arm != NULL) && (base_arm != base_select) && (base_arm->flag & BASE_SELECTED)) {
-          ED_object_base_select(base_arm, BA_DESELECT);
+  BLI_assert(ob_active && (ob_active->mode & OB_MODE_ALL_WEIGHT_PAINT));
+
+  if (ob_active->type == OB_GPENCIL) {
+    GpencilVirtualModifierData virtualModifierData;
+    GpencilModifierData *md = BKE_gpencil_modifiers_get_virtual_modifierlist(ob_active,
+                                                                             &virtualModifierData);
+    for (; md; md = md->next) {
+      if (md->type == eGpencilModifierType_Armature) {
+        ArmatureGpencilModifierData *agmd = (ArmatureGpencilModifierData *)md;
+        Object *ob_arm = agmd->object;
+        if (ob_arm != NULL) {
+          Base *base_arm = BKE_view_layer_base_find(view_layer, ob_arm);
+          if ((base_arm != NULL) && (base_arm != base_select) &&
+              (base_arm->flag & BASE_SELECTED)) {
+            ED_object_base_select(base_arm, BA_DESELECT);
+          }
+        }
+      }
+    }
+  }
+  else {
+    VirtualModifierData virtualModifierData;
+    ModifierData *md = BKE_modifiers_get_virtual_modifierlist(ob_active, &virtualModifierData);
+    for (; md; md = md->next) {
+      if (md->type == eModifierType_Armature) {
+        ArmatureModifierData *amd = (ArmatureModifierData *)md;
+        Object *ob_arm = amd->object;
+        if (ob_arm != NULL) {
+          Base *base_arm = BKE_view_layer_base_find(view_layer, ob_arm);
+          if ((base_arm != NULL) && (base_arm != base_select) &&
+              (base_arm->flag & BASE_SELECTED)) {
+            ED_object_base_select(base_arm, BA_DESELECT);
+          }
         }
       }
     }
@@ -281,9 +312,6 @@ void ED_armature_pose_select_in_wpaint_mode(ViewLayer *view_layer, Base *base_se
   }
 }
 
-/* 'select_mode' is usual SEL_SELECT/SEL_DESELECT/SEL_TOGGLE/SEL_INVERT.
- * When true, 'ignore_visibility' makes this func also affect invisible bones
- * (hidden or on hidden layers). */
 bool ED_pose_deselect_all(Object *ob, int select_mode, const bool ignore_visibility)
 {
   bArmature *arm = ob->data;
@@ -461,6 +489,8 @@ static bool pose_select_linked_pick_poll(bContext *C)
 
 void POSE_OT_select_linked_pick(wmOperatorType *ot)
 {
+  PropertyRNA *prop;
+
   /* identifiers */
   ot->name = "Select Connected";
   ot->idname = "POSE_OT_select_linked_pick";
@@ -475,11 +505,12 @@ void POSE_OT_select_linked_pick(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
   /* props */
-  RNA_def_boolean(ot->srna,
-                  "extend",
-                  false,
-                  "Extend",
-                  "Extend selection instead of deselecting everything first");
+  prop = RNA_def_boolean(ot->srna,
+                         "extend",
+                         false,
+                         "Extend",
+                         "Extend selection instead of deselecting everything first");
+  RNA_def_property_flag(prop, PROP_SKIP_SAVE);
 }
 
 static int pose_select_linked_exec(bContext *C, wmOperator *UNUSED(op))
@@ -649,13 +680,10 @@ static int pose_select_constraint_target_exec(bContext *C, wmOperator *UNUSED(op
   CTX_DATA_BEGIN (C, bPoseChannel *, pchan, visible_pose_bones) {
     if (pchan->bone->flag & BONE_SELECTED) {
       for (con = pchan->constraints.first; con; con = con->next) {
-        const bConstraintTypeInfo *cti = BKE_constraint_typeinfo_get(con);
         ListBase targets = {NULL, NULL};
         bConstraintTarget *ct;
 
-        if (cti && cti->get_constraint_targets) {
-          cti->get_constraint_targets(con, &targets);
-
+        if (BKE_constraint_targets_get(con, &targets)) {
           for (ct = targets.first; ct; ct = ct->next) {
             Object *ob = ct->tar;
 
@@ -671,9 +699,7 @@ static int pose_select_constraint_target_exec(bContext *C, wmOperator *UNUSED(op
             }
           }
 
-          if (cti->flush_constraint_targets) {
-            cti->flush_constraint_targets(con, &targets, 1);
-          }
+          BKE_constraint_targets_flush(con, &targets, 1);
         }
       }
     }
@@ -717,7 +743,7 @@ static int pose_select_hierarchy_exec(bContext *C, wmOperator *op)
   const bool add_to_sel = RNA_boolean_get(op->ptr, "extend");
   bool changed = false;
 
-  pchan_act = BKE_pose_channel_active(ob);
+  pchan_act = BKE_pose_channel_active_if_layer_visible(ob);
   if (pchan_act == NULL) {
     return OPERATOR_CANCELLED;
   }
@@ -1016,7 +1042,7 @@ static bool pose_select_same_keyingset(bContext *C, ReportList *reports, bool ex
     BKE_report(reports, RPT_ERROR, "No active Keying Set to use");
     return false;
   }
-  else if (ANIM_validate_keyingset(C, NULL, ks) != 0) {
+  if (ANIM_validate_keyingset(C, NULL, ks) != 0) {
     if (ks->paths.first == NULL) {
       if ((ks->flag & KEYINGSET_ABSOLUTE) == 0) {
         BKE_report(reports,
@@ -1061,22 +1087,18 @@ static bool pose_select_same_keyingset(bContext *C, ReportList *reports, bool ex
     for (ksp = ks->paths.first; ksp; ksp = ksp->next) {
       /* only items related to this object will be relevant */
       if ((ksp->id == &ob->id) && (ksp->rna_path != NULL)) {
-        if (strstr(ksp->rna_path, "bones")) {
-          char *boneName = BLI_str_quoted_substrN(ksp->rna_path, "bones[");
+        bPoseChannel *pchan = NULL;
+        char boneName[sizeof(pchan->name)];
+        if (!BLI_str_quoted_substr(ksp->rna_path, "bones[", boneName, sizeof(boneName))) {
+          continue;
+        }
+        pchan = BKE_pose_channel_find_name(pose, boneName);
 
-          if (boneName) {
-            bPoseChannel *pchan = BKE_pose_channel_find_name(pose, boneName);
-
-            if (pchan) {
-              /* select if bone is visible and can be affected */
-              if (PBONE_SELECTABLE(arm, pchan->bone)) {
-                pchan->bone->flag |= BONE_SELECTED;
-                changed = true;
-              }
-            }
-
-            /* free temp memory */
-            MEM_freeN(boneName);
+        if (pchan) {
+          /* select if bone is visible and can be affected */
+          if (PBONE_SELECTABLE(arm, pchan->bone)) {
+            pchan->bone->flag |= BONE_SELECTED;
+            changed = true;
           }
         }
       }
@@ -1129,9 +1151,7 @@ static int pose_select_grouped_exec(bContext *C, wmOperator *op)
 
     return OPERATOR_FINISHED;
   }
-  else {
-    return OPERATOR_CANCELLED;
-  }
+  return OPERATOR_CANCELLED;
 }
 
 void POSE_OT_select_grouped(wmOperatorType *ot)
@@ -1246,7 +1266,7 @@ static int pose_select_mirror_exec(bContext *C, wmOperator *op)
 void POSE_OT_select_mirror(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Flip Active/Selected Bone";
+  ot->name = "Select Mirror";
   ot->idname = "POSE_OT_select_mirror";
   ot->description = "Mirror the bone selection";
 

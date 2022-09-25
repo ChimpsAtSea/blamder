@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -33,8 +19,9 @@ void bmo_bevel_exec(BMesh *bm, BMOperator *op)
 {
   const float offset = BMO_slot_float_get(op->slots_in, "offset");
   const int offset_type = BMO_slot_int_get(op->slots_in, "offset_type");
+  const int profile_type = BMO_slot_int_get(op->slots_in, "profile_type");
   const int seg = BMO_slot_int_get(op->slots_in, "segments");
-  const bool vonly = BMO_slot_bool_get(op->slots_in, "vertex_only");
+  const int affect_type = BMO_slot_int_get(op->slots_in, "affect");
   const float profile = BMO_slot_float_get(op->slots_in, "profile");
   const bool clamp_overlap = BMO_slot_bool_get(op->slots_in, "clamp_overlap");
   const int material = BMO_slot_int_get(op->slots_in, "material");
@@ -47,7 +34,6 @@ void bmo_bevel_exec(BMesh *bm, BMOperator *op)
   const int miter_inner = BMO_slot_int_get(op->slots_in, "miter_inner");
   const float spread = BMO_slot_float_get(op->slots_in, "spread");
   const float smoothresh = BMO_slot_float_get(op->slots_in, "smoothresh");
-  const bool use_custom_profile = BMO_slot_bool_get(op->slots_in, "use_custom_profile");
   const CurveProfile *custom_profile = BMO_slot_ptr_get(op->slots_in, "custom_profile");
   const int vmesh_method = BMO_slot_int_get(op->slots_in, "vmesh_method");
 
@@ -76,9 +62,10 @@ void bmo_bevel_exec(BMesh *bm, BMOperator *op)
     BM_mesh_bevel(bm,
                   offset,
                   offset_type,
+                  profile_type,
                   seg,
                   profile,
-                  vonly,
+                  affect_type,
                   false,
                   clamp_overlap,
                   NULL,
@@ -93,7 +80,6 @@ void bmo_bevel_exec(BMesh *bm, BMOperator *op)
                   miter_inner,
                   spread,
                   smoothresh,
-                  use_custom_profile,
                   custom_profile,
                   vmesh_method);
 

@@ -1,27 +1,13 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup GHOST
  */
 
-#ifndef __GHOST_XREXCEPTION_H__
-#define __GHOST_XREXCEPTION_H__
+#pragma once
 
 #include <exception>
+#include <string>
 
 class GHOST_XrException : public std::exception {
   friend class GHOST_XrContext;
@@ -34,12 +20,10 @@ class GHOST_XrException : public std::exception {
 
   const char *what() const noexcept override
   {
-    return m_msg;
+    return m_msg.data();
   }
 
  private:
-  const char *m_msg;
+  std::string m_msg;
   int m_result;
 };
-
-#endif  // __GHOST_XREXCEPTION_H__

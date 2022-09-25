@@ -1,31 +1,21 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
-#ifndef __BKE_GPENCIL_MODIFIER_H__
-#define __BKE_GPENCIL_MODIFIER_H__
+/* SPDX-License-Identifier: GPL-2.0-or-later */
+#pragma once
 
 /** \file
  * \ingroup bke
  */
 
+#include "BLI_compiler_attrs.h"
 #include "DNA_gpencil_modifier_types.h" /* needed for all enum typdefs */
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+struct ARegionType;
+struct BlendDataReader;
+struct BlendLibReader;
+struct BlendWriter;
 struct Depsgraph;
 struct GpencilModifierData;
 struct ID;
@@ -81,11 +71,6 @@ typedef enum {
   eGpencilModifierTypeFlag_NoApply = (1 << 6),
 } GpencilModifierTypeFlag;
 
-/* IMPORTANT! Keep ObjectWalkFunc and IDWalkFunc signatures compatible. */
-typedef void (*GreasePencilObjectWalkFunc)(void *userData,
-                                           struct Object *ob,
-                                           struct Object **obpoin,
-                                           int cb_flag);
 typedef void (*GreasePencilIDWalkFunc)(void *userData,
                                        struct Object *ob,
                                        struct ID **idpoin,
@@ -207,7 +192,8 @@ typedef struct GpencilModifierTypeInfo {
    * This function is optional.
    */
   void (*updateDepsgraph)(struct GpencilModifierData *md,
-                          const struct ModifierUpdateDepsgraphContext *ctx);
+                          const struct ModifierUpdateDepsgraphContext *ctx,
+                          int mode);
 
   /**
    * Should return true if the modifier needs to be recalculated on time
@@ -218,25 +204,12 @@ typedef struct GpencilModifierTypeInfo {
   bool (*dependsOnTime)(struct GpencilModifierData *md);
 
   /**
-   * Should call the given walk function on with a pointer to each Object
-   * pointer that the modifier data stores. This is used for linking on file
-   * load and for unlinking objects or forwarding object references.
-   *
-   * This function is optional.
-   */
-  void (*foreachObjectLink)(struct GpencilModifierData *md,
-                            struct Object *ob,
-                            GreasePencilObjectWalkFunc walk,
-                            void *userData);
-
-  /**
    * Should call the given walk function with a pointer to each ID
    * pointer (i.e. each data-block pointer) that the modifier data
    * stores. This is used for linking on file load and for
    * unlinking data-blocks or forwarding data-block references.
    *
-   * This function is optional. If it is not present, foreachObjectLink
-   * will be used.
+   * This function is optional.
    */
   void (*foreachIDLink)(struct GpencilModifierData *md,
                         struct Object *ob,
@@ -255,56 +228,230 @@ typedef struct GpencilModifierTypeInfo {
                          struct Object *ob,
                          GreasePencilTexWalkFunc walk,
                          void *userData);
+
+  /* Register the panel types for the modifier's UI. */
+  void (*panelRegister)(struct ARegionType *region_type);
 } GpencilModifierTypeInfo;
 
-/* Initialize modifier's global data (type info and some common global storages). */
+#define GPENCIL_MODIFIER_TYPE_PANEL_PREFIX "MOD_PT_gpencil_"
+
+/**
+ * Initialize modifier's global data (type info and some common global storage).
+ */
 void BKE_gpencil_modifier_init(void);
 
+/**
+ * Get the idname of the modifier type's panel, which was defined in the #panelRegister callback.
+ *
+ * \param type: Type of modifier.
+ * \param r_idname: ID name.
+ */
+void BKE_gpencil_modifierType_panel_id(GpencilModifierType type, char *r_idname);
+void BKE_gpencil_modifier_panel_expand(struct GpencilModifierData *md);
+/**
+ * Get grease pencil modifier information.
+ * \param type: Type of modifier.
+ * \return Pointer to type
+ */
 const GpencilModifierTypeInfo *BKE_gpencil_modifier_get_info(GpencilModifierType type);
+/**
+ * Create new grease pencil modifier.
+ * \param type: Type of modifier.
+ * \return New modifier pointer.
+ */
 struct GpencilModifierData *BKE_gpencil_modifier_new(int type);
-void BKE_gpencil_modifier_free_ex(struct GpencilModifierData *md, const int flag);
+/**
+ * Free grease pencil modifier data
+ * \param md: Modifier data.
+ * \param flag: Flags.
+ */
+void BKE_gpencil_modifier_free_ex(struct GpencilModifierData *md, int flag);
+/**
+ * Free grease pencil modifier data
+ * \param md: Modifier data.
+ */
 void BKE_gpencil_modifier_free(struct GpencilModifierData *md);
+/* check unique name */
 bool BKE_gpencil_modifier_unique_name(struct ListBase *modifiers, struct GpencilModifierData *gmd);
+/**
+ * Check if grease pencil modifier depends on time.
+ * \param md: Modifier data.
+ * \return True if depends on time.
+ */
 bool BKE_gpencil_modifier_depends_ontime(struct GpencilModifierData *md);
 struct GpencilModifierData *BKE_gpencil_modifiers_findby_type(struct Object *ob,
                                                               GpencilModifierType type);
+/**
+ * Find grease pencil modifier by name.
+ * \param ob: Grease pencil object.
+ * \param name: Name to find.
+ * \return Pointer to modifier.
+ */
 struct GpencilModifierData *BKE_gpencil_modifiers_findby_name(struct Object *ob, const char *name);
+/**
+ * Generic grease pencil modifier copy data.
+ * \param md_src: Source modifier data.
+ * \param md_dst: Target modifier data.
+ */
 void BKE_gpencil_modifier_copydata_generic(const struct GpencilModifierData *md_src,
                                            struct GpencilModifierData *md_dst);
+/**
+ * Copy grease pencil modifier data.
+ * \param md: Source modifier data.
+ * \param target: Target modifier data.
+ */
 void BKE_gpencil_modifier_copydata(struct GpencilModifierData *md,
                                    struct GpencilModifierData *target);
+/**
+ * Copy grease pencil modifier data.
+ * \param md: Source modifier data.
+ * \param target: Target modifier data.
+ * \param flag: Flags.
+ */
 void BKE_gpencil_modifier_copydata_ex(struct GpencilModifierData *md,
                                       struct GpencilModifierData *target,
-                                      const int flag);
+                                      int flag);
+/**
+ * Set grease pencil modifier error.
+ * \param md: Modifier data.
+ * \param format: Format.
+ */
+void BKE_gpencil_modifier_set_error(struct GpencilModifierData *md, const char *format, ...)
+    ATTR_PRINTF_FORMAT(2, 3);
+/**
+ * Link grease pencil modifier related IDs.
+ * \param ob: Grease pencil object.
+ * \param walk: Walk option.
+ * \param userData: User data.
+ */
 void BKE_gpencil_modifiers_foreach_ID_link(struct Object *ob,
                                            GreasePencilIDWalkFunc walk,
                                            void *userData);
+/**
+ * Link grease pencil modifier related Texts.
+ * \param ob: Grease pencil object.
+ * \param walk: Walk option.
+ * \param userData: User data.
+ */
 void BKE_gpencil_modifiers_foreach_tex_link(struct Object *ob,
                                             GreasePencilTexWalkFunc walk,
                                             void *userData);
 
+/**
+ * Check whether given modifier is not local (i.e. from linked data) when the object is a library
+ * override.
+ *
+ * \param gmd: May be NULL, in which case we consider it as a non-local modifier case.
+ */
+bool BKE_gpencil_modifier_is_nonlocal_in_liboverride(const struct Object *ob,
+                                                     const struct GpencilModifierData *gmd);
+
+typedef struct GpencilVirtualModifierData {
+  ArmatureGpencilModifierData amd;
+  LatticeGpencilModifierData lmd;
+} GpencilVirtualModifierData;
+
+/**
+ * This is to include things that are not modifiers in the evaluation of the modifier stack,
+ * for example parenting to an armature or lattice without having a real modifier.
+ */
+struct GpencilModifierData *BKE_gpencil_modifiers_get_virtual_modifierlist(
+    const struct Object *ob, struct GpencilVirtualModifierData *data);
+
+/**
+ * Check if object has grease pencil Geometry modifiers.
+ * \param ob: Grease pencil object.
+ * \return True if exist.
+ */
 bool BKE_gpencil_has_geometry_modifiers(struct Object *ob);
+/**
+ * Check if object has grease pencil Time modifiers.
+ * \param ob: Grease pencil object.
+ * \return True if exist.
+ */
 bool BKE_gpencil_has_time_modifiers(struct Object *ob);
+/**
+ * Check if object has grease pencil transform stroke modifiers.
+ * \param ob: Grease pencil object.
+ * \return True if exist.
+ */
 bool BKE_gpencil_has_transform_modifiers(struct Object *ob);
 
-void BKE_gpencil_lattice_init(struct Object *ob);
-void BKE_gpencil_lattice_clear(struct Object *ob);
+/* Stores the maximum calculation range in the whole modifier stack for line art so the cache can
+ * cover everything that will be visible. */
+typedef struct GpencilLineartLimitInfo {
+  char min_level;
+  char max_level;
+  short edge_types;
+  char shadow_selection;
+  char silhouette_selection;
+} GpencilLineartLimitInfo;
 
+GpencilLineartLimitInfo BKE_gpencil_get_lineart_modifier_limits(const struct Object *ob);
+
+void BKE_gpencil_set_lineart_modifier_limits(struct GpencilModifierData *md,
+                                             const struct GpencilLineartLimitInfo *info,
+                                             bool is_first_lineart);
+bool BKE_gpencil_is_first_lineart_in_stack(const struct Object *ob,
+                                           const struct GpencilModifierData *md);
+
+/**
+ * Init grease pencil cache deform data.
+ * \param ob: Grease pencil object
+ */
+void BKE_gpencil_cache_data_init(struct Depsgraph *depsgraph, struct Object *ob);
+/**
+ * Clear grease pencil cache deform data.
+ * \param ob: Grease pencil object
+ */
+void BKE_gpencil_cache_data_clear(struct Object *ob);
+
+/**
+ * Calculate grease-pencil modifiers.
+ * \param depsgraph: Current depsgraph.
+ * \param scene: Current scene.
+ * \param ob: Grease pencil object.
+ */
 void BKE_gpencil_modifiers_calc(struct Depsgraph *depsgraph,
                                 struct Scene *scene,
                                 struct Object *ob);
 
+/**
+ * Prepare grease pencil eval data for modifiers
+ * \param depsgraph: Current depsgraph.
+ * \param scene: Current scene.
+ * \param ob: Grease pencil object.
+ */
 void BKE_gpencil_prepare_eval_data(struct Depsgraph *depsgraph,
                                    struct Scene *scene,
                                    struct Object *ob);
 
+/**
+ * Get the current frame re-timed with time modifiers.
+ * \param depsgraph: Current depsgraph.
+ * \param scene: Current scene.
+ * \param ob: Grease pencil object.
+ * \param gpl: Grease pencil layer.
+ * \return New frame number.
+ */
 struct bGPDframe *BKE_gpencil_frame_retime_get(struct Depsgraph *depsgraph,
                                                struct Scene *scene,
                                                struct Object *ob,
                                                struct bGPDlayer *gpl);
+/**
+ * Get Time modifier frame number.
+ */
+int BKE_gpencil_time_modifier_cfra(struct Depsgraph *depsgraph,
+                                   struct Scene *scene,
+                                   struct Object *ob,
+                                   struct bGPDlayer *gpl,
+                                   int cfra,
+                                   bool is_render);
+
+void BKE_gpencil_modifier_blend_write(struct BlendWriter *writer, struct ListBase *modbase);
+void BKE_gpencil_modifier_blend_read_data(struct BlendDataReader *reader, struct ListBase *lb);
+void BKE_gpencil_modifier_blend_read_lib(struct BlendLibReader *reader, struct Object *ob);
 
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __BKE_GPENCIL_MODIFIER_H__ */

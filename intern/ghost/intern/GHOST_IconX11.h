@@ -1,31 +1,15 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  * Icon image data for X11.
  */
 
-#ifndef __GHOST_ICONX11_H__
-#define __GHOST_ICONX11_H__
+#pragma once
 
-/*
+/**
+ * \code{.py}
  * import bpy
  * import textwrap
  *
@@ -43,6 +27,7 @@
  *     print("%d,%d," % (w, h))
  *     text = ", ".join(["0x%x" % p for p in pixels])
  *     print(textwrap.fill(text, width=120), end=",\n")
+ * \endcode
  */
 
 /**
@@ -1013,5 +998,3 @@ static const unsigned long BLENDER_ICONS_WM_X11[] = {
     0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,
     0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,        0x0,
 };
-
-#endif  // __GHOST_ICONX11_H__

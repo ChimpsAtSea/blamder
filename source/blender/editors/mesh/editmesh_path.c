@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2004 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2004 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edmesh
@@ -29,6 +13,7 @@
 #include "DNA_windowmanager_types.h"
 
 #ifdef WITH_FREESTYLE
+#  include "BKE_customdata.h"
 #  include "DNA_meshdata_types.h"
 #endif
 
@@ -43,6 +28,7 @@
 #include "ED_mesh.h"
 #include "ED_object.h"
 #include "ED_screen.h"
+#include "ED_select_utils.h"
 #include "ED_uvedit.h"
 #include "ED_view3d.h"
 
@@ -270,7 +256,12 @@ static void mouse_mesh_shortest_path_vert(Scene *UNUSED(scene),
     }
   }
 
-  EDBM_update_generic(obedit->data, false, false);
+  EDBM_update(obedit->data,
+              &(const struct EDBMUpdate_Params){
+                  .calc_looptri = false,
+                  .calc_normals = false,
+                  .is_destructive = false,
+              });
 }
 
 /** \} */
@@ -371,7 +362,7 @@ static void edgetag_ensure_cd_flag(Mesh *me, const char edge_mode)
   }
 }
 
-/* mesh shortest path select, uses prev-selected edge */
+/* Mesh shortest path select, uses previously-selected edge. */
 
 /* since you want to create paths with multiple selects, it doesn't have extend option */
 static void mouse_mesh_shortest_path_edge(Scene *scene,
@@ -474,7 +465,12 @@ static void mouse_mesh_shortest_path_edge(Scene *scene,
     }
   }
 
-  EDBM_update_generic(obedit->data, false, false);
+  EDBM_update(obedit->data,
+              &(const struct EDBMUpdate_Params){
+                  .calc_looptri = false,
+                  .calc_normals = false,
+                  .is_destructive = false,
+              });
 
   if (op_params->edge_mode == EDGE_MODE_TAG_SEAM) {
     ED_uvedit_live_unwrap(scene, &obedit, 1);
@@ -591,7 +587,12 @@ static void mouse_mesh_shortest_path_face(Scene *UNUSED(scene),
     BM_mesh_active_face_set(bm, f_dst_last);
   }
 
-  EDBM_update_generic(obedit->data, false, false);
+  EDBM_update(obedit->data,
+              &(const struct EDBMUpdate_Params){
+                  .calc_looptri = false,
+                  .calc_normals = false,
+                  .is_destructive = false,
+              });
 }
 
 /** \} */
@@ -642,10 +643,10 @@ static BMElem *edbm_elem_find_nearest(ViewContext *vc, const char htype)
   if ((em->selectmode & SCE_SELECT_VERTEX) && (htype == BM_VERT)) {
     return (BMElem *)EDBM_vert_find_nearest(vc, &dist);
   }
-  else if ((em->selectmode & SCE_SELECT_EDGE) && (htype == BM_EDGE)) {
+  if ((em->selectmode & SCE_SELECT_EDGE) && (htype == BM_EDGE)) {
     return (BMElem *)EDBM_edge_find_nearest(vc, &dist);
   }
-  else if ((em->selectmode & SCE_SELECT_FACE) && (htype == BM_FACE)) {
+  if ((em->selectmode & SCE_SELECT_FACE) && (htype == BM_FACE)) {
     return (BMElem *)EDBM_face_find_nearest(vc, &dist);
   }
 
@@ -669,18 +670,17 @@ static int edbm_shortest_path_pick_invoke(bContext *C, wmOperator *op, const wmE
     return edbm_shortest_path_pick_exec(C, op);
   }
 
-  Base *basact = NULL;
   BMVert *eve = NULL;
   BMEdge *eed = NULL;
   BMFace *efa = NULL;
 
   ViewContext vc;
-  BMEditMesh *em;
   bool track_active = true;
 
   em_setup_viewcontext(C, &vc);
   copy_v2_v2_int(vc.mval, event->mval);
-  em = vc.em;
+  Base *basact = BASACT(vc.view_layer);
+  BMEditMesh *em = vc.em;
 
   view3d_operator_needs_opengl(C);
 
@@ -698,11 +698,13 @@ static int edbm_shortest_path_pick_invoke(bContext *C, wmOperator *op, const wmE
 
   /* If nothing is selected, let's select the picked vertex/edge/face. */
   if ((vc.em->bm->totvertsel == 0) && (eve || eed || efa)) {
-    /* TODO (dfelinto) right now we try to find the closest element twice.
+    /* TODO(dfelinto): right now we try to find the closest element twice.
      * The ideal is to refactor EDBM_select_pick so it doesn't
-     * have to pick the nearest vert/edge/face again.
-     */
-    EDBM_select_pick(C, event->mval, true, false, false);
+     * have to pick the nearest vert/edge/face again. */
+    const struct SelectPick_Params params = {
+        .sel_op = SEL_OP_ADD,
+    };
+    EDBM_select_pick(C, event->mval, &params);
     return OPERATOR_FINISHED;
   }
 

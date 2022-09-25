@@ -1,55 +1,50 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_DESPECKLEOPERATION_H__
-#define __COM_DESPECKLEOPERATION_H__
-#include "COM_NodeOperation.h"
+#pragma once
 
-class DespeckleOperation : public NodeOperation {
+#include "COM_MultiThreadedOperation.h"
+
+namespace blender::compositor {
+
+class DespeckleOperation : public MultiThreadedOperation {
  private:
-  float m_threshold;
-  float m_threshold_neighbor;
+  constexpr static int IMAGE_INPUT_INDEX = 0;
+  constexpr static int FACTOR_INPUT_INDEX = 1;
 
-  // int m_filterWidth;
-  // int m_filterHeight;
+  float threshold_;
+  float threshold_neighbor_;
+
+  // int filter_width_;
+  // int filter_height_;
 
  protected:
-  SocketReader *m_inputOperation;
-  SocketReader *m_inputValueOperation;
+  SocketReader *input_operation_;
+  SocketReader *input_value_operation_;
 
  public:
   DespeckleOperation();
-  bool determineDependingAreaOfInterest(rcti *input,
-                                        ReadBufferOperation *readOperation,
-                                        rcti *output);
-  void executePixel(float output[4], int x, int y, void *data);
+  bool determine_depending_area_of_interest(rcti *input,
+                                            ReadBufferOperation *read_operation,
+                                            rcti *output) override;
+  void execute_pixel(float output[4], int x, int y, void *data) override;
 
-  void setThreshold(float threshold)
+  void set_threshold(float threshold)
   {
-    this->m_threshold = threshold;
+    threshold_ = threshold;
   }
-  void setThresholdNeighbor(float threshold)
+  void set_threshold_neighbor(float threshold)
   {
-    this->m_threshold_neighbor = threshold;
+    threshold_neighbor_ = threshold;
   }
 
-  void initExecution();
-  void deinitExecution();
+  void init_execution() override;
+  void deinit_execution() override;
+
+  void get_area_of_interest(int input_idx, const rcti &output_area, rcti &r_input_area) override;
+  void update_memory_buffer_partial(MemoryBuffer *output,
+                                    const rcti &area,
+                                    Span<MemoryBuffer *> inputs) override;
 };
 
-#endif
+}  // namespace blender::compositor

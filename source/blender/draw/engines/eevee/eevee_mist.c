@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2016, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -32,15 +17,6 @@
 
 #include "eevee_private.h"
 
-extern char datatoc_common_view_lib_glsl[];
-extern char datatoc_common_uniforms_lib_glsl[];
-extern char datatoc_bsdf_common_lib_glsl[];
-extern char datatoc_effect_mist_frag_glsl[];
-
-static struct {
-  struct GPUShader *mist_sh;
-} e_data = {NULL}; /* Engine data */
-
 void EEVEE_mist_output_init(EEVEE_ViewLayerData *sldata, EEVEE_Data *vedata)
 {
   const DRWContextState *draw_ctx = DRW_context_state_get();
@@ -49,36 +25,15 @@ void EEVEE_mist_output_init(EEVEE_ViewLayerData *sldata, EEVEE_Data *vedata)
   EEVEE_TextureList *txl = vedata->txl;
   EEVEE_StorageList *stl = vedata->stl;
   EEVEE_PassList *psl = vedata->psl;
-  EEVEE_EffectsInfo *effects = stl->effects;
   EEVEE_PrivateData *g_data = stl->g_data;
   Scene *scene = draw_ctx->scene;
 
-  float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
-
-  if (e_data.mist_sh == NULL) {
-    char *frag_str = BLI_string_joinN(datatoc_common_view_lib_glsl,
-                                      datatoc_common_uniforms_lib_glsl,
-                                      datatoc_bsdf_common_lib_glsl,
-                                      datatoc_effect_mist_frag_glsl);
-
-    e_data.mist_sh = DRW_shader_create_fullscreen(frag_str, "#define FIRST_PASS\n");
-
-    MEM_freeN(frag_str);
-  }
-
   /* Create FrameBuffer. */
-
   /* Should be enough precision for many samples. */
   DRW_texture_ensure_fullscreen_2d(&txl->mist_accum, GPU_R32F, 0);
 
   GPU_framebuffer_ensure_config(&fbl->mist_accum_fb,
                                 {GPU_ATTACHMENT_NONE, GPU_ATTACHMENT_TEXTURE(txl->mist_accum)});
-
-  /* Clear texture. */
-  if (DRW_state_is_image_render() || effects->taa_current_sample == 1) {
-    GPU_framebuffer_bind(fbl->mist_accum_fb);
-    GPU_framebuffer_clear_color(fbl->mist_accum_fb, clear);
-  }
 
   /* Mist settings. */
   if (scene && scene->world) {
@@ -98,11 +53,11 @@ void EEVEE_mist_output_init(EEVEE_ViewLayerData *sldata, EEVEE_Data *vedata)
     }
   }
   else {
-    float near = -sldata->common_data.view_vecs[0][2];
-    float range = sldata->common_data.view_vecs[1][2];
+    float near = DRW_view_near_distance_get(NULL);
+    float far = DRW_view_far_distance_get(NULL);
     /* Fallback */
     g_data->mist_start = near;
-    g_data->mist_inv_dist = 1.0f / fabsf(range);
+    g_data->mist_inv_dist = 1.0f / fabsf(far - near);
     g_data->mist_falloff = 1.0f;
   }
 
@@ -111,7 +66,8 @@ void EEVEE_mist_output_init(EEVEE_ViewLayerData *sldata, EEVEE_Data *vedata)
 
   /* Create Pass and shgroup. */
   DRW_PASS_CREATE(psl->mist_accum_ps, DRW_STATE_WRITE_COLOR | DRW_STATE_BLEND_ADD);
-  DRWShadingGroup *grp = DRW_shgroup_create(e_data.mist_sh, psl->mist_accum_ps);
+  DRWShadingGroup *grp = DRW_shgroup_create(EEVEE_shaders_effect_mist_sh_get(),
+                                            psl->mist_accum_ps);
   DRW_shgroup_uniform_texture_ref(grp, "depthBuffer", &dtxl->depth);
   DRW_shgroup_uniform_block(grp, "common_block", sldata->common_ubo);
   DRW_shgroup_uniform_block(grp, "renderpass_block", sldata->renderpass_ubo.combined);
@@ -123,17 +79,20 @@ void EEVEE_mist_output_accumulate(EEVEE_ViewLayerData *UNUSED(sldata), EEVEE_Dat
 {
   EEVEE_FramebufferList *fbl = vedata->fbl;
   EEVEE_PassList *psl = vedata->psl;
+  EEVEE_EffectsInfo *effects = vedata->stl->effects;
 
   if (fbl->mist_accum_fb != NULL) {
     GPU_framebuffer_bind(fbl->mist_accum_fb);
+
+    /* Clear texture. */
+    if (effects->taa_current_sample == 1) {
+      const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+      GPU_framebuffer_clear_color(fbl->mist_accum_fb, clear);
+    }
+
     DRW_draw_pass(psl->mist_accum_ps);
 
     /* Restore */
     GPU_framebuffer_bind(fbl->main_fb);
   }
-}
-
-void EEVEE_mist_free(void)
-{
-  DRW_SHADER_FREE_SAFE(e_data.mist_sh);
 }

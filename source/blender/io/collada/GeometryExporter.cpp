@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
@@ -134,13 +120,13 @@ void GeometryExporter::operator()(Object *ob)
       /* skip the basis */
       kb = kb->next;
       for (; kb; kb = kb->next) {
-        BKE_keyblock_convert_to_mesh(kb, me);
+        BKE_keyblock_convert_to_mesh(kb, me->mvert, me->totvert);
         export_key_mesh(ob, me, kb);
       }
     }
   }
 
-  BKE_id_free(NULL, me);
+  BKE_id_free(nullptr, me);
 }
 
 void GeometryExporter::export_key_mesh(Object *ob, Mesh *me, KeyBlock *kb)
@@ -324,7 +310,6 @@ std::string GeometryExporter::makeVertexColorSourceId(std::string &geom_id, char
   return result;
 }
 
-/* powerful because it handles both cases when there is material and when there's not */
 void GeometryExporter::create_mesh_primitive_list(short material_index,
                                                   bool has_uvs,
                                                   bool has_color,
@@ -350,7 +335,7 @@ void GeometryExporter::create_mesh_primitive_list(short material_index,
     return;
   }
 
-  Material *ma = ob->totcol ? BKE_object_material_get(ob, material_index + 1) : NULL;
+  Material *ma = ob->totcol ? BKE_object_material_get(ob, material_index + 1) : nullptr;
   COLLADASW::PrimitivesBase *primitive_list = create_primitive_list(is_triangulated, mSW);
 
   /* sets count attribute in <polylist> */
@@ -386,23 +371,23 @@ void GeometryExporter::create_mesh_primitive_list(short material_index,
       COLLADASW::Input texcoord_input(
           COLLADASW::InputSemantic::TEXCOORD,
           makeUrl(makeTexcoordSourceId(geom_id, i, this->export_settings.get_active_uv_only())),
-          2,  // this is only until we have optimized UV sets
+          2, /* this is only until we have optimized UV sets */
           (this->export_settings.get_active_uv_only()) ? 0 : layer_index - 1 /* set (0,1,2,...) */
       );
       til.push_back(texcoord_input);
     }
   }
 
-  int totlayer_mcol = CustomData_number_of_layers(&me->ldata, CD_MLOOPCOL);
+  int totlayer_mcol = CustomData_number_of_layers(&me->ldata, CD_PROP_BYTE_COLOR);
   if (totlayer_mcol > 0) {
     int map_index = 0;
 
     for (int a = 0; a < totlayer_mcol; a++) {
-      char *layer_name = bc_CustomData_get_layer_name(&me->ldata, CD_MLOOPCOL, a);
+      char *layer_name = bc_CustomData_get_layer_name(&me->ldata, CD_PROP_BYTE_COLOR, a);
       COLLADASW::Input input4(COLLADASW::InputSemantic::COLOR,
                               makeUrl(makeVertexColorSourceId(geom_id, layer_name)),
-                              (has_uvs) ? 3 : 2,  // all color layers have same index order
-                              map_index           // set number equals color map index
+                              (has_uvs) ? 3 : 2, /* all color layers have same index order */
+                              map_index          /* set number equals color map index */
       );
       til.push_back(input4);
       map_index++;
@@ -441,7 +426,6 @@ void GeometryExporter::create_mesh_primitive_list(short material_index,
   finish_and_delete_primitive_List(is_triangulated, primitive_list);
 }
 
-/* creates <source> for positions */
 void GeometryExporter::createVertsSource(std::string geom_id, Mesh *me)
 {
 #if 0
@@ -484,7 +468,7 @@ void GeometryExporter::createVertsSource(std::string geom_id, Mesh *me)
 void GeometryExporter::createVertexColorSource(std::string geom_id, Mesh *me)
 {
   /* Find number of vertex color layers */
-  int totlayer_mcol = CustomData_number_of_layers(&me->ldata, CD_MLOOPCOL);
+  int totlayer_mcol = CustomData_number_of_layers(&me->ldata, CD_PROP_BYTE_COLOR);
   if (totlayer_mcol == 0) {
     return;
   }
@@ -493,11 +477,12 @@ void GeometryExporter::createVertexColorSource(std::string geom_id, Mesh *me)
   for (int a = 0; a < totlayer_mcol; a++) {
 
     map_index++;
-    MLoopCol *mloopcol = (MLoopCol *)CustomData_get_layer_n(&me->ldata, CD_MLOOPCOL, a);
+    const MLoopCol *mloopcol = (const MLoopCol *)CustomData_get_layer_n(
+        &me->ldata, CD_PROP_BYTE_COLOR, a);
 
     COLLADASW::FloatSourceF source(mSW);
 
-    char *layer_name = bc_CustomData_get_layer_name(&me->ldata, CD_MLOOPCOL, a);
+    char *layer_name = bc_CustomData_get_layer_name(&me->ldata, CD_PROP_BYTE_COLOR, a);
     std::string layer_id = makeVertexColorSourceId(geom_id, layer_name);
     source.setId(layer_id);
 
@@ -518,7 +503,7 @@ void GeometryExporter::createVertexColorSource(std::string geom_id, Mesh *me)
     MPoly *mpoly;
     int i;
     for (i = 0, mpoly = me->mpoly; i < me->totpoly; i++, mpoly++) {
-      MLoopCol *mlc = mloopcol + mpoly->loopstart;
+      const MLoopCol *mlc = mloopcol + mpoly->loopstart;
       for (int j = 0; j < mpoly->totloop; j++, mlc++) {
         source.appendValues(mlc->r / 255.0f, mlc->g / 255.0f, mlc->b / 255.0f, mlc->a / 255.0f);
       }
@@ -542,7 +527,6 @@ std::string GeometryExporter::makeTexcoordSourceId(std::string &geom_id,
   return getIdBySemantics(geom_id, COLLADASW::InputSemantic::TEXCOORD) + suffix;
 }
 
-/* creates <source> for texcoords */
 void GeometryExporter::createTexcoordsSource(std::string geom_id, Mesh *me)
 {
 
@@ -589,11 +573,10 @@ void GeometryExporter::createTexcoordsSource(std::string geom_id, Mesh *me)
 
 bool operator<(const Normal &a, const Normal &b)
 {
-  /* only needed to sort normal vectors and find() them later in a map.*/
+  /* Only needed to sort normal vectors and find() them later in a map. */
   return a.x < b.x || (a.x == b.x && (a.y < b.y || (a.y == b.y && a.z < b.z)));
 }
 
-/* creates <source> for normals */
 void GeometryExporter::createNormalsSource(std::string geom_id, Mesh *me, std::vector<Normal> &nor)
 {
 #if 0
@@ -635,8 +618,9 @@ void GeometryExporter::create_normals(std::vector<Normal> &normals,
   int last_normal_index = -1;
 
   MVert *verts = me->mvert;
+  const float(*vert_normals)[3] = BKE_mesh_vertex_normals_ensure(me);
   MLoop *mloops = me->mloop;
-  float(*lnors)[3] = NULL;
+  const float(*lnors)[3] = nullptr;
   bool use_custom_normals = false;
 
   BKE_mesh_calc_normals_split(me);
@@ -670,7 +654,7 @@ void GeometryExporter::create_normals(std::vector<Normal> &normals,
           normalize_v3_v3(normalized, lnors[loop_idx]);
         }
         else {
-          normal_short_to_float_v3(normalized, verts[mloops[loop_index].v].no);
+          copy_v3_v3(normalized, vert_normals[mloops[loop_index].v]);
           normalize_v3(normalized);
         }
         Normal n = {normalized[0], normalized[1], normalized[2]};

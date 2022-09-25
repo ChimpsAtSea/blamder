@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spclip
@@ -45,7 +29,7 @@
 #include "UI_resources.h"
 #include "UI_view2d.h"
 
-#include "clip_intern.h"  // own include
+#include "clip_intern.h" /* own include */
 
 typedef struct TrackMotionCurveUserData {
   SpaceClip *sc;
@@ -192,7 +176,7 @@ static void draw_tracks_motion_and_error_curves(View2D *v2d, SpaceClip *sc, uint
   }
 
   /* Draw graph lines. */
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
   clip_graph_tracking_values_iterate(sc,
                                      (sc->flag & SC_SHOW_GRAPH_SEL_ONLY) != 0,
                                      (sc->flag & SC_SHOW_GRAPH_HIDDEN) != 0,
@@ -200,7 +184,7 @@ static void draw_tracks_motion_and_error_curves(View2D *v2d, SpaceClip *sc, uint
                                      tracking_segment_point_cb,
                                      tracking_segment_start_cb,
                                      tracking_segment_end_cb);
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 
   /* Selected knot handles on top of curves. */
   if (draw_knots) {

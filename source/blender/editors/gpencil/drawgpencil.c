@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008, Blender Foundation
- * This is a new part of Blender
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. */
 
 /** \file
  * \ingroup edgpencil
@@ -41,6 +25,7 @@
 
 #include "DNA_brush_types.h"
 #include "DNA_gpencil_types.h"
+#include "DNA_material_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 #include "DNA_screen_types.h"
@@ -60,10 +45,12 @@
 
 #include "WM_api.h"
 
-#include "BIF_glutil.h"
-
+#include "GPU_batch.h"
 #include "GPU_immediate.h"
+#include "GPU_matrix.h"
+#include "GPU_shader_shared.h"
 #include "GPU_state.h"
+#include "GPU_uniform_buffer.h"
 
 #include "ED_gpencil.h"
 #include "ED_screen.h"
@@ -93,9 +80,9 @@ typedef enum eDrawStrokeFlags {
   GP_DRAWDATA_ONLYI2D = (1 << 3),
   /** special hack for drawing strokes in Image Editor (weird coordinates) */
   GP_DRAWDATA_IEDITHACK = (1 << 4),
-  /** don't draw xray in 3D view (which is default) */
+  /** Don't draw XRAY in 3D view (which is default). */
   GP_DRAWDATA_NO_XRAY = (1 << 5),
-  /** no onionskins should be drawn (for animation playback) */
+  /** No onion-skins should be drawn (for animation playback). */
   GP_DRAWDATA_NO_ONIONS = (1 << 6),
   /** draw strokes as "volumetric" circular billboards */
   GP_DRAWDATA_VOLUMETRIC = (1 << 7),
@@ -114,10 +101,10 @@ typedef enum eDrawStrokeFlags {
 /* ----- Tool Buffer Drawing ------ */
 /* helper functions to set color of buffer point */
 
-static void gp_set_point_varying_color(const bGPDspoint *pt,
-                                       const float ink[4],
-                                       uint attr_id,
-                                       bool fix_strength)
+static void gpencil_set_point_varying_color(const bGPDspoint *pt,
+                                            const float ink[4],
+                                            uint attr_id,
+                                            bool fix_strength)
 {
   float alpha = ink[3] * pt->strength;
   if ((fix_strength) && (alpha >= 0.1f)) {
@@ -130,10 +117,10 @@ static void gp_set_point_varying_color(const bGPDspoint *pt,
 /* ----------- Volumetric Strokes --------------- */
 
 /* draw a 3D stroke in "volumetric" style */
-static void gp_draw_stroke_volumetric_3d(const bGPDspoint *points,
-                                         int totpoints,
-                                         short thickness,
-                                         const float ink[4])
+static void gpencil_draw_stroke_volumetric_3d(const bGPDspoint *points,
+                                              int totpoints,
+                                              short thickness,
+                                              const float ink[4])
 {
   GPUVertFormat *format = immVertexFormat();
   uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 3, GPU_FETCH_FLOAT);
@@ -147,7 +134,7 @@ static void gp_draw_stroke_volumetric_3d(const bGPDspoint *points,
 
   const bGPDspoint *pt = points;
   for (int i = 0; i < totpoints && pt; i++, pt++) {
-    gp_set_point_varying_color(pt, ink, color, false);
+    gpencil_set_point_varying_color(pt, ink, color, false);
     /* TODO: scale based on view transform */
     immAttr1f(size, pt->pressure * thickness);
     /* we can adjust size in vertex shader based on view/projection! */
@@ -162,13 +149,17 @@ static void gp_draw_stroke_volumetric_3d(const bGPDspoint *points,
 /* ----- Existing Strokes Drawing (3D and Point) ------ */
 
 /* draw a given stroke in 3d (i.e. in 3d-space) */
-static void gp_draw_stroke_3d(tGPDdraw *tgpw, short thickness, const float ink[4], bool cyclic)
+static void gpencil_draw_stroke_3d(tGPDdraw *tgpw,
+                                   short thickness,
+                                   const float ink[4],
+                                   bool cyclic)
 {
   bGPDspoint *points = tgpw->gps->points;
   int totpoints = tgpw->gps->totpoints;
 
   const float viewport[2] = {(float)tgpw->winx, (float)tgpw->winy};
-  float curpressure = points[0].pressure;
+  const float min_thickness = 0.05f;
+
   float fpt[3];
 
   /* if cyclic needs more vertex */
@@ -185,45 +176,51 @@ static void gp_draw_stroke_3d(tGPDdraw *tgpw, short thickness, const float ink[4
   };
 
   immBindBuiltinProgram(GPU_SHADER_GPENCIL_STROKE);
-  immUniform2fv("Viewport", viewport);
-  immUniform1f("pixsize", tgpw->rv3d->pixsize);
+
   float obj_scale = tgpw->ob ?
                         (tgpw->ob->scale[0] + tgpw->ob->scale[1] + tgpw->ob->scale[2]) / 3.0f :
                         1.0f;
 
-  immUniform1f("objscale", obj_scale);
+  struct GPencilStrokeData gpencil_stroke_data;
+  copy_v2_v2(gpencil_stroke_data.viewport, viewport);
+  gpencil_stroke_data.pixsize = tgpw->rv3d->pixsize;
+  gpencil_stroke_data.objscale = obj_scale;
   int keep_size = (int)((tgpw->gpd) && (tgpw->gpd->flag & GP_DATA_STROKE_KEEPTHICKNESS));
-  immUniform1i("keep_size", keep_size);
-  immUniform1f("pixfactor", tgpw->gpd->pixfactor);
+  gpencil_stroke_data.keep_size = keep_size;
+  gpencil_stroke_data.pixfactor = tgpw->gpd->pixfactor;
   /* xray mode always to 3D space to avoid wrong zdepth calculation (T60051) */
-  immUniform1i("xraymode", GP_XRAY_3DSPACE);
-  immUniform1i("caps_start", (int)tgpw->gps->caps[0]);
-  immUniform1i("caps_end", (int)tgpw->gps->caps[1]);
-  immUniform1i("fill_stroke", (int)tgpw->is_fill_stroke);
+  gpencil_stroke_data.xraymode = GP_XRAY_3DSPACE;
+  gpencil_stroke_data.caps_start = tgpw->gps->caps[0];
+  gpencil_stroke_data.caps_end = tgpw->gps->caps[1];
+  gpencil_stroke_data.fill_stroke = tgpw->is_fill_stroke;
+
+  GPUUniformBuf *ubo = GPU_uniformbuf_create_ex(
+      sizeof(struct GPencilStrokeData), &gpencil_stroke_data, __func__);
+  immBindUniformBuf("gpencil_stroke_data", ubo);
 
   /* draw stroke curve */
-  GPU_line_width(max_ff(curpressure * thickness, 1.0f));
   immBeginAtMost(GPU_PRIM_LINE_STRIP_ADJ, totpoints + cyclic_add + 2);
   const bGPDspoint *pt = points;
 
   for (int i = 0; i < totpoints; i++, pt++) {
     /* first point for adjacency (not drawn) */
     if (i == 0) {
-      gp_set_point_varying_color(points, ink, attr_id.color, (bool)tgpw->is_fill_stroke);
+      gpencil_set_point_varying_color(points, ink, attr_id.color, (bool)tgpw->is_fill_stroke);
 
       if ((cyclic) && (totpoints > 2)) {
-        immAttr1f(attr_id.thickness, max_ff((points + totpoints - 1)->pressure * thickness, 1.0f));
+        immAttr1f(attr_id.thickness,
+                  max_ff((points + totpoints - 1)->pressure * thickness, min_thickness));
         mul_v3_m4v3(fpt, tgpw->diff_mat, &(points + totpoints - 1)->x);
       }
       else {
-        immAttr1f(attr_id.thickness, max_ff((points + 1)->pressure * thickness, 1.0f));
+        immAttr1f(attr_id.thickness, max_ff((points + 1)->pressure * thickness, min_thickness));
         mul_v3_m4v3(fpt, tgpw->diff_mat, &(points + 1)->x);
       }
       immVertex3fv(attr_id.pos, fpt);
     }
     /* set point */
-    gp_set_point_varying_color(pt, ink, attr_id.color, (bool)tgpw->is_fill_stroke);
-    immAttr1f(attr_id.thickness, max_ff(pt->pressure * thickness, 1.0f));
+    gpencil_set_point_varying_color(pt, ink, attr_id.color, (bool)tgpw->is_fill_stroke);
+    immAttr1f(attr_id.thickness, max_ff(pt->pressure * thickness, min_thickness));
     mul_v3_m4v3(fpt, tgpw->diff_mat, &pt->x);
     immVertex3fv(attr_id.pos, fpt);
   }
@@ -241,7 +238,7 @@ static void gp_draw_stroke_3d(tGPDdraw *tgpw, short thickness, const float ink[4
   }
   /* last adjacency point (not drawn) */
   else {
-    gp_set_point_varying_color(
+    gpencil_set_point_varying_color(
         points + totpoints - 2, ink, attr_id.color, (bool)tgpw->is_fill_stroke);
 
     immAttr1f(attr_id.thickness, max_ff((points + totpoints - 2)->pressure * thickness, 1.0f));
@@ -251,12 +248,14 @@ static void gp_draw_stroke_3d(tGPDdraw *tgpw, short thickness, const float ink[4
 
   immEnd();
   immUnbindProgram();
+
+  GPU_uniformbuf_free(ubo);
 }
 
 /* ----- Strokes Drawing ------ */
 
 /* Helper for doing all the checks on whether a stroke can be drawn */
-static bool gp_can_draw_stroke(const bGPDstroke *gps, const int dflag)
+static bool gpencil_can_draw_stroke(const bGPDstroke *gps, const int dflag)
 {
   /* skip stroke if it isn't in the right display space for this drawing context */
   /* 1) 3D Strokes */
@@ -293,7 +292,7 @@ static bool gp_can_draw_stroke(const bGPDstroke *gps, const int dflag)
 }
 
 /* draw a set of strokes */
-static void gp_draw_strokes(tGPDdraw *tgpw)
+static void gpencil_draw_strokes(tGPDdraw *tgpw)
 {
   float tcolor[4];
   short sthickness;
@@ -303,11 +302,15 @@ static void gp_draw_strokes(tGPDdraw *tgpw)
 
   GPU_program_point_size(true);
 
+  /* Do not write to depth (avoid self-occlusion). */
+  bool prev_depth_mask = GPU_depth_mask_get();
+  GPU_depth_mask(false);
+
   bGPDstroke *gps_init = (tgpw->gps) ? tgpw->gps : tgpw->t_gpf->strokes.first;
 
   for (bGPDstroke *gps = gps_init; gps; gps = gps->next) {
     /* check if stroke can be drawn */
-    if (gp_can_draw_stroke(gps, tgpw->dflag) == false) {
+    if (gpencil_can_draw_stroke(gps, tgpw->dflag) == false) {
       continue;
     }
     /* check if the color is visible */
@@ -315,8 +318,8 @@ static void gp_draw_strokes(tGPDdraw *tgpw)
     MaterialGPencilStyle *gp_style = (ma) ? ma->gp_style : NULL;
 
     if ((gp_style == NULL) || (gp_style->flag & GP_MATERIAL_HIDE) ||
-        /* if onion and ghost flag do not draw*/
-        (tgpw->onion && (gp_style->flag & GP_MATERIAL_ONIONSKIN))) {
+        /* If onion and ghost flag do not draw. */
+        (tgpw->onion && (gp_style->flag & GP_MATERIAL_HIDE_ONIONSKIN))) {
       continue;
     }
 
@@ -340,16 +343,13 @@ static void gp_draw_strokes(tGPDdraw *tgpw)
     /* check which stroke-drawer to use */
     if (tgpw->dflag & GP_DRAWDATA_ONLY3D) {
       const int no_xray = (tgpw->dflag & GP_DRAWDATA_NO_XRAY);
-      int mask_orig = 0;
 
       if (no_xray) {
-        glGetIntegerv(GL_DEPTH_WRITEMASK, &mask_orig);
-        glDepthMask(0);
-        GPU_depth_test(true);
+        GPU_depth_test(GPU_DEPTH_LESS_EQUAL);
 
         /* first arg is normally rv3d->dist, but this isn't
          * available here and seems to work quite well without */
-        bglPolygonOffset(1.0f, 1.0f);
+        GPU_polygon_offset(1.0f, 1.0f);
       }
 
       /* 3D Stroke */
@@ -379,21 +379,20 @@ static void gp_draw_strokes(tGPDdraw *tgpw)
       if (gp_style->mode == GP_MATERIAL_MODE_DOT) {
         /* volumetric stroke drawing */
         if (tgpw->disable_fill != 1) {
-          gp_draw_stroke_volumetric_3d(gps->points, gps->totpoints, sthickness, ink);
+          gpencil_draw_stroke_volumetric_3d(gps->points, gps->totpoints, sthickness, ink);
         }
       }
       else {
         /* 3D Lines - OpenGL primitives-based */
         if (gps->totpoints > 1) {
           tgpw->gps = gps;
-          gp_draw_stroke_3d(tgpw, sthickness, ink, gps->flag & GP_STROKE_CYCLIC);
+          gpencil_draw_stroke_3d(tgpw, sthickness, ink, gps->flag & GP_STROKE_CYCLIC);
         }
       }
       if (no_xray) {
-        glDepthMask(mask_orig);
-        GPU_depth_test(false);
+        GPU_depth_test(GPU_DEPTH_NONE);
 
-        bglPolygonOffset(0.0, 0.0);
+        GPU_polygon_offset(0.0f, 0.0f);
       }
     }
     /* if only one stroke, exit from loop */
@@ -402,13 +401,13 @@ static void gp_draw_strokes(tGPDdraw *tgpw)
     }
   }
 
+  GPU_depth_mask(prev_depth_mask);
   GPU_program_point_size(false);
 }
 
 /* ----- General Drawing ------ */
 
-/* wrapper to draw strokes for filling operator */
-void ED_gp_draw_fill(tGPDdraw *tgpw)
+void ED_gpencil_draw_fill(tGPDdraw *tgpw)
 {
-  gp_draw_strokes(tgpw);
+  gpencil_draw_strokes(tgpw);
 }

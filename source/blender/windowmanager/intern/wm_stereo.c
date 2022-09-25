@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2015 by Blender Foundation
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2015 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup wm
@@ -27,6 +11,7 @@
 #include "DNA_listBase.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "MEM_guardedalloc.h"
 
@@ -40,6 +25,7 @@
 
 #include "ED_screen.h"
 
+#include "GPU_capabilities.h"
 #include "GPU_immediate.h"
 #include "GPU_texture.h"
 #include "GPU_viewport.h"
@@ -69,7 +55,7 @@ void wm_stereo3d_draw_sidebyside(wmWindow *win, int view)
       soffx = 0;
     }
   }
-  else {  // RIGHT_LEFT_ID
+  else { /* #RIGHT_LEFT_ID */
     if (cross_eyed) {
       soffx = 0;
     }
@@ -82,7 +68,7 @@ void wm_stereo3d_draw_sidebyside(wmWindow *win, int view)
   const float halfx = GLA_PIXEL_OFS / sizex;
   const float halfy = GLA_PIXEL_OFS / sizex;
 
-  immUniform1i("image", 0); /* texture is already bound to GL_TEXTURE0 unit */
+  /* Texture is already bound to GL_TEXTURE0 unit. */
 
   immBegin(GPU_PRIM_TRI_FAN, 4);
 
@@ -126,7 +112,7 @@ void wm_stereo3d_draw_topbottom(wmWindow *win, int view)
   const float halfx = GLA_PIXEL_OFS / sizex;
   const float halfy = GLA_PIXEL_OFS / sizex;
 
-  immUniform1i("image", 0); /* texture is already bound to GL_TEXTURE0 unit */
+  /* Texture is already bound to GL_TEXTURE0 unit. */
 
   immBegin(GPU_PRIM_TRI_FAN, 4);
 
@@ -145,13 +131,6 @@ void wm_stereo3d_draw_topbottom(wmWindow *win, int view)
   immEnd();
 
   immUnbindProgram();
-}
-
-static bool wm_stereo3d_quadbuffer_supported(void)
-{
-  GLboolean stereo = GL_FALSE;
-  glGetBooleanv(GL_STEREO, &stereo);
-  return stereo == GL_TRUE;
 }
 
 static bool wm_stereo3d_is_fullscreen_required(eStereoDisplayMode stereo_display)
@@ -183,18 +162,14 @@ bool WM_stereo3d_enabled(wmWindow *win, bool skip_stereo3d_check)
   return true;
 }
 
-/**
- * If needed, adjust \a r_mouse_xy
- * so that drawn cursor and handled mouse position are matching visually.
- */
-void wm_stereo3d_mouse_offset_apply(wmWindow *win, int *r_mouse_xy)
+void wm_stereo3d_mouse_offset_apply(wmWindow *win, int r_mouse_xy[2])
 {
   if (!WM_stereo3d_enabled(win, false)) {
     return;
   }
 
   if (win->stereo3d_format->display_mode == S3D_DISPLAY_SIDEBYSIDE) {
-    const int half_x = win->sizex / 2;
+    const int half_x = WM_window_pixels_x(win) / 2;
     /* right half of the screen */
     if (r_mouse_xy[0] > half_x) {
       r_mouse_xy[0] -= half_x;
@@ -202,7 +177,7 @@ void wm_stereo3d_mouse_offset_apply(wmWindow *win, int *r_mouse_xy)
     r_mouse_xy[0] *= 2;
   }
   else if (win->stereo3d_format->display_mode == S3D_DISPLAY_TOPBOTTOM) {
-    const int half_y = win->sizey / 2;
+    const int half_y = WM_window_pixels_y(win) / 2;
     /* upper half of the screen */
     if (r_mouse_xy[1] > half_y) {
       r_mouse_xy[1] -= half_y;
@@ -268,10 +243,10 @@ static bool wm_stereo3d_set_properties(bContext *UNUSED(C), wmOperator *op)
 
 static void wm_stereo3d_set_init(bContext *C, wmOperator *op)
 {
-  Stereo3dData *s3dd;
   wmWindow *win = CTX_wm_window(C);
 
-  op->customdata = s3dd = MEM_callocN(sizeof(Stereo3dData), __func__);
+  Stereo3dData *s3dd = MEM_callocN(sizeof(Stereo3dData), __func__);
+  op->customdata = s3dd;
 
   /* store the original win stereo 3d settings in case of cancel */
   s3dd->stereo3d_format = *win->stereo3d_format;
@@ -284,7 +259,6 @@ int wm_stereo3d_set_exec(bContext *C, wmOperator *op)
   wmWindow *win_dst = NULL;
   const bool is_fullscreen = WM_window_is_fullscreen(win_src);
   char prev_display_mode = win_src->stereo3d_format->display_mode;
-  Stereo3dData *s3dd;
   bool ok = true;
 
   if (G.background) {
@@ -297,7 +271,7 @@ int wm_stereo3d_set_exec(bContext *C, wmOperator *op)
     wm_stereo3d_set_properties(C, op);
   }
 
-  s3dd = op->customdata;
+  Stereo3dData *s3dd = op->customdata;
   *win_src->stereo3d_format = s3dd->stereo3d_format;
 
   if (prev_display_mode == S3D_DISPLAY_PAGEFLIP &&
@@ -325,7 +299,7 @@ int wm_stereo3d_set_exec(bContext *C, wmOperator *op)
     }
     /* pageflip requires a new window to be created with the proper OS flags */
     else if ((win_dst = wm_window_copy_test(C, win_src, false, false))) {
-      if (wm_stereo3d_quadbuffer_supported()) {
+      if (GPU_stereo_quadbuffer_support()) {
         BKE_report(op->reports, RPT_INFO, "Quad-buffer window successfully created");
       }
       else {
@@ -359,12 +333,11 @@ int wm_stereo3d_set_exec(bContext *C, wmOperator *op)
     WM_event_add_notifier(C, NC_WINDOW, NULL);
     return OPERATOR_FINISHED;
   }
-  else {
-    /* without this, the popup won't be freed freed properly T44688 */
-    CTX_wm_window_set(C, win_src);
-    win_src->stereo3d_format->display_mode = prev_display_mode;
-    return OPERATOR_CANCELLED;
-  }
+
+  /* Without this, the popup won't be freed properly, see T44688. */
+  CTX_wm_window_set(C, win_src);
+  win_src->stereo3d_format->display_mode = prev_display_mode;
+  return OPERATOR_CANCELLED;
 }
 
 int wm_stereo3d_set_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(event))
@@ -374,9 +347,7 @@ int wm_stereo3d_set_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(ev
   if (wm_stereo3d_set_properties(C, op)) {
     return wm_stereo3d_set_exec(C, op);
   }
-  else {
-    return WM_operator_props_dialog_popup(C, op, 250);
-  }
+  return WM_operator_props_dialog_popup(C, op, 300);
 }
 
 void wm_stereo3d_set_draw(bContext *UNUSED(C), wmOperator *op)
@@ -387,6 +358,9 @@ void wm_stereo3d_set_draw(bContext *UNUSED(C), wmOperator *op)
   uiLayout *col;
 
   RNA_pointer_create(NULL, &RNA_Stereo3dDisplay, &s3dd->stereo3d_format, &stereo3d_format_ptr);
+
+  uiLayoutSetPropSep(layout, true);
+  uiLayoutSetPropDecorate(layout, false);
 
   col = uiLayoutColumn(layout, false);
   uiItemR(col, &stereo3d_format_ptr, "display_mode", 0, NULL, ICON_NONE);

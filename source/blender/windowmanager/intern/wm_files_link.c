@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2007 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2007 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup wm
@@ -23,7 +7,6 @@
  * Functions for dealing with append/link operators and helpers.
  */
 
-#include <assert.h>
 #include <ctype.h>
 #include <errno.h>
 #include <float.h>
@@ -31,9 +14,14 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "CLG_log.h"
+
 #include "MEM_guardedalloc.h"
 
 #include "DNA_ID.h"
+#include "DNA_collection_types.h"
+#include "DNA_key_types.h"
+#include "DNA_object_types.h"
 #include "DNA_scene_types.h"
 #include "DNA_screen_types.h"
 #include "DNA_windowmanager_types.h"
@@ -48,13 +36,22 @@
 
 #include "BLO_readfile.h"
 
+#include "BKE_armature.h"
+#include "BKE_blendfile_link_append.h"
 #include "BKE_context.h"
 #include "BKE_global.h"
+#include "BKE_key.h"
 #include "BKE_layer.h"
 #include "BKE_lib_id.h"
+#include "BKE_lib_override.h"
+#include "BKE_lib_query.h"
 #include "BKE_lib_remap.h"
 #include "BKE_main.h"
+#include "BKE_material.h"
+#include "BKE_object.h"
 #include "BKE_report.h"
+#include "BKE_rigidbody.h"
+#include "BKE_scene.h"
 
 #include "BKE_idtype.h"
 
@@ -73,6 +70,8 @@
 #include "WM_types.h"
 
 #include "wm_files.h"
+
+static CLG_LogRef LOG = {"wm.files_link"};
 
 /* -------------------------------------------------------------------- */
 /** \name Link/Append Operator
@@ -98,12 +97,13 @@ static bool wm_link_append_poll(bContext *C)
 static int wm_link_append_invoke(bContext *C, wmOperator *op, const wmEvent *UNUSED(event))
 {
   if (!RNA_struct_property_is_set(op->ptr, "filepath")) {
+    const char *blendfile_path = BKE_main_blendfile_path_from_global();
     if (G.lib[0] != '\0') {
       RNA_string_set(op->ptr, "filepath", G.lib);
     }
-    else if (G.relbase_valid) {
+    else if (blendfile_path[0] != '\0') {
       char path[FILE_MAX];
-      BLI_strncpy(path, BKE_main_blendfile_path_from_global(), sizeof(path));
+      STRNCPY(path, blendfile_path);
       BLI_path_parent_dir(path);
       RNA_string_set(op->ptr, "filepath", path);
     }
@@ -113,10 +113,10 @@ static int wm_link_append_invoke(bContext *C, wmOperator *op, const wmEvent *UNU
   return OPERATOR_RUNNING_MODAL;
 }
 
-static short wm_link_append_flag(wmOperator *op)
+static int wm_link_append_flag(wmOperator *op)
 {
   PropertyRNA *prop;
-  short flag = 0;
+  int flag = 0;
 
   if (RNA_boolean_get(op->ptr, "autoselect")) {
     flag |= FILE_AUTOSELECT;
@@ -131,161 +131,25 @@ static short wm_link_append_flag(wmOperator *op)
   if (RNA_boolean_get(op->ptr, "link")) {
     flag |= FILE_LINK;
   }
+  else {
+    if (RNA_boolean_get(op->ptr, "use_recursive")) {
+      flag |= BLO_LIBLINK_APPEND_RECURSIVE;
+    }
+    if (RNA_boolean_get(op->ptr, "set_fake")) {
+      flag |= BLO_LIBLINK_APPEND_SET_FAKEUSER;
+    }
+    if (RNA_boolean_get(op->ptr, "do_reuse_local_id")) {
+      flag |= BLO_LIBLINK_APPEND_LOCAL_ID_REUSE;
+    }
+  }
   if (RNA_boolean_get(op->ptr, "instance_collections")) {
-    flag |= FILE_GROUP_INSTANCE;
+    flag |= BLO_LIBLINK_COLLECTION_INSTANCE;
+  }
+  if (RNA_boolean_get(op->ptr, "instance_object_data")) {
+    flag |= BLO_LIBLINK_OBDATA_INSTANCE;
   }
 
   return flag;
-}
-
-typedef struct WMLinkAppendDataItem {
-  char *name;
-  BLI_bitmap
-      *libraries; /* All libs (from WMLinkAppendData.libraries) to try to load this ID from. */
-  short idcode;
-
-  ID *new_id;
-  void *customdata;
-} WMLinkAppendDataItem;
-
-typedef struct WMLinkAppendData {
-  LinkNodePair libraries;
-  LinkNodePair items;
-  int num_libraries;
-  int num_items;
-  /** Combines #eFileSel_Params_Flag from DNA_space_types.h and
-   * BLO_LibLinkFlags from BLO_readfile.h */
-  int flag;
-
-  /* Internal 'private' data */
-  MemArena *memarena;
-} WMLinkAppendData;
-
-static WMLinkAppendData *wm_link_append_data_new(const int flag)
-{
-  MemArena *ma = BLI_memarena_new(BLI_MEMARENA_STD_BUFSIZE, __func__);
-  WMLinkAppendData *lapp_data = BLI_memarena_calloc(ma, sizeof(*lapp_data));
-
-  lapp_data->flag = flag;
-  lapp_data->memarena = ma;
-
-  return lapp_data;
-}
-
-static void wm_link_append_data_free(WMLinkAppendData *lapp_data)
-{
-  BLI_memarena_free(lapp_data->memarena);
-}
-
-/* WARNING! *Never* call wm_link_append_data_library_add() after having added some items! */
-
-static void wm_link_append_data_library_add(WMLinkAppendData *lapp_data, const char *libname)
-{
-  size_t len = strlen(libname) + 1;
-  char *libpath = BLI_memarena_alloc(lapp_data->memarena, len);
-
-  BLI_strncpy(libpath, libname, len);
-  BLI_linklist_append_arena(&lapp_data->libraries, libpath, lapp_data->memarena);
-  lapp_data->num_libraries++;
-}
-
-static WMLinkAppendDataItem *wm_link_append_data_item_add(WMLinkAppendData *lapp_data,
-                                                          const char *idname,
-                                                          const short idcode,
-                                                          void *customdata)
-{
-  WMLinkAppendDataItem *item = BLI_memarena_alloc(lapp_data->memarena, sizeof(*item));
-  size_t len = strlen(idname) + 1;
-
-  item->name = BLI_memarena_alloc(lapp_data->memarena, len);
-  BLI_strncpy(item->name, idname, len);
-  item->idcode = idcode;
-  item->libraries = BLI_BITMAP_NEW_MEMARENA(lapp_data->memarena, lapp_data->num_libraries);
-
-  item->new_id = NULL;
-  item->customdata = customdata;
-
-  BLI_linklist_append_arena(&lapp_data->items, item, lapp_data->memarena);
-  lapp_data->num_items++;
-
-  return item;
-}
-
-static void wm_link_do(WMLinkAppendData *lapp_data,
-                       ReportList *reports,
-                       Main *bmain,
-                       Scene *scene,
-                       ViewLayer *view_layer,
-                       const View3D *v3d)
-{
-  Main *mainl;
-  BlendHandle *bh;
-  Library *lib;
-
-  const int flag = lapp_data->flag;
-
-  LinkNode *liblink, *itemlink;
-  int lib_idx, item_idx;
-
-  BLI_assert(lapp_data->num_items && lapp_data->num_libraries);
-
-  for (lib_idx = 0, liblink = lapp_data->libraries.list; liblink;
-       lib_idx++, liblink = liblink->next) {
-    char *libname = liblink->link;
-
-    if (STREQ(libname, BLO_EMBEDDED_STARTUP_BLEND)) {
-      bh = BLO_blendhandle_from_memory(datatoc_startup_blend, datatoc_startup_blend_size);
-    }
-    else {
-      bh = BLO_blendhandle_from_file(libname, reports);
-    }
-
-    if (bh == NULL) {
-      /* Unlikely since we just browsed it, but possible
-       * Error reports will have been made by BLO_blendhandle_from_file() */
-      continue;
-    }
-
-    /* here appending/linking starts */
-    mainl = BLO_library_link_begin(bmain, &bh, libname);
-    lib = mainl->curlib;
-    BLI_assert(lib);
-    UNUSED_VARS_NDEBUG(lib);
-
-    if (mainl->versionfile < 250) {
-      BKE_reportf(reports,
-                  RPT_WARNING,
-                  "Linking or appending from a very old .blend file format (%d.%d), no animation "
-                  "conversion will "
-                  "be done! You may want to re-save your lib file with current Blender",
-                  mainl->versionfile,
-                  mainl->subversionfile);
-    }
-
-    /* For each lib file, we try to link all items belonging to that lib,
-     * and tag those successful to not try to load them again with the other libs. */
-    for (item_idx = 0, itemlink = lapp_data->items.list; itemlink;
-         item_idx++, itemlink = itemlink->next) {
-      WMLinkAppendDataItem *item = itemlink->link;
-      ID *new_id;
-
-      if (!BLI_BITMAP_TEST(item->libraries, lib_idx)) {
-        continue;
-      }
-
-      new_id = BLO_library_link_named_part_ex(mainl, &bh, item->idcode, item->name, flag);
-
-      if (new_id) {
-        /* If the link is successful, clear item's libs 'todo' flags.
-         * This avoids trying to link same item with other libraries to come. */
-        BLI_bitmap_set_all(item->libraries, false, lapp_data->num_libraries);
-        item->new_id = new_id;
-      }
-    }
-
-    BLO_library_link_end(mainl, &bh, flag, bmain, scene, view_layer, v3d);
-    BLO_blendhandle_close(bh);
-  }
 }
 
 /**
@@ -302,15 +166,14 @@ static bool wm_link_append_item_poll(ReportList *reports,
   short idcode;
 
   if (!group || !name) {
-    printf("skipping %s\n", path);
+    CLOG_WARN(&LOG, "Skipping %s", path);
     return false;
   }
 
   idcode = BKE_idtype_idcode_from_name(group);
 
-  /* XXX For now, we do a nasty exception for workspace, forbid linking them.
-   *     Not nice, ultimately should be solved! */
-  if (!BKE_idtype_idcode_is_linkable(idcode) && (do_append || idcode != ID_WS)) {
+  if (!BKE_idtype_idcode_is_linkable(idcode) ||
+      (!do_append && BKE_idtype_idcode_is_only_appendable(idcode))) {
     if (reports) {
       if (do_append) {
         BKE_reportf(reports,
@@ -339,7 +202,7 @@ static int wm_link_append_exec(bContext *C, wmOperator *op)
   Scene *scene = CTX_data_scene(C);
   ViewLayer *view_layer = CTX_data_view_layer(C);
   PropertyRNA *prop;
-  WMLinkAppendData *lapp_data;
+  BlendfileLinkAppendContext *lapp_context;
   char path[FILE_MAX_LIBEXTRA], root[FILE_MAXDIR], libname[FILE_MAX_LIBEXTRA], relname[FILE_MAX];
   char *group, *name;
   int totfiles = 0;
@@ -354,11 +217,11 @@ static int wm_link_append_exec(bContext *C, wmOperator *op)
     BKE_reportf(op->reports, RPT_ERROR, "'%s': not a library", path);
     return OPERATOR_CANCELLED;
   }
-  else if (!group) {
+  if (!group) {
     BKE_reportf(op->reports, RPT_ERROR, "'%s': nothing indicated", path);
     return OPERATOR_CANCELLED;
   }
-  else if (BLI_path_cmp(BKE_main_blendfile_path(bmain), libname) == 0) {
+  if (BLI_path_cmp(BKE_main_blendfile_path(bmain), libname) == 0) {
     BKE_reportf(op->reports, RPT_ERROR, "'%s': cannot use current file as library", path);
     return OPERATOR_CANCELLED;
   }
@@ -379,20 +242,18 @@ static int wm_link_append_exec(bContext *C, wmOperator *op)
     return OPERATOR_CANCELLED;
   }
 
-  short flag = wm_link_append_flag(op);
+  int flag = wm_link_append_flag(op);
   const bool do_append = (flag & FILE_LINK) == 0;
 
   /* sanity checks for flag */
   if (scene && scene->id.lib) {
     BKE_reportf(op->reports,
                 RPT_WARNING,
-                "Scene '%s' is linked, instantiation of objects & groups is disabled",
+                "Scene '%s' is linked, instantiation of objects is disabled",
                 scene->id.name + 2);
-    flag &= ~FILE_GROUP_INSTANCE;
+    flag &= ~(BLO_LIBLINK_COLLECTION_INSTANCE | BLO_LIBLINK_OBDATA_INSTANCE);
     scene = NULL;
   }
-
-  /* We need to add nothing from BLO_LibLinkFlags to flag here. */
 
   /* from here down, no error returns */
 
@@ -408,7 +269,14 @@ static int wm_link_append_exec(bContext *C, wmOperator *op)
 
   /* We define our working data...
    * Note that here, each item 'uses' one library, and only one. */
-  lapp_data = wm_link_append_data_new(flag);
+  LibraryLink_Params lapp_params;
+  BLO_library_link_params_init_with_context(
+      &lapp_params, bmain, flag, 0, scene, view_layer, CTX_wm_view3d(C));
+
+  lapp_context = BKE_blendfile_link_append_context_new(&lapp_params);
+  BKE_blendfile_link_append_context_embedded_blendfile_set(
+      lapp_context, datatoc_startup_blend, datatoc_startup_blend_size);
+
   if (totfiles != 0) {
     GHash *libraries = BLI_ghash_new(BLI_ghashutil_strhash_p, BLI_ghashutil_strcmp, __func__);
     int lib_idx = 0;
@@ -426,7 +294,7 @@ static int wm_link_append_exec(bContext *C, wmOperator *op)
         if (!BLI_ghash_haskey(libraries, libname)) {
           BLI_ghash_insert(libraries, BLI_strdup(libname), POINTER_FROM_INT(lib_idx));
           lib_idx++;
-          wm_link_append_data_library_add(lapp_data, libname);
+          BKE_blendfile_link_append_context_library_add(lapp_context, libname, NULL);
         }
       }
     }
@@ -438,7 +306,7 @@ static int wm_link_append_exec(bContext *C, wmOperator *op)
       BLI_join_dirfile(path, sizeof(path), root, relname);
 
       if (BLO_library_path_explode(path, libname, &group, &name)) {
-        WMLinkAppendDataItem *item;
+        BlendfileLinkAppendContextItem *item;
 
         if (!wm_link_append_item_poll(op->reports, path, group, name, do_append)) {
           continue;
@@ -446,9 +314,9 @@ static int wm_link_append_exec(bContext *C, wmOperator *op)
 
         lib_idx = POINTER_AS_INT(BLI_ghash_lookup(libraries, libname));
 
-        item = wm_link_append_data_item_add(
-            lapp_data, name, BKE_idtype_idcode_from_name(group), NULL);
-        BLI_BITMAP_ENABLE(item->libraries, lib_idx);
+        item = BKE_blendfile_link_append_context_item_add(
+            lapp_context, name, BKE_idtype_idcode_from_name(group), NULL);
+        BKE_blendfile_link_append_context_item_library_index_enable(lapp_context, item, lib_idx);
       }
     }
     RNA_END;
@@ -456,27 +324,28 @@ static int wm_link_append_exec(bContext *C, wmOperator *op)
     BLI_ghash_free(libraries, MEM_freeN, NULL);
   }
   else {
-    WMLinkAppendDataItem *item;
+    BlendfileLinkAppendContextItem *item;
 
-    wm_link_append_data_library_add(lapp_data, libname);
-    item = wm_link_append_data_item_add(lapp_data, name, BKE_idtype_idcode_from_name(group), NULL);
-    BLI_BITMAP_ENABLE(item->libraries, 0);
+    BKE_blendfile_link_append_context_library_add(lapp_context, libname, NULL);
+    item = BKE_blendfile_link_append_context_item_add(
+        lapp_context, name, BKE_idtype_idcode_from_name(group), NULL);
+    BKE_blendfile_link_append_context_item_library_index_enable(lapp_context, item, 0);
   }
 
-  if (lapp_data->num_items == 0) {
+  if (BKE_blendfile_link_append_context_is_empty(lapp_context)) {
     /* Early out in case there is nothing to link. */
-    wm_link_append_data_free(lapp_data);
+    BKE_blendfile_link_append_context_free(lapp_context);
     /* Clear pre existing tag. */
     BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, false);
     return OPERATOR_CANCELLED;
   }
 
   /* XXX We'd need re-entrant locking on Main for this to work... */
-  /* BKE_main_lock(bmain); */
+  // BKE_main_lock(bmain);
 
-  wm_link_do(lapp_data, op->reports, bmain, scene, view_layer, CTX_wm_view3d(C));
+  BKE_blendfile_link(lapp_context, op->reports);
 
-  /* BKE_main_unlock(bmain); */
+  // BKE_main_unlock(bmain);
 
   /* mark all library linked objects to be updated */
   BKE_main_lib_objects_recalc_all(bmain);
@@ -484,39 +353,18 @@ static int wm_link_append_exec(bContext *C, wmOperator *op)
 
   /* append, rather than linking */
   if (do_append) {
-    const bool set_fake = RNA_boolean_get(op->ptr, "set_fake");
-    const bool use_recursive = RNA_boolean_get(op->ptr, "use_recursive");
-
-    if (use_recursive) {
-      BKE_library_make_local(bmain, NULL, NULL, true, set_fake);
-    }
-    else {
-      LinkNode *itemlink;
-      GSet *done_libraries = BLI_gset_new_ex(
-          BLI_ghashutil_ptrhash, BLI_ghashutil_ptrcmp, __func__, lapp_data->num_libraries);
-
-      for (itemlink = lapp_data->items.list; itemlink; itemlink = itemlink->next) {
-        ID *new_id = ((WMLinkAppendDataItem *)(itemlink->link))->new_id;
-
-        if (new_id && !BLI_gset_haskey(done_libraries, new_id->lib)) {
-          BKE_library_make_local(bmain, new_id->lib, NULL, true, set_fake);
-          BLI_gset_insert(done_libraries, new_id->lib);
-        }
-      }
-
-      BLI_gset_free(done_libraries, NULL);
-    }
+    BKE_blendfile_append(lapp_context, op->reports);
   }
 
-  wm_link_append_data_free(lapp_data);
+  BKE_blendfile_link_append_context_free(lapp_context);
 
-  /* important we unset, otherwise these object wont
+  /* important we unset, otherwise these object won't
    * link into other scenes from this blend file */
   BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, false);
 
   /* TODO(sergey): Use proper flag for tagging here. */
 
-  /* TODO (dalai): Temporary solution!
+  /* TODO(dalai): Temporary solution!
    * Ideally we only need to tag the new objects themselves, not the scene.
    * This way we'll avoid flush of collection properties
    * to all objects and limit update to the particular object only.
@@ -544,20 +392,39 @@ static void wm_link_append_properties_common(wmOperatorType *ot, bool is_link)
   prop = RNA_def_boolean(
       ot->srna, "link", is_link, "Link", "Link the objects or data-blocks rather than appending");
   RNA_def_property_flag(prop, PROP_SKIP_SAVE | PROP_HIDDEN);
+
+  prop = RNA_def_boolean(
+      ot->srna,
+      "do_reuse_local_id",
+      false,
+      "Re-Use Local Data",
+      "Try to re-use previously matching appended data-blocks instead of appending a new copy");
+  RNA_def_property_flag(prop, PROP_SKIP_SAVE | PROP_HIDDEN);
+
   prop = RNA_def_boolean(ot->srna, "autoselect", true, "Select", "Select new objects");
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
+
   prop = RNA_def_boolean(ot->srna,
                          "active_collection",
                          true,
                          "Active Collection",
                          "Put new objects on the active collection");
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
+
   prop = RNA_def_boolean(
       ot->srna,
       "instance_collections",
       is_link,
       "Instance Collections",
       "Create instances for collections, rather than adding them directly to the scene");
+  RNA_def_property_flag(prop, PROP_SKIP_SAVE);
+
+  prop = RNA_def_boolean(
+      ot->srna,
+      "instance_object_data",
+      true,
+      "Instance Object Data",
+      "Create instances for object data which are not referenced by any objects");
   RNA_def_property_flag(prop, PROP_SKIP_SAVE);
 }
 
@@ -571,7 +438,7 @@ void WM_OT_link(wmOperatorType *ot)
   ot->exec = wm_link_append_exec;
   ot->poll = wm_link_append_poll;
 
-  ot->flag |= OPTYPE_UNDO;
+  ot->flag = OPTYPE_UNDO;
 
   WM_operator_properties_filesel(ot,
                                  FILE_TYPE_FOLDER | FILE_TYPE_BLENDER | FILE_TYPE_BLENDERLIB,
@@ -580,7 +447,7 @@ void WM_OT_link(wmOperatorType *ot)
                                  WM_FILESEL_FILEPATH | WM_FILESEL_DIRECTORY | WM_FILESEL_FILENAME |
                                      WM_FILESEL_RELPATH | WM_FILESEL_FILES | WM_FILESEL_SHOW_PROPS,
                                  FILE_DEFAULTDISPLAY,
-                                 FILE_SORT_ALPHA);
+                                 FILE_SORT_DEFAULT);
 
   wm_link_append_properties_common(ot, true);
 }
@@ -595,7 +462,7 @@ void WM_OT_append(wmOperatorType *ot)
   ot->exec = wm_link_append_exec;
   ot->poll = wm_link_append_poll;
 
-  ot->flag |= OPTYPE_UNDO;
+  ot->flag = OPTYPE_UNDO;
 
   WM_operator_properties_filesel(ot,
                                  FILE_TYPE_FOLDER | FILE_TYPE_BLENDER | FILE_TYPE_BLENDERLIB,
@@ -604,14 +471,14 @@ void WM_OT_append(wmOperatorType *ot)
                                  WM_FILESEL_FILEPATH | WM_FILESEL_DIRECTORY | WM_FILESEL_FILENAME |
                                      WM_FILESEL_FILES | WM_FILESEL_SHOW_PROPS,
                                  FILE_DEFAULTDISPLAY,
-                                 FILE_SORT_ALPHA);
+                                 FILE_SORT_DEFAULT);
 
   wm_link_append_properties_common(ot, false);
   RNA_def_boolean(ot->srna,
                   "set_fake",
                   false,
                   "Fake User",
-                  "Set Fake User for appended items (except Objects and Groups)");
+                  "Set \"Fake User\" for appended items (except objects and collections)");
   RNA_def_boolean(
       ot->srna,
       "use_recursive",
@@ -623,10 +490,66 @@ void WM_OT_append(wmOperatorType *ot)
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name Append Single Data-Block & Return it
+/** \name Link/Append Single Data-Block & Return it
  *
- * Used for appending workspace from startup files.
  * \{ */
+
+static ID *wm_file_link_append_datablock_ex(Main *bmain,
+                                            Scene *scene,
+                                            ViewLayer *view_layer,
+                                            View3D *v3d,
+                                            const char *filepath,
+                                            const short id_code,
+                                            const char *id_name,
+                                            const int flag)
+{
+  const bool do_append = (flag & FILE_LINK) == 0;
+  /* Tag everything so we can make local only the new datablock. */
+  BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, true);
+
+  /* Define working data, with just the one item we want to link. */
+  LibraryLink_Params lapp_params;
+  BLO_library_link_params_init_with_context(&lapp_params, bmain, flag, 0, scene, view_layer, v3d);
+
+  BlendfileLinkAppendContext *lapp_context = BKE_blendfile_link_append_context_new(&lapp_params);
+  BKE_blendfile_link_append_context_embedded_blendfile_set(
+      lapp_context, datatoc_startup_blend, datatoc_startup_blend_size);
+
+  BKE_blendfile_link_append_context_library_add(lapp_context, filepath, NULL);
+  BlendfileLinkAppendContextItem *item = BKE_blendfile_link_append_context_item_add(
+      lapp_context, id_name, id_code, NULL);
+  BKE_blendfile_link_append_context_item_library_index_enable(lapp_context, item, 0);
+
+  /* Link datablock. */
+  BKE_blendfile_link(lapp_context, NULL);
+
+  if (do_append) {
+    BKE_blendfile_append(lapp_context, NULL);
+  }
+
+  /* Get linked datablock and free working data. */
+  ID *id = BKE_blendfile_link_append_context_item_newid_get(lapp_context, item);
+
+  BKE_blendfile_link_append_context_free(lapp_context);
+
+  BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, false);
+
+  return id;
+}
+
+ID *WM_file_link_datablock(Main *bmain,
+                           Scene *scene,
+                           ViewLayer *view_layer,
+                           View3D *v3d,
+                           const char *filepath,
+                           const short id_code,
+                           const char *id_name,
+                           int flag)
+{
+  flag |= FILE_LINK;
+  return wm_file_link_append_datablock_ex(
+      bmain, scene, view_layer, v3d, filepath, id_code, id_name, flag);
+}
 
 ID *WM_file_append_datablock(Main *bmain,
                              Scene *scene,
@@ -634,30 +557,12 @@ ID *WM_file_append_datablock(Main *bmain,
                              View3D *v3d,
                              const char *filepath,
                              const short id_code,
-                             const char *id_name)
+                             const char *id_name,
+                             int flag)
 {
-  /* Tag everything so we can make local only the new datablock. */
-  BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, true);
-
-  /* Define working data, with just the one item we want to append. */
-  WMLinkAppendData *lapp_data = wm_link_append_data_new(0);
-
-  wm_link_append_data_library_add(lapp_data, filepath);
-  WMLinkAppendDataItem *item = wm_link_append_data_item_add(lapp_data, id_name, id_code, NULL);
-  BLI_BITMAP_ENABLE(item->libraries, 0);
-
-  /* Link datablock. */
-  wm_link_do(lapp_data, NULL, bmain, scene, view_layer, v3d);
-
-  /* Get linked datablock and free working data. */
-  ID *id = item->new_id;
-  wm_link_append_data_free(lapp_data);
-
-  /* Make datablock local. */
-  BKE_library_make_local(bmain, NULL, NULL, true, false);
-
-  /* Clear pre existing tag. */
-  BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, false);
+  BLI_assert((flag & FILE_LINK) == 0);
+  ID *id = wm_file_link_append_datablock_ex(
+      bmain, scene, view_layer, v3d, filepath, id_code, id_name, flag);
 
   return id;
 }
@@ -681,10 +586,10 @@ static int wm_lib_relocate_invoke(bContext *C, wmOperator *op, const wmEvent *UN
       BKE_reportf(op->reports,
                   RPT_ERROR_INVALID_INPUT,
                   "Cannot relocate indirectly linked library '%s'",
-                  lib->filepath);
+                  lib->filepath_abs);
       return OPERATOR_CANCELLED;
     }
-    RNA_string_set(op->ptr, "filepath", lib->filepath);
+    RNA_string_set(op->ptr, "filepath", lib->filepath_abs);
 
     WM_event_add_fileselect(C, op);
 
@@ -694,243 +599,50 @@ static int wm_lib_relocate_invoke(bContext *C, wmOperator *op, const wmEvent *UN
   return OPERATOR_CANCELLED;
 }
 
-static void lib_relocate_do(Main *bmain,
-                            Library *library,
-                            WMLinkAppendData *lapp_data,
-                            ReportList *reports,
-                            const bool do_reload)
-{
-  ListBase *lbarray[MAX_LIBARRAY];
-  int lba_idx;
-
-  LinkNode *itemlink;
-  int item_idx;
-
-  /* Remove all IDs to be reloaded from Main. */
-  lba_idx = set_listbasepointers(bmain, lbarray);
-  while (lba_idx--) {
-    ID *id = lbarray[lba_idx]->first;
-    const short idcode = id ? GS(id->name) : 0;
-
-    if (!id || !BKE_idtype_idcode_is_linkable(idcode)) {
-      /* No need to reload non-linkable datatypes,
-       * those will get relinked with their 'users ID'. */
-      continue;
-    }
-
-    for (; id; id = id->next) {
-      if (id->lib == library) {
-        WMLinkAppendDataItem *item;
-
-        /* We remove it from current Main, and add it to items to link... */
-        /* Note that non-linkable IDs (like e.g. shapekeys) are also explicitly linked here... */
-        BLI_remlink(lbarray[lba_idx], id);
-        item = wm_link_append_data_item_add(lapp_data, id->name + 2, idcode, id);
-        BLI_bitmap_set_all(item->libraries, true, lapp_data->num_libraries);
-
-#ifdef PRINT_DEBUG
-        printf("\tdatablock to seek for: %s\n", id->name);
-#endif
-      }
-    }
-  }
-
-  if (lapp_data->num_items == 0) {
-    /* Early out in case there is nothing to do. */
-    return;
-  }
-
-  BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, true);
-
-  /* We do not want any instantiation here! */
-  wm_link_do(lapp_data, reports, bmain, NULL, NULL, NULL);
-
-  BKE_main_lock(bmain);
-
-  /* We add back old id to bmain.
-   * We need to do this in a first, separated loop, otherwise some of those may not be handled by
-   * ID remapping, which means they would still reference old data to be deleted... */
-  for (item_idx = 0, itemlink = lapp_data->items.list; itemlink;
-       item_idx++, itemlink = itemlink->next) {
-    WMLinkAppendDataItem *item = itemlink->link;
-    ID *old_id = item->customdata;
-
-    BLI_assert(old_id);
-    BLI_addtail(which_libbase(bmain, GS(old_id->name)), old_id);
-  }
-
-  /* Note that in reload case, we also want to replace indirect usages. */
-  const short remap_flags = ID_REMAP_SKIP_NEVER_NULL_USAGE |
-                            ID_REMAP_NO_INDIRECT_PROXY_DATA_USAGE |
-                            (do_reload ? 0 : ID_REMAP_SKIP_INDIRECT_USAGE);
-  for (item_idx = 0, itemlink = lapp_data->items.list; itemlink;
-       item_idx++, itemlink = itemlink->next) {
-    WMLinkAppendDataItem *item = itemlink->link;
-    ID *old_id = item->customdata;
-    ID *new_id = item->new_id;
-
-    BLI_assert(old_id);
-    if (do_reload) {
-      /* Since we asked for placeholders in case of missing IDs,
-       * we expect to always get a valid one. */
-      BLI_assert(new_id);
-    }
-    if (new_id) {
-#ifdef PRINT_DEBUG
-      printf("before remap of %s, old_id users: %d, new_id users: %d\n",
-             old_id->name,
-             old_id->us,
-             new_id->us);
-#endif
-      BKE_libblock_remap_locked(bmain, old_id, new_id, remap_flags);
-
-      if (old_id->flag & LIB_FAKEUSER) {
-        id_fake_user_clear(old_id);
-        id_fake_user_set(new_id);
-      }
-
-#ifdef PRINT_DEBUG
-      printf("after remap of %s, old_id users: %d, new_id users: %d\n",
-             old_id->name,
-             old_id->us,
-             new_id->us);
-#endif
-
-      /* In some cases, new_id might become direct link, remove parent of library in this case. */
-      if (new_id->lib->parent && (new_id->tag & LIB_TAG_INDIRECT) == 0) {
-        if (do_reload) {
-          BLI_assert(0); /* Should not happen in 'pure' reload case... */
-        }
-        new_id->lib->parent = NULL;
-      }
-    }
-
-    if (old_id->us > 0 && new_id && old_id->lib == new_id->lib) {
-      /* Note that this *should* not happen - but better be safe than sorry in this area,
-       * at least until we are 100% sure this cannot ever happen.
-       * Also, we can safely assume names were unique so far,
-       * so just replacing '.' by '~' should work,
-       * but this does not totally rules out the possibility of name collision. */
-      size_t len = strlen(old_id->name);
-      size_t dot_pos;
-      bool has_num = false;
-
-      for (dot_pos = len; dot_pos--;) {
-        char c = old_id->name[dot_pos];
-        if (c == '.') {
-          break;
-        }
-        else if (c < '0' || c > '9') {
-          has_num = false;
-          break;
-        }
-        has_num = true;
-      }
-
-      if (has_num) {
-        old_id->name[dot_pos] = '~';
-      }
-      else {
-        len = MIN2(len, MAX_ID_NAME - 7);
-        BLI_strncpy(&old_id->name[len], "~000", 7);
-      }
-
-      id_sort_by_name(which_libbase(bmain, GS(old_id->name)), old_id, NULL);
-
-      BKE_reportf(
-          reports,
-          RPT_WARNING,
-          "Lib Reload: Replacing all references to old data-block '%s' by reloaded one failed, "
-          "old one (%d remaining users) had to be kept and was renamed to '%s'",
-          new_id->name,
-          old_id->us,
-          old_id->name);
-    }
-  }
-
-  BKE_main_unlock(bmain);
-
-  for (item_idx = 0, itemlink = lapp_data->items.list; itemlink;
-       item_idx++, itemlink = itemlink->next) {
-    WMLinkAppendDataItem *item = itemlink->link;
-    ID *old_id = item->customdata;
-
-    if (old_id->us == 0) {
-      BKE_id_free(bmain, old_id);
-    }
-  }
-
-  /* Some datablocks can get reloaded/replaced 'silently' because they are not linkable
-   * (shape keys e.g.), so we need another loop here to clear old ones if possible. */
-  lba_idx = set_listbasepointers(bmain, lbarray);
-  while (lba_idx--) {
-    ID *id, *id_next;
-    for (id = lbarray[lba_idx]->first; id; id = id_next) {
-      id_next = id->next;
-      /* XXX That check may be a bit to generic/permissive? */
-      if (id->lib && (id->flag & LIB_TAG_PRE_EXISTING) && id->us == 0) {
-        BKE_id_free(bmain, id);
-      }
-    }
-  }
-
-  /* Get rid of no more used libraries... */
-  BKE_main_id_tag_idcode(bmain, ID_LI, LIB_TAG_DOIT, true);
-  lba_idx = set_listbasepointers(bmain, lbarray);
-  while (lba_idx--) {
-    ID *id;
-    for (id = lbarray[lba_idx]->first; id; id = id->next) {
-      if (id->lib) {
-        id->lib->id.tag &= ~LIB_TAG_DOIT;
-      }
-    }
-  }
-  Library *lib, *lib_next;
-  for (lib = which_libbase(bmain, ID_LI)->first; lib; lib = lib_next) {
-    lib_next = lib->id.next;
-    if (lib->id.tag & LIB_TAG_DOIT) {
-      id_us_clear_real(&lib->id);
-      if (lib->id.us == 0) {
-        BKE_id_free(bmain, (ID *)lib);
-      }
-    }
-  }
-
-  BKE_main_lib_objects_recalc_all(bmain);
-  IMB_colormanagement_check_file_config(bmain);
-
-  /* important we unset, otherwise these object wont
-   * link into other scenes from this blend file */
-  BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, false);
-
-  /* recreate dependency graph to include new objects */
-  DEG_relations_tag_update(bmain);
-}
-
 void WM_lib_reload(Library *lib, bContext *C, ReportList *reports)
 {
-  if (!BLO_has_bfile_extension(lib->filepath)) {
-    BKE_reportf(reports, RPT_ERROR, "'%s' is not a valid library filepath", lib->filepath);
+  if (!BLO_has_bfile_extension(lib->filepath_abs)) {
+    BKE_reportf(reports, RPT_ERROR, "'%s' is not a valid library filepath", lib->filepath_abs);
     return;
   }
 
-  if (!BLI_exists(lib->filepath)) {
+  if (!BLI_exists(lib->filepath_abs)) {
     BKE_reportf(reports,
                 RPT_ERROR,
                 "Trying to reload library '%s' from invalid path '%s'",
                 lib->id.name,
-                lib->filepath);
+                lib->filepath_abs);
     return;
   }
 
-  WMLinkAppendData *lapp_data = wm_link_append_data_new(BLO_LIBLINK_USE_PLACEHOLDERS |
-                                                        BLO_LIBLINK_FORCE_INDIRECT);
+  Main *bmain = CTX_data_main(C);
+  LibraryLink_Params lapp_params;
+  BLO_library_link_params_init_with_context(&lapp_params,
+                                            bmain,
+                                            BLO_LIBLINK_USE_PLACEHOLDERS |
+                                                BLO_LIBLINK_FORCE_INDIRECT,
+                                            0,
+                                            CTX_data_scene(C),
+                                            CTX_data_view_layer(C),
+                                            NULL);
 
-  wm_link_append_data_library_add(lapp_data, lib->filepath);
+  BlendfileLinkAppendContext *lapp_context = BKE_blendfile_link_append_context_new(&lapp_params);
 
-  lib_relocate_do(CTX_data_main(C), lib, lapp_data, reports, true);
+  BKE_blendfile_link_append_context_library_add(lapp_context, lib->filepath_abs, NULL);
 
-  wm_link_append_data_free(lapp_data);
+  BKE_blendfile_library_relocate(lapp_context, reports, lib, true);
+
+  BKE_blendfile_link_append_context_free(lapp_context);
+
+  BKE_main_lib_objects_recalc_all(bmain);
+  IMB_colormanagement_check_file_config(bmain);
+
+  /* Important we unset, otherwise these object won't link into other scenes from this blend file.
+   */
+  BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, false);
+
+  /* Recreate dependency graph to include new IDs. */
+  DEG_relations_tag_update(bmain);
 
   WM_event_add_notifier(C, NC_WINDOW, NULL);
 }
@@ -946,7 +658,7 @@ static int wm_lib_relocate_exec_do(bContext *C, wmOperator *op, bool do_reload)
   if (lib) {
     Main *bmain = CTX_data_main(C);
     PropertyRNA *prop;
-    WMLinkAppendData *lapp_data;
+    BlendfileLinkAppendContext *lapp_context;
 
     char path[FILE_MAX], root[FILE_MAXDIR], libname[FILE_MAX], relname[FILE_MAX];
     short flag = 0;
@@ -959,7 +671,7 @@ static int wm_lib_relocate_exec_do(bContext *C, wmOperator *op, bool do_reload)
       BKE_reportf(op->reports,
                   RPT_ERROR_INVALID_INPUT,
                   "Cannot relocate indirectly linked library '%s'",
-                  lib->filepath);
+                  lib->filepath_abs);
       return OPERATOR_CANCELLED;
     }
 
@@ -982,22 +694,32 @@ static int wm_lib_relocate_exec_do(bContext *C, wmOperator *op, bool do_reload)
       return OPERATOR_CANCELLED;
     }
 
-    if (BLI_path_cmp(lib->filepath, path) == 0) {
-#ifdef PRINT_DEBUG
-      printf("We are supposed to reload '%s' lib (%d)...\n", lib->filepath, lib->id.us);
-#endif
+    if (BLI_path_cmp(BKE_main_blendfile_path(bmain), path) == 0) {
+      BKE_reportf(op->reports,
+                  RPT_ERROR_INVALID_INPUT,
+                  "Cannot relocate library '%s' to current blend file '%s'",
+                  lib->id.name,
+                  path);
+      return OPERATOR_CANCELLED;
+    }
+
+    LibraryLink_Params lapp_params;
+    BLO_library_link_params_init_with_context(
+        &lapp_params, bmain, flag, 0, CTX_data_scene(C), CTX_data_view_layer(C), NULL);
+
+    if (BLI_path_cmp(lib->filepath_abs, path) == 0) {
+      CLOG_INFO(&LOG, 4, "We are supposed to reload '%s' lib (%d)", lib->filepath, lib->id.us);
 
       do_reload = true;
 
-      lapp_data = wm_link_append_data_new(flag);
-      wm_link_append_data_library_add(lapp_data, path);
+      lapp_context = BKE_blendfile_link_append_context_new(&lapp_params);
+      BKE_blendfile_link_append_context_library_add(lapp_context, path, NULL);
     }
     else {
       int totfiles = 0;
 
-#ifdef PRINT_DEBUG
-      printf("We are supposed to relocate '%s' lib to new '%s' one...\n", lib->filepath, libname);
-#endif
+      CLOG_INFO(
+          &LOG, 4, "We are supposed to relocate '%s' lib to new '%s' one", lib->filepath, libname);
 
       /* Check if something is indicated for relocate. */
       prop = RNA_struct_find_property(op->ptr, "files");
@@ -1011,7 +733,7 @@ static int wm_lib_relocate_exec_do(bContext *C, wmOperator *op, bool do_reload)
         }
       }
 
-      lapp_data = wm_link_append_data_new(flag);
+      lapp_context = BKE_blendfile_link_append_context_new(&lapp_params);
 
       if (totfiles) {
         RNA_BEGIN (op->ptr, itemptr, "files") {
@@ -1019,35 +741,43 @@ static int wm_lib_relocate_exec_do(bContext *C, wmOperator *op, bool do_reload)
 
           BLI_join_dirfile(path, sizeof(path), root, relname);
 
-          if (BLI_path_cmp(path, lib->filepath) == 0 || !BLO_has_bfile_extension(relname)) {
+          if (BLI_path_cmp(path, lib->filepath_abs) == 0 || !BLO_has_bfile_extension(relname)) {
             continue;
           }
 
-#ifdef PRINT_DEBUG
-          printf("\t candidate new lib to reload datablocks from: %s\n", path);
-#endif
-          wm_link_append_data_library_add(lapp_data, path);
+          CLOG_INFO(&LOG, 4, "\tCandidate new lib to reload datablocks from: %s", path);
+          BKE_blendfile_link_append_context_library_add(lapp_context, path, NULL);
         }
         RNA_END;
       }
       else {
-#ifdef PRINT_DEBUG
-        printf("\t candidate new lib to reload datablocks from: %s\n", path);
-#endif
-        wm_link_append_data_library_add(lapp_data, path);
+        CLOG_INFO(&LOG, 4, "\tCandidate new lib to reload datablocks from: %s", path);
+        BKE_blendfile_link_append_context_library_add(lapp_context, path, NULL);
       }
     }
 
-    if (do_reload) {
-      lapp_data->flag |= BLO_LIBLINK_USE_PLACEHOLDERS | BLO_LIBLINK_FORCE_INDIRECT;
-    }
+    BKE_blendfile_link_append_context_flag_set(lapp_context,
+                                               BLO_LIBLINK_FORCE_INDIRECT |
+                                                   (do_reload ? BLO_LIBLINK_USE_PLACEHOLDERS : 0),
+                                               true);
 
-    lib_relocate_do(bmain, lib, lapp_data, op->reports, do_reload);
+    BKE_blendfile_library_relocate(lapp_context, op->reports, lib, do_reload);
 
-    wm_link_append_data_free(lapp_data);
+    BKE_blendfile_link_append_context_free(lapp_context);
 
     /* XXX TODO: align G.lib with other directory storage (like last opened image etc...) */
     BLI_strncpy(G.lib, root, FILE_MAX);
+
+    BKE_main_lib_objects_recalc_all(bmain);
+    IMB_colormanagement_check_file_config(bmain);
+
+    /* Important we unset, otherwise these object won't link into other scenes from this blend
+     * file.
+     */
+    BKE_main_id_tag_all(bmain, LIB_TAG_PRE_EXISTING, false);
+
+    /* Recreate dependency graph to include new IDs. */
+    DEG_relations_tag_update(bmain);
 
     WM_event_add_notifier(C, NC_WINDOW, NULL);
 
@@ -1073,7 +803,7 @@ void WM_OT_lib_relocate(wmOperatorType *ot)
   ot->invoke = wm_lib_relocate_invoke;
   ot->exec = wm_lib_relocate_exec;
 
-  ot->flag |= OPTYPE_UNDO;
+  ot->flag = OPTYPE_UNDO;
 
   prop = RNA_def_string(ot->srna, "library", NULL, MAX_NAME, "Library", "Library to relocate");
   RNA_def_property_flag(prop, PROP_HIDDEN);
@@ -1085,7 +815,7 @@ void WM_OT_lib_relocate(wmOperatorType *ot)
                                  WM_FILESEL_FILEPATH | WM_FILESEL_DIRECTORY | WM_FILESEL_FILENAME |
                                      WM_FILESEL_FILES | WM_FILESEL_RELPATH,
                                  FILE_DEFAULTDISPLAY,
-                                 FILE_SORT_ALPHA);
+                                 FILE_SORT_DEFAULT);
 }
 
 static int wm_lib_reload_exec(bContext *C, wmOperator *op)
@@ -1103,7 +833,7 @@ void WM_OT_lib_reload(wmOperatorType *ot)
 
   ot->exec = wm_lib_reload_exec;
 
-  ot->flag |= OPTYPE_UNDO;
+  ot->flag = OPTYPE_UNDO;
 
   prop = RNA_def_string(ot->srna, "library", NULL, MAX_NAME, "Library", "Library to reload");
   RNA_def_property_flag(prop, PROP_HIDDEN);
@@ -1115,7 +845,7 @@ void WM_OT_lib_reload(wmOperatorType *ot)
                                  WM_FILESEL_FILEPATH | WM_FILESEL_DIRECTORY | WM_FILESEL_FILENAME |
                                      WM_FILESEL_RELPATH,
                                  FILE_DEFAULTDISPLAY,
-                                 FILE_SORT_ALPHA);
+                                 FILE_SORT_DEFAULT);
 }
 
 /** \} */

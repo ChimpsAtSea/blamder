@@ -1,6 +1,9 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2011-2022 Blender Foundation
+
 # Standalone or with Blender
-if(NOT WITH_BLENDER AND WITH_CYCLES_STANDALONE)
-  set(CYCLES_INSTALL_PATH "")
+if(NOT WITH_BLENDER)
+  set(CYCLES_INSTALL_PATH ${CMAKE_INSTALL_PREFIX})
 else()
   set(WITH_CYCLES_BLENDER ON)
   # WINDOWS_PYTHON_DEBUG needs to write into the user addons folder since it will
@@ -15,8 +18,10 @@ endif()
 
 # External Libraries
 
-include(cmake/external_libs.cmake)
-include(cmake/macros.cmake)
+if(NOT CYCLES_STANDALONE_REPOSITORY)
+  include(cmake/external_libs.cmake)
+  include(cmake/macros.cmake)
+endif()
 
 # Build Flags
 # todo: this code could be refactored a bit to avoid duplication
@@ -31,10 +36,31 @@ if(WITH_CYCLES_NATIVE_ONLY)
   )
 
   if(NOT MSVC)
-    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
-    set(CYCLES_KERNEL_FLAGS "-march=native")
+    ADD_CHECK_CXX_COMPILER_FLAG(CMAKE_CXX_FLAGS _has_march_native "-march=native")
+    if(_has_march_native)
+      set(CYCLES_KERNEL_FLAGS "-march=native")
+    else()
+      set(CYCLES_KERNEL_FLAGS "")
+    endif()
+    unset(_has_march_native)
+  else()
+    if(NOT MSVC_NATIVE_ARCH_FLAGS)
+        TRY_RUN(
+            arch_run_result
+            arch_compile_result
+            ${CMAKE_CURRENT_BINARY_DIR}/
+            ${CMAKE_CURRENT_SOURCE_DIR}/cmake/msvc_arch_flags.c
+            COMPILE_OUTPUT_VARIABLE arch_compile_output
+            RUN_OUTPUT_VARIABLE arch_run_output
+        )
+        if(arch_compile_result AND "${arch_run_result}" EQUAL "0")
+            string(STRIP ${arch_run_output} arch_run_output)
+            set(MSVC_NATIVE_ARCH_FLAGS ${arch_run_output} CACHE STRING "MSVC Native architecture flags")
+        endif()
+    endif()
+    set(CYCLES_KERNEL_FLAGS "${MSVC_NATIVE_ARCH_FLAGS}")
   endif()
-elseif(NOT WITH_CPU_SSE)
+elseif(NOT WITH_CPU_SIMD OR (SUPPORT_NEON_BUILD AND SSE2NEON_FOUND))
   set(CXX_HAS_SSE FALSE)
   set(CXX_HAS_AVX FALSE)
   set(CXX_HAS_AVX2 FALSE)
@@ -71,10 +97,10 @@ elseif(WIN32 AND MSVC AND NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     set(CYCLES_AVX2_KERNEL_FLAGS "${CYCLES_AVX2_ARCH_FLAGS} ${CYCLES_KERNEL_FLAGS}")
   endif()
 
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CYCLES_KERNEL_FLAGS}")
-  set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /Ox")
-  set(CMAKE_CXX_FLAGS_RELWITHDEBINFO "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} /Ox")
-  set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} /Ox")
+  string(APPEND CMAKE_CXX_FLAGS " ${CYCLES_KERNEL_FLAGS}")
+  string(APPEND CMAKE_CXX_FLAGS_RELEASE " /Ox")
+  string(APPEND CMAKE_CXX_FLAGS_RELWITHDEBINFO " /Ox")
+  string(APPEND CMAKE_CXX_FLAGS_MINSIZEREL " /Ox")
 elseif(CMAKE_COMPILER_IS_GNUCC OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
   check_cxx_compiler_flag(-msse CXX_HAS_SSE)
   check_cxx_compiler_flag(-mavx CXX_HAS_AVX)
@@ -83,20 +109,20 @@ elseif(CMAKE_COMPILER_IS_GNUCC OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
   # Assume no signal trapping for better code generation.
   set(CYCLES_KERNEL_FLAGS "-fno-trapping-math")
   # Avoid overhead of setting errno for NaNs.
-  set(CYCLES_KERNEL_FLAGS "${CYCLES_KERNEL_FLAGS} -fno-math-errno")
+  string(APPEND CYCLES_KERNEL_FLAGS " -fno-math-errno")
   # Let compiler optimize 0.0 - x without worrying about signed zeros.
-  set(CYCLES_KERNEL_FLAGS "${CYCLES_KERNEL_FLAGS} -fno-signed-zeros")
+  string(APPEND CYCLES_KERNEL_FLAGS " -fno-signed-zeros")
 
   if(CMAKE_COMPILER_IS_GNUCC)
     # Assume no signal trapping for better code generation.
-    set(CYCLES_KERNEL_FLAGS "${CYCLES_KERNEL_FLAGS} -fno-signaling-nans")
+    string(APPEND CYCLES_KERNEL_FLAGS " -fno-signaling-nans")
     # Assume a fixed rounding mode for better constant folding.
-    set(CYCLES_KERNEL_FLAGS "${CYCLES_KERNEL_FLAGS} -fno-rounding-math")
+    string(APPEND CYCLES_KERNEL_FLAGS " -fno-rounding-math")
   endif()
 
   if(CXX_HAS_SSE)
     if(CMAKE_COMPILER_IS_GNUCC)
-      set(CYCLES_KERNEL_FLAGS "${CYCLES_KERNEL_FLAGS} -mfpmath=sse")
+      string(APPEND CYCLES_KERNEL_FLAGS " -mfpmath=sse")
     endif()
 
     set(CYCLES_SSE2_KERNEL_FLAGS "${CYCLES_KERNEL_FLAGS} -msse -msse2")
@@ -110,7 +136,7 @@ elseif(CMAKE_COMPILER_IS_GNUCC OR (CMAKE_CXX_COMPILER_ID MATCHES "Clang"))
     endif()
   endif()
 
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${CYCLES_KERNEL_FLAGS}")
+  string(APPEND CMAKE_CXX_FLAGS " ${CYCLES_KERNEL_FLAGS}")
 elseif(WIN32 AND CMAKE_CXX_COMPILER_ID MATCHES "Intel")
   check_cxx_compiler_flag(/QxSSE2 CXX_HAS_SSE)
   check_cxx_compiler_flag(/arch:AVX CXX_HAS_AVX)
@@ -196,6 +222,17 @@ add_definitions(
   -DCCL_NAMESPACE_END=}
 )
 
+include_directories(
+  SYSTEM
+  ${BOOST_INCLUDE_DIR}
+  ${OPENIMAGEIO_INCLUDE_DIRS}
+  ${OPENEXR_INCLUDE_DIRS}
+  ${PUGIXML_INCLUDE_DIR}
+)
+
+if(WITH_CYCLES_DEBUG)
+  add_definitions(-DWITH_CYCLES_DEBUG)
+endif()
 if(WITH_CYCLES_STANDALONE_GUI)
   add_definitions(-DWITH_CYCLES_STANDALONE_GUI)
 endif()
@@ -217,7 +254,7 @@ if(WITH_CYCLES_OSL)
 endif()
 
 if(WITH_CYCLES_DEVICE_OPTIX)
-  find_package(OptiX)
+  find_package(OptiX 7.3.0)
 
   if(OPTIX_FOUND)
     add_definitions(-DWITH_OPTIX)
@@ -231,31 +268,25 @@ if(WITH_CYCLES_DEVICE_OPTIX)
   endif()
 endif()
 
+if (WITH_CYCLES_DEVICE_ONEAPI)
+  add_definitions(-DWITH_ONEAPI)
+endif()
+
 if(WITH_CYCLES_EMBREE)
   add_definitions(-DWITH_EMBREE)
-  add_definitions(-DEMBREE_STATIC_LIB)
   include_directories(
     SYSTEM
     ${EMBREE_INCLUDE_DIRS}
   )
 endif()
 
-if(WITH_OPENSUBDIV)
-  add_definitions(-DWITH_OPENSUBDIV)
+if(WITH_OPENIMAGEDENOISE)
+  add_definitions(-DWITH_OPENIMAGEDENOISE)
   include_directories(
     SYSTEM
-    ${OPENSUBDIV_INCLUDE_DIR}
+    ${OPENIMAGEDENOISE_INCLUDE_DIRS}
   )
 endif()
-
-if(WITH_CYCLES_STANDALONE)
-  set(WITH_CYCLES_DEVICE_OPENCL TRUE)
-  set(WITH_CYCLES_DEVICE_CUDA TRUE)
-  # Experimental and unfinished.
-  set(WITH_CYCLES_NETWORK FALSE)
-endif()
-# TODO(sergey): Consider removing it, only causes confusion in interface.
-set(WITH_CYCLES_DEVICE_MULTI TRUE)
 
 # Logging capabilities using GLog library.
 if(WITH_CYCLES_LOGGING)
@@ -269,24 +300,61 @@ if(WITH_CYCLES_LOGGING)
   )
 endif()
 
-# Debugging capabilities (debug passes etc).
-if(WITH_CYCLES_DEBUG)
-  add_definitions(-DWITH_CYCLES_DEBUG)
+if(WITH_ALEMBIC)
+  add_definitions(-DWITH_ALEMBIC)
+  include_directories(
+    SYSTEM
+    ${ALEMBIC_INCLUDE_DIRS}
+  )
+endif()
+
+# Includes that might be overrides by USD last, to avoid compiling
+# against the wrong versions of other libraries.
+include_directories(
+  SYSTEM
+  ${TBB_INCLUDE_DIRS}
+)
+
+if(WITH_OPENVDB)
+  add_definitions(-DWITH_OPENVDB ${OPENVDB_DEFINITIONS})
+  include_directories(
+    SYSTEM
+    ${OPENVDB_INCLUDE_DIRS}
+  )
+endif()
+
+if(WITH_NANOVDB)
+  add_definitions(-DWITH_NANOVDB)
+  include_directories(
+    SYSTEM
+    ${NANOVDB_INCLUDE_DIR}
+  )
+endif()
+
+if(WITH_OPENSUBDIV)
+  add_definitions(-DWITH_OPENSUBDIV)
+  include_directories(
+    SYSTEM
+    ${OPENSUBDIV_INCLUDE_DIRS}
+  )
+endif()
+
+if(WITH_OPENCOLORIO)
+  add_definitions(-DWITH_OCIO)
+  include_directories(
+    SYSTEM
+    ${OPENCOLORIO_INCLUDE_DIRS}
+  )
+endif()
+
+# NaN debugging
+if(WITH_CYCLES_DEBUG_NAN)
+  add_definitions(-DWITH_CYCLES_DEBUG_NAN)
 endif()
 
 if(NOT OPENIMAGEIO_PUGIXML_FOUND)
   add_definitions(-DWITH_SYSTEM_PUGIXML)
 endif()
-
-include_directories(
-  SYSTEM
-  ${BOOST_INCLUDE_DIR}
-  ${OPENIMAGEIO_INCLUDE_DIRS}
-  ${OPENIMAGEIO_INCLUDE_DIRS}/OpenImageIO
-  ${OPENEXR_INCLUDE_DIR}
-  ${OPENEXR_INCLUDE_DIRS}
-  ${PUGIXML_INCLUDE_DIR}
-)
 
 if(CYCLES_STANDALONE_REPOSITORY)
   include_directories(../third_party/atomic)
@@ -295,13 +363,17 @@ else()
 endif()
 
 # Warnings
-if(CMAKE_COMPILER_IS_GNUCXX)
-  ADD_CHECK_CXX_COMPILER_FLAG(CMAKE_CXX_FLAGS _has_cxxflag_float_conversion "-Werror=float-conversion")
-  ADD_CHECK_CXX_COMPILER_FLAG(CMAKE_CXX_FLAGS _has_cxxflag_double_promotion "-Werror=double-promotion")
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_C_COMPILER_ID MATCHES "Clang")
   ADD_CHECK_CXX_COMPILER_FLAG(CMAKE_CXX_FLAGS _has_no_error_unused_macros "-Wno-error=unused-macros")
-  unset(_has_cxxflag_float_conversion)
-  unset(_has_cxxflag_double_promotion)
   unset(_has_no_error_unused_macros)
+endif()
+
+if(WITH_CYCLES_HYDRA_RENDER_DELEGATE AND (NOT WITH_USD))
+  message(STATUS "USD not found, disabling WITH_CYCLES_HYDRA_RENDER_DELEGATE")
+  set(WITH_CYCLES_HYDRA_RENDER_DELEGATE OFF)
+endif()
+if(WITH_CYCLES_HYDRA_RENDER_DELEGATE AND (NOT WITH_BLENDER) AND (NOT WITH_CYCLES_STANDALONE))
+  set(CYCLES_INSTALL_PATH ${CYCLES_INSTALL_PATH}/hdCycles/resources)
 endif()
 
 if(WITH_CYCLES_CUDA_BINARIES AND (NOT WITH_CYCLES_CUBIN_COMPILER))
@@ -313,7 +385,7 @@ if(WITH_CYCLES_CUDA_BINARIES AND (NOT WITH_CYCLES_CUBIN_COMPILER))
       set(MAX_MSVC 1910)
     elseif(${CUDA_VERSION} EQUAL "9.1")
       set(MAX_MSVC 1911)
-    elseif(${CUDA_VERSION} LESS "11.0")
+    elseif(${CUDA_VERSION} VERSION_GREATER_EQUAL 10.0)
       set(MAX_MSVC 1999)
     endif()
     if(NOT MSVC_VERSION LESS ${MAX_MSVC} OR CMAKE_C_COMPILER_ID MATCHES "Clang")
@@ -340,24 +412,22 @@ endif()
 # Subdirectories
 
 if(WITH_CYCLES_BLENDER)
+  # Not needed to make cycles automated tests pass with -march=native.
+  # However Blender itself needs this flag.
+  remove_cc_flag("-ffp-contract=off")
   add_definitions(-DWITH_BLENDER_GUARDEDALLOC)
   add_subdirectory(blender)
 endif()
 
-if(WITH_CYCLES_NETWORK)
-  add_definitions(-DWITH_NETWORK)
-endif()
-
-if(WITH_CYCLES_STANDALONE OR WITH_CYCLES_NETWORK OR WITH_CYCLES_CUBIN_COMPILER)
-  add_subdirectory(app)
-endif()
-
+add_subdirectory(app)
 add_subdirectory(bvh)
 add_subdirectory(device)
 add_subdirectory(doc)
 add_subdirectory(graph)
+add_subdirectory(integrator)
 add_subdirectory(kernel)
-add_subdirectory(render)
+add_subdirectory(scene)
+add_subdirectory(session)
 add_subdirectory(subd)
 add_subdirectory(util)
 
@@ -366,6 +436,10 @@ if(WITH_GTESTS)
   add_subdirectory(test)
 endif()
 
-if(NOT WITH_BLENDER AND WITH_CYCLES_STANDALONE)
+if(WITH_CYCLES_HYDRA_RENDER_DELEGATE OR (WITH_CYCLES_STANDALONE AND WITH_USD))
+  add_subdirectory(hydra)
+endif()
+
+if(NOT WITH_BLENDER)
   delayed_do_install(${CMAKE_BINARY_DIR}/bin)
 endif()

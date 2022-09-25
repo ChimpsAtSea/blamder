@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -55,34 +39,41 @@
 #include "intern/node/deg_node_operation.h"
 #include "intern/node/deg_node_time.h"
 
-namespace DEG {
+namespace deg = blender::deg;
+
+namespace blender::deg {
 
 Depsgraph::Depsgraph(Main *bmain, Scene *scene, ViewLayer *view_layer, eEvaluationMode mode)
     : time_source(nullptr),
-      need_update(true),
-      need_update_time(false),
+      has_animated_visibility(false),
+      need_update_relations(true),
+      need_update_nodes_visibility(true),
+      need_tag_id_on_graph_visibility_update(true),
+      need_tag_id_on_graph_visibility_time_update(false),
       bmain(bmain),
       scene(scene),
       view_layer(view_layer),
       mode(mode),
-      ctime(BKE_scene_frame_get(scene)),
+      frame(BKE_scene_frame_get(scene)),
+      ctime(BKE_scene_ctime_get(scene)),
       scene_cow(nullptr),
       is_active(false),
       is_evaluating(false),
-      is_render_pipeline_depsgraph(false)
+      is_render_pipeline_depsgraph(false),
+      use_editors_update(false)
 {
   BLI_spin_init(&lock);
   memset(id_type_updated, 0, sizeof(id_type_updated));
   memset(id_type_exist, 0, sizeof(id_type_exist));
   memset(physics_relations, 0, sizeof(physics_relations));
+
+  add_time_source();
 }
 
 Depsgraph::~Depsgraph()
 {
   clear_id_nodes();
-  if (time_source != nullptr) {
-    OBJECT_GUARDED_DELETE(time_source, TimeSourceNode);
-  }
+  delete time_source;
   BLI_spin_end(&lock);
 }
 
@@ -100,6 +91,11 @@ TimeSourceNode *Depsgraph::add_time_source()
 TimeSourceNode *Depsgraph::find_time_source() const
 {
   return time_source;
+}
+
+void Depsgraph::tag_time_source()
+{
+  time_source->tag_update(this, DEG_UPDATE_SOURCE_TIME);
 }
 
 IDNode *Depsgraph::find_id_node(const ID *id) const
@@ -120,19 +116,28 @@ IDNode *Depsgraph::add_id_node(ID *id, ID *id_cow_hint)
      * NOTE: We address ID nodes by the original ID pointer they are
      * referencing to. */
     id_hash.add_new(id, id_node);
-    id_nodes.push_back(id_node);
+    id_nodes.append(id_node);
 
     id_type_exist[BKE_idtype_idcode_to_index(GS(id->name))] = 1;
   }
   return id_node;
 }
 
-void Depsgraph::clear_id_nodes_conditional(const std::function<bool(ID_Type id_type)> &filter)
+template<typename FilterFunc>
+static void clear_id_nodes_conditional(Depsgraph::IDDepsNodes *id_nodes, const FilterFunc &filter)
 {
-  for (IDNode *id_node : id_nodes) {
+  for (IDNode *id_node : *id_nodes) {
     if (id_node->id_cow == nullptr) {
       /* This means builder "stole" ownership of the copy-on-written
        * datablock for her own dirty needs. */
+      continue;
+    }
+    if (id_node->id_cow == id_node->id_orig) {
+      /* Copy-on-write version is not needed for this ID type.
+       *
+       * NOTE: Is important to not de-reference the original datablock here because it might be
+       * freed already (happens during main database free when some IDs are freed prior to a
+       * scene). */
       continue;
     }
     if (!deg_copy_on_write_is_expanded(id_node->id_cow)) {
@@ -150,11 +155,11 @@ void Depsgraph::clear_id_nodes()
   /* Free memory used by ID nodes. */
 
   /* Stupid workaround to ensure we free IDs in a proper order. */
-  clear_id_nodes_conditional([](ID_Type id_type) { return id_type == ID_SCE; });
-  clear_id_nodes_conditional([](ID_Type id_type) { return id_type != ID_PA; });
+  clear_id_nodes_conditional(&id_nodes, [](ID_Type id_type) { return id_type == ID_SCE; });
+  clear_id_nodes_conditional(&id_nodes, [](ID_Type id_type) { return id_type != ID_PA; });
 
   for (IDNode *id_node : id_nodes) {
-    OBJECT_GUARDED_DELETE(id_node, IDNode);
+    delete id_node;
   }
   /* Clear containers. */
   id_hash.clear();
@@ -163,7 +168,6 @@ void Depsgraph::clear_id_nodes()
   clear_physics_relations(this);
 }
 
-/* Add new relation between two nodes */
 Relation *Depsgraph::add_new_relation(Node *from, Node *to, const char *description, int flags)
 {
   Relation *rel = nullptr;
@@ -185,7 +189,7 @@ Relation *Depsgraph::add_new_relation(Node *from, Node *to, const char *descript
 #endif
 
   /* Create new relation, and add it to the graph. */
-  rel = OBJECT_GUARDED_NEW(Relation, from, to, description);
+  rel = new Relation(from, to, description);
   rel->flag |= flags;
   return rel;
 }
@@ -209,7 +213,6 @@ Relation *Depsgraph::check_nodes_connected(const Node *from,
 
 /* Low level tagging -------------------------------------- */
 
-/* Tag a specific node as needing updates. */
 void Depsgraph::add_entry_tag(OperationNode *node)
 {
   /* Sanity check. */
@@ -226,10 +229,8 @@ void Depsgraph::add_entry_tag(OperationNode *node)
 void Depsgraph::clear_all_nodes()
 {
   clear_id_nodes();
-  if (time_source != nullptr) {
-    OBJECT_GUARDED_DELETE(time_source, TimeSourceNode);
-    time_source = nullptr;
-  }
+  delete time_source;
+  time_source = nullptr;
 }
 
 ID *Depsgraph::get_cow_id(const ID *id_orig) const
@@ -251,39 +252,35 @@ ID *Depsgraph::get_cow_id(const ID *id_orig) const
        * - Object or mesh has material at a slot which is not used (for
        *   example, object has material slot by materials are set to
        *   object data). */
-      // BLI_assert(!"Request for non-existing copy-on-write ID");
+      // BLI_assert_msg(0, "Request for non-existing copy-on-write ID");
     }
     return (ID *)id_orig;
   }
   return id_node->id_cow;
 }
 
-}  // namespace DEG
+}  // namespace blender::deg
 
 /* **************** */
 /* Public Graph API */
 
-/* Initialize a new Depsgraph */
 Depsgraph *DEG_graph_new(Main *bmain, Scene *scene, ViewLayer *view_layer, eEvaluationMode mode)
 {
-  DEG::Depsgraph *deg_depsgraph = OBJECT_GUARDED_NEW(
-      DEG::Depsgraph, bmain, scene, view_layer, mode);
-  DEG::register_graph(deg_depsgraph);
+  deg::Depsgraph *deg_depsgraph = new deg::Depsgraph(bmain, scene, view_layer, mode);
+  deg::register_graph(deg_depsgraph);
   return reinterpret_cast<Depsgraph *>(deg_depsgraph);
 }
 
-/* Replace the "owner" pointers (currently Main/Scene/ViewLayer) of this depsgraph.
- * Used during undo steps when we do want to re-use the old depsgraph data as much as possible. */
 void DEG_graph_replace_owners(struct Depsgraph *depsgraph,
                               Main *bmain,
                               Scene *scene,
                               ViewLayer *view_layer)
 {
-  DEG::Depsgraph *deg_graph = reinterpret_cast<DEG::Depsgraph *>(depsgraph);
+  deg::Depsgraph *deg_graph = reinterpret_cast<deg::Depsgraph *>(depsgraph);
 
   const bool do_update_register = deg_graph->bmain != bmain;
-  if (do_update_register && deg_graph->bmain != NULL) {
-    DEG::unregister_graph(deg_graph);
+  if (do_update_register && deg_graph->bmain != nullptr) {
+    deg::unregister_graph(deg_graph);
   }
 
   deg_graph->bmain = bmain;
@@ -291,25 +288,24 @@ void DEG_graph_replace_owners(struct Depsgraph *depsgraph,
   deg_graph->view_layer = view_layer;
 
   if (do_update_register) {
-    DEG::register_graph(deg_graph);
+    deg::register_graph(deg_graph);
   }
 }
 
-/* Free graph's contents and graph itself */
 void DEG_graph_free(Depsgraph *graph)
 {
   if (graph == nullptr) {
     return;
   }
-  using DEG::Depsgraph;
-  DEG::Depsgraph *deg_depsgraph = reinterpret_cast<DEG::Depsgraph *>(graph);
-  DEG::unregister_graph(deg_depsgraph);
-  OBJECT_GUARDED_DELETE(deg_depsgraph, Depsgraph);
+  using deg::Depsgraph;
+  deg::Depsgraph *deg_depsgraph = reinterpret_cast<deg::Depsgraph *>(graph);
+  deg::unregister_graph(deg_depsgraph);
+  delete deg_depsgraph;
 }
 
 bool DEG_is_evaluating(const struct Depsgraph *depsgraph)
 {
-  const DEG::Depsgraph *deg_graph = reinterpret_cast<const DEG::Depsgraph *>(depsgraph);
+  const deg::Depsgraph *deg_graph = reinterpret_cast<const deg::Depsgraph *>(depsgraph);
   return deg_graph->is_evaluating;
 }
 
@@ -322,19 +318,19 @@ bool DEG_is_active(const struct Depsgraph *depsgraph)
      * cases. */
     return false;
   }
-  const DEG::Depsgraph *deg_graph = reinterpret_cast<const DEG::Depsgraph *>(depsgraph);
+  const deg::Depsgraph *deg_graph = reinterpret_cast<const deg::Depsgraph *>(depsgraph);
   return deg_graph->is_active;
 }
 
 void DEG_make_active(struct Depsgraph *depsgraph)
 {
-  DEG::Depsgraph *deg_graph = reinterpret_cast<DEG::Depsgraph *>(depsgraph);
+  deg::Depsgraph *deg_graph = reinterpret_cast<deg::Depsgraph *>(depsgraph);
   deg_graph->is_active = true;
   /* TODO(sergey): Copy data from evaluated state to original. */
 }
 
 void DEG_make_inactive(struct Depsgraph *depsgraph)
 {
-  DEG::Depsgraph *deg_graph = reinterpret_cast<DEG::Depsgraph *>(depsgraph);
+  deg::Depsgraph *deg_graph = reinterpret_cast<deg::Depsgraph *>(depsgraph);
   deg_graph->is_active = false;
 }

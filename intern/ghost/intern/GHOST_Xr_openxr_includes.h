@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup GHOST
@@ -22,8 +8,7 @@
  * installed.
  */
 
-#ifndef __GHOST_XR_SYSTEM_INCLUDES_H__
-#define __GHOST_XR_SYSTEM_INCLUDES_H__
+#pragma once
 
 /* Platform headers */
 #ifdef XR_USE_PLATFORM_WIN32
@@ -43,10 +28,14 @@
 #  include <d3d12.h>
 #endif
 #ifdef WITH_GHOST_X11
-#  include <GL/glxew.h>
+#  ifdef WITH_GL_EGL
+/* TODO: Why do we have to create this typedef manually? */
+typedef void (*(*PFNEGLGETPROCADDRESSPROC)(const char *procname))(void);
+#    include <GL/eglew.h>
+#  else
+#    include <GL/glxew.h>
+#  endif
 #endif
 
 #include <openxr/openxr.h>
 #include <openxr/openxr_platform.h>
-
-#endif /* __GHOST_XR_SYSTEM_INCLUDES_H__ */

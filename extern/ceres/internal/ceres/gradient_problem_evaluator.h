@@ -32,59 +32,64 @@
 #define CERES_INTERNAL_GRADIENT_PROBLEM_EVALUATOR_H_
 
 #include <map>
+#include <memory>
 #include <string>
 
 #include "ceres/evaluator.h"
 #include "ceres/execution_summary.h"
 #include "ceres/gradient_problem.h"
-#include "ceres/internal/port.h"
+#include "ceres/internal/disable_warnings.h"
+#include "ceres/internal/export.h"
+#include "ceres/sparse_matrix.h"
 #include "ceres/wall_time.h"
 
 namespace ceres {
 namespace internal {
 
-class GradientProblemEvaluator : public Evaluator {
+class CERES_NO_EXPORT GradientProblemEvaluator final : public Evaluator {
  public:
   explicit GradientProblemEvaluator(const GradientProblem& problem)
       : problem_(problem) {}
-  virtual ~GradientProblemEvaluator() {}
-  virtual SparseMatrix* CreateJacobian() const { return NULL; }
-  virtual bool Evaluate(const EvaluateOptions& evaluate_options,
-                        const double* state,
-                        double* cost,
-                        double* residuals,
-                        double* gradient,
-                        SparseMatrix* jacobian) {
-    CHECK(jacobian == NULL);
+
+  std::unique_ptr<SparseMatrix> CreateJacobian() const final { return nullptr; }
+
+  bool Evaluate(const EvaluateOptions& evaluate_options,
+                const double* state,
+                double* cost,
+                double* residuals,
+                double* gradient,
+                SparseMatrix* jacobian) final {
+    CHECK(jacobian == nullptr);
     ScopedExecutionTimer total_timer("Evaluator::Total", &execution_summary_);
+    // The reason we use Residual and Jacobian here even when we are
+    // only computing the cost and gradient has to do with the fact
+    // that the line search minimizer code is used by both the
+    // GradientProblemSolver and the main CeresSolver coder where the
+    // Evaluator evaluates the Jacobian, and these magic strings need
+    // to be consistent across the code base for the time accounting
+    // to work.
     ScopedExecutionTimer call_type_timer(
-        gradient == NULL ? "Evaluator::Cost" : "Evaluator::Gradient",
+        gradient == nullptr ? "Evaluator::Residual" : "Evaluator::Jacobian",
         &execution_summary_);
     return problem_.Evaluate(state, cost, gradient);
   }
 
-  virtual bool Plus(const double* state,
-                    const double* delta,
-                    double* state_plus_delta) const {
+  bool Plus(const double* state,
+            const double* delta,
+            double* state_plus_delta) const final {
     return problem_.Plus(state, delta, state_plus_delta);
   }
 
-  virtual int NumParameters() const {
-    return problem_.NumParameters();
-  }
+  int NumParameters() const final { return problem_.NumParameters(); }
 
-  virtual int NumEffectiveParameters()  const {
+  int NumEffectiveParameters() const final {
     return problem_.NumLocalParameters();
   }
 
-  virtual int NumResiduals() const { return 1; }
+  int NumResiduals() const final { return 1; }
 
-  virtual std::map<std::string, int> CallStatistics() const {
-    return execution_summary_.calls();
-  }
-
-  virtual std::map<std::string, double> TimeStatistics() const {
-    return execution_summary_.times();
+  std::map<std::string, internal::CallStatistics> Statistics() const final {
+    return execution_summary_.statistics();
   }
 
  private:
@@ -94,5 +99,7 @@ class GradientProblemEvaluator : public Evaluator {
 
 }  // namespace internal
 }  // namespace ceres
+
+#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_GRADIENT_PROBLEM_EVALUATOR_H_

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
@@ -47,16 +33,14 @@ void TransformWriter::add_joint_transform(COLLADASW::Node &node,
   }
 
   double dmat[4][4];
-  UnitConverter *converter = new UnitConverter();
-  converter->mat4_to_dae_double(dmat, local);
-  delete converter;
+  UnitConverter::mat4_to_dae_double(dmat, local);
 
   if (export_settings.get_object_transformation_type() == BC_TRANSFORMATION_TYPE_MATRIX) {
     node.addMatrix("transform", dmat);
   }
   else {
     float loc[3], rot[3], scale[3];
-    bc_decompose(local, loc, rot, NULL, scale);
+    bc_decompose(local, loc, rot, nullptr, scale);
     add_transform(node, loc, rot, scale);
   }
 }
@@ -68,7 +52,7 @@ void TransformWriter::add_node_transform_ob(COLLADASW::Node &node,
   bool limit_precision = export_settings.get_limit_precision();
 
   /* Export the local Matrix (relative to the object parent,
-   * be it an object, bone or vertex(-tices)). */
+   * be it an object, bone or vertices (one or more)). */
   Matrix f_obmat;
   BKE_object_matrix_local_get(ob, f_obmat);
 
@@ -81,9 +65,8 @@ void TransformWriter::add_node_transform_ob(COLLADASW::Node &node,
 
   switch (export_settings.get_object_transformation_type()) {
     case BC_TRANSFORMATION_TYPE_MATRIX: {
-      UnitConverter converter;
       double d_obmat[4][4];
-      converter.mat4_to_dae_double(d_obmat, f_obmat);
+      UnitConverter::mat4_to_dae_double(d_obmat, f_obmat);
 
       if (limit_precision) {
         BCMatrix::sanitize(d_obmat, LIMITTED_PRECISION);
@@ -93,7 +76,7 @@ void TransformWriter::add_node_transform_ob(COLLADASW::Node &node,
     }
     case BC_TRANSFORMATION_TYPE_DECOMPOSED: {
       float loc[3], rot[3], scale[3];
-      bc_decompose(f_obmat, loc, rot, NULL, scale);
+      bc_decompose(f_obmat, loc, rot, nullptr, scale);
       if (limit_precision) {
         bc_sanitize_v3(loc, LIMITTED_PRECISION);
         bc_sanitize_v3(rot, LIMITTED_PRECISION);
@@ -129,9 +112,9 @@ void TransformWriter::add_node_transform_identity(COLLADASW::Node &node,
 }
 
 void TransformWriter::add_transform(COLLADASW::Node &node,
-                                    float loc[3],
-                                    float rot[3],
-                                    float scale[3])
+                                    const float loc[3],
+                                    const float rot[3],
+                                    const float scale[3])
 {
   node.addScale("scale", scale[0], scale[1], scale[2]);
   node.addRotateZ("rotationZ", RAD2DEGF(rot[2]));

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2017, Blender Foundation
- * This is a new part of Blender
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2017 Blender Foundation. */
 
 /** \file
  * \ingroup modifiers
@@ -23,53 +7,56 @@
 
 #include <stdio.h>
 
+#include "BLI_hash.h"
 #include "BLI_listbase.h"
+#include "BLI_math_vector.h"
 #include "BLI_utildefines.h"
 
-#include "BLI_ghash.h"
-#include "BLI_hash.h"
-#include "BLI_math_vector.h"
-#include "BLI_rand.h"
+#include "BLT_translation.h"
 
 #include "MEM_guardedalloc.h"
 
+#include "DNA_defaults.h"
 #include "DNA_gpencil_modifier_types.h"
 #include "DNA_gpencil_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
-#include "DNA_scene_types.h"
+#include "DNA_screen_types.h"
 
 #include "BKE_colortools.h"
+#include "BKE_context.h"
 #include "BKE_deform.h"
 #include "BKE_gpencil.h"
 #include "BKE_gpencil_geom.h"
 #include "BKE_gpencil_modifier.h"
 #include "BKE_lib_query.h"
 #include "BKE_modifier.h"
-#include "BKE_object.h"
+#include "BKE_screen.h"
 
 #include "DEG_depsgraph.h"
 #include "DEG_depsgraph_query.h"
 
+#include "UI_interface.h"
+#include "UI_resources.h"
+
+#include "RNA_access.h"
+
 #include "MOD_gpencil_modifiertypes.h"
+#include "MOD_gpencil_ui_common.h"
 #include "MOD_gpencil_util.h"
 
 static void initData(GpencilModifierData *md)
 {
   NoiseGpencilModifierData *gpmd = (NoiseGpencilModifierData *)md;
-  gpmd->pass_index = 0;
-  gpmd->flag |= GP_NOISE_FULL_STROKE;
-  gpmd->flag |= GP_NOISE_USE_RANDOM;
-  gpmd->factor = 0.5f;
-  gpmd->material = NULL;
-  gpmd->step = 4;
-  gpmd->seed = 1;
+
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(gpmd, modifier));
+
+  MEMCPY_STRUCT_AFTER(gpmd, DNA_struct_default_get(NoiseGpencilModifierData), modifier);
+
   gpmd->curve_intensity = BKE_curvemapping_add(1, 0.0f, 0.0f, 1.0f, 1.0f);
-  if (gpmd->curve_intensity) {
-    CurveMapping *curve = gpmd->curve_intensity;
-    BKE_curvemap_reset(curve->cm, &curve->clipr, CURVE_PRESET_BELL, CURVEMAP_SLOPE_POSITIVE);
-    BKE_curvemapping_initialize(curve);
-  }
+  CurveMapping *curve = gpmd->curve_intensity;
+  BKE_curvemap_reset(curve->cm, &curve->clipr, CURVE_PRESET_BELL, CURVEMAP_SLOPE_POSITIVE);
+  BKE_curvemapping_init(curve);
 }
 
 static void freeData(GpencilModifierData *md)
@@ -102,11 +89,11 @@ static bool dependsOnTime(GpencilModifierData *md)
   return (mmd->flag & GP_NOISE_USE_RANDOM) != 0;
 }
 
-static float *noise_table(int len, int seed)
+static float *noise_table(int len, int offset, int seed)
 {
   float *table = MEM_callocN(sizeof(float) * len, __func__);
   for (int i = 0; i < len; i++) {
-    table[i] = BLI_hash_int_01(BLI_hash_int_2d(seed, i + 1));
+    table[i] = BLI_hash_int_01(BLI_hash_int_2d(seed, i + offset + 1));
   }
   return table;
 }
@@ -116,7 +103,9 @@ BLI_INLINE float table_sample(float *table, float x)
   return interpf(table[(int)ceilf(x)], table[(int)floor(x)], fractf(x));
 }
 
-/* aply noise effect based on stroke direction */
+/**
+ * Apply noise effect based on stroke direction.
+ */
 static void deformStroke(GpencilModifierData *md,
                          Depsgraph *depsgraph,
                          Object *ob,
@@ -132,6 +121,8 @@ static void deformStroke(GpencilModifierData *md,
   const int def_nr = BKE_object_defgroup_name_index(ob, mmd->vgname);
   const bool invert_group = (mmd->flag & GP_NOISE_INVERT_VGROUP) != 0;
   const bool use_curve = (mmd->flag & GP_NOISE_CUSTOM_CURVE) != 0 && mmd->curve_intensity;
+  const int cfra = (int)DEG_get_ctime(depsgraph);
+  const bool is_keyframe = (mmd->noise_mode == GP_NOISE_RANDOM_KEYFRAME);
 
   if (!is_stroke_affected_by_modifier(ob,
                                       mmd->layername,
@@ -158,17 +149,31 @@ static void deformStroke(GpencilModifierData *md,
   seed += BLI_hash_string(md->name);
 
   if (mmd->flag & GP_NOISE_USE_RANDOM) {
-    seed += ((int)DEG_get_ctime(depsgraph)) / mmd->step;
+    if (!is_keyframe) {
+      seed += cfra / mmd->step;
+    }
+    else {
+      /* If change every keyframe, use the last keyframe. */
+      seed += gpf->framenum;
+    }
   }
 
   /* Sanitize as it can create out of bound reads. */
   float noise_scale = clamp_f(mmd->noise_scale, 0.0f, 1.0f);
 
-  int len = ceilf(gps->totpoints * noise_scale) + 1;
-  float *noise_table_position = (mmd->factor > 0.0f) ? noise_table(len, seed + 2) : NULL;
-  float *noise_table_strength = (mmd->factor_strength > 0.0f) ? noise_table(len, seed + 3) : NULL;
-  float *noise_table_thickness = (mmd->factor_thickness > 0.0f) ? noise_table(len, seed) : NULL;
-  float *noise_table_uvs = (mmd->factor_uvs > 0.0f) ? noise_table(len, seed + 4) : NULL;
+  int len = ceilf(gps->totpoints * noise_scale) + 2;
+  float *noise_table_position = (mmd->factor > 0.0f) ?
+                                    noise_table(len, (int)floor(mmd->noise_offset), seed + 2) :
+                                    NULL;
+  float *noise_table_strength = (mmd->factor_strength > 0.0f) ?
+                                    noise_table(len, (int)floor(mmd->noise_offset), seed + 3) :
+                                    NULL;
+  float *noise_table_thickness = (mmd->factor_thickness > 0.0f) ?
+                                     noise_table(len, (int)floor(mmd->noise_offset), seed) :
+                                     NULL;
+  float *noise_table_uvs = (mmd->factor_uvs > 0.0f) ?
+                               noise_table(len, (int)floor(mmd->noise_offset), seed + 4) :
+                               NULL;
 
   /* Calculate stroke normal. */
   if (gps->totpoints > 2) {
@@ -217,24 +222,27 @@ static void deformStroke(GpencilModifierData *md,
       cross_v3_v3v3(vec2, vec1, normal);
       normalize_v3(vec2);
 
-      float noise = table_sample(noise_table_position, i * noise_scale);
+      float noise = table_sample(noise_table_position,
+                                 i * noise_scale + fractf(mmd->noise_offset));
       madd_v3_v3fl(&pt->x, vec2, (noise * 2.0f - 1.0f) * weight * mmd->factor * 0.1f);
     }
 
     if (mmd->factor_thickness > 0.0f) {
-      float noise = table_sample(noise_table_thickness, i * noise_scale);
+      float noise = table_sample(noise_table_thickness,
+                                 i * noise_scale + fractf(mmd->noise_offset));
       pt->pressure *= max_ff(1.0f + (noise * 2.0f - 1.0f) * weight * mmd->factor_thickness, 0.0f);
       CLAMP_MIN(pt->pressure, GPENCIL_STRENGTH_MIN);
     }
 
     if (mmd->factor_strength > 0.0f) {
-      float noise = table_sample(noise_table_strength, i * noise_scale);
+      float noise = table_sample(noise_table_strength,
+                                 i * noise_scale + fractf(mmd->noise_offset));
       pt->strength *= max_ff(1.0f - noise * weight * mmd->factor_strength, 0.0f);
       CLAMP(pt->strength, GPENCIL_STRENGTH_MIN, 1.0f);
     }
 
     if (mmd->factor_uvs > 0.0f) {
-      float noise = table_sample(noise_table_uvs, i * noise_scale);
+      float noise = table_sample(noise_table_uvs, i * noise_scale + fractf(mmd->noise_offset));
       pt->uv_rot += (noise * 2.0f - 1.0f) * weight * mmd->factor_uvs * M_PI_2;
       CLAMP(pt->uv_rot, -M_PI_2, M_PI_2);
     }
@@ -251,15 +259,7 @@ static void bakeModifier(struct Main *UNUSED(bmain),
                          GpencilModifierData *md,
                          Object *ob)
 {
-  bGPdata *gpd = ob->data;
-
-  LISTBASE_FOREACH (bGPDlayer *, gpl, &gpd->layers) {
-    LISTBASE_FOREACH (bGPDframe *, gpf, &gpl->frames) {
-      LISTBASE_FOREACH (bGPDstroke *, gps, &gpf->strokes) {
-        deformStroke(md, depsgraph, ob, gpl, gpf, gps);
-      }
-    }
-  }
+  generic_bake_deform_stroke(depsgraph, md, ob, false, deformStroke);
 }
 
 static void foreachIDLink(GpencilModifierData *md, Object *ob, IDWalkFunc walk, void *userData)
@@ -269,8 +269,77 @@ static void foreachIDLink(GpencilModifierData *md, Object *ob, IDWalkFunc walk, 
   walk(userData, ob, (ID **)&mmd->material, IDWALK_CB_USER);
 }
 
+static void panel_draw(const bContext *UNUSED(C), Panel *panel)
+{
+  uiLayout *col;
+  uiLayout *layout = panel->layout;
+
+  PointerRNA *ptr = gpencil_modifier_panel_get_property_pointers(panel, NULL);
+
+  uiLayoutSetPropSep(layout, true);
+
+  col = uiLayoutColumn(layout, false);
+  uiItemR(col, ptr, "factor", 0, IFACE_("Position"), ICON_NONE);
+  uiItemR(col, ptr, "factor_strength", 0, IFACE_("Strength"), ICON_NONE);
+  uiItemR(col, ptr, "factor_thickness", 0, IFACE_("Thickness"), ICON_NONE);
+  uiItemR(col, ptr, "factor_uvs", 0, IFACE_("UV"), ICON_NONE);
+  uiItemR(col, ptr, "noise_scale", 0, NULL, ICON_NONE);
+  uiItemR(col, ptr, "noise_offset", 0, NULL, ICON_NONE);
+  uiItemR(col, ptr, "seed", 0, NULL, ICON_NONE);
+
+  gpencil_modifier_panel_end(layout, ptr);
+}
+
+static void random_header_draw(const bContext *UNUSED(C), Panel *panel)
+{
+  uiLayout *layout = panel->layout;
+
+  PointerRNA *ptr = gpencil_modifier_panel_get_property_pointers(panel, NULL);
+
+  uiItemR(layout, ptr, "use_random", 0, IFACE_("Randomize"), ICON_NONE);
+}
+
+static void random_panel_draw(const bContext *UNUSED(C), Panel *panel)
+{
+  uiLayout *layout = panel->layout;
+
+  PointerRNA *ptr = gpencil_modifier_panel_get_property_pointers(panel, NULL);
+
+  uiLayoutSetPropSep(layout, true);
+
+  uiLayoutSetActive(layout, RNA_boolean_get(ptr, "use_random"));
+
+  uiItemR(layout, ptr, "random_mode", 0, NULL, ICON_NONE);
+
+  const int mode = RNA_enum_get(ptr, "random_mode");
+  if (mode != GP_NOISE_RANDOM_KEYFRAME) {
+    uiItemR(layout, ptr, "step", 0, NULL, ICON_NONE);
+  }
+}
+
+static void mask_panel_draw(const bContext *UNUSED(C), Panel *panel)
+{
+  gpencil_modifier_masking_panel_draw(panel, true, true);
+}
+
+static void panelRegister(ARegionType *region_type)
+{
+  PanelType *panel_type = gpencil_modifier_panel_register(
+      region_type, eGpencilModifierType_Noise, panel_draw);
+  gpencil_modifier_subpanel_register(
+      region_type, "randomize", "", random_header_draw, random_panel_draw, panel_type);
+  PanelType *mask_panel_type = gpencil_modifier_subpanel_register(
+      region_type, "mask", "Influence", NULL, mask_panel_draw, panel_type);
+  gpencil_modifier_subpanel_register(region_type,
+                                     "curve",
+                                     "",
+                                     gpencil_modifier_curve_header_draw,
+                                     gpencil_modifier_curve_panel_draw,
+                                     mask_panel_type);
+}
+
 GpencilModifierTypeInfo modifierType_Gpencil_Noise = {
-    /* name */ "Noise",
+    /* name */ N_("Noise"),
     /* structName */ "NoiseGpencilModifierData",
     /* structSize */ sizeof(NoiseGpencilModifierData),
     /* type */ eGpencilModifierTypeType_Gpencil,
@@ -288,7 +357,7 @@ GpencilModifierTypeInfo modifierType_Gpencil_Noise = {
     /* isDisabled */ NULL,
     /* updateDepsgraph */ NULL,
     /* dependsOnTime */ dependsOnTime,
-    /* foreachObjectLink */ NULL,
     /* foreachIDLink */ foreachIDLink,
     /* foreachTexLink */ NULL,
+    /* panelRegister */ panelRegister,
 };

@@ -1,39 +1,26 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup python
  */
 
-#ifndef __BPY_EXTERN_H__
-#define __BPY_EXTERN_H__
+#pragma once
 
+struct ARegionType;
+struct AnimationEvalContext;
 struct ChannelDriver; /* DNA_anim_types.h */
 struct ID;            /* DNA_ID.h */
 struct ListBase;      /* DNA_listBase.h */
 struct Object;        /* DNA_object_types.h */
 struct PathResolvedRNA;
-struct ReportList;
 struct Text;              /* defined in DNA_text_types.h */
 struct bConstraint;       /* DNA_constraint_types.h */
 struct bConstraintOb;     /* DNA_constraint_types.h */
-struct bConstraintTarget; /* DNA_constraint_types.h*/
+struct bConstraintTarget; /* DNA_constraint_types.h */
 struct bContext;
 struct bContextDataResult;
 struct bPythonConstraint; /* DNA_constraint_types.h */
+struct wmWindowManager;
 
 #include "BLI_utildefines.h"
 
@@ -50,19 +37,20 @@ void BPY_pyconstraint_update(struct Object *owner, struct bConstraint *con);
 int BPY_is_pyconstraint(struct Text *text);
 //  void BPY_free_pyconstraint_links(struct Text *text);
 
-void BPY_python_start(int argc, const char **argv);
-void BPY_python_end(void);
-void BPY_python_reset(struct bContext *C);
-void BPY_python_use_system_env(void);
-
 /* global interpreter lock */
 
 typedef void *BPy_ThreadStatePtr;
 
+/**
+ * Analogue of #PyEval_SaveThread()
+ */
 BPy_ThreadStatePtr BPY_thread_save(void);
+/**
+ * Analogue of #PyEval_RestoreThread()
+ */
 void BPY_thread_restore(BPy_ThreadStatePtr tstate);
 
-/* our own wrappers to Py_BEGIN_ALLOW_THREADS/Py_END_ALLOW_THREADS */
+/** Our own wrappers to #Py_BEGIN_ALLOW_THREADS / #Py_END_ALLOW_THREADS */
 #define BPy_BEGIN_ALLOW_THREADS \
   { \
     BPy_ThreadStatePtr _bpy_saved_tstate = BPY_thread_save(); \
@@ -72,64 +60,83 @@ void BPY_thread_restore(BPy_ThreadStatePtr tstate);
   } \
   (void)0
 
-bool BPY_execute_filepath(struct bContext *C, const char *filepath, struct ReportList *reports);
-bool BPY_execute_text(struct bContext *C,
-                      struct Text *text,
-                      struct ReportList *reports,
-                      const bool do_jump);
-
-bool BPY_execute_string_as_number(struct bContext *C,
-                                  const char *imports[],
-                                  const char *expr,
-                                  const bool verbose,
-                                  double *r_value);
-bool BPY_execute_string_as_intptr(struct bContext *C,
-                                  const char *imports[],
-                                  const char *expr,
-                                  const bool verbose,
-                                  intptr_t *r_value);
-bool BPY_execute_string_as_string_and_size(struct bContext *C,
-                                           const char *imports[],
-                                           const char *expr,
-                                           const bool verbose,
-                                           char **r_value,
-                                           size_t *r_value_size);
-bool BPY_execute_string_as_string(struct bContext *C,
-                                  const char *imports[],
-                                  const char *expr,
-                                  const bool verbose,
-                                  char **r_value);
-
-bool BPY_execute_string_ex(struct bContext *C,
-                           const char *imports[],
-                           const char *expr,
-                           bool use_eval);
-bool BPY_execute_string(struct bContext *C, const char *imports[], const char *expr);
-
 void BPY_text_free_code(struct Text *text);
-void BPY_modules_update(
-    struct bContext *C);  // XXX - annoying, need this for pointers that get out of date
+/**
+ * Needed so the #Main pointer in `bpy.data` doesn't become out of date.
+ */
+void BPY_modules_update(void);
 void BPY_modules_load_user(struct bContext *C);
 
-void BPY_app_handlers_reset(const short do_all);
+void BPY_app_handlers_reset(bool do_all);
 
+/**
+ * Run on exit to free any cached data.
+ */
+void BPY_driver_exit(void);
+
+/**
+ * Update function, it gets rid of python-drivers global dictionary: `bpy.app.driver_namespace`,
+ * forcing #BPY_driver_exec to recreate it. Use this when loading a new `.blend` file
+ * so any variables setup by the previous blend file are cleared.
+ */
 void BPY_driver_reset(void);
+
+/**
+ * This evaluates Python driver expressions, `driver_orig->expression`
+ * is a Python expression that should evaluate to a float number, which is returned.
+ */
 float BPY_driver_exec(struct PathResolvedRNA *anim_rna,
                       struct ChannelDriver *driver,
                       struct ChannelDriver *driver_orig,
-                      const float evaltime);
+                      const struct AnimationEvalContext *anim_eval_context);
 
-void BPY_DECREF(void *pyob_ptr); /* Py_DECREF() */
+/**
+ * Acquire the global-interpreter-lock (GIL) and wrap `Py_DECREF`.
+ * as there are some cases when this needs to be called outside the Python API code.
+ */
+void BPY_DECREF(void *pyob_ptr);
+
 void BPY_DECREF_RNA_INVALIDATE(void *pyob_ptr);
 int BPY_context_member_get(struct bContext *C,
                            const char *member,
                            struct bContextDataResult *result);
 void BPY_context_set(struct bContext *C);
+/**
+ * Use for updating while a python script runs - in case of file load.
+ */
 void BPY_context_update(struct bContext *C);
+
+#define BPY_context_dict_clear_members(C, ...) \
+  BPY_context_dict_clear_members_array(&((C)->data.py_context), \
+                                       (C)->data.py_context_orig, \
+                                       ((const char *[]){__VA_ARGS__}), \
+                                       VA_NARGS_COUNT(__VA_ARGS__))
+/**
+ * Use for `CTX_*_set(..)` functions need to set values which are later read back as expected.
+ * In this case we don't want the Python context to override the values as it causes problems
+ * see T66256.
+ *
+ * \param dict_p: A pointer to #bContext.data.py_context so we can assign a new value.
+ * \param dict_orig: The value of #bContext.data.py_context_orig to check if we need to copy.
+ *
+ * \note Typically accessed via #BPY_context_dict_clear_members macro.
+ */
+void BPY_context_dict_clear_members_array(void **dict_p,
+                                          void *dict_orig,
+                                          const char *context_members[],
+                                          uint context_members_len);
 
 void BPY_id_release(struct ID *id);
 
+/**
+ * Avoids duplicating keyword list.
+ */
 bool BPY_string_is_keyword(const char *str);
+
+/* bpy_rna_callback.c */
+
+void BPY_callback_screen_free(struct ARegionType *art);
+void BPY_callback_wm_free(struct wmWindowManager *wm);
 
 /* I18n for addons */
 #ifdef WITH_INTERNATIONAL
@@ -139,5 +146,3 @@ const char *BPY_app_translations_py_pgettext(const char *msgctxt, const char *ms
 #ifdef __cplusplus
 } /* extern "C" */
 #endif
-
-#endif /* __BPY_EXTERN_H__ */

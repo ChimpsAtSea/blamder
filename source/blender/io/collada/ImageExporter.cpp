@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
@@ -28,6 +14,7 @@
 #include "BKE_customdata.h"
 #include "BKE_global.h"
 #include "BKE_image.h"
+#include "BKE_image_format.h"
 #include "BKE_main.h"
 #include "BKE_mesh.h"
 
@@ -53,16 +40,16 @@ void ImagesExporter::export_UV_Image(Image *image, bool use_copies)
   std::string name(id_name(image));
   std::string translated_name(translate_id(name));
 
-  ImBuf *imbuf = BKE_image_acquire_ibuf(image, NULL, NULL);
+  ImBuf *imbuf = BKE_image_acquire_ibuf(image, nullptr, nullptr);
   if (!imbuf) {
-    fprintf(stderr, "Collada export: image does not exist:\n%s\n", image->name);
+    fprintf(stderr, "Collada export: image does not exist:\n%s\n", image->filepath);
     return;
   }
 
   bool is_dirty = BKE_image_is_dirty(image);
 
   ImageFormatData imageFormat;
-  BKE_imbuf_to_image_format(&imageFormat, imbuf);
+  BKE_image_format_from_imbuf(&imageFormat, imbuf);
 
   short image_source = image->source;
   bool is_generated = image_source == IMA_SRC_GENERATED;
@@ -104,16 +91,16 @@ void ImagesExporter::export_UV_Image(Image *image, bool use_copies)
   else {
 
     /* make absolute source path */
-    BLI_strncpy(source_path, image->name, sizeof(source_path));
+    BLI_strncpy(source_path, image->filepath, sizeof(source_path));
     BLI_path_abs(source_path, ID_BLEND_PATH_FROM_GLOBAL(&image->id));
-    BLI_path_normalize(NULL, source_path);
+    BLI_path_normalize(nullptr, source_path);
 
     if (use_copies) {
 
       /* This image is already located on the file system.
        * But we want to create copies here.
        * To move images into the same export directory.
-       * Note: If an image is already located in the export folder,
+       * NOTE: If an image is already located in the export folder,
        * then skip the copy (as it would result in a file copy error). */
 
       if (BLI_path_cmp(source_path, export_path) != 0) {
@@ -145,7 +132,7 @@ void ImagesExporter::export_UV_Image(Image *image, bool use_copies)
   img.add(mSW);
   fprintf(stdout, "Collada export: Added image: %s\n", export_file);
 
-  BKE_image_release_ibuf(image, imbuf, NULL);
+  BKE_image_release_ibuf(image, imbuf, nullptr);
 }
 
 void ImagesExporter::exportImages(Scene *sce)

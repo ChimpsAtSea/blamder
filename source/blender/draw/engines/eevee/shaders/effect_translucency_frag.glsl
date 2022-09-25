@@ -1,11 +1,16 @@
 
+#pragma BLENDER_REQUIRE(common_view_lib.glsl)
+#pragma BLENDER_REQUIRE(common_math_geom_lib.glsl)
+#pragma BLENDER_REQUIRE(common_utiltex_lib.glsl)
+#pragma BLENDER_REQUIRE(lights_lib.glsl)
+
 in vec4 uvcoordsvar;
 
 out vec4 FragColor;
 
+uniform depth2D depthBuffer;
 uniform sampler1D sssTexProfile;
 uniform sampler2D sssRadius;
-
 uniform sampler2DArray sssShadowCubes;
 uniform sampler2DArray sssShadowCascades;
 
@@ -16,32 +21,27 @@ uniform sampler2DArray sssShadowCascades;
 
 layout(std140) uniform sssProfile
 {
-  vec4 kernel[MAX_SSS_SAMPLES];
+  vec4 sss_kernel[MAX_SSS_SAMPLES];
   vec4 radii_max_radius;
+  float avg_inv_radius;
   int sss_samples;
 };
 
 vec3 sss_profile(float s)
 {
-  s /= radii_max_radius.w;
+  s /= radii_max_radius.w * avg_inv_radius;
   return texture(sssTexProfile, saturate(s) * SSS_LUT_SCALE + SSS_LUT_BIAS).rgb;
 }
-
-#ifndef UTIL_TEX
-#  define UTIL_TEX
-uniform sampler2DArray utilTex;
-#  define texelfetch_noise_tex(coord) texelFetch(utilTex, ivec3(ivec2(coord) % LUT_SIZE, 2.0), 0)
-#endif /* UTIL_TEX */
 
 float light_translucent_power_with_falloff(LightData ld, vec3 N, vec4 l_vector)
 {
   float power, falloff;
-  /* XXX : Removing Area Power. */
-  /* TODO : put this out of the shader. */
+  /* XXX: Removing Area Power. */
+  /* TODO: put this out of the shader. */
   if (ld.l_type >= AREA_RECT) {
     power = (ld.l_sizex * ld.l_sizey * 4.0 * M_PI) * (1.0 / 80.0);
     if (ld.l_type == AREA_ELLIPSE) {
-      power *= M_PI * 0.25;
+      power *= M_PI_4;
     }
     power *= 0.3 * 20.0 *
              max(0.0, dot(-ld.l_forward, l_vector.xyz / l_vector.w)); /* XXX ad hoc, empirical */
@@ -50,7 +50,7 @@ float light_translucent_power_with_falloff(LightData ld, vec3 N, vec4 l_vector)
   }
   else if (ld.l_type == SUN) {
     power = 1.0 / (1.0 + (ld.l_radius * ld.l_radius * 0.5));
-    power *= ld.l_radius * ld.l_radius * M_PI; /* Removing area light power*/
+    power *= ld.l_radius * ld.l_radius * M_PI; /* Removing area light power. */
     power *= M_2PI * 0.78;                     /* Matching cycles with point light. */
     power *= 0.082;                            /* XXX ad hoc, empirical */
     falloff = dot(N, -ld.l_forward);
@@ -82,7 +82,7 @@ float shadow_cube_radial_depth(vec3 cubevec, float tex_id, int shadow_id)
   return depth;
 }
 
-vec3 light_translucent(LightData ld, vec3 W, vec3 N, vec4 l_vector, vec2 rand, float sss_scale)
+vec3 light_translucent(LightData ld, vec3 P, vec3 N, vec4 l_vector, vec2 rand, float sss_scale)
 {
   int shadow_id = int(ld.l_shadowid);
 
@@ -90,7 +90,7 @@ vec3 light_translucent(LightData ld, vec3 W, vec3 N, vec4 l_vector, vec2 rand, f
 
   /* We use the full l_vector.xyz so that the spread is minimize
    * if the shading point is further away from the light source */
-  /* TODO(fclem) do something better than this. */
+  /* TODO(fclem): do something better than this. */
   vec3 T, B;
   make_orthonormal_basis(L.xyz / L.w, T, B);
 
@@ -99,7 +99,7 @@ vec3 light_translucent(LightData ld, vec3 W, vec3 N, vec4 l_vector, vec2 rand, f
   float d, dist;
   int data_id = int(sd(shadow_id).sh_data_index);
   if (ld.l_type == SUN) {
-    vec4 view_z = vec4(dot(W - cameraPos, cameraForward));
+    vec4 view_z = vec4(dot(P - cameraPos, cameraForward));
 
     vec4 weights = step(scascade(data_id).split_end_distances, view_z);
     float id = abs(4.0 - dot(weights, weights));
@@ -110,7 +110,7 @@ vec3 light_translucent(LightData ld, vec3 W, vec3 N, vec4 l_vector, vec2 rand, f
     /* Same factor as in get_cascade_world_distance(). */
     float range = abs(sd(shadow_id).sh_far - sd(shadow_id).sh_near);
 
-    vec4 shpos = scascade(data_id).shadowmat[int(id)] * vec4(W, 1.0);
+    vec4 shpos = scascade(data_id).shadowmat[int(id)] * vec4(P, 1.0);
     dist = shpos.z * range;
 
     if (shpos.z > 1.0 || shpos.z < 0.0) {
@@ -135,7 +135,7 @@ vec3 light_translucent(LightData ld, vec3 W, vec3 N, vec4 l_vector, vec2 rand, f
     /* Size of a texel in world space.
      * FIXME This is only correct if l_right is the same right vector used for shadowmap creation.
      * This won't work if the shadow matrix is rotated (soft shadows).
-     * TODO precompute */
+     * TODO: precompute. */
     float unit_world_in_uv_space = length(mat3(scascade(data_id).shadowmat[int(id)]) * ld.l_right);
     float dx_scale = 2.0 * ofs.x / unit_world_in_uv_space;
 
@@ -150,7 +150,7 @@ vec3 light_translucent(LightData ld, vec3 W, vec3 N, vec4 l_vector, vec2 rand, f
   else {
     float ofs = 1.0 / float(textureSize(sssShadowCubes, 0).x);
 
-    vec3 cubevec = transform_point(scube(data_id).shadowmat, W);
+    vec3 cubevec = transform_point(scube(data_id).shadowmat, P);
     dist = length(cubevec);
     cubevec /= dist;
     /* tex_id == data_id for cube shadowmap */
@@ -184,15 +184,69 @@ vec3 light_translucent(LightData ld, vec3 W, vec3 N, vec4 l_vector, vec2 rand, f
 #undef scube
 #undef scsmd
 
+/* Similar to https://atyuwen.github.io/posts/normal-reconstruction/.
+ * This samples the depth buffer 4 time for each direction to get the most correct
+ * implicit normal reconstruction out of the depth buffer. */
+vec3 view_position_derivative_from_depth(vec2 uvs, vec2 ofs, vec3 vP, float depth_center)
+{
+  vec2 uv1 = uvs - ofs * 2.0;
+  vec2 uv2 = uvs - ofs;
+  vec2 uv3 = uvs + ofs;
+  vec2 uv4 = uvs + ofs * 2.0;
+  vec4 H;
+  H.x = textureLod(depthBuffer, uv1, 0.0).r;
+  H.y = textureLod(depthBuffer, uv2, 0.0).r;
+  H.z = textureLod(depthBuffer, uv3, 0.0).r;
+  H.w = textureLod(depthBuffer, uv4, 0.0).r;
+  /* Fix issue with depth precision. Take even larger diff. */
+  vec4 diff = abs(vec4(depth_center, H.yzw) - H.x);
+  if (max_v4(diff) < 2.4e-7 && all(lessThan(diff.xyz, diff.www))) {
+    return 0.25 * (get_view_space_from_depth(uv3, H.w) - get_view_space_from_depth(uv1, H.x));
+  }
+  /* Simplified (H.xw + 2.0 * (H.yz - H.xw)) - depth_center */
+  vec2 deltas = abs((2.0 * H.yz - H.xw) - depth_center);
+  if (deltas.x < deltas.y) {
+    return vP - get_view_space_from_depth(uv2, H.y);
+  }
+  else {
+    return get_view_space_from_depth(uv3, H.z) - vP;
+  }
+}
+
+/* TODO(@fclem): port to a common place for other effects to use. */
+bool reconstruct_view_position_and_normal_from_depth(vec2 uvs, out vec3 vP, out vec3 vNg)
+{
+  vec2 texel_size = vec2(abs(dFdx(uvs.x)), abs(dFdy(uvs.y)));
+  float depth_center = textureLod(depthBuffer, uvs, 0.0).r;
+
+  vP = get_view_space_from_depth(uvs, depth_center);
+
+  vec3 dPdx = view_position_derivative_from_depth(uvs, texel_size * vec2(1, 0), vP, depth_center);
+  vec3 dPdy = view_position_derivative_from_depth(uvs, texel_size * vec2(0, 1), vP, depth_center);
+
+  vNg = safe_normalize(cross(dPdx, dPdy));
+
+  /* Background case. */
+  if (depth_center == 1.0) {
+    return false;
+  }
+
+  return true;
+}
+
 void main(void)
 {
   vec2 uvs = uvcoordsvar.xy;
   float sss_scale = texture(sssRadius, uvs).r;
-  vec3 W = get_world_space_from_depth(uvs, texture(depthBuffer, uvs).r);
-  vec3 N = normalize(cross(dFdx(W), dFdy(W)));
 
   vec3 rand = texelfetch_noise_tex(gl_FragCoord.xy).zwy;
   rand.xy *= fast_sqrt(rand.z);
+
+  vec3 vP, vNg;
+  reconstruct_view_position_and_normal_from_depth(uvs, vP, vNg);
+
+  vec3 P = point_view_to_world(vP);
+  vec3 Ng = normal_view_to_world(vNg);
 
   vec3 accum = vec3(0.0);
   for (int i = 0; i < MAX_LIGHT && i < laNumLight; i++) {
@@ -204,7 +258,7 @@ void main(void)
     }
 
     vec4 l_vector; /* Non-Normalized Light Vector with length in last component. */
-    l_vector.xyz = ld.l_position - W;
+    l_vector.xyz = ld.l_position - P;
     l_vector.w = length(l_vector.xyz);
 
     float att = light_attenuation(ld, l_vector);
@@ -212,7 +266,7 @@ void main(void)
       continue;
     }
 
-    accum += att * ld.l_color * light_translucent(ld, W, -N, l_vector, rand.xy, sss_scale);
+    accum += att * ld.l_color * light_translucent(ld, P, -Ng, l_vector, rand.xy, sss_scale);
   }
 
   FragColor = vec4(accum, 1.0);

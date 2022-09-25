@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __BLI_DIAL_2D_H__
-#define __BLI_DIAL_2D_H__
+#pragma once
 
 /** \file
  * \ingroup bli
@@ -38,7 +23,7 @@
  * float angle;
  * Dial *dial;
  *
- * dial = BLI_dial_initialize(start_position, threshold);
+ * dial = BLI_dial_init(start_position, threshold);
  *
  * angle = BLI_dial_angle(dial, current_position);
  *
@@ -52,12 +37,10 @@ extern "C" {
 
 typedef struct Dial Dial;
 
-Dial *BLI_dial_initialize(const float start_position[2], float threshold);
+Dial *BLI_dial_init(const float start_position[2], float threshold);
 
 float BLI_dial_angle(Dial *dial, const float current_position[2]);
 
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __BLI_DIAL_2D_H__ */

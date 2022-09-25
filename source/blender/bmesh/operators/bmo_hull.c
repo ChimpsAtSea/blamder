@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -28,9 +14,9 @@
 #  include "BLI_listbase.h"
 #  include "BLI_math.h"
 
-#  include "Bullet-C-Api.h"
+#  include "RBI_hull_api.h"
 
-/* XXX: using 128 for totelem and pchunk of mempool, no idea what good
+/* XXX: using 128 for totelem and `pchunk` of `mempool`, no idea what good
  * values would be though */
 
 #  include "bmesh.h"
@@ -60,12 +46,12 @@ typedef struct HullTriangle {
 /*************************** Hull Triangles ***************************/
 
 static void hull_add_triangle(
-    BMesh *bm, GSet *hull_triangles, BLI_mempool *pool, BMVert *v1, BMVert *v2, BMVert *v3)
+    BMesh *bm, BLI_mempool *hull_triangles, BMVert *v1, BMVert *v2, BMVert *v3)
 {
   HullTriangle *t;
   int i;
 
-  t = BLI_mempool_calloc(pool);
+  t = BLI_mempool_calloc(hull_triangles);
   t->v[0] = v1;
   t->v[1] = v2;
   t->v[2] = v3;
@@ -75,7 +61,6 @@ static void hull_add_triangle(
     BMO_vert_flag_disable(bm, t->v[i], HULL_FLAG_INTERIOR_ELE);
   }
 
-  BLI_gset_insert(hull_triangles, t);
   normal_tri_v3(t->no, v1->co, v2->co, v3->co);
 }
 
@@ -94,12 +79,13 @@ static BMFace *hull_find_example_face(BMesh *bm, BMEdge *e)
   return NULL;
 }
 
-static void hull_output_triangles(BMesh *bm, GSet *hull_triangles)
+static void hull_output_triangles(BMesh *bm, BLI_mempool *hull_triangles)
 {
-  GSetIterator iter;
+  BLI_mempool_iter iter;
+  BLI_mempool_iternew(hull_triangles, &iter);
+  HullTriangle *t;
 
-  GSET_ITER (iter, hull_triangles) {
-    HullTriangle *t = BLI_gsetIterator_getKey(&iter);
+  while ((t = BLI_mempool_iterstep(&iter))) {
     int i;
 
     if (!t->skip) {
@@ -198,18 +184,20 @@ static int hull_final_edges_lookup(HullFinalEdges *final_edges, BMVert *v1, BMVe
 }
 
 /* Used for checking whether a pre-existing edge lies on the hull */
-static HullFinalEdges *hull_final_edges(GSet *hull_triangles)
+static HullFinalEdges *hull_final_edges(BLI_mempool *hull_triangles)
 {
   HullFinalEdges *final_edges;
-  GSetIterator iter;
 
   final_edges = MEM_callocN(sizeof(HullFinalEdges), "HullFinalEdges");
   final_edges->edges = BLI_ghash_ptr_new("final edges ghash");
   final_edges->base_pool = BLI_mempool_create(sizeof(ListBase), 0, 128, BLI_MEMPOOL_NOP);
   final_edges->link_pool = BLI_mempool_create(sizeof(LinkData), 0, 128, BLI_MEMPOOL_NOP);
 
-  GSET_ITER (iter, hull_triangles) {
-    HullTriangle *t = BLI_gsetIterator_getKey(&iter);
+  BLI_mempool_iter iter;
+  BLI_mempool_iternew(hull_triangles, &iter);
+  HullTriangle *t;
+
+  while ((t = BLI_mempool_iterstep(&iter))) {
     LinkData *link;
     int i;
 
@@ -250,12 +238,15 @@ static void hull_final_edges_free(HullFinalEdges *final_edges)
 
 /**************************** Final Output ****************************/
 
-static void hull_remove_overlapping(BMesh *bm, GSet *hull_triangles, HullFinalEdges *final_edges)
+static void hull_remove_overlapping(BMesh *bm,
+                                    BLI_mempool *hull_triangles,
+                                    HullFinalEdges *final_edges)
 {
-  GSetIterator hull_iter;
+  BLI_mempool_iter iter;
+  BLI_mempool_iternew(hull_triangles, &iter);
+  HullTriangle *t;
 
-  GSET_ITER (hull_iter, hull_triangles) {
-    HullTriangle *t = BLI_gsetIterator_getKey(&hull_iter);
+  while ((t = BLI_mempool_iterstep(&iter))) {
     BMIter bm_iter1, bm_iter2;
     BMFace *f;
     bool f_on_hull;
@@ -273,7 +264,7 @@ static void hull_remove_overlapping(BMesh *bm, GSet *hull_triangles, HullFinalEd
         }
       }
 
-      /* Note: can't change ghash while iterating, so mark
+      /* NOTE: can't change ghash while iterating, so mark
        * with 'skip' flag rather than deleting triangles */
       if (BM_vert_in_face(t->v[1], f) && BM_vert_in_face(t->v[2], f) && f_on_hull) {
         t->skip = true;
@@ -460,14 +451,14 @@ static BMVert **hull_verts_from_bullet(plConvexHull hull,
       hull_verts[i] = input_verts[original_index];
     }
     else {
-      BLI_assert(!"Unexpected new vertex in hull output");
+      BLI_assert_msg(0, "Unexpected new vertex in hull output");
     }
   }
 
   return hull_verts;
 }
 
-static void hull_from_bullet(BMesh *bm, BMOperator *op, GSet *hull_triangles, BLI_mempool *pool)
+static void hull_from_bullet(BMesh *bm, BMOperator *op, BLI_mempool *hull_triangles)
 {
   int *fvi = NULL;
   BLI_array_declare(fvi);
@@ -500,7 +491,7 @@ static void hull_from_bullet(BMesh *bm, BMOperator *op, GSet *hull_triangles, BL
       BLI_array_grow_items(fvi, len);
       plConvexHullGetFaceVertices(hull, i, fvi);
 
-      /* Note: here we throw away any NGons from Bullet and turn
+      /* NOTE: here we throw away any NGons from Bullet and turn
        * them into triangle fans. Would be nice to use these
        * directly, but will have to wait until HullTriangle goes
        * away (TODO) */
@@ -509,7 +500,7 @@ static void hull_from_bullet(BMesh *bm, BMOperator *op, GSet *hull_triangles, BL
         fv[1] = hull_verts[fvi[j - 1]];
         fv[2] = hull_verts[fvi[j]];
 
-        hull_add_triangle(bm, hull_triangles, pool, fv[0], fv[1], fv[2]);
+        hull_add_triangle(bm, hull_triangles, fv[0], fv[1], fv[2]);
       }
     }
   }
@@ -543,14 +534,13 @@ static bool hull_num_input_verts_is_ok(BMOperator *op)
 void bmo_convex_hull_exec(BMesh *bm, BMOperator *op)
 {
   HullFinalEdges *final_edges;
-  BLI_mempool *hull_pool;
+  BLI_mempool *hull_triangles;
   BMElemF *ele;
   BMOIter oiter;
-  GSet *hull_triangles;
 
   /* Verify that at least three verts in the input */
   if (!hull_num_input_verts_is_ok(op)) {
-    BMO_error_raise(bm, op, BMERR_CONVEX_HULL_FAILED, "Requires at least three vertices");
+    BMO_error_raise(bm, op, BMO_ERROR_CANCEL, "Requires at least three vertices");
     return;
   }
 
@@ -569,10 +559,9 @@ void bmo_convex_hull_exec(BMesh *bm, BMOperator *op)
     }
   }
 
-  hull_pool = BLI_mempool_create(sizeof(HullTriangle), 0, 128, BLI_MEMPOOL_NOP);
-  hull_triangles = BLI_gset_ptr_new("hull_triangles");
+  hull_triangles = BLI_mempool_create(sizeof(HullTriangle), 0, 128, BLI_MEMPOOL_ALLOW_ITER);
 
-  hull_from_bullet(bm, op, hull_triangles, hull_pool);
+  hull_from_bullet(bm, op, hull_triangles);
 
   final_edges = hull_final_edges(hull_triangles);
 
@@ -590,9 +579,7 @@ void bmo_convex_hull_exec(BMesh *bm, BMOperator *op)
 
   /* Convert hull triangles to BMesh faces */
   hull_output_triangles(bm, hull_triangles);
-  BLI_mempool_destroy(hull_pool);
-
-  BLI_gset_free(hull_triangles, NULL);
+  BLI_mempool_destroy(hull_triangles);
 
   hull_tag_unused(bm, op);
 
@@ -602,7 +589,7 @@ void bmo_convex_hull_exec(BMesh *bm, BMOperator *op)
       bm, op, op->slots_out, "geom_interior.out", BM_ALL_NOLOOP, HULL_FLAG_INTERIOR_ELE);
 
   /* Output slot of input elements that ended up inside the hull and
-   * are are unused by other geometry. */
+   * are unused by other geometry. */
   BMO_slot_buffer_from_enabled_flag(
       bm, op, op->slots_out, "geom_unused.out", BM_ALL_NOLOOP, HULL_FLAG_DEL);
 

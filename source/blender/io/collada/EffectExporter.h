@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
  */
 
-#ifndef __EFFECTEXPORTER_H__
-#define __EFFECTEXPORTER_H__
+#pragma once
 
 #include <string>
 #include <vector>
@@ -66,9 +51,9 @@ class EffectsExporter : COLLADASW::LibraryEffects {
   void set_specular(COLLADASW::EffectProfile &ep, Material *ma);
   void set_reflective(COLLADASW::EffectProfile &ep, Material *ma);
 
-  void get_images(Material *ma, KeyImageMap &uid_image_map);
+  void get_images(Material *ma, KeyImageMap &material_image_map);
   void create_image_samplers(COLLADASW::EffectProfile &ep,
-                             KeyImageMap &uid_image_map,
+                             KeyImageMap &material_image_map,
                              std::string &active_uv);
 
   void writeTextures(COLLADASW::EffectProfile &ep,
@@ -85,5 +70,3 @@ class EffectsExporter : COLLADASW::LibraryEffects {
   Scene *scene;
   bContext *mContext;
 };
-
-#endif

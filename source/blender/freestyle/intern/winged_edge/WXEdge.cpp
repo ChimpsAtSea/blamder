@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -37,7 +23,7 @@ unsigned int WXFaceLayer::Get0VertexIndex() const
   int i = 0;
   int nEdges = _pWXFace->numberOfEdges();
   for (i = 0; i < nEdges; ++i) {
-    if (_DotP[i] == 0.0f) {  // TODO this comparison is weak, check if it actually works
+    if (_DotP[i] == 0.0f) {  // TODO: this comparison is weak, check if it actually works
       return i;
     }
   }
@@ -48,7 +34,7 @@ unsigned int WXFaceLayer::GetSmoothEdgeIndex() const
   int i = 0;
   int nEdges = _pWXFace->numberOfEdges();
   for (i = 0; i < nEdges; ++i) {
-    if ((_DotP[i] == 0.0f) && (_DotP[(i + 1) % nEdges] == 0.0f)) {  // TODO ditto
+    if ((_DotP[i] == 0.0f) && (_DotP[(i + 1) % nEdges] == 0.0f)) {  // TODO: ditto
       return i;
     }
   }
@@ -74,13 +60,13 @@ WXSmoothEdge *WXFaceLayer::BuildSmoothEdge()
     return _pSmoothEdge;
   }
   float ta, tb;
-  WOEdge *woea(0), *woeb(0);
+  WOEdge *woea(nullptr), *woeb(nullptr);
   bool ok = false;
   vector<int> cuspEdgesIndices;
   int indexStart, indexEnd;
   unsigned nedges = _pWXFace->numberOfEdges();
   if (_nNullDotP == nedges) {
-    _pSmoothEdge = NULL;
+    _pSmoothEdge = nullptr;
     return _pSmoothEdge;
   }
   if ((_nPosDotP != 0) && (_nPosDotP != _DotP.size()) && (_nNullDotP == 0)) {
@@ -88,8 +74,8 @@ WXSmoothEdge *WXFaceLayer::BuildSmoothEdge()
     //-----------------------------
     // We retrieve the 2 edges for which we have opposite signs for each extremity
     RetrieveCuspEdgesIndices(cuspEdgesIndices);
-    if (cuspEdgesIndices.size() != 2) {  // we necessarly have 2 cusp edges
-      return 0;
+    if (cuspEdgesIndices.size() != 2) {  // we necessarily have 2 cusp edges
+      return nullptr;
     }
 
     // let us determine which cusp edge corresponds to the starting:
@@ -119,8 +105,8 @@ WXSmoothEdge *WXFaceLayer::BuildSmoothEdge()
   else if (_nNullDotP == 1) {
     // that means that we have exactly one of the 2 extremities of our silhouette edge is a vertex
     // of the mesh
-    if ((_nPosDotP == 2) || (_nPosDotP == 0)) {
-      _pSmoothEdge = NULL;
+    if (ELEM(_nPosDotP, 2, 0)) {
+      _pSmoothEdge = nullptr;
       return _pSmoothEdge;
     }
     RetrieveCuspEdgesIndices(cuspEdgesIndices);
@@ -129,8 +115,8 @@ WXSmoothEdge *WXFaceLayer::BuildSmoothEdge()
       if (G.debug & G_DEBUG_FREESTYLE) {
         cout << "Warning in BuildSmoothEdge: weird WXFace configuration" << endl;
       }
-      _pSmoothEdge = NULL;
-      return NULL;
+      _pSmoothEdge = nullptr;
+      return nullptr;
     }
     unsigned index0 = Get0VertexIndex();  // retrieve the 0 vertex index
     unsigned nedges = _pWXFace->numberOfEdges();
@@ -275,7 +261,7 @@ WFace *WXShape::MakeFace(vector<WVertex *> &iVertexList,
 {
   WFace *face = WShape::MakeFace(iVertexList, iFaceEdgeMarksList, iMaterialIndex);
   if (!face) {
-    return NULL;
+    return nullptr;
   }
 
   Vec3f center;

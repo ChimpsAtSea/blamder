@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -67,8 +53,6 @@
 #include "BLI_strict_flags.h"
 
 /* -------------------------------------------------------------------- */
-/* UUID-Walk API */
-
 /** \name Internal UUIDWalk API
  * \{ */
 
@@ -139,9 +123,7 @@ BLI_INLINE bool bm_uuidwalk_face_test(UUIDWalk *uuidwalk, BMFace *f)
   if (uuidwalk->use_face_isolate) {
     return BM_elem_flag_test_bool(f, BM_ELEM_TAG);
   }
-  else {
-    return true;
-  }
+  return true;
 }
 
 BLI_INLINE bool bm_uuidwalk_vert_lookup(UUIDWalk *uuidwalk, BMVert *v, UUID_Int *r_uuid)
@@ -152,9 +134,7 @@ BLI_INLINE bool bm_uuidwalk_vert_lookup(UUIDWalk *uuidwalk, BMVert *v, UUID_Int 
     *r_uuid = (UUID_Int)(*ret);
     return true;
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
 BLI_INLINE bool bm_uuidwalk_face_lookup(UUIDWalk *uuidwalk, BMFace *f, UUID_Int *r_uuid)
@@ -165,9 +145,7 @@ BLI_INLINE bool bm_uuidwalk_face_lookup(UUIDWalk *uuidwalk, BMFace *f, UUID_Int 
     *r_uuid = (UUID_Int)(*ret);
     return true;
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
 static uint ghashutil_bmelem_indexhash(const void *key)
@@ -561,17 +539,16 @@ static void bm_uuidwalk_pass_add(UUIDWalk *uuidwalk,
 
 static int bm_face_len_cmp(const void *v1, const void *v2)
 {
-  const BMFace *f1 = v1, *f2 = v2;
+  const BMFace *f1 = *((BMFace **)v1);
+  const BMFace *f2 = *((BMFace **)v2);
 
   if (f1->len > f2->len) {
     return 1;
   }
-  else if (f1->len < f2->len) {
+  if (f1->len < f2->len) {
     return -1;
   }
-  else {
-    return 0;
-  }
+  return 0;
 }
 
 static uint bm_uuidwalk_init_from_edge(UUIDWalk *uuidwalk, BMEdge *e)
@@ -623,6 +600,7 @@ static uint bm_uuidwalk_init_from_edge(UUIDWalk *uuidwalk, BMEdge *e)
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name Internal UUIDFaceStep API
  * \{ */
 
@@ -915,6 +893,7 @@ static void bm_face_array_visit(BMFace **faces,
 
 #ifdef USE_PIVOT_SEARCH
 
+/* -------------------------------------------------------------------- */
 /** \name Internal UUIDWalk API
  * \{ */
 
@@ -937,10 +916,8 @@ static bool bm_edge_is_region_boundary(BMEdge *e)
     } while ((l_iter = l_iter->radial_next) != e->l);
     return false;
   }
-  else {
-    /* boundary */
-    return true;
-  }
+  /* boundary */
+  return true;
 }
 
 static void bm_face_region_pivot_edge_use_best(GHash *gh,
@@ -1062,7 +1039,7 @@ static BMEdge *bm_face_region_pivot_edge_find(BMFace **faces_region,
                                               uint verts_region_len,
                                               uint *r_depth)
 {
-  /* note, keep deterministic where possible (geometry order independent)
+  /* NOTE: keep deterministic where possible (geometry order independent)
    * this function assumed all visit faces & edges are tagged */
 
   BLI_LINKSTACK_DECLARE(vert_queue_prev, BMVert *);
@@ -1232,15 +1209,16 @@ static BMEdge *bm_face_region_pivot_edge_find(BMFace **faces_region,
 
   return e_pivot;
 }
+
 /** \} */
 
 #endif /* USE_PIVOT_SEARCH */
 
-/* -------------------------------------------------------------------- */
 /* Quick UUID pass - identify candidates */
 
 #ifdef USE_PIVOT_FASTMATCH
 
+/* -------------------------------------------------------------------- */
 /** \name Fast Match
  * \{ */
 
@@ -1309,7 +1287,9 @@ static UUIDFashMatch *bm_vert_fasthash_create(BMesh *bm, const uint depth)
   return id_curr;
 }
 
-static void bm_vert_fasthash_edge_order(UUIDFashMatch *fm, const BMEdge *e, UUIDFashMatch e_fm[2])
+static void bm_vert_fasthash_edge_order(const UUIDFashMatch *fm,
+                                        const BMEdge *e,
+                                        UUIDFashMatch e_fm[2])
 {
   e_fm[0] = fm[BM_elem_index_get(e->v1)];
   e_fm[1] = fm[BM_elem_index_get(e->v2)];
@@ -1339,12 +1319,6 @@ static void bm_vert_fasthash_destroy(UUIDFashMatch *fm)
 
 #endif /* USE_PIVOT_FASTMATCH */
 
-/**
- * Take a face-region and return a list of matching face-regions.
- *
- * \param faces_region: A single, contiguous face-region.
- * \return  A list of matching null-terminated face-region arrays.
- */
 int BM_mesh_region_match(BMesh *bm,
                          BMFace **faces_region,
                          uint faces_region_len,

@@ -1,37 +1,26 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_CURVE_TYPES_H__
-#define __DNA_CURVE_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
 #include "DNA_defs.h"
 #include "DNA_listBase.h"
 #include "DNA_vec_types.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 #define MAXTEXTBOX 256 /* used in readfile.c and editfont.c */
 
 struct AnimData;
+struct Curves;
+struct CurveProfile;
 struct EditFont;
 struct GHash;
 struct Ipo;
@@ -43,32 +32,13 @@ struct VFont;
 /* These two Lines with # tell makesdna this struct can be excluded. */
 #
 #
-typedef struct PathPoint {
-  /** Grr, cant get rid of tilt yet. */
-  float vec[4];
-  float quat[4];
-  float radius, weight;
-} PathPoint;
-
-/* These two Lines with # tell makesdna this struct can be excluded. */
-#
-#
-typedef struct Path {
-  struct PathPoint *data;
-  int len;
-  float totdist;
-} Path;
-
-/* These two Lines with # tell makesdna this struct can be excluded. */
-#
-#
 typedef struct BevPoint {
   float vec[3], tilt, radius, weight, offset;
   /** 2D Only. */
   float sina, cosa;
   /** 3D Only. */
   float dir[3], tan[3], quat[4];
-  short split_tag, dupe_tag;
+  short dupe_tag;
 } BevPoint;
 
 /* These two Lines with # tell makesdna this struct can be excluded. */
@@ -114,9 +84,9 @@ typedef struct BezTriple {
   char ipo;
 
   /** H1, h2: the handle type of the two handles. */
-  char h1, h2;
+  uint8_t h1, h2;
   /** F1, f2, f3: used for selection status. */
-  char f1, f2, f3;
+  uint8_t f1, f2, f3;
 
   /** Hide: used to indicate whether BezTriple is hidden (3D),
    * type of keyframe (eBezTriple_KeyframeType). */
@@ -129,8 +99,8 @@ typedef struct BezTriple {
   /** BEZT_IPO_ELASTIC. */
   float amplitude, period;
 
-  /** F5: used for auto handle to distinguish between normal handle and exception (extrema). */
-  char f5;
+  /** Used during auto handle calculation to mark special cases (local extremes). */
+  char auto_handle_type;
   char _pad[3];
 } BezTriple;
 
@@ -144,7 +114,9 @@ typedef struct BPoint {
   /** Used for softbody goal weight. */
   float weight;
   /** F1: selection status,  hide: is point hidden or not. */
-  short f1, hide;
+  uint8_t f1;
+  char _pad1[1];
+  short hide;
   /** User-set radius per point for beveling etc. */
   float radius;
   char _pad[4];
@@ -155,6 +127,8 @@ typedef struct BPoint {
  * also, it should be NURBS (Nurb isn't the singular of Nurbs).
  */
 typedef struct Nurb {
+  DNA_DEFINE_CXX_METHODS(Nurb)
+
   /** Multiple nurbs per curve object are allowed. */
   struct Nurb *next, *prev;
   short type;
@@ -197,6 +171,8 @@ typedef struct TextBox {
 #
 #
 typedef struct EditNurb {
+  DNA_DEFINE_CXX_METHODS(EditNurb)
+
   /* base of nurbs' list (old Curve->editnurb) */
   ListBase nurbs;
 
@@ -215,6 +191,8 @@ typedef struct EditNurb {
 } EditNurb;
 
 typedef struct Curve {
+  DNA_DEFINE_CXX_METHODS(Curve)
+
   ID id;
   /** Animation data (must be immediately after id for utilities to use it). */
   struct AnimData *adt;
@@ -231,6 +209,8 @@ typedef struct Curve {
   struct Key *key;
   struct Material **mat;
 
+  struct CurveProfile *bevel_profile;
+
   /* texture space, copied as one block in editobject.c */
   float loc[3];
   float size[3];
@@ -238,16 +218,15 @@ typedef struct Curve {
   /** Creation-time type of curve datablock. */
   short type;
 
-  /** Keep a short because of BKE_object_obdata_texspace_get(). */
-  short texflag;
-  char _pad0[6];
+  char texflag;
+  char _pad0[7];
   short twist_mode;
   float twist_smooth, smallcaps_scale;
 
   int pathlen;
   short bevresol, totcol;
   int flag;
-  float width, ext1, ext2;
+  float offset, extrude, bevel_radius;
 
   /* default */
   short resolu, resolv;
@@ -260,7 +239,13 @@ typedef struct Curve {
 
   char overflow;
   char spacemode, align_y;
-  char _pad[3];
+  char bevel_mode;
+  /**
+   * Determine how the effective radius of the bevel point is computed when a taper object is
+   * specified. The effective radius is a function of the bevel point radius and the taper radius.
+   */
+  char taper_radius_mode;
+  char _pad;
 
   /* font part */
   short lines;
@@ -274,9 +259,12 @@ typedef struct Curve {
   int selstart, selend;
 
   /* text data */
-  /** Number of characters (strinfo). */
-  int len_wchar;
-  /** Number of bytes (str - utf8). */
+  /**
+   * Number of characters (unicode code-points)
+   * This is the length of #Curve.strinfo and the result of `BLI_strlen_utf8(cu->str)`.
+   */
+  int len_char32;
+  /** Number of bytes: `strlen(Curve.str)`. */
   int len;
   char *str;
   struct EditFont *editfont;
@@ -302,6 +290,22 @@ typedef struct Curve {
   char _pad2[6];
   float fsize_realtime;
 
+  /**
+   * A pointer to curve data from evaluation. Owned by the object's #geometry_set_eval, either as a
+   * geometry instance or the data of the evaluated #CurveComponent. The curve may also contain
+   * data in the #nurb list, but for evaluated curves this is the proper place to retrieve data,
+   * since it also contains the result of geometry nodes evaluation, and isn't just a copy of the
+   * original object data.
+   */
+  const struct Curves *curve_eval;
+  /**
+   * If non-zero, the #editfont and #editnurb pointers are not owned by this #Curve. That means
+   * this curve is a container for the result of object geometry evaluation. This only works
+   * because evaluated object data never outlives original data.
+   */
+  char edit_data_from_original;
+  char _pad3[7];
+
   void *batch_cache;
 } Curve;
 
@@ -309,28 +313,20 @@ typedef struct Curve {
 
 /* **************** CURVE ********************* */
 
-/* Curve.texflag */
+/** #Curve.texflag */
 enum {
   CU_AUTOSPACE = 1,
   CU_AUTOSPACE_EVALUATED = 2,
 };
 
-#if 0 /* Moved to overlay options in 2.8 */
-/* Curve.drawflag */
-enum {
-  CU_HIDE_HANDLES = 1 << 0,
-  CU_HIDE_NORMALS = 1 << 1,
-};
-#endif
-
-/* Curve.flag */
+/** #Curve.flag */
 enum {
   CU_3D = 1 << 0,
   CU_FRONT = 1 << 1,
   CU_BACK = 1 << 2,
   CU_PATH = 1 << 3,
   CU_FOLLOW = 1 << 4,
-  /* CU_UV_ORCO = 1 << 5, */ /* DEPRECATED */
+  CU_PATH_CLAMP = 1 << 5,
   CU_DEFORM_BOUNDS_OFF = 1 << 6,
   CU_STRETCH = 1 << 7,
   /* CU_OFFS_PATHDIST   = 1 << 8, */  /* DEPRECATED */
@@ -339,15 +335,14 @@ enum {
   CU_DS_EXPAND = 1 << 11,
   /** make use of the path radius if this is enabled (default for new curves) */
   CU_PATH_RADIUS = 1 << 12,
-  /** fill 2d curve after deformation */
-  CU_DEFORM_FILL = 1 << 13,
+  /* CU_DEFORM_FILL = 1 << 13, */ /* DEPRECATED */
   /** fill bevel caps */
   CU_FILL_CAPS = 1 << 14,
   /** map taper object to beveled area */
   CU_MAP_TAPER = 1 << 15,
 };
 
-/* Curve.twist_mode */
+/** #Curve.twist_mode */
 enum {
   CU_TWIST_Z_UP = 0,
   /* CU_TWIST_Y_UP      = 1, */ /* not used yet */
@@ -363,7 +358,7 @@ enum {
   CU_BEVFAC_MAP_SPLINE = 2,
 };
 
-/* Curve.spacemode */
+/** #Curve.spacemode */
 enum {
   CU_ALIGN_X_LEFT = 0,
   CU_ALIGN_X_MIDDLE = 1,
@@ -372,13 +367,30 @@ enum {
   CU_ALIGN_X_FLUSH = 4,
 };
 
-/* Curve.align_y */
+/** #Curve.align_y */
 enum {
   CU_ALIGN_Y_TOP_BASELINE = 0,
   CU_ALIGN_Y_TOP = 1,
   CU_ALIGN_Y_CENTER = 2,
   CU_ALIGN_Y_BOTTOM_BASELINE = 3,
   CU_ALIGN_Y_BOTTOM = 4,
+};
+
+/** #Curve.bevel_mode */
+enum {
+  CU_BEV_MODE_ROUND = 0,
+  CU_BEV_MODE_OBJECT = 1,
+  CU_BEV_MODE_CURVE_PROFILE = 2,
+};
+
+/** #Curve.taper_radius_mode */
+enum {
+  /** Override the radius of the bevel point with the taper radius. */
+  CU_TAPER_RADIUS_OVERRIDE = 0,
+  /** Multiply the radius of the bevel point by the taper radius. */
+  CU_TAPER_RADIUS_MULTIPLY = 1,
+  /** Add the radius of the bevel point to the taper radius. */
+  CU_TAPER_RADIUS_ADD = 2,
 };
 
 /* Curve.overflow. */
@@ -388,20 +400,17 @@ enum {
   CU_OVERFLOW_TRUNCATE = 2,
 };
 
-/* Nurb.flag */
+/** #Nurb.flag */
 enum {
   CU_SMOOTH = 1 << 0,
-  CU_2D = 1 << 3, /* moved from type since 2.4x */
 };
 
-/* Nurb.type */
+/** #Nurb.type */
 enum {
   CU_POLY = 0,
   CU_BEZIER = 1,
-  CU_BSPLINE = 2,
-  CU_CARDINAL = 3,
   CU_NURBS = 4,
-  CU_TYPE = (CU_POLY | CU_BEZIER | CU_BSPLINE | CU_CARDINAL | CU_NURBS),
+  CU_TYPE = (CU_POLY | CU_BEZIER | CU_NURBS),
 
   /* only for adding */
   CU_PRIMITIVE = 0xF00,
@@ -434,6 +443,8 @@ enum {
 typedef enum eBezTriple_Flag {
   /* SELECT */
   BEZT_FLAG_TEMP_TAG = (1 << 1), /* always clear. */
+  /* Can be used to ignore keyframe points for certain operations. */
+  BEZT_FLAG_IGNORE_TAG = (1 << 2),
 } eBezTriple_Flag;
 
 /* h1 h2 (beztriple) */
@@ -446,10 +457,14 @@ typedef enum eBezTriple_Handle {
   HD_ALIGN_DOUBLESIDE = 5, /* align handles, displayed both of them. used for masks */
 } eBezTriple_Handle;
 
-/* f5 (beztriple) */
+/* auto_handle_type (beztriple) */
 typedef enum eBezTriple_Auto_Type {
+  /* Normal automatic handle that can be refined further. */
   HD_AUTOTYPE_NORMAL = 0,
-  HD_AUTOTYPE_SPECIAL = 1,
+  /* Handle locked horizontal due to being an Auto Clamped local
+   * extreme or a curve endpoint with Constant extrapolation.
+   * Further smoothing is disabled. */
+  HD_AUTOTYPE_LOCKED_FINAL = 1,
 } eBezTriple_Auto_Type;
 
 /* interpolation modes (used only for BezTriple->ipo) */
@@ -504,6 +519,10 @@ typedef enum eBezTriple_KeyframeType {
        (bezt)->f2 & SELECT : \
        BEZT_ISSEL_ANY(bezt))
 
+#define BEZT_ISSEL_IDX(bezt, i) \
+  ((i == 0 && (bezt)->f1 & SELECT) || (i == 1 && (bezt)->f2 & SELECT) || \
+   (i == 2 && (bezt)->f3 & SELECT))
+
 #define BEZT_SEL_ALL(bezt) \
   { \
     (bezt)->f1 |= SELECT; \
@@ -518,22 +537,65 @@ typedef enum eBezTriple_KeyframeType {
     (bezt)->f3 &= ~SELECT; \
   } \
   ((void)0)
+#define BEZT_SEL_INVERT(bezt) \
+  { \
+    (bezt)->f1 ^= SELECT; \
+    (bezt)->f2 ^= SELECT; \
+    (bezt)->f3 ^= SELECT; \
+  } \
+  ((void)0)
+
+#define BEZT_SEL_IDX(bezt, i) \
+  { \
+    switch (i) { \
+      case 0: \
+        (bezt)->f1 |= SELECT; \
+        break; \
+      case 1: \
+        (bezt)->f2 |= SELECT; \
+        break; \
+      case 2: \
+        (bezt)->f3 |= SELECT; \
+        break; \
+      default: \
+        break; \
+    } \
+  } \
+  ((void)0)
+
+#define BEZT_DESEL_IDX(bezt, i) \
+  { \
+    switch (i) { \
+      case 0: \
+        (bezt)->f1 &= ~SELECT; \
+        break; \
+      case 1: \
+        (bezt)->f2 &= ~SELECT; \
+        break; \
+      case 2: \
+        (bezt)->f3 &= ~SELECT; \
+        break; \
+      default: \
+        break; \
+    } \
+  } \
+  ((void)0)
 
 #define BEZT_IS_AUTOH(bezt) \
   (ELEM((bezt)->h1, HD_AUTO, HD_AUTO_ANIM) && ELEM((bezt)->h2, HD_AUTO, HD_AUTO_ANIM))
 
 /* *************** CHARINFO **************** */
 
-/* CharInfo.flag */
+/** #CharInfo.flag */
 enum {
-  /* note: CU_CHINFO_WRAP, CU_CHINFO_SMALLCAPS_TEST and CU_CHINFO_TRUNCATE are set dynamically */
+  /* NOTE: CU_CHINFO_WRAP, CU_CHINFO_SMALLCAPS_TEST and CU_CHINFO_TRUNCATE are set dynamically. */
   CU_CHINFO_BOLD = 1 << 0,
   CU_CHINFO_ITALIC = 1 << 1,
   CU_CHINFO_UNDERLINE = 1 << 2,
-  /** wordwrap occurred here */
+  /** Word-wrap occurred here. */
   CU_CHINFO_WRAP = 1 << 3,
   CU_CHINFO_SMALLCAPS = 1 << 4,
-  /** set at runtime, checks if case switching is needed */
+  /** Set at runtime, checks if case switching is needed. */
   CU_CHINFO_SMALLCAPS_CHECK = 1 << 5,
   /** Set at runtime, indicates char that doesn't fit in text boxes. */
   CU_CHINFO_OVERFLOW = 1 << 6,
@@ -545,4 +607,6 @@ enum {
 /* indicates point has been seen during surface duplication */
 #define SURF_SEEN 4
 
+#ifdef __cplusplus
+}
 #endif

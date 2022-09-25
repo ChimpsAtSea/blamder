@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup spview3d
@@ -33,9 +19,8 @@
 
 #include "MEM_guardedalloc.h"
 
-#include "WM_toolsystem.h"
-
 #include "RNA_access.h"
+#include "RNA_define.h"
 
 #include "WM_api.h"
 #include "WM_message.h"
@@ -46,6 +31,9 @@
 
 static const char *handle_normal_id;
 static const char *handle_free_id;
+
+static const float handle_normal_radius_default = 100.0f;
+static const float handle_free_radius_default = 36.0f;
 
 /* -------------------------------------------------------------------- */
 /** \name Generic Tool
@@ -72,6 +60,7 @@ static bool WIDGETGROUP_tool_generic_poll(const bContext *C, wmGizmoGroupType *g
 
 static wmGizmo *tool_generic_create_gizmo(const bContext *C, wmGizmoGroup *gzgroup)
 {
+
   wmGizmo *gz = WM_gizmo_new("GIZMO_GT_button_2d", gzgroup, NULL);
   gz->flag |= WM_GIZMO_OPERATOR_TOOL_INIT;
 
@@ -82,8 +71,17 @@ static wmGizmo *tool_generic_create_gizmo(const bContext *C, wmGizmoGroup *gzgro
 
   RNA_enum_set(gz->ptr, "icon", ICON_NONE);
 
+  bToolRef *tref = WM_toolsystem_ref_from_context((bContext *)C);
+  PointerRNA gzgt_ptr;
+  const bool gzgt_ptr_is_valid = WM_toolsystem_ref_properties_get_from_gizmo_group(
+      tref, gzgroup->type, &gzgt_ptr);
+
   if (gzgroup->type->idname == handle_normal_id) {
-    gz->scale_basis = 0.12f;
+    const float radius = (gzgt_ptr_is_valid ? RNA_float_get(&gzgt_ptr, "radius") :
+                                              handle_normal_radius_default) /
+                         12.0f;
+
+    gz->scale_basis = radius / U.gizmo_size;
     gz->matrix_offset[3][2] -= 12.0;
     RNA_enum_set(gz->ptr,
                  "draw_options",
@@ -91,16 +89,20 @@ static wmGizmo *tool_generic_create_gizmo(const bContext *C, wmGizmoGroup *gzgro
                   ED_GIZMO_BUTTON_SHOW_OUTLINE));
   }
   else {
-    gz->scale_basis = 0.16f * 3;
+    const float radius = gzgt_ptr_is_valid ? RNA_float_get(&gzgt_ptr, "radius") :
+                                             handle_free_radius_default;
+
+    gz->scale_basis = radius / U.gizmo_size;
 
     RNA_enum_set(gz->ptr, "draw_options", ED_GIZMO_BUTTON_SHOW_BACKDROP);
 
     /* Make the center low alpha. */
     WM_gizmo_set_line_width(gz, 2.0f);
-    RNA_float_set(gz->ptr, "backdrop_fill_alpha", 0.125f);
+    RNA_float_set(gz->ptr,
+                  "backdrop_fill_alpha",
+                  gzgt_ptr_is_valid ? RNA_float_get(&gzgt_ptr, "backdrop_fill_alpha") : 0.125f);
   }
 
-  bToolRef *tref = WM_toolsystem_ref_from_context((bContext *)C);
   wmWindowManager *wm = CTX_wm_manager(C);
   struct wmKeyConfig *kc = wm->defaultconf;
 
@@ -122,12 +124,8 @@ static void WIDGETGROUP_tool_generic_refresh(const bContext *C, wmGizmoGroup *gz
 
   ToolSettings *ts = CTX_data_tool_settings(C);
   if (ts->workspace_tool_type != SCE_WORKSPACE_TOOL_FALLBACK) {
-    gzgroup->use_fallback_keymap = false;
     WM_gizmo_set_flag(gz, WM_GIZMO_HIDDEN, true);
     return;
-  }
-  else {
-    gzgroup->use_fallback_keymap = true;
   }
 
   /* skip, we don't draw anything anyway */
@@ -144,7 +142,7 @@ static void WIDGETGROUP_tool_generic_refresh(const bContext *C, wmGizmoGroup *gz
     const bool hide = ED_transform_calc_gizmo_stats(C,
                                                     &(struct TransformCalcParams){
                                                         .use_only_center = true,
-                                                        .orientation_type = orientation + 1,
+                                                        .orientation_index = orientation + 1,
                                                     },
                                                     &tbounds) == 0;
 
@@ -173,7 +171,6 @@ static void WIDGETGROUP_gizmo_message_subscribe(const bContext *C,
   };
 
   {
-    extern PropertyRNA rna_ToolSettings_workspace_tool_type;
     const PropertyRNA *props[] = {
         &rna_ToolSettings_workspace_tool_type,
     };
@@ -207,6 +204,16 @@ void VIEW3D_GGT_tool_generic_handle_normal(wmGizmoGroupType *gzgt)
   gzgt->setup = WIDGETGROUP_tool_generic_setup;
   gzgt->refresh = WIDGETGROUP_tool_generic_refresh;
   gzgt->message_subscribe = WIDGETGROUP_gizmo_message_subscribe;
+
+  RNA_def_float(gzgt->srna,
+                "radius",
+                handle_normal_radius_default,
+                0.0f,
+                1000.0,
+                "Radius",
+                "Radius in pixels",
+                0.0f,
+                1000.0f);
 }
 
 void VIEW3D_GGT_tool_generic_handle_free(wmGizmoGroupType *gzgt)
@@ -225,6 +232,18 @@ void VIEW3D_GGT_tool_generic_handle_free(wmGizmoGroupType *gzgt)
   gzgt->setup = WIDGETGROUP_tool_generic_setup;
   gzgt->refresh = WIDGETGROUP_tool_generic_refresh;
   gzgt->message_subscribe = WIDGETGROUP_gizmo_message_subscribe;
+
+  RNA_def_float(gzgt->srna,
+                "radius",
+                handle_free_radius_default,
+                0.0f,
+                1000.0,
+                "Radius",
+                "Radius in pixels",
+                0.0f,
+                1000.0f);
+  RNA_def_float(
+      gzgt->srna, "backdrop_fill_alpha", 0.125, 0.0f, 1.0f, "Backdrop Alpha", "", 0.0f, 1.0f);
 }
 
 /** \} */

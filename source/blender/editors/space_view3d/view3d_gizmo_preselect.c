@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup spview3d
@@ -30,14 +16,12 @@
 #include "UI_resources.h"
 
 #include "WM_api.h"
-#include "WM_toolsystem.h"
 #include "WM_types.h"
 
 #include "view3d_intern.h" /* own include */
 
 /* -------------------------------------------------------------------- */
 /** \name Mesh Pre-Select Element Gizmo
- *
  * \{ */
 
 struct GizmoGroupPreSelElem {
@@ -60,7 +44,7 @@ void VIEW3D_GGT_mesh_preselect_elem(wmGizmoGroupType *gzgt)
   gzgt->name = "Mesh Preselect Element";
   gzgt->idname = "VIEW3D_GGT_mesh_preselect_elem";
 
-  gzgt->flag = WM_GIZMOGROUPTYPE_3D;
+  gzgt->flag = WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP | WM_GIZMOGROUPTYPE_3D;
 
   gzgt->gzmap_params.spaceid = SPACE_VIEW3D;
   gzgt->gzmap_params.regionid = RGN_TYPE_WINDOW;
@@ -73,7 +57,6 @@ void VIEW3D_GGT_mesh_preselect_elem(wmGizmoGroupType *gzgt)
 
 /* -------------------------------------------------------------------- */
 /** \name Mesh Pre-Select Edge Ring Gizmo
- *
  * \{ */
 
 struct GizmoGroupPreSelEdgeRing {
@@ -98,7 +81,7 @@ void VIEW3D_GGT_mesh_preselect_edgering(wmGizmoGroupType *gzgt)
   gzgt->name = "Mesh Preselect Edge Ring";
   gzgt->idname = "VIEW3D_GGT_mesh_preselect_edgering";
 
-  gzgt->flag = WM_GIZMOGROUPTYPE_3D;
+  gzgt->flag = WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP | WM_GIZMOGROUPTYPE_3D;
 
   gzgt->gzmap_params.spaceid = SPACE_VIEW3D;
   gzgt->gzmap_params.regionid = RGN_TYPE_WINDOW;

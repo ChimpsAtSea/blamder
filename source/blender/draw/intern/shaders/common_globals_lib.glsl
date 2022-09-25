@@ -1,5 +1,9 @@
 #define COMMON_GLOBALS_LIB
 
+#ifdef USE_GPU_SHADER_CREATE_INFO
+#  error Use draw_globals as additional_info instead of common_globals_lib.glsl
+#endif
+
 /* keep in sync with GlobalsUboStorage */
 layout(std140) uniform globalsBlock
 {
@@ -7,8 +11,6 @@ layout(std140) uniform globalsBlock
   vec4 colorWireEdit;
   vec4 colorActive;
   vec4 colorSelect;
-  vec4 colorDupliSelect;
-  vec4 colorDupli;
   vec4 colorLibrarySelect;
   vec4 colorLibrary;
   vec4 colorTransform;
@@ -95,7 +97,7 @@ layout(std140) uniform globalsBlock
   vec4 colorCurrentFrame;
 
   vec4 colorGrid;
-  vec4 colorGridEmphasise;
+  vec4 colorGridEmphasis;
   vec4 colorGridAxisX;
   vec4 colorGridAxisY;
   vec4 colorGridAxisZ;
@@ -103,10 +105,12 @@ layout(std140) uniform globalsBlock
   vec4 colorFaceBack;
   vec4 colorFaceFront;
 
+  vec4 colorUVShadow;
+
   vec4 screenVecs[2];
   vec4 sizeViewport; /* Inverted size in zw. */
 
-  float sizePixel; /* This one is for dpi scaling */
+  float sizePixel; /* This one is for DPI scaling. */
   float pixelFac;  /* To use with mul_project_m4_v3_zfac() */
   float sizeObjectCenter;
   float sizeLightCenter;
@@ -117,12 +121,13 @@ layout(std140) uniform globalsBlock
   float sizeEdgeFix;
   float sizeFaceDot;
   float sizeChecker;
-
-  float pad_globalsBlock;
+  float sizeVertexGpencil;
 };
 
 #define sizeViewportInv (sizeViewport.zw)
 
+/* See: 'draw_cache_impl.h' for matching includes. */
+#define VERT_GPENCIL_BEZT_HANDLE (1 << 30)
 /* data[0] (1st byte flags) */
 #define FACE_ACTIVE (1 << 0)
 #define FACE_SELECTED (1 << 1)
@@ -135,9 +140,9 @@ layout(std140) uniform globalsBlock
 /* data[1] (2st byte flags) */
 #define VERT_ACTIVE (1 << 0)
 #define VERT_SELECTED (1 << 1)
-#define EDGE_ACTIVE (1 << 2)
-#define EDGE_SELECTED (1 << 3)
-#define EDGE_SEAM (1 << 4)
-#define EDGE_SHARP (1 << 5)
-#define EDGE_FREESTYLE (1 << 6)
-#define HANDLE_SELECTED (1 << 7)
+#define VERT_SELECTED_BEZT_HANDLE (1 << 2)
+#define EDGE_ACTIVE (1 << 3)
+#define EDGE_SELECTED (1 << 4)
+#define EDGE_SEAM (1 << 5)
+#define EDGE_SHARP (1 << 6)
+#define EDGE_FREESTYLE (1 << 7)

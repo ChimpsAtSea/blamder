@@ -1,33 +1,20 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  *
- * Vector Fonts used for text in the 3D view-port
+ * Vector Fonts used for text in the 3D Viewport
  * (unrelated to text used to render the GUI).
  */
 
-#ifndef __DNA_VFONT_TYPES_H__
-#define __DNA_VFONT_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct PackedFile;
 struct VFontData;
@@ -36,13 +23,13 @@ typedef struct VFont {
   ID id;
 
   /** 1024 = FILE_MAX. */
-  char name[1024];
+  char filepath[1024];
 
   struct VFontData *data;
   struct PackedFile *packedfile;
 
   /* runtime only, holds memory for freetype to read from
-   * TODO, replace this with blf_font_new() style loading */
+   * TODO: replace this with #blf_font_new() style loading. */
   struct PackedFile *temp_pf;
 } VFont;
 
@@ -61,4 +48,6 @@ typedef struct VFont {
 
 #define FO_BUILTIN_NAME "<builtin>"
 
-#endif /* __DNA_VFONT_TYPES_H__ */
+#ifdef __cplusplus
+}
+#endif

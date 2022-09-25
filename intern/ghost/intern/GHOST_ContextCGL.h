@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2014 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2014 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  */
 
-#ifndef __GHOST_CONTEXTCGL_H__
-#define __GHOST_CONTEXTCGL_H__
+#pragma once
 
 #include "GHOST_Context.h"
 
@@ -51,19 +34,19 @@ class GHOST_ContextCGL : public GHOST_Context {
 
   /**
    * Swaps front and back buffers of a window.
-   * \return  A boolean success indicator.
+   * \return A boolean success indicator.
    */
   GHOST_TSuccess swapBuffers();
 
   /**
    * Activates the drawing context of this window.
-   * \return  A boolean success indicator.
+   * \return A boolean success indicator.
    */
   GHOST_TSuccess activateDrawingContext();
 
   /**
    * Release the drawing context of the calling thread.
-   * \return  A boolean success indicator.
+   * \return A boolean success indicator.
    */
   GHOST_TSuccess releaseDrawingContext();
 
@@ -83,15 +66,15 @@ class GHOST_ContextCGL : public GHOST_Context {
   GHOST_TSuccess releaseNativeHandles();
 
   /**
-   * Sets the swap interval for swapBuffers.
-   * \param interval The swap interval to use.
+   * Sets the swap interval for #swapBuffers.
+   * \param interval: The swap interval to use.
    * \return A boolean success indicator.
    */
   GHOST_TSuccess setSwapInterval(int interval);
 
   /**
-   * Gets the current swap interval for swapBuffers.
-   * \param intervalOut Variable to store the swap interval if it can be read.
+   * Gets the current swap interval for #swapBuffers.
+   * \param intervalOut: Variable to store the swap interval if it can be read.
    * \return Whether the swap interval can be read.
    */
   GHOST_TSuccess getSwapInterval(int &);
@@ -116,10 +99,10 @@ class GHOST_ContextCGL : public GHOST_Context {
   /** The OpenGL drawing context */
   NSOpenGLContext *m_openGLContext;
 
-  /** The virtualized default framebuffer */
+  /** The virtualized default frame-buffer. */
   unsigned int m_defaultFramebuffer;
 
-  /** The virtualized default framebuffer's texture */
+  /** The virtualized default frame-buffer's texture. */
   MTLTexture *m_defaultFramebufferMetalTexture;
 
   bool m_coreProfile;
@@ -137,5 +120,3 @@ class GHOST_ContextCGL : public GHOST_Context {
   void metalUpdateFramebuffer();
   void metalSwapBuffers();
 };
-
-#endif  // __GHOST_CONTEXTCGL_H__

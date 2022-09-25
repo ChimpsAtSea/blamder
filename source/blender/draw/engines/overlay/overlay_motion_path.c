@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2019, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -68,7 +53,9 @@ static GPUVertBuf *mpath_vbo_get(bMotionPath *mpath)
     mpath->points_vbo = GPU_vertbuf_create_with_format(&format);
     GPU_vertbuf_data_alloc(mpath->points_vbo, mpath->length);
     /* meh... a useless memcpy. */
-    memcpy(mpath->points_vbo->data, mpath->points, sizeof(bMotionPathVert) * mpath->length);
+    memcpy(GPU_vertbuf_get_data(mpath->points_vbo),
+           mpath->points,
+           sizeof(bMotionPathVert) * mpath->length);
   }
   return mpath->points_vbo;
 }
@@ -128,7 +115,7 @@ static void motion_path_cache(OVERLAY_Data *vedata,
   OVERLAY_PrivateData *pd = vedata->stl->pd;
   const DRWContextState *draw_ctx = DRW_context_state_get();
   struct DRWTextStore *dt = DRW_text_cache_ensure();
-  int txt_flag = DRW_TEXT_CACHE_GLOBALSPACE | DRW_TEXT_CACHE_ASCII;
+  int txt_flag = DRW_TEXT_CACHE_GLOBALSPACE;
   int cfra = (int)DEG_get_ctime(draw_ctx->depsgraph);
   bool selected = (pchan) ? (pchan->bone->flag & BONE_SELECTED) : (ob->base_flag & BASE_SELECTED);
   bool show_keyframes = (avs->path_viewflag & MOTIONPATH_VIEW_KFRAS) != 0;
@@ -149,7 +136,7 @@ static void motion_path_cache(OVERLAY_Data *vedata,
 
   /* Draw curve-line of path. */
   if (show_lines) {
-    int motion_path_settings[4] = {cfra, sfra, efra, mpath->start_frame};
+    const int motion_path_settings[4] = {cfra, sfra, efra, mpath->start_frame};
     DRWShadingGroup *grp = DRW_shgroup_create_sub(pd->motion_path_lines_grp);
     DRW_shgroup_uniform_ivec4_copy(grp, "mpathLineSettings", motion_path_settings);
     DRW_shgroup_uniform_int_copy(grp, "lineThickness", mpath->line_thickness);
@@ -162,7 +149,7 @@ static void motion_path_cache(OVERLAY_Data *vedata,
   /* Draw points. */
   {
     int pt_size = max_ii(mpath->line_thickness - 1, 1);
-    int motion_path_settings[4] = {pt_size, cfra, mpath->start_frame, stepsize};
+    const int motion_path_settings[4] = {pt_size, cfra, mpath->start_frame, stepsize};
     DRWShadingGroup *grp = DRW_shgroup_create_sub(pd->motion_path_points_grp);
     DRW_shgroup_uniform_ivec4_copy(grp, "mpathPointSettings", motion_path_settings);
     DRW_shgroup_uniform_bool_copy(grp, "showKeyFrames", show_keyframes);
@@ -175,7 +162,7 @@ static void motion_path_cache(OVERLAY_Data *vedata,
   if (show_frame_no || (show_keyframes_no && show_keyframes)) {
     int i;
     uchar col[4], col_kf[4];
-    /* Color Management: Exception here as texts are drawn in sRGB space directly.  */
+    /* Color Management: Exception here as texts are drawn in sRGB space directly. */
     UI_GetThemeColor3ubv(TH_TEXT_HI, col);
     UI_GetThemeColor3ubv(TH_VERTEX_SELECT, col_kf);
     col[3] = col_kf[3] = 255;
@@ -188,7 +175,7 @@ static void motion_path_cache(OVERLAY_Data *vedata,
       bool is_keyframe = (mpv->flag & MOTIONPATH_VERT_KEY) != 0;
 
       if ((show_keyframes && show_keyframes_no && is_keyframe) || (show_frame_no && (i == 0))) {
-        numstr_len = BLI_snprintf(numstr, sizeof(numstr), " %d", frame);
+        numstr_len = BLI_snprintf_rlen(numstr, sizeof(numstr), " %d", frame);
         DRW_text_cache_add(
             dt, mpv->co, numstr, numstr_len, 0, 0, txt_flag, (is_keyframe) ? col_kf : col);
       }
@@ -198,7 +185,7 @@ static void motion_path_cache(OVERLAY_Data *vedata,
         /* Only draw frame number if several consecutive highlighted points
          * don't occur on same point. */
         if ((equals_v3v3(mpv->co, mpvP->co) == 0) || (equals_v3v3(mpv->co, mpvN->co) == 0)) {
-          numstr_len = BLI_snprintf(numstr, sizeof(numstr), " %d", frame);
+          numstr_len = BLI_snprintf_rlen(numstr, sizeof(numstr), " %d", frame);
           DRW_text_cache_add(dt, mpv->co, numstr, numstr_len, 0, 0, txt_flag, col);
         }
       }

@@ -1,25 +1,10 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import bpy
 
+from bpy.types import (
+    Operator,
+)
 from bpy.props import (
     BoolProperty,
     EnumProperty,
@@ -27,7 +12,7 @@ from bpy.props import (
 )
 
 
-class SCENE_OT_freestyle_fill_range_by_selection(bpy.types.Operator):
+class SCENE_OT_freestyle_fill_range_by_selection(Operator):
     """Fill the Range Min/Max entries by the min/max distance between selected mesh objects and the source object """
     """(either a user-specified object or the active camera)"""
     bl_idname = "scene.freestyle_fill_range_by_selection"
@@ -132,7 +117,7 @@ class SCENE_OT_freestyle_fill_range_by_selection(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class SCENE_OT_freestyle_add_edge_marks_to_keying_set(bpy.types.Operator):
+class SCENE_OT_freestyle_add_edge_marks_to_keying_set(Operator):
     '''Add the data paths to the Freestyle Edge Mark property of selected edges to the active keying set'''
     bl_idname = "scene.freestyle_add_edge_marks_to_keying_set"
     bl_label = "Add Edge Marks to Keying Set"
@@ -163,7 +148,7 @@ class SCENE_OT_freestyle_add_edge_marks_to_keying_set(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class SCENE_OT_freestyle_add_face_marks_to_keying_set(bpy.types.Operator):
+class SCENE_OT_freestyle_add_face_marks_to_keying_set(Operator):
     '''Add the data paths to the Freestyle Face Mark property of selected polygons to the active keying set'''
     bl_idname = "scene.freestyle_add_face_marks_to_keying_set"
     bl_label = "Add Face Marks to Keying Set"
@@ -194,7 +179,7 @@ class SCENE_OT_freestyle_add_face_marks_to_keying_set(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class SCENE_OT_freestyle_module_open(bpy.types.Operator):
+class SCENE_OT_freestyle_module_open(Operator):
     """Open a style module file"""
     bl_idname = "scene.freestyle_module_open"
     bl_label = "Open Style Module File"

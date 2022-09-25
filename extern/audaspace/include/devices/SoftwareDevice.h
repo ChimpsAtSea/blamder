@@ -72,6 +72,9 @@ protected:
 		/// The channel mapper reader in between.
 		std::shared_ptr<ChannelMapperReader> m_mapper;
 
+		/// Whether the source is being read for the first time.
+		bool m_first_reading;
+
 		/// Whether to keep the source if end of it is reached.
 		bool m_keep;
 
@@ -252,6 +255,7 @@ protected:
 	/**
 	 * This function tells the device, to start or pause playback.
 	 * \param playing True if device should playback.
+	 * \note This method is only called when the device is locked.
 	 */
 	virtual void playing(bool playing)=0;
 
@@ -260,6 +264,12 @@ protected:
 	 * \param specs The output specification.
 	 */
 	void setSpecs(Specs specs);
+
+	/**
+	 * Sets the audio output specification of the device.
+	 * \param specs The output specification.
+	 */
+	void setSpecs(DeviceSpecs specs);
 
 	/**
 	 * Empty default constructor. To setup the device call the function create()

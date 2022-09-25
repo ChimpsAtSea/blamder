@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -52,7 +38,7 @@ void bmo_edgenet_fill_exec(BMesh *bm, BMOperator *op)
   BMO_slot_buffer_hflag_enable(bm, op->slots_in, "edges", BM_EDGE, BM_ELEM_TAG, false);
 
   BM_mesh_elem_hflag_disable_all(bm, BM_FACE, BM_ELEM_TAG, false);
-  BM_mesh_edgenet(bm, true, true);  // TODO, sides
+  BM_mesh_edgenet(bm, true, true); /* TODO: sides. */
 
   BMO_slot_buffer_from_enabled_hflag(bm, op, op->slots_out, "faces.out", BM_FACE, BM_ELEM_TAG);
 
@@ -79,7 +65,7 @@ void bmo_edgenet_fill_exec(BMesh *bm, BMOperator *op)
   BMO_op_exec(bm, &op_attr);
 
   /* check if some faces couldn't be touched */
-  if (BMO_slot_buffer_count(op_attr.slots_out, "faces_fail.out")) {
+  if (BMO_slot_buffer_len(op_attr.slots_out, "faces_fail.out")) {
     BMO_op_callf(bm, op->flag, "recalc_face_normals faces=%S", &op_attr, "faces_fail.out");
   }
   BMO_op_finish(bm, &op_attr);
@@ -93,7 +79,7 @@ static BMEdge *edge_next(BMesh *bm, BMEdge *e)
 
   for (i = 0; i < 2; i++) {
     BM_ITER_ELEM (e2, &iter, i ? e->v2 : e->v1, BM_EDGES_OF_VERT) {
-      if ((BMO_edge_flag_test(bm, e2, EDGE_MARK)) &&
+      if (BMO_edge_flag_test(bm, e2, EDGE_MARK) &&
           (BMO_edge_flag_test(bm, e2, EDGE_VIS) == false) && (e2 != e)) {
         return e2;
       }
@@ -117,7 +103,7 @@ void bmo_edgenet_prepare_exec(BMesh *bm, BMOperator *op)
   BMO_slot_buffer_flag_enable(bm, op->slots_in, "edges", BM_EDGE, EDGE_MARK);
 
   /* validate that each edge has at most one other tagged edge in the
-   * disk cycle around each of it's vertices */
+   * disk cycle around each of its vertices */
   BMO_ITER (e, &siter, op->slots_in, "edges", BM_EDGE) {
     for (i = 0; i < 2; i++) {
       count = BMO_iter_elem_count_flag(bm, BM_EDGES_OF_VERT, (i ? e->v2 : e->v1), EDGE_MARK, true);
@@ -194,10 +180,8 @@ void bmo_edgenet_prepare_exec(BMesh *bm, BMOperator *op)
       BLI_array_free(edges2);
       return;
     }
-    else {
-      edges1 = edges2;
-      edges2 = NULL;
-    }
+    edges1 = edges2;
+    edges2 = NULL;
   }
 
   if (edges2 && BLI_array_len(edges2) > 2 &&
@@ -231,7 +215,7 @@ void bmo_edgenet_prepare_exec(BMesh *bm, BMOperator *op)
       v4 = BM_vert_in_edge(edges2[i - 1], edges2[i]->v1) ? edges2[i]->v2 : edges2[i]->v1;
     }
 
-    /* if there is ever bow-tie quads between two edges the problem is here! [#30367] */
+    /* if there is ever bow-tie quads between two edges the problem is here! T30367. */
 #if 0
     normal_tri_v3(dvec1, v1->co, v2->co, v4->co);
     normal_tri_v3(dvec2, v1->co, v4->co, v3->co);

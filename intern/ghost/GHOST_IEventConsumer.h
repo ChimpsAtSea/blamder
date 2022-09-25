@@ -1,29 +1,12 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  * Declaration of GHOST_IEventConsumer interface class.
  */
 
-#ifndef __GHOST_IEVENTCONSUMER_H__
-#define __GHOST_IEVENTCONSUMER_H__
+#pragma once
 
 #include "GHOST_IEvent.h"
 
@@ -47,8 +30,8 @@ class GHOST_IEventConsumer {
   /**
    * This method is called by the system when it has events to dispatch.
    * \see GHOST_ISystem#dispatchEvents
-   * \param   event   The event that can be handled or ignored.
-   * \return  Indication as to whether the event was handled.
+   * \param event: The event that can be handled or ignored.
+   * \return Indication as to whether the event was handled.
    */
   virtual bool processEvent(GHOST_IEvent *event) = 0;
 
@@ -56,5 +39,3 @@ class GHOST_IEventConsumer {
   MEM_CXX_CLASS_ALLOC_FUNCS("GHOST:GHOST_IEventConsumer")
 #endif
 };
-
-#endif /* __GHOST_IEVENTCONSUMER_H__ */

@@ -31,9 +31,11 @@
 #ifndef CERES_INTERNAL_BLOCK_JACOBI_PRECONDITIONER_H_
 #define CERES_INTERNAL_BLOCK_JACOBI_PRECONDITIONER_H_
 
-#include <vector>
+#include <memory>
+
 #include "ceres/block_random_access_diagonal_matrix.h"
-#include "ceres/internal/scoped_ptr.h"
+#include "ceres/internal/disable_warnings.h"
+#include "ceres/internal/export.h"
 #include "ceres/preconditioner.h"
 
 namespace ceres {
@@ -52,25 +54,31 @@ struct CompressedRowBlockStructure;
 // update the matrix by running Update(A, D). The values of the matrix A are
 // inspected to construct the preconditioner. The vector D is applied as the
 // D^TD diagonal term.
-class BlockJacobiPreconditioner : public BlockSparseMatrixPreconditioner {
+class CERES_NO_EXPORT BlockJacobiPreconditioner
+    : public BlockSparseMatrixPreconditioner {
  public:
   // A must remain valid while the BlockJacobiPreconditioner is.
   explicit BlockJacobiPreconditioner(const BlockSparseMatrix& A);
-  virtual ~BlockJacobiPreconditioner();
+  BlockJacobiPreconditioner(const BlockJacobiPreconditioner&) = delete;
+  void operator=(const BlockJacobiPreconditioner&) = delete;
+
+  ~BlockJacobiPreconditioner() override;
 
   // Preconditioner interface
-  virtual void RightMultiply(const double* x, double* y) const;
-  virtual int num_rows() const { return m_->num_rows(); }
-  virtual int num_cols() const { return m_->num_rows(); }
-
+  void RightMultiply(const double* x, double* y) const final;
+  int num_rows() const final { return m_->num_rows(); }
+  int num_cols() const final { return m_->num_rows(); }
   const BlockRandomAccessDiagonalMatrix& matrix() const { return *m_; }
- private:
-  virtual bool UpdateImpl(const BlockSparseMatrix& A, const double* D);
 
-  scoped_ptr<BlockRandomAccessDiagonalMatrix> m_;
+ private:
+  bool UpdateImpl(const BlockSparseMatrix& A, const double* D) final;
+
+  std::unique_ptr<BlockRandomAccessDiagonalMatrix> m_;
 };
 
 }  // namespace internal
 }  // namespace ceres
+
+#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_BLOCK_JACOBI_PRECONDITIONER_H_

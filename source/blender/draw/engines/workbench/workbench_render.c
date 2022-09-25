@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2016, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -32,6 +17,7 @@
 
 #include "ED_view3d.h"
 
+#include "GPU_context.h"
 #include "GPU_shader.h"
 
 #include "DEG_depsgraph.h"
@@ -54,7 +40,7 @@ static void workbench_render_matrices_init(RenderEngine *engine, Depsgraph *deps
   /* TODO(sergey): Shall render hold pointer to an evaluated camera instead? */
   struct Object *ob_camera_eval = DEG_get_evaluated_object(depsgraph, RE_GetCamera(engine->re));
 
-  /* Set the persective, view and window matrix. */
+  /* Set the perspective, view and window matrix. */
   float winmat[4][4], viewmat[4][4], viewinv[4][4];
 
   RE_GetCameraWindow(engine->re, ob_camera_eval, winmat);
@@ -79,8 +65,8 @@ static bool workbench_render_framebuffers_init(void)
    * the other views will reuse these buffers */
   if (dtxl->color == NULL) {
     BLI_assert(dtxl->depth == NULL);
-    dtxl->color = GPU_texture_create_2d(size[0], size[1], GPU_RGBA16F, NULL, NULL);
-    dtxl->depth = GPU_texture_create_2d(size[0], size[1], GPU_DEPTH24_STENCIL8, NULL, NULL);
+    dtxl->color = GPU_texture_create_2d("txl.color", UNPACK2(size), 1, GPU_RGBA16F, NULL);
+    dtxl->depth = GPU_texture_create_2d("txl.depth", UNPACK2(size), 1, GPU_DEPTH24_STENCIL8, NULL);
   }
 
   if (!(dtxl->depth && dtxl->color)) {
@@ -124,16 +110,17 @@ static void workbench_render_result_z(struct RenderLayer *rl,
                                rect->ymin,
                                BLI_rcti_size_x(rect),
                                BLI_rcti_size_y(rect),
+                               GPU_DATA_FLOAT,
                                rp->rect);
 
     float winmat[4][4];
     DRW_view_winmat_get(NULL, winmat, false);
 
-    int pix_ct = BLI_rcti_size_x(rect) * BLI_rcti_size_y(rect);
+    int pix_num = BLI_rcti_size_x(rect) * BLI_rcti_size_y(rect);
 
     /* Convert ogl depth [0..1] to view Z [near..far] */
     if (DRW_view_is_persp_get(NULL)) {
-      for (int i = 0; i < pix_ct; i++) {
+      for (int i = 0; i < pix_num; i++) {
         if (rp->rect[i] == 1.0f) {
           rp->rect[i] = 1e10f; /* Background */
         }
@@ -149,12 +136,12 @@ static void workbench_render_result_z(struct RenderLayer *rl,
       float far = DRW_view_far_distance_get(NULL);
       float range = fabsf(far - near);
 
-      for (int i = 0; i < pix_ct; i++) {
+      for (int i = 0; i < pix_num; i++) {
         if (rp->rect[i] == 1.0f) {
           rp->rect[i] = 1e10f; /* Background */
         }
         else {
-          rp->rect[i] = -rp->rect[i] * range + near;
+          rp->rect[i] = rp->rect[i] * range - near;
         }
       }
     }
@@ -174,6 +161,8 @@ void workbench_render(void *ved, RenderEngine *engine, RenderLayer *render_layer
     return;
   }
 
+  workbench_private_data_alloc(data->stl);
+  data->stl->wpd->cam_original_ob = DEG_get_evaluated_object(depsgraph, RE_GetCamera(engine->re));
   workbench_engine_init(data);
 
   workbench_cache_init(data);
@@ -182,9 +171,9 @@ void workbench_render(void *ved, RenderEngine *engine, RenderLayer *render_layer
 
   DRW_render_instance_buffer_finish();
 
-  /* Also we weed to have a correct fbo bound for DRW_hair_update */
+  /* Also we weed to have a correct FBO bound for #DRW_curves_update */
   GPU_framebuffer_bind(dfbl->default_fb);
-  DRW_hair_update();
+  DRW_curves_update();
 
   GPU_framebuffer_bind(dfbl->default_fb);
   GPU_framebuffer_clear_depth(dfbl->default_fb, 1.0f);
@@ -200,6 +189,10 @@ void workbench_render(void *ved, RenderEngine *engine, RenderLayer *render_layer
 
   workbench_draw_finish(data);
 
+  /* Perform render step between samples to allow
+   * flushing of freed GPUBackend resources. */
+  GPU_render_step();
+
   /* Write render output. */
   const char *viewname = RE_GetActiveRenderView(engine->re);
   RenderPass *rp = RE_pass_find_by_name(render_layer, RE_PASSNAME_COMBINED, viewname);
@@ -212,6 +205,7 @@ void workbench_render(void *ved, RenderEngine *engine, RenderLayer *render_layer
                              BLI_rcti_size_y(rect),
                              4,
                              0,
+                             GPU_DATA_FLOAT,
                              rp->rect);
 
   workbench_render_result_z(render_layer, viewname, rect);

@@ -1,25 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_PIXELATEOPERATION_H__
-#define __COM_PIXELATEOPERATION_H__
+#pragma once
 
 #include "COM_NodeOperation.h"
+
+namespace blender::compositor {
 
 /**
  * \brief Pixelate operation
@@ -33,33 +19,33 @@ class PixelateOperation : public NodeOperation {
   /**
    * \brief cached reference to the input operation
    */
-  SocketReader *m_inputOperation;
+  SocketReader *input_operation_;
 
  public:
   /**
    * \brief PixelateOperation
-   * \param dataType: the datatype to create this operator for (saves datatype conversions)
+   * \param data_type: the datatype to create this operator for (saves datatype conversions)
    */
-  PixelateOperation(DataType dataType);
+  PixelateOperation(DataType data_type);
 
   /**
    * \brief initialization of the execution
    */
-  void initExecution();
+  void init_execution() override;
 
   /**
    * \brief de-initialization of the execution
    */
-  void deinitExecution();
+  void deinit_execution() override;
 
   /**
-   * \brief executePixel
+   * \brief execute_pixel
    * \param output: result
    * \param x: x-coordinate
    * \param y: y-coordinate
    * \param sampler: sampler
    */
-  void executePixelSampled(float output[4], float x, float y, PixelSampler sampler);
+  void execute_pixel_sampled(float output[4], float x, float y, PixelSampler sampler) override;
 };
 
-#endif
+}  // namespace blender::compositor

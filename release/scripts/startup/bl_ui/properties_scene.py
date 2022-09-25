@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import bpy
 from bpy.types import (
@@ -30,6 +12,8 @@ from bl_ui.properties_physics_common import (
     point_cache_ui,
     effector_weights_ui,
 )
+
+from bpy.app.translations import pgettext_iface as iface_
 
 
 class SCENE_UL_keying_set_paths(UIList):
@@ -92,6 +76,7 @@ class SCENE_PT_unit(SceneButtonsPanel, Panel):
         subcol.prop(unit, "length_unit", text="Length")
         subcol.prop(unit, "mass_unit", text="Mass")
         subcol.prop(unit, "time_unit", text="Time")
+        subcol.prop(unit, "temperature_unit", text="Temperature")
 
 
 class SceneKeyingSetsPanel:
@@ -99,17 +84,17 @@ class SceneKeyingSetsPanel:
     @staticmethod
     def draw_keyframing_settings(context, layout, ks, ksp):
         SceneKeyingSetsPanel._draw_keyframing_setting(
-            context, layout, ks, ksp, "Needed",
+            context, layout, ks, ksp, iface_("Needed"),
             "use_insertkey_override_needed", "use_insertkey_needed",
             userpref_fallback="use_keyframe_insert_needed",
         )
         SceneKeyingSetsPanel._draw_keyframing_setting(
-            context, layout, ks, ksp, "Visual",
+            context, layout, ks, ksp, iface_("Visual"),
             "use_insertkey_override_visual", "use_insertkey_visual",
             userpref_fallback="use_visual_keying",
         )
         SceneKeyingSetsPanel._draw_keyframing_setting(
-            context, layout, ks, ksp, "XYZ to RGB",
+            context, layout, ks, ksp, iface_("XYZ to RGB"),
             "use_insertkey_override_xyz_to_rgb", "use_insertkey_xyz_to_rgb",
         )
 
@@ -289,8 +274,6 @@ class SCENE_PT_audio(SceneButtonsPanel, Panel):
         layout.use_property_split = True
 
         scene = context.scene
-        rd = context.scene.render
-        ffmpeg = rd.ffmpeg
 
         flow = layout.grid_flow(row_major=True, columns=0, even_columns=True, even_rows=False, align=True)
 
@@ -299,17 +282,8 @@ class SCENE_PT_audio(SceneButtonsPanel, Panel):
 
         col.separator()
 
-        col.prop(scene, "audio_distance_model")
-        col.prop(ffmpeg, "audio_channels")
-
-        col.separator()
-
-        col = flow.column()
-        col.prop(ffmpeg, "audio_mixrate", text="Sample Rate")
-
-        col.separator()
-
         col = col.column(align=True)
+        col.prop(scene, "audio_distance_model")
         col.prop(scene, "audio_doppler_speed", text="Doppler Speed")
         col.prop(scene, "audio_doppler_factor", text="Doppler Factor")
 
@@ -396,8 +370,8 @@ class SCENE_PT_rigid_body_world_settings(RigidBodySubPanel, Panel):
             col.prop(rbw, "use_split_impulse")
 
             col = col.column()
-            col.prop(rbw, "steps_per_second", text="Steps Per Second")
-            col.prop(rbw, "solver_iterations", text="Solver Iterations")
+            col.prop(rbw, "substeps_per_frame")
+            col.prop(rbw, "solver_iterations")
 
 
 class SCENE_PT_rigid_body_cache(RigidBodySubPanel, Panel):

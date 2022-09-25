@@ -1,24 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bke
  */
 
 #include <stddef.h>
+#include <stdio.h>
 #include <stdlib.h>
 
 #include "RNA_types.h"
@@ -54,7 +41,7 @@ wmKeyConfigPref *BKE_keyconfig_pref_ensure(UserDef *userdef, const char *kc_idna
   }
   if (kpt->prop == NULL) {
     IDPropertyTemplate val = {0};
-    kpt->prop = IDP_New(IDP_GROUP, &val, kc_idname); /* name is unimportant  */
+    kpt->prop = IDP_New(IDP_GROUP, &val, kc_idname); /* name is unimportant. */
   }
   return kpt;
 }
@@ -120,7 +107,6 @@ void BKE_keyconfig_pref_type_free(void)
 /** \name Key-Config Versioning
  * \{ */
 
-/* Set select mouse, for versioning code. */
 void BKE_keyconfig_pref_set_select_mouse(UserDef *userdef, int value, bool override)
 {
   wmKeyConfigPref *kpt = BKE_keyconfig_pref_ensure(userdef, WM_KEYCONFIG_STR_DEFAULT);
@@ -200,10 +186,6 @@ void BKE_keyconfig_keymap_filter_item(wmKeyMap *keymap,
   }
 }
 
-/**
- * Filter & optionally remove key-map items,
- * intended for versioning, but may be used in other situations too.
- */
 void BKE_keyconfig_pref_filter_items(struct UserDef *userdef,
                                      const struct wmKeyConfigFilterItemParams *params,
                                      bool (*filter_fn)(wmKeyMapItem *kmi, void *user_data),

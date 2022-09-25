@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2007 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2007 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup wm
@@ -54,7 +38,42 @@
 /** \name Event Printing
  * \{ */
 
-/* for debugging only, getting inspecting events manually is tedious */
+struct FlagIdentifierPair {
+  const char *id;
+  uint flag;
+};
+
+static void event_ids_from_flag(char *str,
+                                const int str_maxlen,
+                                const struct FlagIdentifierPair *flag_data,
+                                const int flag_data_len,
+                                const uint flag)
+{
+  int ofs = 0;
+  ofs += BLI_strncpy_rlen(str + ofs, "{", str_maxlen - ofs);
+  for (int i = 0; i < flag_data_len; i++) {
+    if (flag & flag_data[i].flag) {
+      if (ofs != 1) {
+        ofs += BLI_strncpy_rlen(str + ofs, "|", str_maxlen - ofs);
+      }
+      ofs += BLI_strncpy_rlen(str + ofs, flag_data[i].id, str_maxlen - ofs);
+    }
+  }
+  ofs += BLI_strncpy_rlen(str + ofs, "}", str_maxlen - ofs);
+}
+
+static void event_ids_from_type_and_value(const short type,
+                                          const short val,
+                                          const char **r_type_id,
+                                          const char **r_val_id)
+{
+  /* Type. */
+  RNA_enum_identifier(rna_enum_event_type_items, type, r_type_id);
+
+  /* Value. */
+  RNA_enum_identifier(rna_enum_event_value_items, val, r_val_id);
+}
+
 void WM_event_print(const wmEvent *event)
 {
   if (event) {
@@ -64,34 +83,49 @@ void WM_event_print(const wmEvent *event)
     const char *prev_type_id = unknown;
     const char *prev_val_id = unknown;
 
-    RNA_enum_identifier(rna_enum_event_type_items, event->type, &type_id);
-    RNA_enum_identifier(rna_enum_event_value_items, event->val, &val_id);
+    event_ids_from_type_and_value(event->type, event->val, &type_id, &val_id);
+    event_ids_from_type_and_value(event->prev_type, event->prev_val, &prev_type_id, &prev_val_id);
 
-    RNA_enum_identifier(rna_enum_event_type_items, event->prevtype, &prev_type_id);
-    RNA_enum_identifier(rna_enum_event_value_items, event->prevval, &prev_val_id);
+    char modifier_id[128];
+    {
+      struct FlagIdentifierPair flag_data[] = {
+          {"SHIFT", KM_SHIFT},
+          {"CTRL", KM_CTRL},
+          {"ALT", KM_ALT},
+          {"OS", KM_OSKEY},
+      };
+      event_ids_from_flag(
+          modifier_id, sizeof(modifier_id), flag_data, ARRAY_SIZE(flag_data), event->modifier);
+    }
+
+    char flag_id[128];
+    {
+      struct FlagIdentifierPair flag_data[] = {
+          {"SCROLL_INVERT", WM_EVENT_SCROLL_INVERT},
+          {"IS_REPEAT", WM_EVENT_IS_REPEAT},
+          {"FORCE_DRAG_THRESHOLD", WM_EVENT_FORCE_DRAG_THRESHOLD},
+      };
+      event_ids_from_flag(flag_id, sizeof(flag_id), flag_data, ARRAY_SIZE(flag_data), event->flag);
+    }
 
     printf(
-        "wmEvent  type:%d / %s, val:%d / %s,\n"
-        "         prev_type:%d / %s, prev_val:%d / %s,\n"
-        "         shift:%d, ctrl:%d, alt:%d, oskey:%d, keymodifier:%d, is_repeat:%d,\n"
-        "         mouse:(%d,%d), ascii:'%c', utf8:'%.*s', pointer:%p\n",
+        "wmEvent type:%d/%s, val:%d/%s, "
+        "prev_type:%d/%s, prev_val:%d/%s, "
+        "modifier=%s, keymodifier:%d, flag:%s, "
+        "mouse:(%d,%d), utf8:'%.*s', pointer:%p",
         event->type,
         type_id,
         event->val,
         val_id,
-        event->prevtype,
+        event->prev_type,
         prev_type_id,
-        event->prevval,
+        event->prev_val,
         prev_val_id,
-        event->shift,
-        event->ctrl,
-        event->alt,
-        event->oskey,
+        modifier_id,
         event->keymodifier,
-        event->is_repeat,
-        event->x,
-        event->y,
-        event->ascii,
+        flag_id,
+        event->xy[0],
+        event->xy[1],
         BLI_str_utf8_size(event->utf8_buf),
         event->utf8_buf,
         (const void *)event);
@@ -100,7 +134,7 @@ void WM_event_print(const wmEvent *event)
     if (ISNDOF(event->type)) {
       const wmNDOFMotionData *ndof = event->customdata;
       if (event->type == NDOF_MOTION) {
-        printf("   ndof: rot: (%.4f %.4f %.4f), tx: (%.4f %.4f %.4f), dt: %.4f, progress: %u\n",
+        printf(", ndof: rot: (%.4f %.4f %.4f), tx: (%.4f %.4f %.4f), dt: %.4f, progress: %u",
                UNPACK3(ndof->rvec),
                UNPACK3(ndof->tvec),
                ndof->dt,
@@ -114,12 +148,13 @@ void WM_event_print(const wmEvent *event)
 
     if (event->tablet.active != EVT_TABLET_NONE) {
       const wmTabletData *wmtab = &event->tablet;
-      printf(" tablet: active: %d, pressure %.4f, tilt: (%.4f %.4f)\n",
+      printf(", tablet: active: %d, pressure %.4f, tilt: (%.4f %.4f)",
              wmtab->active,
              wmtab->pressure,
              wmtab->x_tilt,
              wmtab->y_tilt);
     }
+    printf("\n");
   }
   else {
     printf("wmEvent - NULL\n");
@@ -131,24 +166,6 @@ void WM_event_print(const wmEvent *event)
 /* -------------------------------------------------------------------- */
 /** \name Event Modifier/Type Queries
  * \{ */
-
-int WM_event_modifier_flag(const wmEvent *event)
-{
-  int flag = 0;
-  if (event->ctrl) {
-    flag |= KM_CTRL;
-  }
-  if (event->alt) {
-    flag |= KM_ALT;
-  }
-  if (event->shift) {
-    flag |= KM_SHIFT;
-  }
-  if (event->oskey) {
-    flag |= KM_OSKEY;
-  }
-  return flag;
-}
 
 bool WM_event_type_mask_test(const int event_type, const enum eEventType_Mask mask)
 {
@@ -181,9 +198,9 @@ bool WM_event_type_mask_test(const int event_type, const enum eEventType_Mask ma
     }
   }
 
-  /* Tweak. */
-  if (mask & EVT_TYPE_MASK_TWEAK) {
-    if (ISTWEAK(event_type)) {
+  /* NDOF */
+  if (mask & EVT_TYPE_MASK_NDOF) {
+    if (ISNDOF(event_type)) {
       return true;
     }
   }
@@ -204,35 +221,30 @@ bool WM_event_type_mask_test(const int event_type, const enum eEventType_Mask ma
 /** \name Event Motion Queries
  * \{ */
 
-/* for modal callbacks, check configuration for how to interpret exit with tweaks  */
-bool WM_event_is_modal_tweak_exit(const wmEvent *event, int tweak_event)
+bool WM_event_is_modal_drag_exit(const wmEvent *event,
+                                 const short init_event_type,
+                                 const short init_event_val)
 {
-  /* if the release-confirm userpref setting is enabled,
-   * tweak events can be canceled when mouse is released
-   */
+  /* If the release-confirm preference setting is enabled,
+   * drag events can be canceled when mouse is released. */
   if (U.flag & USER_RELEASECONFIRM) {
     /* option on, so can exit with km-release */
     if (event->val == KM_RELEASE) {
-      switch (tweak_event) {
-        case EVT_TWEAK_L:
-        case EVT_TWEAK_M:
-        case EVT_TWEAK_R:
-          return 1;
+      if ((init_event_val == KM_CLICK_DRAG) && (event->type == init_event_type)) {
+        return 1;
       }
     }
     else {
-      /* if the initial event wasn't a tweak event then
-       * ignore USER_RELEASECONFIRM setting: see [#26756] */
-      if (ELEM(tweak_event, EVT_TWEAK_L, EVT_TWEAK_M, EVT_TWEAK_R) == 0) {
+      /* If the initial event wasn't a drag event then
+       * ignore #USER_RELEASECONFIRM setting: see T26756. */
+      if (init_event_val != KM_CLICK_DRAG) {
         return 1;
       }
     }
   }
   else {
-    /* this is fine as long as not doing km-release, otherwise
-     * some items (i.e. markers) being tweaked may end up getting
-     * dropped all over
-     */
+    /* This is fine as long as not doing km-release, otherwise some items (i.e. markers)
+     * being tweaked may end up getting dropped all over. */
     if (event->val != KM_RELEASE) {
       return 1;
     }
@@ -241,14 +253,85 @@ bool WM_event_is_modal_tweak_exit(const wmEvent *event, int tweak_event)
   return 0;
 }
 
-bool WM_event_is_last_mousemove(const wmEvent *event)
+bool WM_event_is_mouse_drag(const wmEvent *event)
 {
-  while ((event = event->next)) {
-    if (ELEM(event->type, MOUSEMOVE, INBETWEEN_MOUSEMOVE)) {
-      return false;
-    }
+  return (ISMOUSE_BUTTON(event->type) && (event->val == KM_CLICK_DRAG));
+}
+
+bool WM_event_is_mouse_drag_or_press(const wmEvent *event)
+{
+  return WM_event_is_mouse_drag(event) ||
+         (ISMOUSE_BUTTON(event->type) && (event->val == KM_PRESS));
+}
+
+int WM_event_drag_direction(const wmEvent *event)
+{
+  const int delta[2] = {
+      event->xy[0] - event->prev_press_xy[0],
+      event->xy[1] - event->prev_press_xy[1],
+  };
+
+  int theta = round_fl_to_int(4.0f * atan2f((float)delta[1], (float)delta[0]) / (float)M_PI);
+  int val = KM_DIRECTION_W;
+
+  if (theta == 0) {
+    val = KM_DIRECTION_E;
   }
-  return true;
+  else if (theta == 1) {
+    val = KM_DIRECTION_NE;
+  }
+  else if (theta == 2) {
+    val = KM_DIRECTION_N;
+  }
+  else if (theta == 3) {
+    val = KM_DIRECTION_NW;
+  }
+  else if (theta == -1) {
+    val = KM_DIRECTION_SE;
+  }
+  else if (theta == -2) {
+    val = KM_DIRECTION_S;
+  }
+  else if (theta == -3) {
+    val = KM_DIRECTION_SW;
+  }
+
+#if 0
+  /* debug */
+  if (val == 1) {
+    printf("tweak north\n");
+  }
+  if (val == 2) {
+    printf("tweak north-east\n");
+  }
+  if (val == 3) {
+    printf("tweak east\n");
+  }
+  if (val == 4) {
+    printf("tweak south-east\n");
+  }
+  if (val == 5) {
+    printf("tweak south\n");
+  }
+  if (val == 6) {
+    printf("tweak south-west\n");
+  }
+  if (val == 7) {
+    printf("tweak west\n");
+  }
+  if (val == 8) {
+    printf("tweak north-west\n");
+  }
+#endif
+  return val;
+}
+
+bool WM_cursor_test_motion_and_update(const int mval[2])
+{
+  static int mval_prev[2] = {-1, -1};
+  bool use_cycle = (len_manhattan_v2v2_int(mval, mval_prev) <= WM_EVENT_CURSOR_MOTION_THRESHOLD);
+  copy_v2_v2_int(mval_prev, mval);
+  return !use_cycle;
 }
 
 /** \} */
@@ -263,11 +346,17 @@ bool WM_event_is_last_mousemove(const wmEvent *event)
 int WM_event_drag_threshold(const struct wmEvent *event)
 {
   int drag_threshold;
-  if (WM_event_is_tablet(event)) {
-    drag_threshold = U.drag_threshold_tablet;
-  }
-  else if (ISMOUSE(event->prevtype)) {
-    drag_threshold = U.drag_threshold_mouse;
+  BLI_assert(event->prev_press_type != MOUSEMOVE);
+  if (ISMOUSE_BUTTON(event->prev_press_type)) {
+    /* Using the previous type is important is we want to check the last pressed/released button,
+     * The `event->type` would include #MOUSEMOVE which is always the case when dragging
+     * and does not help us know which threshold to use. */
+    if (WM_event_is_tablet(event)) {
+      drag_threshold = U.drag_threshold_tablet;
+    }
+    else {
+      drag_threshold = U.drag_threshold_mouse;
+    }
   }
   else {
     /* Typically keyboard, could be NDOF button or other less common types. */
@@ -284,11 +373,42 @@ bool WM_event_drag_test_with_delta(const wmEvent *event, const int drag_delta[2]
 
 bool WM_event_drag_test(const wmEvent *event, const int prev_xy[2])
 {
-  const int drag_delta[2] = {
-      prev_xy[0] - event->x,
-      prev_xy[1] - event->y,
-  };
+  int drag_delta[2];
+  sub_v2_v2v2_int(drag_delta, prev_xy, event->xy);
   return WM_event_drag_test_with_delta(event, drag_delta);
+}
+
+void WM_event_drag_start_mval(const wmEvent *event, const ARegion *region, int r_mval[2])
+{
+  const int *xy = (event->val == KM_CLICK_DRAG) ? event->prev_press_xy : event->xy;
+  r_mval[0] = xy[0] - region->winrct.xmin;
+  r_mval[1] = xy[1] - region->winrct.ymin;
+}
+
+void WM_event_drag_start_mval_fl(const wmEvent *event, const ARegion *region, float r_mval[2])
+{
+  const int *xy = (event->val == KM_CLICK_DRAG) ? event->prev_press_xy : event->xy;
+  r_mval[0] = xy[0] - region->winrct.xmin;
+  r_mval[1] = xy[1] - region->winrct.ymin;
+}
+
+void WM_event_drag_start_xy(const wmEvent *event, int r_xy[2])
+{
+  copy_v2_v2_int(r_xy, (event->val == KM_CLICK_DRAG) ? event->prev_press_xy : event->xy);
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Event Text Queries
+ * \{ */
+
+char WM_event_utf8_to_ascii(const struct wmEvent *event)
+{
+  if (BLI_str_utf8_size(event->utf8_buf) == 1) {
+    return event->utf8_buf[0];
+  }
+  return '\0';
 }
 
 /** \} */
@@ -309,20 +429,9 @@ int WM_userdef_event_map(int kmitype)
   return kmitype;
 }
 
-/**
- * Use so we can check if 'wmEvent.type' is released in modal operators.
- *
- * An alternative would be to add a 'wmEvent.type_nokeymap'... or similar.
- */
 int WM_userdef_event_type_from_keymap_type(int kmitype)
 {
   switch (kmitype) {
-    case EVT_TWEAK_L:
-      return LEFTMOUSE;
-    case EVT_TWEAK_M:
-      return MIDDLEMOUSE;
-    case EVT_TWEAK_R:
-      return RIGHTMOUSE;
     case WHEELOUTMOUSE:
       return (U.uiflag & USER_WHEELZOOMDIR) ? WHEELUPMOUSE : WHEELDOWNMOUSE;
     case WHEELINMOUSE:
@@ -380,10 +489,22 @@ void WM_event_ndof_to_quat(const struct wmNDOFMotionData *ndof, float q[4])
 /** \} */
 
 /* -------------------------------------------------------------------- */
+/** \name Event XR Input Access
+ * \{ */
+
+#ifdef WITH_XR_OPENXR
+bool WM_event_is_xr(const struct wmEvent *event)
+{
+  return (event->type == EVT_XR_ACTION && event->custom == EVT_DATA_XR);
+}
+#endif
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
 /** \name Event Tablet Input Access
  * \{ */
 
-/* applies the global tablet pressure correction curve */
 float wm_pressure_curve(float pressure)
 {
   if (U.pressure_threshold_max != 0.0f) {
@@ -399,8 +520,6 @@ float wm_pressure_curve(float pressure)
   return pressure;
 }
 
-/* if this is a tablet event, return tablet pressure and set *pen_flip
- * to 1 if the eraser tool is being used, 0 otherwise */
 float WM_event_tablet_data(const wmEvent *event, int *pen_flip, float tilt[2])
 {
   if (tilt) {
@@ -423,15 +542,52 @@ bool WM_event_is_tablet(const struct wmEvent *event)
 /** \} */
 
 /* -------------------------------------------------------------------- */
+/** \name Event Scroll's Absolute Deltas
+ *
+ * User may change the scroll behavior, and the deltas are automatically inverted.
+ * These functions return the absolute direction, swipe up/right gives positive values.
+ *
+ * \{ */
+
+int WM_event_absolute_delta_x(const struct wmEvent *event)
+{
+  int dx = event->xy[0] - event->prev_xy[0];
+
+  if ((event->flag & WM_EVENT_SCROLL_INVERT) == 0) {
+    dx = -dx;
+  }
+
+  return dx;
+}
+
+int WM_event_absolute_delta_y(const struct wmEvent *event)
+{
+  int dy = event->xy[1] - event->prev_xy[1];
+
+  if ((event->flag & WM_EVENT_SCROLL_INVERT) == 0) {
+    dy = -dy;
+  }
+
+  return dy;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
 /** \name Event IME Input Access
  * \{ */
 
 #ifdef WITH_INPUT_IME
-/* most os using ctrl/oskey + space to switch ime, avoid added space */
+/**
+ * Most OS's use `Ctrl+Space` / `OsKey+Space` to switch IME,
+ * so don't type in the space character.
+ *
+ * \note Shift is excluded from this check since it prevented typing `Shift+Space`, see: T85517.
+ */
 bool WM_event_is_ime_switch(const struct wmEvent *event)
 {
-  return event->val == KM_PRESS && event->type == EVT_SPACEKEY &&
-         (event->ctrl || event->oskey || event->shift || event->alt);
+  return (event->val == KM_PRESS) && (event->type == EVT_SPACEKEY) &&
+         (event->modifier & (KM_CTRL | KM_OSKEY | KM_ALT));
 }
 #endif
 

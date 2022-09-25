@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2019 Blender Foundation.
+
 # - Find OpenImageDenoise library
 # Find the native OpenImageDenoise includes and library
 # This module defines
@@ -10,17 +13,6 @@
 #
 # also defined, but not for general use are
 #  OPENIMAGEDENOISE_LIBRARY, where to find the OpenImageDenoise library.
-
-#=============================================================================
-# Copyright 2019 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
 
 # If OPENIMAGEDENOISE_ROOT_DIR was defined in the environment, use it.
 IF(NOT OPENIMAGEDENOISE_ROOT_DIR AND NOT $ENV{OPENIMAGEDENOISE_ROOT_DIR} STREQUAL "")
@@ -48,7 +40,14 @@ SET(_openimagedenoise_FIND_COMPONENTS
 # These are needed when building statically
 SET(_openimagedenoise_FIND_STATIC_COMPONENTS
   common
+
+  # These additional library names change between versions, we list all of them
+  # so builds work with multiple versions. Missing libraries are skipped.
+  dnnl_cpu
+  dnnl_common
+  dnnl_cpu # Second time because of circular dependency
   mkldnn
+  dnnl
 )
 
 SET(_openimagedenoise_LIBRARIES)
@@ -107,6 +106,7 @@ ENDIF()
 
 MARK_AS_ADVANCED(
   OPENIMAGEDENOISE_INCLUDE_DIR
+  OPENIMAGEDENOISE_LIBRARY
 )
 
 FOREACH(COMPONENT ${_openimagedenoise_FIND_COMPONENTS})

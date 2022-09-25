@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup blt
@@ -47,7 +31,7 @@ bool BLT_is_default_context(const char *msgctxt)
   /* We use the "short" test, a more complete one could be:
    * return (!msgctxt || !msgctxt[0] || STREQ(msgctxt, BLT_I18NCONTEXT_DEFAULT_BPYRNA))
    */
-  /* Note: trying without the void string check for now, it *should* not be necessary... */
+  /* NOTE: trying without the void string check for now, it *should* not be necessary... */
   return (!msgctxt || msgctxt[0] == BLT_I18NCONTEXT_DEFAULT_BPYRNA[0]);
 }
 
@@ -81,7 +65,7 @@ const char *BLT_pgettext(const char *msgctxt, const char *msgid)
 bool BLT_translate(void)
 {
 #ifdef WITH_INTERNATIONAL
-  return BLI_thread_is_main() && (U.language != ULANGUAGE_ENGLISH);
+  return BLI_thread_is_main();
 #else
   return false;
 #endif
@@ -120,9 +104,9 @@ const char *BLT_translate_do(const char *msgctxt, const char *msgid)
   if (BLT_translate()) {
     return BLT_pgettext(msgctxt, msgid);
   }
-  else {
-    return msgid;
-  }
+
+  return msgid;
+
 #else
   (void)msgctxt;
   return msgid;
@@ -135,9 +119,9 @@ const char *BLT_translate_do_iface(const char *msgctxt, const char *msgid)
   if (BLT_translate_iface()) {
     return BLT_pgettext(msgctxt, msgid);
   }
-  else {
-    return msgid;
-  }
+
+  return msgid;
+
 #else
   (void)msgctxt;
   return msgid;
@@ -150,9 +134,9 @@ const char *BLT_translate_do_tooltip(const char *msgctxt, const char *msgid)
   if (BLT_translate_tooltips()) {
     return BLT_pgettext(msgctxt, msgid);
   }
-  else {
-    return msgid;
-  }
+
+  return msgid;
+
 #else
   (void)msgctxt;
   return msgid;
@@ -165,9 +149,9 @@ const char *BLT_translate_do_new_dataname(const char *msgctxt, const char *msgid
   if (BLT_translate_new_dataname()) {
     return BLT_pgettext(msgctxt, msgid);
   }
-  else {
-    return msgid;
-  }
+
+  return msgid;
+
 #else
   (void)msgctxt;
   return msgid;

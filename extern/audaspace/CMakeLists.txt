@@ -42,6 +42,7 @@ set(SRC
 	src/devices/NULLDevice.cpp
 	src/devices/ReadDevice.cpp
 	src/devices/SoftwareDevice.cpp
+	src/devices/ThreadedDevice.cpp
 	src/Exception.cpp
 	src/file/File.cpp
 	src/file/FileManager.cpp
@@ -128,6 +129,7 @@ set(SRC
 	src/util/Barrier.cpp
 	src/util/Buffer.cpp
 	src/util/BufferReader.cpp
+	src/util/RingBuffer.cpp
 	src/util/StreamBuffer.cpp
 	src/util/ThreadPool.cpp
 )
@@ -148,8 +150,10 @@ set(PUBLIC_HDR
 	include/devices/NULLDevice.h
 	include/devices/ReadDevice.h
 	include/devices/SoftwareDevice.h
+	include/devices/ThreadedDevice.h
 	include/Exception.h
 	include/file/File.h
+	include/file/FileInfo.h
 	include/file/FileManager.h
 	include/file/FileWriter.h
 	include/file/IFileInput.h
@@ -242,6 +246,7 @@ set(PUBLIC_HDR
 	include/util/BufferReader.h
 	include/util/ILockable.h
 	include/util/Math3D.h
+	include/util/RingBuffer.h
 	include/util/StreamBuffer.h
 	include/util/ThreadPool.h
 )
@@ -284,6 +289,15 @@ if(AUDASPACE_STANDALONE)
 	option(WITH_PYTHON "Build With Python Library" TRUE)
 	option(WITH_SDL "Build With SDL" TRUE)
 	option(WITH_STRICT_DEPENDENCIES "Error and abort instead of warning if a library is not found." FALSE)
+	if(APPLE)
+		option(WITH_COREAUDIO "Build With CoreAudio" TRUE)
+	endif()
+	if(NOT WIN32 AND NOT APPLE)
+		option(WITH_PULSEAUDIO "Build With PulseAudio" TRUE)
+	endif()
+	if(WIN32)
+		option(WITH_WASAPI "Build With WASAPI" TRUE)
+	endif()
 
 	if(WITH_STRICT_DEPENDENCIES)
 		set(PACKAGE_OPTION REQUIRED)
@@ -291,7 +305,7 @@ if(AUDASPACE_STANDALONE)
 endif()
 
 if(AUDASPACE_STANDALONE)
-	if(WIN32)
+	if(WIN32 OR APPLE)
 		set(DEFAULT_PLUGIN_PATH "." CACHE STRING "Default plugin installation and loading path.")
 		set(DOCUMENTATION_INSTALL_PATH "doc" CACHE PATH "Path where the documentation is installed.")
 	else()
@@ -302,14 +316,18 @@ endif()
 
 if(AUDASPACE_STANDALONE)
 	cmake_dependent_option(SEPARATE_C "Build C Binding as separate library" TRUE "WITH_C" FALSE)
+	cmake_dependent_option(PLUGIN_COREAUDIO "Build CoreAudio Plugin" TRUE "WITH_COREAUDIO;SHARED_LIBRARY" FALSE)
 	cmake_dependent_option(PLUGIN_FFMPEG "Build FFMPEG Plugin" TRUE "WITH_FFMPEG;SHARED_LIBRARY" FALSE)
 	cmake_dependent_option(PLUGIN_JACK "Build JACK Plugin" TRUE "WITH_JACK;SHARED_LIBRARY" FALSE)
 	cmake_dependent_option(PLUGIN_LIBSNDFILE "Build LibSndFile Plugin" TRUE "WITH_LIBSNDFILE;SHARED_LIBRARY" FALSE)
 	cmake_dependent_option(PLUGIN_OPENAL "Build OpenAL Plugin" TRUE "WITH_OPENAL;SHARED_LIBRARY" FALSE)
+	cmake_dependent_option(PLUGIN_PULSEAUDIO "Build PulseAudio Plugin" TRUE "WITH_PULSEAUDIO;SHARED_LIBRARY" FALSE)
 	cmake_dependent_option(PLUGIN_SDL "Build SDL Plugin" TRUE "WITH_SDL;SHARED_LIBRARY" FALSE)
+	cmake_dependent_option(PLUGIN_WASAPI "Build WASAPI Plugin" TRUE "WITH_WASAPI;SHARED_LIBRARY" FALSE)
 	cmake_dependent_option(WITH_PYTHON_MODULE "Build Python Module" TRUE "WITH_PYTHON" FALSE)
 	cmake_dependent_option(USE_SDL2 "Use SDL2 instead of 1 if available" TRUE "WITH_SDL" FALSE)
 	cmake_dependent_option(DYNLOAD_JACK "Dynamically load JACK" FALSE "WITH_JACK" FALSE)
+	cmake_dependent_option(DYNLOAD_PULSEAUDIO "Dynamically load PulseAudio" FALSE "WITH_PULSEAUDIO" FALSE)
 	cmake_dependent_option(WITH_BINDING_DOCS "Build C/Python HTML Documentation with Sphinx" TRUE "WITH_PYTHON_MODULE" FALSE)
 endif()
 
@@ -380,16 +398,16 @@ if(WITH_C)
 		bindings/C/AUD_Types.h
 	)
 
-if(WITH_FFTW)
-	list(APPEND C_SRC
+	if(WITH_FFTW)
+		list(APPEND C_SRC
 			bindings/C/AUD_HRTF.cpp
 			bindings/C/AUD_ImpulseResponse.cpp
-			)
+		)
 
 		list(APPEND C_HDR
 			bindings/C/AUD_HRTF.h
 			bindings/C/AUD_ImpulseResponse.h
-			)
+		)
 	endif()
 
 	if(NOT SEPARATE_C)
@@ -397,6 +415,48 @@ if(WITH_FFTW)
 		list(APPEND HDR ${C_HDR})
 	else()
 		set(AUDASPACE_C_LIBRARY -laudaspace-c)
+	endif()
+endif()
+
+# CoreAudio
+if(WITH_COREAUDIO)
+	find_library(COREAUDIO_LIBRARY CoreAudio)
+	find_library(AUDIOUNIT_LIBRARY AudioUnit)
+	find_library(AUDIOTOOLBOX_LIBRARY AudioToolbox)
+	find_path(AUDIOUNIT_INCLUDE_DIR AudioUnit/AudioUnit.h)
+	find_path(AUDIOTOOLBOX_INCLUDE_DIR AudioToolbox/CoreAudioClock.h)
+
+	if(COREAUDIO_LIBRARY AND AUDIOUNIT_LIBRARY AND AUDIOUNIT_INCLUDE_DIR)
+		set(COREAUDIO_LIBRARIES ${COREAUDIO_LIBRARY} ${AUDIOUNIT_LIBRARY} ${AUDIOTOOLBOX_LIBRARY})
+		set(COREAUDIO_INCLUDE_DIRS ${AUDIOUNIT_INCLUDE_DIR} ${AUDIOTOOLBOX_INCLUDE_DIR})
+
+		set(COREAUDIO_SRC
+			plugins/coreaudio/CoreAudioDevice.cpp
+			plugins/coreaudio/CoreAudioSynchronizer.cpp
+		)
+		set(COREAUDIO_HDR
+			plugins/coreaudio/CoreAudioDevice.h
+			plugins/coreaudio/CoreAudioSynchronizer.h
+		)
+
+		if(NOT PLUGIN_COREAUDIO)
+			list(APPEND INCLUDE ${COREAUDIO_INCLUDE_DIRS})
+			list(APPEND LIBRARIES ${COREAUDIO_LIBRARIES})
+			list(APPEND SRC ${COREAUDIO_SRC})
+			list(APPEND HDR ${COREAUDIO_HDR})
+			list(APPEND STATIC_PLUGINS CoreAudioDevice)
+		endif()
+	else()
+		if(WITH_STRICT_DEPENDENCIES)
+			message(FATAL_ERROR "CoreAudio not found!")
+		else()
+			if(AUDASPACE_STANDALONE)
+				set(WITH_COREAUDIO FALSE CACHE BOOL "Build With CoreAudio" FORCE)
+			else()
+				set(WITH_COREAUDIO FALSE)
+			endif()
+			message(WARNING "CoreAudio not found, plugin will not be built.")
+		endif()
 	endif()
 endif()
 
@@ -431,7 +491,11 @@ if(WITH_FFMPEG)
 			list(APPEND DLLS ${FFMPEG_DLLS})
 		endif()
 	else()
-		set(WITH_FFMPEG FALSE CACHE BOOL "Build With FFMPEG" FORCE)
+		if(AUDASPACE_STANDALONE)
+			set(WITH_FFMPEG FALSE CACHE BOOL "Build With FFMPEG" FORCE)
+		else()
+			set(WITH_FFMPEG FALSE)
+		endif()
 		message(WARNING "FFMPEG not found, plugin will not be built.")
 	endif()
 endif()
@@ -480,7 +544,11 @@ if(WITH_FFTW)
 			list(APPEND DLLS ${FFTW_DLLS})
 		endif()
 	else()
-		set(WITH_FFTW FALSE CACHE BOOL "Build With FFTW" FORCE)
+		if(AUDASPACE_STANDALONE)
+			set(WITH_FFTW FALSE CACHE BOOL "Build With FFTW" FORCE)
+		else()
+			set(WITH_FFTW FALSE)
+		endif()
 		message(WARNING "FFTW not found, convolution functionality will not be built.")
 	endif()
 endif()
@@ -504,7 +572,7 @@ if(WITH_JACK)
 			plugins/jack/JackSymbols.h
 		)
 
-	if(DYNLOAD_JACK)
+		if(DYNLOAD_JACK)
 			add_definitions(-DDYNLOAD_JACK)
 		endif()
 
@@ -523,7 +591,11 @@ if(WITH_JACK)
 			list(APPEND DLLS ${JACK_DLLS})
 		endif()
 	else()
-		set(WITH_JACK FALSE CACHE BOOL "Build With JACK" FORCE)
+		if(AUDASPACE_STANDALONE)
+			set(WITH_JACK FALSE CACHE BOOL "Build With JACK" FORCE)
+		else()
+			set(WITH_JACK FALSE)
+		endif()
 		message(WARNING "JACK not found, plugin will not be built.")
 	endif()
 endif()
@@ -559,7 +631,11 @@ if(WITH_LIBSNDFILE)
 			list(APPEND DLLS ${LIBSNDFILE_DLLS})
 		endif()
 	else()
-		set(WITH_LIBSNDFILE FALSE CACHE BOOL "Build With LibSndFile" FORCE)
+		if(AUDASPACE_STANDALONE)
+			set(WITH_LIBSNDFILE FALSE CACHE BOOL "Build With LibSndFile" FORCE)
+		else()
+			set(WITH_LIBSNDFILE FALSE)
+		endif()
 		message(WARNING "LibSndFile not found, plugin will not be built.")
 	endif()
 endif()
@@ -593,8 +669,52 @@ if(WITH_OPENAL)
 			list(APPEND DLLS ${OPENAL_DLLS})
 		endif()
 	else()
-		set(WITH_OPENAL FALSE CACHE BOOL "Build With OpenAL" FORCE)
+		if(AUDASPACE_STANDALONE)
+			set(WITH_OPENAL FALSE CACHE BOOL "Build With OpenAL" FORCE)
+		else()
+			set(WITH_OPENAL FALSE)
+		endif()
 		message(WARNING "OpenAL not found, plugin will not be built.")
+	endif()
+endif()
+
+# PulseAudio
+if(WITH_PULSEAUDIO)
+	if(AUDASPACE_STANDALONE)
+		find_package(LibPulse ${PACKAGE_OPTION})
+	endif()
+
+	if(LIBPULSE_FOUND)
+		set(PULSEAUDIO_SRC
+			plugins/pulseaudio/PulseAudioDevice.cpp
+			plugins/pulseaudio/PulseAudioLibrary.cpp
+		)
+		set(PULSEAUDIO_HDR
+			plugins/pulseaudio/PulseAudioDevice.h
+			plugins/pulseaudio/PulseAudioLibrary.h
+			plugins/pulseaudio/PulseAudioSymbols.h
+		)
+
+		if(DYNLOAD_PULSEAUDIO)
+			add_definitions(-DDYNLOAD_PULSEAUDIO)
+		endif()
+
+		if(NOT PLUGIN_PULSEAUDIO)
+			list(APPEND INCLUDE ${LIBPULSE_INCLUDE_DIR})
+			if(NOT DYNLOAD_PULSEAUDIO)
+				list(APPEND LIBRARIES ${LIBPULSE_LIBRARY})
+			endif()
+			list(APPEND SRC ${PULSEAUDIO_SRC})
+			list(APPEND HDR ${PULSEAUDIO_HDR})
+			list(APPEND STATIC_PLUGINS PulseAudioDevice)
+		endif()
+	else()
+		if(AUDASPACE_STANDALONE)
+			set(WITH_PULSEAUDIO FALSE CACHE BOOL "Build With PulseAudio" FORCE)
+		else()
+			set(WITH_PULSEAUDIO FALSE)
+		endif()
+		message(WARNING "PulseAudio not found, plugin will not be built.")
 	endif()
 endif()
 
@@ -624,8 +744,12 @@ if(WITH_PYTHON)
 			list(APPEND DLLS ${PYTHON_DLLS})
 		endif()
 	else()
-		set(WITH_PYTHON FALSE CACHE BOOL "Build With Python Library" FORCE)
-		message(WARNING "Python libraries not found, language binding will not be built.")
+		if(AUDASPACE_STANDALONE)
+			set(WITH_PYTHON FALSE CACHE BOOL "Build With Python Library" FORCE)
+		else()
+			set(WITH_PYTHON FALSE)
+		endif()
+		message(WARNING "Python & NumPy libraries not found, language binding will not be built.")
 	endif()
 endif()
 
@@ -667,8 +791,29 @@ if(WITH_SDL)
 			list(APPEND DLLS ${SDL_DLLS})
 		endif()
 	else()
-		set(WITH_SDL FALSE CACHE BOOL "Build With SDL" FORCE)
+		if(AUDASPACE_STANDALONE)
+			set(WITH_SDL FALSE CACHE BOOL "Build With SDL" FORCE)
+		else()
+			set(WITH_SDL FALSE)
+		endif()
 		message(WARNING "SDL not found, plugin will not be built.")
+	endif()
+endif()
+
+# WASAPI
+if(WITH_WASAPI)
+	set(WASAPI_SRC
+		plugins/wasapi/WASAPIDevice.cpp
+	)
+	set(WASAPI_HDR
+		plugins/wasapi/WASAPIDevice.h
+	)
+
+	if(NOT PLUGIN_WASAPI)
+		list(APPEND LIBRARIES ksuser)
+		list(APPEND SRC ${WASAPI_SRC})
+		list(APPEND HDR ${WASAPI_HDR})
+		list(APPEND STATIC_PLUGINS WASAPIDevice)
 	endif()
 endif()
 
@@ -757,6 +902,17 @@ endif()
 
 # plugins
 
+if(WITH_COREAUDIO AND PLUGIN_COREAUDIO)
+	add_definitions(-DCOREAUDIO_PLUGIN)
+	include_directories(${INCLUDE} ${COREAUDIO_INCLUDE_DIRS})
+	add_library(audcoreaudio SHARED ${COREAUDIO_SRC} ${COREAUDIO_HDR} ${HDR})
+	if(WITH_VERSIONED_PLUGINS)
+		set_target_properties(audcoreaudio PROPERTIES SOVERSION ${AUDASPACE_VERSION})
+	endif()
+	target_link_libraries(audcoreaudio audaspace ${COREAUDIO_LIBRARIES})
+	install(TARGETS audcoreaudio DESTINATION ${DEFAULT_PLUGIN_PATH})
+endif()
+
 if(WITH_FFMPEG AND PLUGIN_FFMPEG)
 	add_definitions(-DFFMPEG_PLUGIN)
 	include_directories(${INCLUDE} ${FFMPEG_INCLUDE_DIRS})
@@ -797,6 +953,19 @@ if(WITH_OPENAL AND PLUGIN_OPENAL)
 	install(TARGETS audopenal DESTINATION ${DEFAULT_PLUGIN_PATH})
 endif()
 
+if(WITH_PULSEAUDIO AND PLUGIN_PULSEAUDIO)
+	add_definitions(-DPULSEAUDIO_PLUGIN)
+	include_directories(${INCLUDE} ${LIBPULSE_INCLUDE_DIR})
+	add_library(audpulseaudio SHARED ${PULSEAUDIO_SRC} ${PULSEAUDIO_HDR} ${HDR})
+	set_target_properties(audpulseaudio PROPERTIES SOVERSION ${AUDASPACE_VERSION})
+	if(DYNLOAD_PULSEAUDIO)
+		target_link_libraries(audpulseaudio audaspace)
+	else()
+		target_link_libraries(audpulseaudio audaspace ${LIBPULSE_LIBRARY})
+	endif()
+	install(TARGETS audpulseaudio DESTINATION ${DEFAULT_PLUGIN_PATH})
+endif()
+
 if(WITH_SDL AND PLUGIN_SDL)
 	add_definitions(-DSDL_PLUGIN)
 	include_directories(${INCLUDE} ${SDL_INCLUDE_DIR})
@@ -804,6 +973,17 @@ if(WITH_SDL AND PLUGIN_SDL)
 	set_target_properties(audsdl PROPERTIES SOVERSION ${AUDASPACE_VERSION})
 	target_link_libraries(audsdl audaspace ${SDL_LIBRARY})
 	install(TARGETS audsdl DESTINATION ${DEFAULT_PLUGIN_PATH})
+endif()
+
+if(WITH_WASAPI AND PLUGIN_WASAPI)
+	add_definitions(-DWASAPI_PLUGIN)
+	include_directories(${INCLUDE})
+	add_library(audwasapi SHARED ${WASAPI_SRC} ${WASAPI_HDR} ${HDR})
+	if(WITH_VERSIONED_PLUGINS)
+		set_target_properties(audwasapi PROPERTIES SOVERSION ${AUDASPACE_VERSION})
+	endif()
+	target_link_libraries(audwasapi audaspace ksuser)
+	install(TARGETS audwasapi DESTINATION ${DEFAULT_PLUGIN_PATH})
 endif()
 
 # dlls
@@ -819,7 +999,10 @@ endif()
 if(BUILD_DEMOS)
 	include_directories(${INCLUDE})
 
-	set(DEMOS audaplay audaconvert audaremap signalgen randsounds dynamicmusic playbackmanager)
+	set(DEMOS audainfo audaplay audaconvert audaremap signalgen randsounds dynamicmusic playbackmanager)
+
+	add_executable(audainfo demos/audainfo.cpp)
+	target_link_libraries(audainfo audaspace)
 
 	add_executable(audaplay demos/audaplay.cpp)
 	target_link_libraries(audaplay audaspace)
@@ -945,12 +1128,12 @@ if(WITH_PYTHON)
 		configure_file(${PYTHON_SOURCE_DIRECTORY}/setup.py.in ${CMAKE_CURRENT_BINARY_DIR}/setup.py ESCAPE_QUOTES @ONLY)
 
 		if(APPLE)
-			add_custom_command(OUTPUT build COMMAND MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET} ${PYTHON_EXECUTABLE} setup.py build DEPENDS ${PYTHON_SRC} ${PYTHON_HDR})
+			add_custom_command(OUTPUT build COMMAND MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET} ${PYTHON_EXECUTABLE} setup.py build DEPENDS ${PYTHON_SRC} ${PYTHON_HDR} setup.py)
 		elseif(WIN32)
 			set(ENV{VS100COMNTOOLS} $ENV{VS120COMNTOOLS})
-			add_custom_command(OUTPUT build COMMAND ${PYTHON_EXECUTABLE} setup.py build DEPENDS ${PYTHON_SRC} ${PYTHON_HDR})
+			add_custom_command(OUTPUT build COMMAND ${PYTHON_EXECUTABLE} setup.py build DEPENDS ${PYTHON_SRC} ${PYTHON_HDR} setup.py)
 		else()
-			add_custom_command(OUTPUT build COMMAND ${PYTHON_EXECUTABLE} setup.py build DEPENDS ${PYTHON_SRC} ${PYTHON_HDR})
+			add_custom_command(OUTPUT build COMMAND ${PYTHON_EXECUTABLE} setup.py build DEPENDS ${PYTHON_SRC} ${PYTHON_HDR} setup.py)
 		endif()
 		add_custom_target(pythonmodule ALL DEPENDS build SOURCES ${PYTHON_SOURCE_DIRECTORY}/setup.py.in ${PYTHON_SRC} ${PYTHON_HDR})
 		add_dependencies(pythonmodule audaspace)
@@ -969,7 +1152,11 @@ if(WITH_DOCS)
 
 		add_custom_target(audaspace_doc ALL ${DOXYGEN_EXECUTABLE} Doxyfile COMMENT "Building C++ HTML documentation with Doxygen.")
 	else()
-		set(WITH_DOCS FALSE CACHE BOOL "Build C++ HTML Documentation with Doxygen" FORCE)
+		if(AUDASPACE_STANDALONE)
+			set(WITH_DOCS FALSE CACHE BOOL "Build C++ HTML Documentation with Doxygen" FORCE)
+		else()
+			set(WITH_DOCS FALSE)
+		endif()
 		message(WARNING "Doxygen (and/or dot) not found, documentation will not be built.")
 	endif()
 endif()
@@ -982,7 +1169,11 @@ if(WITH_BINDING_DOCS)
 
 		add_custom_target(bindings_doc ALL COMMAND ${PYTHON_EXECUTABLE} setup.py --build-docs ${SPHINX_EXECUTABLE} -q -b html -c "${CMAKE_CURRENT_BINARY_DIR}" -d "${CMAKE_CURRENT_BINARY_DIR}/_doctrees" "${CMAKE_CURRENT_SOURCE_DIR}/bindings/doc" "${CMAKE_CURRENT_BINARY_DIR}/doc/bindings" DEPENDS pythonmodule COMMENT "Building C/Python HTML documentation with Sphinx.")
 	else()
-		set(WITH_BINDING_DOCS FALSE CACHE BOOL "Build C/Python HTML Documentation with Sphinx" FORCE)
+		if(AUDASPACE_STANDALONE)
+			set(WITH_BINDING_DOCS FALSE CACHE BOOL "Build C/Python HTML Documentation with Sphinx" FORCE)
+		else()
+			set(WITH_BINDING_DOCS FALSE)
+		endif()
 		message(WARNING "Sphinx not found, binding documentation will not be built.")
 	endif()
 endif()

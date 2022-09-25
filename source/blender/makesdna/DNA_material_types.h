@@ -1,32 +1,19 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_MATERIAL_TYPES_H__
-#define __DNA_MATERIAL_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
 #include "DNA_defs.h"
 #include "DNA_listBase.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 #ifndef MAX_MTEX
 #  define MAX_MTEX 18
@@ -37,20 +24,31 @@ struct Image;
 struct Ipo;
 struct bNodeTree;
 
-/* WATCH IT: change type? also make changes in ipo.h  */
+/* WATCH IT: change type? also make changes in ipo.h */
 
 typedef struct TexPaintSlot {
-  /** Image to be painted on. */
+  DNA_DEFINE_CXX_METHODS(TexPaintSlot)
+
+  /** Image to be painted on. Mutual exclusive with attribute_name. */
   struct Image *ima;
-  /** Customdata index for uv layer, MAX_NAM.E*/
+  struct ImageUser *image_user;
+
+  /** Custom-data index for uv layer, #MAX_NAME. */
   char *uvname;
-  /** Do we have a valid image and UV map. */
+  /**
+   * Color attribute name when painting using color attributes. Mutual exclusive with ima.
+   * Points to the name of a CustomDataLayer.
+   */
+  char *attribute_name;
+  /** Do we have a valid image and UV map or attribute. */
   int valid;
-  /** Copy of node inteporlation setting. */
+  /** Copy of node interpolation setting. */
   int interp;
 } TexPaintSlot;
 
 typedef struct MaterialGPencilStyle {
+  DNA_DEFINE_CXX_METHODS(MaterialGPencilStyle)
+
   /** Texture image for strokes. */
   struct Image *sima;
   /** Texture image for filling. */
@@ -100,7 +98,8 @@ typedef struct MaterialGPencilStyle {
   float mix_stroke_factor;
   /** Mode used to align Dots and Boxes with stroke drawing path and object rotation */
   int alignment_mode;
-  char _pad[4];
+  /** Rotation for texture for Dots and Squares. */
+  float alignment_rotation;
 } MaterialGPencilStyle;
 
 /* MaterialGPencilStyle->flag */
@@ -112,7 +111,7 @@ typedef enum eMaterialGPencilStyle_Flag {
   /* protected from further editing */
   GP_MATERIAL_LOCKED = (1 << 2),
   /* do onion skinning */
-  GP_MATERIAL_ONIONSKIN = (1 << 3),
+  GP_MATERIAL_HIDE_ONIONSKIN = (1 << 3),
   /* clamp texture */
   GP_MATERIAL_TEX_CLAMP = (1 << 4),
   /* mix fill texture */
@@ -129,6 +128,10 @@ typedef enum eMaterialGPencilStyle_Flag {
   GP_MATERIAL_STROKE_TEX_MIX = (1 << 11),
   /* disable stencil clipping (overlap) */
   GP_MATERIAL_DISABLE_STENCIL = (1 << 12),
+  /* Material used as stroke masking. */
+  GP_MATERIAL_IS_STROKE_HOLDOUT = (1 << 13),
+  /* Material used as fill masking. */
+  GP_MATERIAL_IS_FILL_HOLDOUT = (1 << 14),
 } eMaterialGPencilStyle_Flag;
 
 typedef enum eMaterialGPencilStyle_Mode {
@@ -137,7 +140,30 @@ typedef enum eMaterialGPencilStyle_Mode {
   GP_MATERIAL_MODE_SQUARE = 2,
 } eMaterialGPencilStyle_Mode;
 
+typedef struct MaterialLineArt {
+  /* eMaterialLineArtFlags */
+  int flags;
+
+  /* Used to filter line art occlusion edges */
+  unsigned char material_mask_bits;
+
+  /** Maximum 255 levels of equivalent occlusion. */
+  unsigned char mat_occlusion;
+
+  unsigned char intersection_priority;
+
+  char _pad;
+} MaterialLineArt;
+
+typedef enum eMaterialLineArtFlags {
+  LRT_MATERIAL_MASK_ENABLED = (1 << 0),
+  LRT_MATERIAL_CUSTOM_OCCLUSION_EFFECTIVENESS = (1 << 1),
+  LRT_MATERIAL_CUSTOM_INTERSECTION_PRIORITY = (1 << 2),
+} eMaterialLineArtFlags;
+
 typedef struct Material {
+  DNA_DEFINE_CXX_METHODS(Material)
+
   ID id;
   /** Animation data (must be immediately after id for utilities to use it). */
   struct AnimData *adt;
@@ -202,6 +228,7 @@ typedef struct Material {
 
   /** Grease pencil color. */
   struct MaterialGPencilStyle *gp_style;
+  struct MaterialLineArt lineart;
 } Material;
 
 /* **************** MATERIAL ********************* */
@@ -264,41 +291,25 @@ typedef struct Material {
 /* #define TEXCO_STRESS    (1 << 14) */ /* deprecated */
 /* #define TEXCO_SPEED     (1 << 15) */ /* deprecated */
 
-/* mapto */
+/** #MTex.mapto */
 #define MAP_COL (1 << 0)
 #define MAP_ALPHA (1 << 7)
 
-/* pmapto */
-/* init */
-#define MAP_PA_INIT ((1 << 5) - 1)
-#define MAP_PA_TIME (1 << 0)
-#define MAP_PA_LIFE (1 << 1)
-#define MAP_PA_DENS (1 << 2)
-#define MAP_PA_SIZE (1 << 3)
-#define MAP_PA_LENGTH (1 << 4)
-/* reset */
-#define MAP_PA_IVEL (1 << 5)
-/* physics */
-#define MAP_PA_PVEL (1 << 6)
-/* path cache */
-#define MAP_PA_CLUMP (1 << 7)
-#define MAP_PA_KINK (1 << 8)
-#define MAP_PA_ROUGH (1 << 9)
-#define MAP_PA_FREQ (1 << 10)
-
 /* pr_type */
-#define MA_FLAT 0
-#define MA_SPHERE 1
-#define MA_CUBE 2
-#define MA_SHADERBALL 3
-#define MA_SPHERE_A 4 /* Used for icon renders only. */
-#define MA_TEXTURE 5
-#define MA_LAMP 6
-#define MA_SKY 7
-#define MA_HAIR 10
-#define MA_ATMOS 11
-#define MA_CLOTH 12
-#define MA_FLUID 13
+typedef enum ePreviewType {
+  MA_FLAT = 0,
+  MA_SPHERE = 1,
+  MA_CUBE = 2,
+  MA_SHADERBALL = 3,
+  MA_SPHERE_A = 4, /* Used for icon renders only. */
+  MA_TEXTURE = 5,
+  MA_LAMP = 6,
+  MA_SKY = 7,
+  MA_HAIR = 10,
+  MA_ATMOS = 11,
+  MA_CLOTH = 12,
+  MA_FLUID = 13,
+} ePreviewType;
 
 /* pr_flag */
 #define MA_PREVIEW_WORLD (1 << 0)
@@ -355,4 +366,7 @@ enum {
   GP_MATERIAL_FOLLOW_OBJ = 1,
   GP_MATERIAL_FOLLOW_FIXED = 2,
 };
+
+#ifdef __cplusplus
+}
 #endif

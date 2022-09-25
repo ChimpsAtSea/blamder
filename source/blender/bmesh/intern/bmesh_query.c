@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -37,24 +23,6 @@
 #include "bmesh.h"
 #include "intern/bmesh_private.h"
 
-/**
- * \brief Other Loop in Face Sharing an Edge
- *
- * Finds the other loop that shares \a v with \a e loop in \a f.
- * <pre>
- *     +----------+
- *     |          |
- *     |    f     |
- *     |          |
- *     +----------+ <-- return the face loop of this vertex.
- *     v --> e
- *     ^     ^ <------- These vert args define direction
- *                      in the face to check.
- *                      The faces loop direction is ignored.
- * </pre>
- *
- * \note caller must ensure \a e is used in \a f
- */
 BMLoop *BM_face_other_edge_loop(BMFace *f, BMEdge *e, BMVert *v)
 {
   BMLoop *l = BM_face_edge_share_loop(f, e);
@@ -62,38 +30,12 @@ BMLoop *BM_face_other_edge_loop(BMFace *f, BMEdge *e, BMVert *v)
   return BM_loop_other_edge_loop(l, v);
 }
 
-/**
- * See #BM_face_other_edge_loop This is the same functionality
- * to be used when the edges loop is already known.
- */
 BMLoop *BM_loop_other_edge_loop(BMLoop *l, BMVert *v)
 {
   BLI_assert(BM_vert_in_edge(l->e, v));
   return l->v == v ? l->prev : l->next;
 }
 
-/**
- * \brief Other Loop in Face Sharing a Vertex
- *
- * Finds the other loop in a face.
- *
- * This function returns a loop in \a f that shares an edge with \a v
- * The direction is defined by \a v_prev, where the return value is
- * the loop of what would be 'v_next'
- * <pre>
- *     +----------+ <-- return the face loop of this vertex.
- *     |          |
- *     |    f     |
- *     |          |
- *     +----------+
- *     v_prev --> v
- *     ^^^^^^     ^ <-- These vert args define direction
- *                      in the face to check.
- *                      The faces loop direction is ignored.
- * </pre>
- *
- * \note \a v_prev and \a v _implicitly_ define an edge.
- */
 BMLoop *BM_face_other_vert_loop(BMFace *f, BMVert *v_prev, BMVert *v)
 {
   BMLoop *l_iter = BM_face_vert_share_loop(f, v);
@@ -104,38 +46,18 @@ BMLoop *BM_face_other_vert_loop(BMFace *f, BMVert *v_prev, BMVert *v)
     if (l_iter->prev->v == v_prev) {
       return l_iter->next;
     }
-    else if (l_iter->next->v == v_prev) {
+    if (l_iter->next->v == v_prev) {
       return l_iter->prev;
     }
-    else {
-      /* invalid args */
-      BLI_assert(0);
-      return NULL;
-    }
-  }
-  else {
     /* invalid args */
     BLI_assert(0);
     return NULL;
   }
+  /* invalid args */
+  BLI_assert(0);
+  return NULL;
 }
 
-/**
- * \brief Other Loop in Face Sharing a Vert
- *
- * Finds the other loop that shares \a v with \a e loop in \a f.
- * <pre>
- *     +----------+ <-- return the face loop of this vertex.
- *     |          |
- *     |          |
- *     |          |
- *     +----------+ <-- This vertex defines the direction.
- *           l    v
- *           ^ <------- This loop defines both the face to search
- *                      and the edge, in combination with 'v'
- *                      The faces loop direction is ignored.
- * </pre>
- */
 BMLoop *BM_loop_other_vert_loop(BMLoop *l, BMVert *v)
 {
 #if 0 /* works but slow */
@@ -147,29 +69,34 @@ BMLoop *BM_loop_other_vert_loop(BMLoop *l, BMVert *v)
     if (l->prev->v == v_prev) {
       return l->next;
     }
-    else {
-      BLI_assert(l->next->v == v_prev);
+    BLI_assert(l->next->v == v_prev);
 
-      return l->prev;
-    }
+    return l->prev;
   }
-  else {
-    BLI_assert(l->v == v_prev);
+  BLI_assert(l->v == v_prev);
 
-    if (l->prev->v == v) {
-      return l->prev->prev;
-    }
-    else {
-      BLI_assert(l->next->v == v);
-      return l->next->next;
-    }
+  if (l->prev->v == v) {
+    return l->prev->prev;
   }
+  BLI_assert(l->next->v == v);
+  return l->next->next;
 #endif
 }
 
-/**
- * Check if verts share a face.
- */
+BMLoop *BM_loop_other_vert_loop_by_edge(BMLoop *l, BMEdge *e)
+{
+  BLI_assert(BM_vert_in_edge(e, l->v));
+  if (l->e == e) {
+    return l->next;
+  }
+  if (l->prev->e == e) {
+    return l->prev;
+  }
+
+  BLI_assert(0);
+  return NULL;
+}
+
 bool BM_vert_pair_share_face_check(BMVert *v_a, BMVert *v_b)
 {
   if (v_a->e && v_b->e) {
@@ -235,9 +162,6 @@ BMFace *BM_vert_pair_shared_face_cb(BMVert *v_a,
   return NULL;
 }
 
-/**
- * Given 2 verts, find the smallest face they share and give back both loops.
- */
 BMFace *BM_vert_pair_share_face_by_len(
     BMVert *v_a, BMVert *v_b, BMLoop **r_l_a, BMLoop **r_l_b, const bool allow_adjacent)
 {
@@ -302,29 +226,15 @@ static float bm_face_calc_split_dot(BMLoop *l_a, BMLoop *l_b)
       (BM_face_calc_normal_subset(l_b, l_a, no[1]) != 0.0f)) {
     return dot_v3v3(no[0], no[1]);
   }
-  else {
-    return -1.0f;
-  }
+  return -1.0f;
 }
 
-/**
- * Check if a point is inside the corner defined by a loop
- * (within the 2 planes defined by the loops corner & face normal).
- *
- * \return signed, squared distance to the loops planes, less than 0.0 when outside.
- */
 float BM_loop_point_side_of_loop_test(const BMLoop *l, const float co[3])
 {
   const float *axis = l->f->no;
   return dist_signed_squared_to_corner_v3v3v3(co, l->prev->v->co, l->v->co, l->next->v->co, axis);
 }
 
-/**
- * Check if a point is inside the edge defined by a loop
- * (within the plane defined by the loops edge & face normal).
- *
- * \return signed, squared distance to the edge plane, less than 0.0 when outside.
- */
 float BM_loop_point_side_of_edge_test(const BMLoop *l, const float co[3])
 {
   const float *axis = l->f->no;
@@ -338,13 +248,6 @@ float BM_loop_point_side_of_edge_test(const BMLoop *l, const float co[3])
   return dist_signed_squared_to_plane_v3(co, plane);
 }
 
-/**
- * Given 2 verts,
- * find a face they share that has the lowest angle across these verts and give back both loops.
- *
- * This can be better then #BM_vert_pair_share_face_by_len
- * because concave splits are ranked lowest.
- */
 BMFace *BM_vert_pair_share_face_by_angle(
     BMVert *v_a, BMVert *v_b, BMLoop **r_l_a, BMLoop **r_l_b, const bool allow_adjacent)
 {
@@ -391,25 +294,15 @@ BMFace *BM_vert_pair_share_face_by_angle(
   return f_cur;
 }
 
-/**
- * Get the first loop of a vert. Uses the same initialization code for the first loop of the
- * iterator API
- */
 BMLoop *BM_vert_find_first_loop(BMVert *v)
 {
   return v->e ? bmesh_disk_faceloop_find_first(v->e, v) : NULL;
 }
-/**
- * A version of #BM_vert_find_first_loop that ignores hidden loops.
- */
 BMLoop *BM_vert_find_first_loop_visible(BMVert *v)
 {
   return v->e ? bmesh_disk_faceloop_find_first_visible(v->e, v) : NULL;
 }
 
-/**
- * Returns true if the vertex is used in a given face.
- */
 bool BM_vert_in_face(BMVert *v, BMFace *f)
 {
   BMLoop *l_iter, *l_first;
@@ -434,10 +327,6 @@ bool BM_vert_in_face(BMVert *v, BMFace *f)
   return false;
 }
 
-/**
- * Compares the number of vertices in an array
- * that appear in a given face
- */
 int BM_verts_in_face_count(BMVert **varr, int len, BMFace *f)
 {
   BMLoop *l_iter, *l_first;
@@ -478,9 +367,6 @@ int BM_verts_in_face_count(BMVert **varr, int len, BMFace *f)
   return count;
 }
 
-/**
- * Return true if all verts are in the face.
- */
 bool BM_verts_in_face(BMVert **varr, int len, BMFace *f)
 {
   BMLoop *l_iter, *l_first;
@@ -531,9 +417,6 @@ bool BM_verts_in_face(BMVert **varr, int len, BMFace *f)
   return ok;
 }
 
-/**
- * Returns whether or not a given edge is part of a given face.
- */
 bool BM_edge_in_face(const BMEdge *e, const BMFace *f)
 {
   if (e->l) {
@@ -550,22 +433,6 @@ bool BM_edge_in_face(const BMEdge *e, const BMFace *f)
   return false;
 }
 
-/**
- * Given a edge and a loop (assumes the edge is manifold). returns
- * the other faces loop, sharing the same vertex.
- *
- * <pre>
- * +-------------------+
- * |                   |
- * |                   |
- * |l_other <-- return |
- * +-------------------+ <-- A manifold edge between 2 faces
- * |l    e  <-- edge   |
- * |^ <-------- loop   |
- * |                   |
- * +-------------------+
- * </pre>
- */
 BMLoop *BM_edge_other_loop(BMEdge *e, BMLoop *l)
 {
   BMLoop *l_other;
@@ -591,31 +458,6 @@ BMLoop *BM_edge_other_loop(BMEdge *e, BMLoop *l)
   return l_other;
 }
 
-/**
- * Utility function to step around a fan of loops,
- * using an edge to mark the previous side.
- *
- * \note all edges must be manifold,
- * once a non manifold edge is hit, return NULL.
- *
- * <pre>
- *                ,.,-->|
- *            _,-'      |
- *          ,'          | (notice how 'e_step'
- *         /            |  and 'l' define the
- *        /             |  direction the arrow
- *       |     return   |  points).
- *       |     loop --> |
- * ---------------------+---------------------
- *         ^      l --> |
- *         |            |
- *  assign e_step       |
- *                      |
- *   begin e_step ----> |
- *                      |
- * </pre>
- */
-
 BMLoop *BM_vert_step_fan_loop(BMLoop *l, BMEdge **e_step)
 {
   BMEdge *e_prev = *e_step;
@@ -634,17 +476,9 @@ BMLoop *BM_vert_step_fan_loop(BMLoop *l, BMEdge **e_step)
   if (BM_edge_is_manifold(e_next)) {
     return BM_edge_other_loop((*e_step = e_next), l);
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
-/**
- * The function takes a vertex at the center of a fan and returns the opposite edge in the fan.
- * All edges in the fan must be manifold, otherwise return NULL.
- *
- * \note This could (probably) be done more efficiently.
- */
 BMEdge *BM_vert_other_disk_edge(BMVert *v, BMEdge *e_first)
 {
   BMLoop *l_a;
@@ -683,7 +517,7 @@ BMEdge *BM_vert_other_disk_edge(BMVert *v, BMEdge *e_first)
     if (BM_edge_is_manifold(l_a->e)) {
       l_a = l_a->radial_next;
     }
-    /* this wont have changed from the previous loop */
+    /* this won't have changed from the previous loop */
 
     i++;
   } while (l_a != e_first->l);
@@ -691,28 +525,16 @@ BMEdge *BM_vert_other_disk_edge(BMVert *v, BMEdge *e_first)
   return NULL;
 }
 
-/**
- * Returns edge length
- */
 float BM_edge_calc_length(const BMEdge *e)
 {
   return len_v3v3(e->v1->co, e->v2->co);
 }
 
-/**
- * Returns edge length squared (for comparisons)
- */
 float BM_edge_calc_length_squared(const BMEdge *e)
 {
   return len_squared_v3v3(e->v1->co, e->v2->co);
 }
 
-/**
- * Utility function, since enough times we have an edge
- * and want to access 2 connected faces.
- *
- * \return true when only 2 faces are found.
- */
 bool BM_edge_face_pair(BMEdge *e, BMFace **r_fa, BMFace **r_fb)
 {
   BMLoop *la, *lb;
@@ -722,19 +544,12 @@ bool BM_edge_face_pair(BMEdge *e, BMFace **r_fa, BMFace **r_fb)
     *r_fb = lb->f;
     return true;
   }
-  else {
-    *r_fa = NULL;
-    *r_fb = NULL;
-    return false;
-  }
+
+  *r_fa = NULL;
+  *r_fb = NULL;
+  return false;
 }
 
-/**
- * Utility function, since enough times we have an edge
- * and want to access 2 connected loops.
- *
- * \return true when only 2 faces are found.
- */
 bool BM_edge_loop_pair(BMEdge *e, BMLoop **r_la, BMLoop **r_lb)
 {
   BMLoop *la, *lb;
@@ -744,16 +559,12 @@ bool BM_edge_loop_pair(BMEdge *e, BMLoop **r_la, BMLoop **r_lb)
     *r_lb = lb;
     return true;
   }
-  else {
-    *r_la = NULL;
-    *r_lb = NULL;
-    return false;
-  }
+
+  *r_la = NULL;
+  *r_lb = NULL;
+  return false;
 }
 
-/**
- * Fast alternative to ``(BM_vert_edge_count(v) == 2)``
- */
 bool BM_vert_is_edge_pair(const BMVert *v)
 {
   const BMEdge *e = v->e;
@@ -764,10 +575,6 @@ bool BM_vert_is_edge_pair(const BMVert *v)
   return false;
 }
 
-/**
- * Fast alternative to ``(BM_vert_edge_count(v) == 2)``
- * that checks both edges connect to the same faces.
- */
 bool BM_vert_is_edge_pair_manifold(const BMVert *v)
 {
   const BMEdge *e = v->e;
@@ -780,11 +587,6 @@ bool BM_vert_is_edge_pair_manifold(const BMVert *v)
   return false;
 }
 
-/**
- * Access a verts 2 connected edges.
- *
- * \return true when only 2 verts are found.
- */
 bool BM_vert_edge_pair(BMVert *v, BMEdge **r_e_a, BMEdge **r_e_b)
 {
   BMEdge *e_a = v->e;
@@ -802,9 +604,6 @@ bool BM_vert_edge_pair(BMVert *v, BMEdge **r_e_a, BMEdge **r_e_b)
   return false;
 }
 
-/**
- * Returns the number of edges around this vertex.
- */
 int BM_vert_edge_count(const BMVert *v)
 {
   return bmesh_disk_count(v);
@@ -827,9 +626,6 @@ int BM_vert_edge_count_nonwire(const BMVert *v)
   }
   return count;
 }
-/**
- * Returns the number of faces around this edge
- */
 int BM_edge_face_count(const BMEdge *e)
 {
   int count = 0;
@@ -865,10 +661,6 @@ int BM_edge_face_count_at_most(const BMEdge *e, const int count_max)
   return count;
 }
 
-/**
- * Returns the number of faces around this vert
- * length matches #BM_LOOPS_OF_VERT iterator
- */
 int BM_vert_face_count(const BMVert *v)
 {
   return bmesh_disk_facevert_count(v);
@@ -879,11 +671,6 @@ int BM_vert_face_count_at_most(const BMVert *v, int count_max)
   return bmesh_disk_facevert_count_at_most(v, count_max);
 }
 
-/**
- * Return true if the vertex is connected to _any_ faces.
- *
- * same as ``BM_vert_face_count(v) != 0`` or ``BM_vert_find_first_loop(v) == NULL``
- */
 bool BM_vert_face_check(const BMVert *v)
 {
   if (v->e != NULL) {
@@ -898,10 +685,6 @@ bool BM_vert_face_check(const BMVert *v)
   return false;
 }
 
-/**
- * Tests whether or not the vertex is part of a wire edge.
- * (ie: has no faces attached to it)
- */
 bool BM_vert_is_wire(const BMVert *v)
 {
   if (v->e) {
@@ -916,18 +699,9 @@ bool BM_vert_is_wire(const BMVert *v)
 
     return true;
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
-/**
- * A vertex is non-manifold if it meets the following conditions:
- * 1: Loose - (has no edges/faces incident upon it).
- * 2: Joins two distinct regions - (two pyramids joined at the tip).
- * 3: Is part of an edge with more than 2 faces.
- * 4: Is part of a wire edge.
- */
 bool BM_vert_is_manifold(const BMVert *v)
 {
   BMEdge *e_iter, *e_first, *e_prev;
@@ -966,7 +740,7 @@ bool BM_vert_is_manifold(const BMVert *v)
       /* start at the boundary */
       l_first = e_iter->l;
       boundary_num += 1;
-      /* >2 boundaries cant be manifold */
+      /* >2 boundaries can't be manifold */
       if (boundary_num == 3) {
         return false;
       }
@@ -1052,9 +826,6 @@ static int bm_loop_region_count__clear(BMLoop *l)
   return count;
 }
 
-/**
- * The number of loops connected to this loop (not including disconnected regions).
- */
 int BM_loop_region_loops_count_at_most(BMLoop *l, int *r_loop_total)
 {
   const int count = bm_loop_region_count__recursive(l->e, l->v);
@@ -1073,10 +844,6 @@ int BM_loop_region_loops_count(BMLoop *l)
   return BM_loop_region_loops_count_at_most(l, NULL);
 }
 
-/**
- * A version of #BM_vert_is_manifold
- * which only checks if we're connected to multiple isolated regions.
- */
 bool BM_vert_is_manifold_region(const BMVert *v)
 {
   BMLoop *l_first = BM_vert_find_first_loop((BMVert *)v);
@@ -1088,10 +855,6 @@ bool BM_vert_is_manifold_region(const BMVert *v)
   return true;
 }
 
-/**
- * Check if the edge is convex or concave
- * (depends on face winding)
- */
 bool BM_edge_is_convex(const BMEdge *e)
 {
   if (BM_edge_is_manifold(e)) {
@@ -1109,9 +872,6 @@ bool BM_edge_is_convex(const BMEdge *e)
   return true;
 }
 
-/**
- * \return true when loop customdata is contiguous.
- */
 bool BM_edge_is_contiguous_loop_cd(const BMEdge *e,
                                    const int cd_loop_type,
                                    const int cd_loop_offset)
@@ -1167,26 +927,19 @@ bool BM_vert_is_boundary(const BMVert *v)
 
     return false;
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
-/**
- * Returns the number of faces that are adjacent to both f1 and f2,
- * \note Could be sped up a bit by not using iterators and by tagging
- * faces on either side, then count the tags rather then searching.
- */
-int BM_face_share_face_count(BMFace *f1, BMFace *f2)
+int BM_face_share_face_count(BMFace *f_a, BMFace *f_b)
 {
   BMIter iter1, iter2;
   BMEdge *e;
   BMFace *f;
   int count = 0;
 
-  BM_ITER_ELEM (e, &iter1, f1, BM_EDGES_OF_FACE) {
+  BM_ITER_ELEM (e, &iter1, f_a, BM_EDGES_OF_FACE) {
     BM_ITER_ELEM (f, &iter2, e, BM_FACES_OF_EDGE) {
-      if (f != f1 && f != f2 && BM_face_share_edge_check(f, f2)) {
+      if (f != f_a && f != f_b && BM_face_share_edge_check(f, f_b)) {
         count++;
       }
     }
@@ -1195,18 +948,15 @@ int BM_face_share_face_count(BMFace *f1, BMFace *f2)
   return count;
 }
 
-/**
- * same as #BM_face_share_face_count but returns a bool
- */
-bool BM_face_share_face_check(BMFace *f1, BMFace *f2)
+bool BM_face_share_face_check(BMFace *f_a, BMFace *f_b)
 {
   BMIter iter1, iter2;
   BMEdge *e;
   BMFace *f;
 
-  BM_ITER_ELEM (e, &iter1, f1, BM_EDGES_OF_FACE) {
+  BM_ITER_ELEM (e, &iter1, f_a, BM_EDGES_OF_FACE) {
     BM_ITER_ELEM (f, &iter2, e, BM_FACES_OF_EDGE) {
-      if (f != f1 && f != f2 && BM_face_share_edge_check(f, f2)) {
+      if (f != f_a && f != f_b && BM_face_share_edge_check(f, f_b)) {
         return true;
       }
     }
@@ -1215,9 +965,6 @@ bool BM_face_share_face_check(BMFace *f1, BMFace *f2)
   return false;
 }
 
-/**
- * Counts the number of edges two faces share (if any)
- */
 int BM_face_share_edge_count(BMFace *f_a, BMFace *f_b)
 {
   BMLoop *l_iter;
@@ -1234,9 +981,6 @@ int BM_face_share_edge_count(BMFace *f_a, BMFace *f_b)
   return count;
 }
 
-/**
- * Returns true if the faces share an edge
- */
 bool BM_face_share_edge_check(BMFace *f1, BMFace *f2)
 {
   BMLoop *l_iter;
@@ -1252,9 +996,6 @@ bool BM_face_share_edge_check(BMFace *f1, BMFace *f2)
   return false;
 }
 
-/**
- * Counts the number of verts two faces share (if any).
- */
 int BM_face_share_vert_count(BMFace *f_a, BMFace *f_b)
 {
   BMLoop *l_iter;
@@ -1271,9 +1012,6 @@ int BM_face_share_vert_count(BMFace *f_a, BMFace *f_b)
   return count;
 }
 
-/**
- * Returns true if the faces share a vert.
- */
 bool BM_face_share_vert_check(BMFace *f_a, BMFace *f_b)
 {
   BMLoop *l_iter;
@@ -1289,18 +1027,12 @@ bool BM_face_share_vert_check(BMFace *f_a, BMFace *f_b)
   return false;
 }
 
-/**
- * Returns true when 2 loops share an edge (are adjacent in the face-fan)
- */
 bool BM_loop_share_edge_check(BMLoop *l_a, BMLoop *l_b)
 {
   BLI_assert(l_a->v == l_b->v);
   return (ELEM(l_a->e, l_b->e, l_b->prev->e) || ELEM(l_b->e, l_a->e, l_a->prev->e));
 }
 
-/**
- * Test if e1 shares any faces with e2
- */
 bool BM_edge_share_face_check(BMEdge *e1, BMEdge *e2)
 {
   BMLoop *l;
@@ -1319,9 +1051,6 @@ bool BM_edge_share_face_check(BMEdge *e1, BMEdge *e2)
   return false;
 }
 
-/**
- * Test if e1 shares any quad faces with e2
- */
 bool BM_edge_share_quad_check(BMEdge *e1, BMEdge *e2)
 {
   BMLoop *l;
@@ -1342,58 +1071,32 @@ bool BM_edge_share_quad_check(BMEdge *e1, BMEdge *e2)
   return false;
 }
 
-/**
- * Tests to see if e1 shares a vertex with e2
- */
 bool BM_edge_share_vert_check(BMEdge *e1, BMEdge *e2)
 {
   return (e1->v1 == e2->v1 || e1->v1 == e2->v2 || e1->v2 == e2->v1 || e1->v2 == e2->v2);
 }
 
-/**
- * Return the shared vertex between the two edges or NULL
- */
 BMVert *BM_edge_share_vert(BMEdge *e1, BMEdge *e2)
 {
   BLI_assert(e1 != e2);
   if (BM_vert_in_edge(e2, e1->v1)) {
     return e1->v1;
   }
-  else if (BM_vert_in_edge(e2, e1->v2)) {
+  if (BM_vert_in_edge(e2, e1->v2)) {
     return e1->v2;
   }
-  else {
-    return NULL;
-  }
+  return NULL;
 }
 
-/**
- * \brief Return the Loop Shared by Edge and Vert
- *
- * Finds the loop used which uses \a  in face loop \a l
- *
- * \note this function takes a loop rather then an edge
- * so we can select the face that the loop should be from.
- */
 BMLoop *BM_edge_vert_share_loop(BMLoop *l, BMVert *v)
 {
   BLI_assert(BM_vert_in_edge(l->e, v));
   if (l->v == v) {
     return l;
   }
-  else {
-    return l->next;
-  }
+  return l->next;
 }
 
-/**
- * \brief Return the Loop Shared by Face and Vertex
- *
- * Finds the loop used which uses \a v in face loop \a l
- *
- * \note currently this just uses simple loop in future may be sped up
- * using radial vars
- */
 BMLoop *BM_face_vert_share_loop(BMFace *f, BMVert *v)
 {
   BMLoop *l_first;
@@ -1409,14 +1112,6 @@ BMLoop *BM_face_vert_share_loop(BMFace *f, BMVert *v)
   return NULL;
 }
 
-/**
- * \brief Return the Loop Shared by Face and Edge
- *
- * Finds the loop used which uses \a e in face loop \a l
- *
- * \note currently this just uses simple loop in future may be sped up
- * using radial vars
- */
 BMLoop *BM_face_edge_share_loop(BMFace *f, BMEdge *e)
 {
   BMLoop *l_first;
@@ -1432,18 +1127,6 @@ BMLoop *BM_face_edge_share_loop(BMFace *f, BMEdge *e)
   return NULL;
 }
 
-/**
- * Returns the verts of an edge as used in a face
- * if used in a face at all, otherwise just assign as used in the edge.
- *
- * Useful to get a deterministic winding order when calling
- * BM_face_create_ngon() on an arbitrary array of verts,
- * though be sure to pick an edge which has a face.
- *
- * \note This is in fact quite a simple check,
- * mainly include this function so the intent is more obvious.
- * We know these 2 verts will _always_ make up the loops edge
- */
 void BM_edge_ordered_verts_ex(const BMEdge *edge,
                               BMVert **r_v1,
                               BMVert **r_v2,
@@ -1460,9 +1143,6 @@ void BM_edge_ordered_verts(const BMEdge *edge, BMVert **r_v1, BMVert **r_v2)
   BM_edge_ordered_verts_ex(edge, r_v1, r_v2, edge->l);
 }
 
-/**
- * \return The previous loop, over \a eps_sq distance from \a l (or \a NULL if l_stop is reached).
- */
 BMLoop *BM_loop_find_prev_nodouble(BMLoop *l, BMLoop *l_stop, const float eps_sq)
 {
   BMLoop *l_step = l->prev;
@@ -1480,9 +1160,6 @@ BMLoop *BM_loop_find_prev_nodouble(BMLoop *l, BMLoop *l_stop, const float eps_sq
   return l_step;
 }
 
-/**
- * \return The next loop, over \a eps_sq distance from \a l (or \a NULL if l_stop is reached).
- */
 BMLoop *BM_loop_find_next_nodouble(BMLoop *l, BMLoop *l_stop, const float eps_sq)
 {
   BMLoop *l_step = l->next;
@@ -1500,10 +1177,6 @@ BMLoop *BM_loop_find_next_nodouble(BMLoop *l, BMLoop *l_stop, const float eps_sq
   return l_step;
 }
 
-/**
- * Check if the loop is convex or concave
- * (depends on face normal)
- */
 bool BM_loop_is_convex(const BMLoop *l)
 {
   float e_dir_prev[3];
@@ -1516,34 +1189,19 @@ bool BM_loop_is_convex(const BMLoop *l)
   return dot_v3v3(l_no, l->f->no) > 0.0f;
 }
 
-/**
- * Calculates the angle between the previous and next loops
- * (angle at this loops face corner).
- *
- * \return angle in radians
- */
 float BM_loop_calc_face_angle(const BMLoop *l)
 {
   return angle_v3v3v3(l->prev->v->co, l->v->co, l->next->v->co);
 }
 
-/**
- * \brief BM_loop_calc_face_normal
- *
- * Calculate the normal at this loop corner or fallback to the face normal on straight lines.
- *
- * \param l: The loop to calculate the normal at.
- * \param epsilon_sq: Value to avoid numeric errors (1e-5f works well).
- * \param r_normal: Resulting normal.
- */
 float BM_loop_calc_face_normal_safe_ex(const BMLoop *l, const float epsilon_sq, float r_normal[3])
 {
-  /* Note: we cannot use result of normal_tri_v3 here to detect colinear vectors
+  /* NOTE: we cannot use result of normal_tri_v3 here to detect colinear vectors
    * (vertex on a straight line) from zero value,
    * because it does not normalize both vectors before making cross-product.
    * Instead of adding two costly normalize computations,
    * just check ourselves for colinear case. */
-  /* Note: FEPSILON might need some finer tweaking at some point?
+  /* NOTE: FEPSILON might need some finer tweaking at some point?
    * Seems to be working OK for now though. */
   float v1[3], v2[3], v_tmp[3];
   sub_v3_v3v3(v1, l->prev->v->co, l->v->co);
@@ -1561,15 +1219,10 @@ float BM_loop_calc_face_normal_safe_ex(const BMLoop *l, const float epsilon_sq, 
     cross_v3_v3v3(r_normal, v1, v2);
     return normalize_v3(r_normal);
   }
-  else {
-    copy_v3_v3(r_normal, l->f->no);
-    return 0.0f;
-  }
+  copy_v3_v3(r_normal, l->f->no);
+  return 0.0f;
 }
 
-/**
- * A version of BM_loop_calc_face_normal_safe_ex which takes vertex coordinates.
- */
 float BM_loop_calc_face_normal_safe_vcos_ex(const BMLoop *l,
                                             const float normal_fallback[3],
                                             float const (*vertexCos)[3],
@@ -1596,17 +1249,10 @@ float BM_loop_calc_face_normal_safe_vcos_ex(const BMLoop *l,
     cross_v3_v3v3(r_normal, v1, v2);
     return normalize_v3(r_normal);
   }
-  else {
-    copy_v3_v3(r_normal, normal_fallback);
-    return 0.0f;
-  }
+  copy_v3_v3(r_normal, normal_fallback);
+  return 0.0f;
 }
 
-/**
- * #BM_loop_calc_face_normal_safe_ex with pre-defined sane epsilon.
- *
- * Since this doesn't scale based on triangle size, fixed value works well.
- */
 float BM_loop_calc_face_normal_safe(const BMLoop *l, float r_normal[3])
 {
   return BM_loop_calc_face_normal_safe_ex(l, 1e-5f, r_normal);
@@ -1621,15 +1267,6 @@ float BM_loop_calc_face_normal_safe_vcos(const BMLoop *l,
   return BM_loop_calc_face_normal_safe_vcos_ex(l, normal_fallback, vertexCos, 1e-5f, r_normal);
 }
 
-/**
- * \brief BM_loop_calc_face_normal
- *
- * Calculate the normal at this loop corner or fallback to the face normal on straight lines.
- *
- * \param l: The loop to calculate the normal at
- * \param r_normal: Resulting normal
- * \return The length of the cross product (double the area).
- */
 float BM_loop_calc_face_normal(const BMLoop *l, float r_normal[3])
 {
   float v1[3], v2[3];
@@ -1644,14 +1281,6 @@ float BM_loop_calc_face_normal(const BMLoop *l, float r_normal[3])
   return len;
 }
 
-/**
- * \brief BM_loop_calc_face_direction
- *
- * Calculate the direction a loop is pointing.
- *
- * \param l: The loop to calculate the direction at
- * \param r_dir: Resulting direction
- */
 void BM_loop_calc_face_direction(const BMLoop *l, float r_dir[3])
 {
   float v_prev[3];
@@ -1667,15 +1296,6 @@ void BM_loop_calc_face_direction(const BMLoop *l, float r_dir[3])
   normalize_v3(r_dir);
 }
 
-/**
- * \brief BM_loop_calc_face_tangent
- *
- * Calculate the tangent at this loop corner or fallback to the face normal on straight lines.
- * This vector always points inward into the face.
- *
- * \param l: The loop to calculate the tangent at
- * \param r_tangent: Resulting tangent
- */
 void BM_loop_calc_face_tangent(const BMLoop *l, float r_tangent[3])
 {
   float v_prev[3];
@@ -1706,14 +1326,6 @@ void BM_loop_calc_face_tangent(const BMLoop *l, float r_tangent[3])
   normalize_v3(r_tangent);
 }
 
-/**
- * \brief BMESH EDGE/FACE ANGLE
- *
- * Calculates the angle between two faces.
- * Assumes the face normals are correct.
- *
- * \return angle in radians
- */
 float BM_edge_calc_face_angle_ex(const BMEdge *e, const float fallback)
 {
   if (BM_edge_is_manifold(e)) {
@@ -1721,23 +1333,13 @@ float BM_edge_calc_face_angle_ex(const BMEdge *e, const float fallback)
     const BMLoop *l2 = e->l->radial_next;
     return angle_normalized_v3v3(l1->f->no, l2->f->no);
   }
-  else {
-    return fallback;
-  }
+  return fallback;
 }
 float BM_edge_calc_face_angle(const BMEdge *e)
 {
   return BM_edge_calc_face_angle_ex(e, DEG2RADF(90.0f));
 }
 
-/**
- * \brief BMESH EDGE/FACE ANGLE
- *
- * Calculates the angle between two faces in world space.
- * Assumes the face normals are correct.
- *
- * \return angle in radians
- */
 float BM_edge_calc_face_angle_with_imat3_ex(const BMEdge *e,
                                             const float imat3[3][3],
                                             const float fallback)
@@ -1757,23 +1359,13 @@ float BM_edge_calc_face_angle_with_imat3_ex(const BMEdge *e,
 
     return angle_normalized_v3v3(no1, no2);
   }
-  else {
-    return fallback;
-  }
+  return fallback;
 }
 float BM_edge_calc_face_angle_with_imat3(const BMEdge *e, const float imat3[3][3])
 {
   return BM_edge_calc_face_angle_with_imat3_ex(e, imat3, DEG2RADF(90.0f));
 }
 
-/**
- * \brief BMESH EDGE/FACE ANGLE
- *
- * Calculates the angle between two faces.
- * Assumes the face normals are correct.
- *
- * \return angle in radians
- */
 float BM_edge_calc_face_angle_signed_ex(const BMEdge *e, const float fallback)
 {
   if (BM_edge_is_manifold(e)) {
@@ -1782,27 +1374,12 @@ float BM_edge_calc_face_angle_signed_ex(const BMEdge *e, const float fallback)
     const float angle = angle_normalized_v3v3(l1->f->no, l2->f->no);
     return BM_edge_is_convex(e) ? angle : -angle;
   }
-  else {
-    return fallback;
-  }
+  return fallback;
 }
 float BM_edge_calc_face_angle_signed(const BMEdge *e)
 {
   return BM_edge_calc_face_angle_signed_ex(e, DEG2RADF(90.0f));
 }
-
-/**
- * \brief BMESH EDGE/FACE TANGENT
- *
- * Calculate the tangent at this loop corner or fallback to the face normal on straight lines.
- * This vector always points inward into the face.
- *
- * \brief BM_edge_calc_face_tangent
- * \param e:
- * \param e_loop: The loop to calculate the tangent at,
- * used to get the face and winding direction.
- * \param r_tangent: The loop corner tangent to set
- */
 
 void BM_edge_calc_face_tangent(const BMEdge *e, const BMLoop *e_loop, float r_tangent[3])
 {
@@ -1811,25 +1388,18 @@ void BM_edge_calc_face_tangent(const BMEdge *e, const BMLoop *e_loop, float r_ta
   BM_edge_ordered_verts_ex(e, &v1, &v2, e_loop);
 
   sub_v3_v3v3(tvec, v1->co, v2->co); /* use for temp storage */
-  /* note, we could average the tangents of both loops,
+  /* NOTE: we could average the tangents of both loops,
    * for non flat ngons it will give a better direction */
   cross_v3_v3v3(r_tangent, tvec, e_loop->f->no);
   normalize_v3(r_tangent);
 }
 
-/**
- * \brief BMESH VERT/EDGE ANGLE
- *
- * Calculates the angle a verts 2 edges.
- *
- * \returns the angle in radians
- */
 float BM_vert_calc_edge_angle_ex(const BMVert *v, const float fallback)
 {
   BMEdge *e1, *e2;
 
-  /* saves BM_vert_edge_count(v) and and edge iterator,
-   * get the edges and count them both at once */
+  /* Saves `BM_vert_edge_count(v)` and edge iterator,
+   * get the edges and count them both at once. */
 
   if ((e1 = v->e) && (e2 = bmesh_disk_edge_next(e1, v)) && (e1 != e2) &&
       /* make sure we come full circle and only have 2 connected edges */
@@ -1839,9 +1409,7 @@ float BM_vert_calc_edge_angle_ex(const BMVert *v, const float fallback)
 
     return (float)M_PI - angle_v3v3v3(v1->co, v->co, v2->co);
   }
-  else {
-    return fallback;
-  }
+  return fallback;
 }
 
 float BM_vert_calc_edge_angle(const BMVert *v)
@@ -1849,10 +1417,6 @@ float BM_vert_calc_edge_angle(const BMVert *v)
   return BM_vert_calc_edge_angle_ex(v, DEG2RADF(90.0f));
 }
 
-/**
- * \note this isn't optimal to run on an array of verts,
- * see 'solidify_add_thickness' for a function which runs on an array.
- */
 float BM_vert_calc_shell_factor(const BMVert *v)
 {
   BMIter iter;
@@ -1869,12 +1433,8 @@ float BM_vert_calc_shell_factor(const BMVert *v)
   if (accum_angle != 0.0f) {
     return accum_shell / accum_angle;
   }
-  else {
-    return 1.0f;
-  }
+  return 1.0f;
 }
-/* alternate version of #BM_vert_calc_shell_factor which only
- * uses 'hflag' faces, but falls back to all if none found. */
 float BM_vert_calc_shell_factor_ex(const BMVert *v, const float no[3], const char hflag)
 {
   BMIter iter;
@@ -1896,22 +1456,14 @@ float BM_vert_calc_shell_factor_ex(const BMVert *v, const float no[3], const cha
   if (accum_angle != 0.0f) {
     return accum_shell / accum_angle;
   }
-  else {
-    /* other main difference from BM_vert_calc_shell_factor! */
-    if (tot != 0 && tot_sel == 0) {
-      /* none selected, so use all */
-      return BM_vert_calc_shell_factor(v);
-    }
-    else {
-      return 1.0f;
-    }
+  /* other main difference from BM_vert_calc_shell_factor! */
+  if (tot != 0 && tot_sel == 0) {
+    /* none selected, so use all */
+    return BM_vert_calc_shell_factor(v);
   }
+  return 1.0f;
 }
 
-/**
- * \note quite an obscure function.
- * used in bmesh operators that have a relative scale options,
- */
 float BM_vert_calc_median_tagged_edge_length(const BMVert *v)
 {
   BMIter iter;
@@ -1929,14 +1481,9 @@ float BM_vert_calc_median_tagged_edge_length(const BMVert *v)
   if (tot) {
     return length / (float)tot;
   }
-  else {
-    return 0.0f;
-  }
+  return 0.0f;
 }
 
-/**
- * Returns the loop of the shortest edge in f.
- */
 BMLoop *BM_face_find_shortest_loop(BMFace *f)
 {
   BMLoop *shortest_loop = NULL;
@@ -1958,9 +1505,6 @@ BMLoop *BM_face_find_shortest_loop(BMFace *f)
   return shortest_loop;
 }
 
-/**
- * Returns the loop of the longest edge in f.
- */
 BMLoop *BM_face_find_longest_loop(BMFace *f)
 {
   BMLoop *longest_loop = NULL;
@@ -2034,11 +1578,6 @@ BMEdge *BM_edge_exists(BMVert *v_a, BMVert *v_b)
 }
 #endif
 
-/**
- * Returns an edge sharing the same vertices as this one.
- * This isn't an invalid state but tools should clean up these cases before
- * returning the mesh to the user.
- */
 BMEdge *BM_edge_find_double(BMEdge *e)
 {
   BMVert *v = e->v1;
@@ -2056,10 +1595,6 @@ BMEdge *BM_edge_find_double(BMEdge *e)
   return NULL;
 }
 
-/**
- * Only #BMEdge.l access us needed, however when we want the first visible loop,
- * a utility function is needed.
- */
 BMLoop *BM_edge_find_first_loop_visible(BMEdge *e)
 {
   if (e->l != NULL) {
@@ -2074,13 +1609,6 @@ BMLoop *BM_edge_find_first_loop_visible(BMEdge *e)
   return NULL;
 }
 
-/**
- * Given a set of vertices (varr), find out if
- * there is a face with exactly those vertices
- * (and only those vertices).
- *
- * \note there used to be a BM_face_exists_overlap function that checks for partial overlap.
- */
 BMFace *BM_face_exists(BMVert **varr, int len)
 {
   if (varr[0]->e) {
@@ -2129,9 +1657,6 @@ BMFace *BM_face_exists(BMVert **varr, int len)
   return NULL;
 }
 
-/**
- * Check if the face has an exact duplicate (both winding directions).
- */
 BMFace *BM_face_find_double(BMFace *f)
 {
   BMLoop *l_first = BM_FACE_FIRST_LOOP(f);
@@ -2164,18 +1689,6 @@ BMFace *BM_face_find_double(BMFace *f)
   return NULL;
 }
 
-/**
- * Given a set of vertices and edges (\a varr, \a earr), find out if
- * all those vertices are filled in by existing faces that _only_ use those vertices.
- *
- * This is for use in cases where creating a face is possible but would result in
- * many overlapping faces.
- *
- * An example of how this is used: when 2 tri's are selected that share an edge,
- * pressing Fkey would make a new overlapping quad (without a check like this)
- *
- * \a earr and \a varr can be in any order, however they _must_ form a closed loop.
- */
 bool BM_face_exists_multi(BMVert **varr, BMEdge **earr, int len)
 {
   BMFace *f;
@@ -2190,7 +1703,7 @@ bool BM_face_exists_multi(BMVert **varr, BMEdge **earr, int len)
   int i;
 
   for (i = 0; i < len; i++) {
-    /* save some time by looping over edge faces rather then vert faces
+    /* save some time by looping over edge faces rather than vert faces
      * will still loop over some faces twice but not as many */
     BM_ITER_ELEM (f, &fiter, earr[i], BM_FACES_OF_EDGE) {
       BM_elem_flag_disable(f, BM_ELEM_INTERNAL_TAG);
@@ -2284,7 +1797,6 @@ finally:
   return ok;
 }
 
-/* same as 'BM_face_exists_multi' but built vert array from edges */
 bool BM_face_exists_multi_edge(BMEdge **earr, int len)
 {
   BMVert **varr = BLI_array_alloca(varr, len);
@@ -2297,20 +1809,6 @@ bool BM_face_exists_multi_edge(BMEdge **earr, int len)
 
   return BM_face_exists_multi(varr, earr, len);
 }
-
-/**
- * Given a set of vertices (varr), find out if
- * all those vertices overlap an existing face.
- *
- * \note The face may contain other verts \b not in \a varr.
- *
- * \note Its possible there are more than one overlapping faces,
- * in this case the first one found will be returned.
- *
- * \param varr: Array of unordered verts.
- * \param len: \a varr array length.
- * \return The face or NULL.
- */
 
 BMFace *BM_face_exists_overlap(BMVert **varr, const int len)
 {
@@ -2350,14 +1848,6 @@ BMFace *BM_face_exists_overlap(BMVert **varr, const int len)
   return f_overlap;
 }
 
-/**
- * Given a set of vertices (varr), find out if
- * there is a face that uses vertices only from this list
- * (that the face is a subset or made from the vertices given).
- *
- * \param varr: Array of unordered verts.
- * \param len: varr array length.
- */
 bool BM_face_exists_overlap_subset(BMVert **varr, const int len)
 {
   BMIter viter;
@@ -2379,7 +1869,7 @@ bool BM_face_exists_overlap_subset(BMVert **varr, const int len)
   for (int i = 0; i < len; i++) {
     BM_ITER_ELEM (f, &viter, varr[i], BM_FACES_OF_VERT) {
       if ((f->len <= len) && (BM_ELEM_API_FLAG_TEST(f, _FLAG_OVERLAP) == 0)) {
-        /* check if all vers in this face are flagged*/
+        /* Check if all verts in this face are flagged. */
         BMLoop *l_iter, *l_first;
 
         if (is_init == false) {
@@ -2491,7 +1981,6 @@ bool BM_edge_is_any_face_flag_test(const BMEdge *e, const char hflag)
   return false;
 }
 
-/* convenience functions for checking flags */
 bool BM_edge_is_any_vert_flag_test(const BMEdge *e, const char hflag)
 {
   return (BM_elem_flag_test(e->v1, hflag) || BM_elem_flag_test(e->v2, hflag));
@@ -2525,9 +2014,22 @@ bool BM_face_is_any_edge_flag_test(const BMFace *f, const char hflag)
   return false;
 }
 
-/**
- * Use within assert's to check normals are valid.
- */
+bool BM_edge_is_any_face_len_test(const BMEdge *e, const int len)
+{
+  if (e->l) {
+    BMLoop *l_iter, *l_first;
+
+    l_iter = l_first = e->l;
+    do {
+      if (l_iter->f->len == len) {
+        return true;
+      }
+    } while ((l_iter = l_iter->radial_next) != l_first);
+  }
+
+  return false;
+}
+
 bool BM_face_is_normal_valid(const BMFace *f)
 {
   const float eps = 0.0001f;
@@ -2589,31 +2091,17 @@ double BM_mesh_calc_volume(BMesh *bm, bool is_signed)
   return vol;
 }
 
-/* note, almost duplicate of BM_mesh_calc_edge_groups, keep in sync */
-/**
- * Calculate isolated groups of faces with optional filtering.
- *
- * \param bm: the BMesh.
- * \param r_groups_array: Array of ints to fill in, length of bm->totface
- *        (or when hflag_test is set, the number of flagged faces).
- * \param r_group_index: index, length pairs into \a r_groups_array, size of return value
- *        int pairs: (array_start, array_length).
- * \param filter_fn: Filter the edge-loops or vert-loops we step over (depends on \a htype_step).
- * \param user_data: Optional user data for \a filter_fn, can be NULL.
- * \param hflag_test: Optional flag to test faces,
- *        use to exclude faces from the calculation, 0 for all faces.
- * \param htype_step: BM_VERT to walk over face-verts, BM_EDGE to walk over faces edges
- *        (having both set is supported too).
- * \return The number of groups found.
- */
 int BM_mesh_calc_face_groups(BMesh *bm,
                              int *r_groups_array,
                              int (**r_group_index)[2],
                              BMLoopFilterFunc filter_fn,
+                             BMLoopPairFilterFunc filter_pair_fn,
                              void *user_data,
                              const char hflag_test,
                              const char htype_step)
 {
+  /* NOTE: almost duplicate of #BM_mesh_calc_edge_groups, keep in sync. */
+
 #ifdef DEBUG
   int group_index_len = 1;
 #else
@@ -2634,7 +2122,7 @@ int BM_mesh_calc_face_groups(BMesh *bm,
   STACK_DECLARE(stack);
 
   BMIter iter;
-  BMFace *f;
+  BMFace *f, *f_next;
   int i;
 
   STACK_INIT(group_array, bm->totface);
@@ -2659,6 +2147,8 @@ int BM_mesh_calc_face_groups(BMesh *bm,
   /* detect groups */
   stack = MEM_mallocN(sizeof(*stack) * tot_faces, __func__);
 
+  f_next = BM_iter_new(&iter, bm, BM_FACES_OF_MESH, NULL);
+
   while (tot_touch != tot_faces) {
     int *group_item;
     bool ok = false;
@@ -2667,10 +2157,10 @@ int BM_mesh_calc_face_groups(BMesh *bm,
 
     STACK_INIT(stack, tot_faces);
 
-    BM_ITER_MESH (f, &iter, bm, BM_FACES_OF_MESH) {
-      if (BM_elem_flag_test(f, BM_ELEM_TAG) == false) {
-        BM_elem_flag_enable(f, BM_ELEM_TAG);
-        STACK_PUSH(stack, f);
+    for (; f_next; f_next = BM_iter_step(&iter)) {
+      if (BM_elem_flag_test(f_next, BM_ELEM_TAG) == false) {
+        BM_elem_flag_enable(f_next, BM_ELEM_TAG);
+        STACK_PUSH(stack, f_next);
         ok = true;
         break;
       }
@@ -2705,10 +2195,12 @@ int BM_mesh_calc_face_groups(BMesh *bm,
           BMLoop *l_radial_iter = l_iter->radial_next;
           if ((l_radial_iter != l_iter) && ((filter_fn == NULL) || filter_fn(l_iter, user_data))) {
             do {
-              BMFace *f_other = l_radial_iter->f;
-              if (BM_elem_flag_test(f_other, BM_ELEM_TAG) == false) {
-                BM_elem_flag_enable(f_other, BM_ELEM_TAG);
-                STACK_PUSH(stack, f_other);
+              if ((filter_pair_fn == NULL) || filter_pair_fn(l_iter, l_radial_iter, user_data)) {
+                BMFace *f_other = l_radial_iter->f;
+                if (BM_elem_flag_test(f_other, BM_ELEM_TAG) == false) {
+                  BM_elem_flag_enable(f_other, BM_ELEM_TAG);
+                  STACK_PUSH(stack, f_other);
+                }
               }
             } while ((l_radial_iter = l_radial_iter->radial_next) != l_iter);
           }
@@ -2723,10 +2215,12 @@ int BM_mesh_calc_face_groups(BMesh *bm,
           if ((filter_fn == NULL) || filter_fn(l_iter, user_data)) {
             BMLoop *l_other;
             BM_ITER_ELEM (l_other, &liter, l_iter, BM_LOOPS_OF_LOOP) {
-              BMFace *f_other = l_other->f;
-              if (BM_elem_flag_test(f_other, BM_ELEM_TAG) == false) {
-                BM_elem_flag_enable(f_other, BM_ELEM_TAG);
-                STACK_PUSH(stack, f_other);
+              if ((filter_pair_fn == NULL) || filter_pair_fn(l_iter, l_other, user_data)) {
+                BMFace *f_other = l_other->f;
+                if (BM_elem_flag_test(f_other, BM_ELEM_TAG) == false) {
+                  BM_elem_flag_enable(f_other, BM_ELEM_TAG);
+                  STACK_PUSH(stack, f_other);
+                }
               }
             }
           }
@@ -2740,31 +2234,14 @@ int BM_mesh_calc_face_groups(BMesh *bm,
   MEM_freeN(stack);
 
   /* reduce alloc to required size */
-  group_index = MEM_reallocN(group_index, sizeof(*group_index) * group_curr);
+  if (group_index_len != group_curr) {
+    group_index = MEM_reallocN(group_index, sizeof(*group_index) * group_curr);
+  }
   *r_group_index = group_index;
 
   return group_curr;
 }
 
-/* note, almost duplicate of BM_mesh_calc_face_groups, keep in sync */
-/**
- * Calculate isolated groups of edges with optional filtering.
- *
- * \param bm: the BMesh.
- * \param r_groups_array: Array of ints to fill in, length of bm->totedge
- *        (or when hflag_test is set, the number of flagged edges).
- * \param r_group_index: index, length pairs into \a r_groups_array, size of return value
- *        int pairs: (array_start, array_length).
- * \param filter_fn: Filter the edges or verts we step over (depends on \a htype_step)
- *        as to which types we deal with.
- * \param user_data: Optional user data for \a filter_fn, can be NULL.
- * \param hflag_test: Optional flag to test edges,
- *        use to exclude edges from the calculation, 0 for all edges.
- * \return The number of groups found.
- *
- * \note Unlike #BM_mesh_calc_face_groups there is no 'htype_step' argument,
- *       since we always walk over verts.
- */
 int BM_mesh_calc_edge_groups(BMesh *bm,
                              int *r_groups_array,
                              int (**r_group_index)[2],
@@ -2772,6 +2249,8 @@ int BM_mesh_calc_edge_groups(BMesh *bm,
                              void *user_data,
                              const char hflag_test)
 {
+  /* NOTE: almost duplicate of #BM_mesh_calc_face_groups, keep in sync. */
+
 #ifdef DEBUG
   int group_index_len = 1;
 #else
@@ -2792,9 +2271,8 @@ int BM_mesh_calc_edge_groups(BMesh *bm,
   STACK_DECLARE(stack);
 
   BMIter iter;
-  BMEdge *e;
+  BMEdge *e, *e_next;
   int i;
-
   STACK_INIT(group_array, bm->totedge);
 
   /* init the array */
@@ -2815,6 +2293,8 @@ int BM_mesh_calc_edge_groups(BMesh *bm,
   /* detect groups */
   stack = MEM_mallocN(sizeof(*stack) * tot_edges, __func__);
 
+  e_next = BM_iter_new(&iter, bm, BM_EDGES_OF_MESH, NULL);
+
   while (tot_touch != tot_edges) {
     int *group_item;
     bool ok = false;
@@ -2823,10 +2303,10 @@ int BM_mesh_calc_edge_groups(BMesh *bm,
 
     STACK_INIT(stack, tot_edges);
 
-    BM_ITER_MESH (e, &iter, bm, BM_EDGES_OF_MESH) {
-      if (BM_elem_flag_test(e, BM_ELEM_TAG) == false) {
-        BM_elem_flag_enable(e, BM_ELEM_TAG);
-        STACK_PUSH(stack, e);
+    for (; e_next; e_next = BM_iter_step(&iter)) {
+      if (BM_elem_flag_test(e_next, BM_ELEM_TAG) == false) {
+        BM_elem_flag_enable(e_next, BM_ELEM_TAG);
+        STACK_PUSH(stack, e_next);
         ok = true;
         break;
       }
@@ -2876,19 +2356,14 @@ int BM_mesh_calc_edge_groups(BMesh *bm,
   MEM_freeN(stack);
 
   /* reduce alloc to required size */
-  group_index = MEM_reallocN(group_index, sizeof(*group_index) * group_curr);
+  if (group_index_len != group_curr) {
+    group_index = MEM_reallocN(group_index, sizeof(*group_index) * group_curr);
+  }
   *r_group_index = group_index;
 
   return group_curr;
 }
 
-/**
- * This is an alternative to #BM_mesh_calc_edge_groups.
- *
- * While we could call this, then create vertex & face arrays,
- * it requires looping over geometry connectivity twice,
- * this slows down edit-mesh separate by loose parts, see: T70864.
- */
 int BM_mesh_calc_edge_groups_as_arrays(
     BMesh *bm, BMVert **verts, BMEdge **edges, BMFace **faces, int (**r_groups)[3])
 {

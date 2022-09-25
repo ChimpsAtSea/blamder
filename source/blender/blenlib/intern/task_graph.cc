@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bli
@@ -28,10 +14,7 @@
 #include <vector>
 
 #ifdef WITH_TBB
-/* Quiet top level deprecation message, unrelated to API usage here. */
-#  define TBB_SUPPRESS_DEPRECATED_MESSAGES 1
 #  include <tbb/flow_graph.h>
-#  include <tbb/tbb.h>
 #endif
 
 /* Task Graph */
@@ -70,7 +53,7 @@ struct TaskNode {
 #ifdef WITH_TBB
         tbb_node(task_graph->tbb_graph,
                  tbb::flow::unlimited,
-                 std::bind(&TaskNode::run, this, std::placeholders::_1)),
+                 [&](const tbb::flow::continue_msg input) { run(input); }),
 #endif
         run_func(run_func),
         task_data(task_data),
@@ -94,7 +77,7 @@ struct TaskNode {
 #ifdef WITH_TBB
   tbb::flow::continue_msg run(const tbb::flow::continue_msg UNUSED(input))
   {
-    tbb::this_task_arena::isolate([this] { run_func(task_data); });
+    run_func(task_data);
     return tbb::flow::continue_msg();
   }
 #endif
@@ -112,7 +95,7 @@ struct TaskNode {
 #endif
 };
 
-TaskGraph *BLI_task_graph_create(void)
+TaskGraph *BLI_task_graph_create()
 {
   return new TaskGraph();
 }

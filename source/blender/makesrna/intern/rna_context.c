@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -35,13 +21,14 @@
 const EnumPropertyItem rna_enum_context_mode_items[] = {
     {CTX_MODE_EDIT_MESH, "EDIT_MESH", 0, "Mesh Edit", ""},
     {CTX_MODE_EDIT_CURVE, "EDIT_CURVE", 0, "Curve Edit", ""},
+    {CTX_MODE_EDIT_CURVES, "EDIT_CURVES", 0, "Curves Edit", ""},
     {CTX_MODE_EDIT_SURFACE, "EDIT_SURFACE", 0, "Surface Edit", ""},
-    {CTX_MODE_EDIT_TEXT, "EDIT_TEXT", 0, "Edit Edit", ""},
+    {CTX_MODE_EDIT_TEXT, "EDIT_TEXT", 0, "Text Edit", ""},
     /* PARSKEL reuse will give issues */
     {CTX_MODE_EDIT_ARMATURE, "EDIT_ARMATURE", 0, "Armature Edit", ""},
     {CTX_MODE_EDIT_METABALL, "EDIT_METABALL", 0, "Metaball Edit", ""},
     {CTX_MODE_EDIT_LATTICE, "EDIT_LATTICE", 0, "Lattice Edit", ""},
-    {CTX_MODE_POSE, "POSE", 0, "Pose ", ""},
+    {CTX_MODE_POSE, "POSE", 0, "Pose", ""},
     {CTX_MODE_SCULPT, "SCULPT", 0, "Sculpt", ""},
     {CTX_MODE_PAINT_WEIGHT, "PAINT_WEIGHT", 0, "Weight Paint", ""},
     {CTX_MODE_PAINT_VERTEX, "PAINT_VERTEX", 0, "Vertex Paint", ""},
@@ -53,10 +40,13 @@ const EnumPropertyItem rna_enum_context_mode_items[] = {
     {CTX_MODE_SCULPT_GPENCIL, "SCULPT_GPENCIL", 0, "Grease Pencil Sculpt", ""},
     {CTX_MODE_WEIGHT_GPENCIL, "WEIGHT_GPENCIL", 0, "Grease Pencil Weight Paint", ""},
     {CTX_MODE_VERTEX_GPENCIL, "VERTEX_GPENCIL", 0, "Grease Pencil Vertex Paint", ""},
+    {CTX_MODE_SCULPT_CURVES, "SCULPT_CURVES", 0, "Curves Sculpt", ""},
     {0, NULL, 0, NULL, NULL},
 };
 
 #ifdef RNA_RUNTIME
+
+#  include "DNA_asset_types.h"
 
 #  ifdef WITH_PYTHON
 #    include "BPY_extern.h"
@@ -131,6 +121,22 @@ static PointerRNA rna_Context_gizmo_group_get(PointerRNA *ptr)
   bContext *C = (bContext *)ptr->data;
   PointerRNA newptr;
   RNA_pointer_create(NULL, &RNA_GizmoGroup, CTX_wm_gizmo_group(C), &newptr);
+  return newptr;
+}
+
+static PointerRNA rna_Context_asset_file_handle_get(PointerRNA *ptr)
+{
+  bContext *C = (bContext *)ptr->data;
+  bool is_handle_valid;
+  AssetHandle asset_handle = CTX_wm_asset_handle(C, &is_handle_valid);
+  if (!is_handle_valid) {
+    return PointerRNA_NULL;
+  }
+
+  PointerRNA newptr;
+  /* Have to cast away const, but the file entry API doesn't allow modifications anyway. */
+  RNA_pointer_create(
+      NULL, &RNA_FileSelectEntry, (struct FileDirEntry *)asset_handle.file_data, &newptr);
   return newptr;
 }
 
@@ -280,6 +286,17 @@ void RNA_def_context(BlenderRNA *brna)
   RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_struct_type(prop, "GizmoGroup");
   RNA_def_property_pointer_funcs(prop, "rna_Context_gizmo_group_get", NULL, NULL, NULL);
+
+  /* TODO can't expose AssetHandle, since there is no permanent storage to it (so we can't
+   * return a pointer). Instead provide the FileDirEntry pointer it wraps. */
+  prop = RNA_def_property(srna, "asset_file_handle", PROP_POINTER, PROP_NONE);
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_struct_type(prop, "FileSelectEntry");
+  RNA_def_property_pointer_funcs(prop, "rna_Context_asset_file_handle_get", NULL, NULL, NULL);
+  RNA_def_property_ui_text(prop,
+                           "",
+                           "The file of an active asset. Avoid using this, it will be replaced by "
+                           "a proper AssetHandle design");
 
   /* Data */
   prop = RNA_def_property(srna, "blend_data", PROP_POINTER, PROP_NONE);

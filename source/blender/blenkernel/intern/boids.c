@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 by Janne Karhu.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 by Janne Karhu. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -39,6 +23,7 @@
 #include "BKE_collision.h"
 #include "BKE_effect.h"
 #include "BKE_particle.h"
+#include "BLI_kdopbvh.h"
 
 #include "BKE_modifier.h"
 
@@ -68,18 +53,18 @@ typedef struct BoidValues {
   float personal_space, jump_speed;
 } BoidValues;
 
-static int apply_boid_rule(
+static bool apply_boid_rule(
     BoidBrainData *bbd, BoidRule *rule, BoidValues *val, ParticleData *pa, float fuzziness);
 
-static int rule_none(BoidRule *UNUSED(rule),
-                     BoidBrainData *UNUSED(data),
-                     BoidValues *UNUSED(val),
-                     ParticleData *UNUSED(pa))
+static bool rule_none(BoidRule *UNUSED(rule),
+                      BoidBrainData *UNUSED(data),
+                      BoidValues *UNUSED(val),
+                      ParticleData *UNUSED(pa))
 {
-  return 0;
+  return false;
 }
 
-static int rule_goal_avoid(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, ParticleData *pa)
+static bool rule_goal_avoid(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, ParticleData *pa)
 {
   BoidRuleGoalAvoid *gabr = (BoidRuleGoalAvoid *)rule;
   BoidSettings *boids = bbd->part->boids;
@@ -91,7 +76,7 @@ static int rule_goal_avoid(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, 
   EffectorData efd, cur_efd;
   float mul = (rule->type == eBoidRuleType_Avoid ? 1.0 : -1.0);
   float priority = 0.0f, len = 0.0f;
-  int ret = 0;
+  bool ret = false;
 
   int p = 0;
   efd.index = cur_efd.index = &p;
@@ -207,18 +192,18 @@ static int rule_goal_avoid(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, 
       }
     }
 
-    ret = 1;
+    ret = true;
   }
 
   return ret;
 }
 
-static int rule_avoid_collision(BoidRule *rule,
-                                BoidBrainData *bbd,
-                                BoidValues *val,
-                                ParticleData *pa)
+static bool rule_avoid_collision(BoidRule *rule,
+                                 BoidBrainData *bbd,
+                                 BoidValues *val,
+                                 ParticleData *pa)
 {
-  const int raycast_flag = BVH_RAYCAST_DEFAULT & ~(BVH_RAYCAST_WATERTIGHT);
+  const int raycast_flag = BVH_RAYCAST_DEFAULT & ~BVH_RAYCAST_WATERTIGHT;
   BoidRuleAvoidCollision *acbr = (BoidRuleAvoidCollision *)rule;
   KDTreeNearest_3d *ptn = NULL;
   ParticleTarget *pt;
@@ -228,9 +213,9 @@ static int rule_avoid_collision(BoidRule *rule,
   float co1[3], vel1[3], co2[3], vel2[3];
   float len, t, inp, t_min = 2.0f;
   int n, neighbors = 0, nearest = 0;
-  int ret = 0;
+  bool ret = 0;
 
-  // check deflector objects first
+  /* Check deflector objects first. */
   if (acbr->options & BRULE_ACOLL_WITH_DEFLECTORS && bbd->sim->colliders) {
     ParticleCollision col;
     BVHTreeRayHit hit;
@@ -288,11 +273,11 @@ static int rule_avoid_collision(BoidRule *rule,
       bbd->wanted_speed = sqrtf(t) * len_v3(pa->prev_state.vel);
       bbd->wanted_speed = MAX2(bbd->wanted_speed, val->min_speed);
 
-      return 1;
+      return true;
     }
   }
 
-  // check boids in own system
+  /* Check boids in own system. */
   if (acbr->options & BRULE_ACOLL_WITH_BOIDS) {
     neighbors = BLI_kdtree_3d_range_search_with_len_squared_cb(bbd->sim->psys->tree,
                                                                pa->prev_state.co,
@@ -341,10 +326,7 @@ static int rule_avoid_collision(BoidRule *rule,
       }
     }
   }
-  if (ptn) {
-    MEM_freeN(ptn);
-    ptn = NULL;
-  }
+  MEM_SAFE_FREE(ptn);
 
   /* check boids in other systems */
   for (pt = bbd->sim->psys->targets.first; pt; pt = pt->next) {
@@ -400,10 +382,7 @@ static int rule_avoid_collision(BoidRule *rule,
         }
       }
 
-      if (ptn) {
-        MEM_freeN(ptn);
-        ptn = NULL;
-      }
+      MEM_SAFE_FREE(ptn);
     }
   }
 
@@ -413,10 +392,10 @@ static int rule_avoid_collision(BoidRule *rule,
 
   return ret;
 }
-static int rule_separate(BoidRule *UNUSED(rule),
-                         BoidBrainData *bbd,
-                         BoidValues *val,
-                         ParticleData *pa)
+static bool rule_separate(BoidRule *UNUSED(rule),
+                          BoidBrainData *bbd,
+                          BoidValues *val,
+                          ParticleData *pa)
 {
   KDTreeNearest_3d *ptn = NULL;
   ParticleTarget *pt;
@@ -424,7 +403,7 @@ static int rule_separate(BoidRule *UNUSED(rule),
   float vec[3] = {0.0f, 0.0f, 0.0f};
   int neighbors = BLI_kdtree_3d_range_search(
       bbd->sim->psys->tree, pa->prev_state.co, &ptn, 2.0f * val->personal_space * pa->size);
-  int ret = 0;
+  bool ret = false;
 
   if (neighbors > 1 && ptn[1].dist != 0.0f) {
     sub_v3_v3v3(vec, pa->prev_state.co, bbd->sim->psys->particles[ptn[1].index].state.co);
@@ -434,10 +413,7 @@ static int rule_separate(BoidRule *UNUSED(rule),
     len = ptn[1].dist;
     ret = 1;
   }
-  if (ptn) {
-    MEM_freeN(ptn);
-    ptn = NULL;
-  }
+  MEM_SAFE_FREE(ptn);
 
   /* check other boid systems */
   for (pt = bbd->sim->psys->targets.first; pt; pt = pt->next) {
@@ -453,21 +429,18 @@ static int rule_separate(BoidRule *UNUSED(rule),
         add_v3_v3(bbd->wanted_co, vec);
         bbd->wanted_speed = val->max_speed;
         len = ptn[0].dist;
-        ret = 1;
+        ret = true;
       }
 
-      if (ptn) {
-        MEM_freeN(ptn);
-        ptn = NULL;
-      }
+      MEM_SAFE_FREE(ptn);
     }
   }
   return ret;
 }
-static int rule_flock(BoidRule *UNUSED(rule),
-                      BoidBrainData *bbd,
-                      BoidValues *UNUSED(val),
-                      ParticleData *pa)
+static bool rule_flock(BoidRule *UNUSED(rule),
+                       BoidBrainData *bbd,
+                       BoidValues *UNUSED(val),
+                       ParticleData *pa)
 {
   KDTreeNearest_3d ptn[11];
   float vec[3] = {0.0f, 0.0f, 0.0f}, loc[3] = {0.0f, 0.0f, 0.0f};
@@ -479,7 +452,7 @@ static int rule_flock(BoidRule *UNUSED(rule),
       len_squared_v3v3_with_normal_bias,
       pa->prev_state.ave);
   int n;
-  int ret = 0;
+  bool ret = false;
 
   if (neighbors > 1) {
     for (n = 1; n < neighbors; n++) {
@@ -497,20 +470,21 @@ static int rule_flock(BoidRule *UNUSED(rule),
     add_v3_v3(bbd->wanted_co, loc);
     bbd->wanted_speed = len_v3(bbd->wanted_co);
 
-    ret = 1;
+    ret = true;
   }
   return ret;
 }
-static int rule_follow_leader(BoidRule *rule,
-                              BoidBrainData *bbd,
-                              BoidValues *val,
-                              ParticleData *pa)
+static bool rule_follow_leader(BoidRule *rule,
+                               BoidBrainData *bbd,
+                               BoidValues *val,
+                               ParticleData *pa)
 {
   BoidRuleFollowLeader *flbr = (BoidRuleFollowLeader *)rule;
   float vec[3] = {0.0f, 0.0f, 0.0f}, loc[3] = {0.0f, 0.0f, 0.0f};
   float mul, len;
   int n = (flbr->queue_size <= 1) ? bbd->sim->psys->totpart : flbr->queue_size;
-  int i, ret = 0, p = pa - bbd->sim->psys->particles;
+  int i, p = pa - bbd->sim->psys->particles;
+  bool ret = false;
 
   if (flbr->ob) {
     float vec2[3], t;
@@ -530,7 +504,7 @@ static int rule_follow_leader(BoidRule *rule,
       if (len < 2.0f * val->personal_space * pa->size) {
         copy_v3_v3(bbd->wanted_co, loc);
         bbd->wanted_speed = val->max_speed;
-        return 1;
+        return true;
       }
     }
     else {
@@ -548,7 +522,7 @@ static int rule_follow_leader(BoidRule *rule,
         if (len < 2.0f * val->personal_space * pa->size) {
           copy_v3_v3(bbd->wanted_co, vec2);
           bbd->wanted_speed = val->max_speed * (3.0f - t) / 3.0f;
-          return 1;
+          return true;
         }
       }
     }
@@ -570,7 +544,7 @@ static int rule_follow_leader(BoidRule *rule,
     sub_v3_v3v3(bbd->wanted_co, loc, pa->prev_state.co);
     bbd->wanted_speed = len_v3(bbd->wanted_co);
 
-    ret = 1;
+    ret = true;
   }
   else if (p % n) {
     float vec2[3], t, t_min = 3.0f;
@@ -590,7 +564,7 @@ static int rule_follow_leader(BoidRule *rule,
         if (len < 2.0f * val->personal_space * pa->size) {
           copy_v3_v3(bbd->wanted_co, loc);
           bbd->wanted_speed = val->max_speed;
-          return 1;
+          return true;
         }
       }
       else {
@@ -609,14 +583,14 @@ static int rule_follow_leader(BoidRule *rule,
             t_min = t;
             copy_v3_v3(bbd->wanted_co, loc);
             bbd->wanted_speed = val->max_speed * (3.0f - t) / 3.0f;
-            ret = 1;
+            ret = true;
           }
         }
       }
     }
 
     if (ret) {
-      return 1;
+      return true;
     }
 
     /* not blocking so try to follow leader */
@@ -635,15 +609,15 @@ static int rule_follow_leader(BoidRule *rule,
     sub_v3_v3v3(bbd->wanted_co, loc, pa->prev_state.co);
     bbd->wanted_speed = len_v3(bbd->wanted_co);
 
-    ret = 1;
+    ret = true;
   }
 
   return ret;
 }
-static int rule_average_speed(BoidRule *rule,
-                              BoidBrainData *bbd,
-                              BoidValues *val,
-                              ParticleData *pa)
+static bool rule_average_speed(BoidRule *rule,
+                               BoidBrainData *bbd,
+                               BoidValues *val,
+                               ParticleData *pa)
 {
   BoidParticle *bpa = pa->boid;
   BoidRuleAverageSpeed *asbr = (BoidRuleAverageSpeed *)rule;
@@ -693,9 +667,9 @@ static int rule_average_speed(BoidRule *rule,
   }
   bbd->wanted_speed = asbr->speed * val->max_speed;
 
-  return 1;
+  return true;
 }
-static int rule_fight(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, ParticleData *pa)
+static bool rule_fight(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, ParticleData *pa)
 {
   BoidRuleFight *fbr = (BoidRuleFight *)rule;
   KDTreeNearest_3d *ptn = NULL;
@@ -708,7 +682,8 @@ static int rule_fight(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, Parti
   float closest_dist = fbr->distance + 1.0f;
   float f_strength = 0.0f, e_strength = 0.0f;
   float health = 0.0f;
-  int n, ret = 0;
+  int n;
+  bool ret = false;
 
   /* calculate own group strength */
   int neighbors = BLI_kdtree_3d_range_search(
@@ -720,10 +695,7 @@ static int rule_fight(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, Parti
 
   f_strength += bbd->part->boids->strength * health;
 
-  if (ptn) {
-    MEM_freeN(ptn);
-    ptn = NULL;
-  }
+  MEM_SAFE_FREE(ptn);
 
   /* add other friendlies and calculate enemy strength and find closest enemy */
   for (pt = bbd->sim->psys->targets.first; pt; pt = pt->next) {
@@ -752,10 +724,7 @@ static int rule_fight(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, Parti
         f_strength += epsys->part->boids->strength * health;
       }
 
-      if (ptn) {
-        MEM_freeN(ptn);
-        ptn = NULL;
-      }
+      MEM_SAFE_FREE(ptn);
     }
   }
   /* decide action if enemy presence found */
@@ -799,16 +768,16 @@ static int rule_fight(BoidRule *rule, BoidBrainData *bbd, BoidValues *val, Parti
       }
     }
 
-    ret = 1;
+    ret = true;
   }
 
   return ret;
 }
 
-typedef int (*boid_rule_cb)(BoidRule *rule,
-                            BoidBrainData *data,
-                            BoidValues *val,
-                            ParticleData *pa);
+typedef bool (*boid_rule_cb)(BoidRule *rule,
+                             BoidBrainData *data,
+                             BoidValues *val,
+                             ParticleData *pa);
 
 static boid_rule_cb boid_rules[] = {
     rule_none,
@@ -820,11 +789,13 @@ static boid_rule_cb boid_rules[] = {
     rule_follow_leader,
     rule_average_speed,
     rule_fight,
-    // rule_help,
-    // rule_protect,
-    // rule_hide,
-    // rule_follow_path,
-    // rule_follow_wall,
+#if 0
+    rule_help,
+    rule_protect,
+    rule_hide,
+    rule_follow_path,
+    rule_follow_wall,
+#endif
 };
 
 static void set_boid_values(BoidValues *val, BoidSettings *boids, ParticleData *pa)
@@ -854,7 +825,7 @@ static Object *boid_find_ground(BoidBrainData *bbd,
                                 float ground_co[3],
                                 float ground_nor[3])
 {
-  const int raycast_flag = BVH_RAYCAST_DEFAULT & ~(BVH_RAYCAST_WATERTIGHT);
+  const int raycast_flag = BVH_RAYCAST_DEFAULT & ~BVH_RAYCAST_WATERTIGHT;
   BoidParticle *bpa = pa->boid;
 
   if (bpa->data.mode == eBoidMode_Climbing) {
@@ -872,110 +843,109 @@ static Object *boid_find_ground(BoidBrainData *bbd,
 
     return bpa->ground;
   }
-  else {
-    float zvec[3] = {0.0f, 0.0f, 2000.0f};
-    ParticleCollision col;
-    ColliderCache *coll;
-    BVHTreeRayHit hit;
-    float radius = 0.0f, t, ray_dir[3];
 
-    if (!bbd->sim->colliders) {
-      return NULL;
-    }
+  const float zvec[3] = {0.0f, 0.0f, 2000.0f};
+  ParticleCollision col;
+  ColliderCache *coll;
+  BVHTreeRayHit hit;
+  float radius = 0.0f, t, ray_dir[3];
 
-    memset(&col, 0, sizeof(ParticleCollision));
-
-    /* first try to find below boid */
-    copy_v3_v3(col.co1, pa->state.co);
-    sub_v3_v3v3(col.co2, pa->state.co, zvec);
-    sub_v3_v3v3(ray_dir, col.co2, col.co1);
-    col.f = 0.0f;
-    hit.index = -1;
-    hit.dist = col.original_ray_length = normalize_v3(ray_dir);
-    col.pce.inside = 0;
-
-    for (coll = bbd->sim->colliders->first; coll; coll = coll->next) {
-      col.current = coll->ob;
-      col.md = coll->collmd;
-      col.fac1 = col.fac2 = 0.f;
-
-      if (col.md && col.md->bvhtree) {
-        BLI_bvhtree_ray_cast_ex(col.md->bvhtree,
-                                col.co1,
-                                ray_dir,
-                                radius,
-                                &hit,
-                                BKE_psys_collision_neartest_cb,
-                                &col,
-                                raycast_flag);
-      }
-    }
-    /* then use that object */
-    if (hit.index >= 0) {
-      t = hit.dist / col.original_ray_length;
-      interp_v3_v3v3(ground_co, col.co1, col.co2, t);
-      normalize_v3_v3(ground_nor, col.pce.nor);
-      return col.hit;
-    }
-
-    /* couldn't find below, so find upmost deflector object */
-    add_v3_v3v3(col.co1, pa->state.co, zvec);
-    sub_v3_v3v3(col.co2, pa->state.co, zvec);
-    sub_v3_v3(col.co2, zvec);
-    sub_v3_v3v3(ray_dir, col.co2, col.co1);
-    col.f = 0.0f;
-    hit.index = -1;
-    hit.dist = col.original_ray_length = normalize_v3(ray_dir);
-
-    for (coll = bbd->sim->colliders->first; coll; coll = coll->next) {
-      col.current = coll->ob;
-      col.md = coll->collmd;
-
-      if (col.md && col.md->bvhtree) {
-        BLI_bvhtree_ray_cast_ex(col.md->bvhtree,
-                                col.co1,
-                                ray_dir,
-                                radius,
-                                &hit,
-                                BKE_psys_collision_neartest_cb,
-                                &col,
-                                raycast_flag);
-      }
-    }
-    /* then use that object */
-    if (hit.index >= 0) {
-      t = hit.dist / col.original_ray_length;
-      interp_v3_v3v3(ground_co, col.co1, col.co2, t);
-      normalize_v3_v3(ground_nor, col.pce.nor);
-      return col.hit;
-    }
-
-    /* default to z=0 */
-    copy_v3_v3(ground_co, pa->state.co);
-    ground_co[2] = 0;
-    ground_nor[0] = ground_nor[1] = 0.0f;
-    ground_nor[2] = 1.0f;
+  if (!bbd->sim->colliders) {
     return NULL;
   }
+
+  memset(&col, 0, sizeof(ParticleCollision));
+
+  /* first try to find below boid */
+  copy_v3_v3(col.co1, pa->state.co);
+  sub_v3_v3v3(col.co2, pa->state.co, zvec);
+  sub_v3_v3v3(ray_dir, col.co2, col.co1);
+  col.f = 0.0f;
+  hit.index = -1;
+  hit.dist = col.original_ray_length = normalize_v3(ray_dir);
+  col.pce.inside = 0;
+
+  for (coll = bbd->sim->colliders->first; coll; coll = coll->next) {
+    col.current = coll->ob;
+    col.md = coll->collmd;
+    col.fac1 = col.fac2 = 0.0f;
+
+    if (col.md && col.md->bvhtree) {
+      BLI_bvhtree_ray_cast_ex(col.md->bvhtree,
+                              col.co1,
+                              ray_dir,
+                              radius,
+                              &hit,
+                              BKE_psys_collision_neartest_cb,
+                              &col,
+                              raycast_flag);
+    }
+  }
+  /* then use that object */
+  if (hit.index >= 0) {
+    t = hit.dist / col.original_ray_length;
+    interp_v3_v3v3(ground_co, col.co1, col.co2, t);
+    normalize_v3_v3(ground_nor, col.pce.nor);
+    return col.hit;
+  }
+
+  /* couldn't find below, so find upmost deflector object */
+  add_v3_v3v3(col.co1, pa->state.co, zvec);
+  sub_v3_v3v3(col.co2, pa->state.co, zvec);
+  sub_v3_v3(col.co2, zvec);
+  sub_v3_v3v3(ray_dir, col.co2, col.co1);
+  col.f = 0.0f;
+  hit.index = -1;
+  hit.dist = col.original_ray_length = normalize_v3(ray_dir);
+
+  for (coll = bbd->sim->colliders->first; coll; coll = coll->next) {
+    col.current = coll->ob;
+    col.md = coll->collmd;
+
+    if (col.md && col.md->bvhtree) {
+      BLI_bvhtree_ray_cast_ex(col.md->bvhtree,
+                              col.co1,
+                              ray_dir,
+                              radius,
+                              &hit,
+                              BKE_psys_collision_neartest_cb,
+                              &col,
+                              raycast_flag);
+    }
+  }
+  /* then use that object */
+  if (hit.index >= 0) {
+    t = hit.dist / col.original_ray_length;
+    interp_v3_v3v3(ground_co, col.co1, col.co2, t);
+    normalize_v3_v3(ground_nor, col.pce.nor);
+    return col.hit;
+  }
+
+  /* default to z=0 */
+  copy_v3_v3(ground_co, pa->state.co);
+  ground_co[2] = 0;
+  ground_nor[0] = ground_nor[1] = 0.0f;
+  ground_nor[2] = 1.0f;
+  return NULL;
 }
-static int boid_rule_applies(ParticleData *pa, BoidSettings *UNUSED(boids), BoidRule *rule)
+static bool boid_rule_applies(ParticleData *pa, BoidSettings *UNUSED(boids), BoidRule *rule)
 {
   BoidParticle *bpa = pa->boid;
 
   if (rule == NULL) {
-    return 0;
+    return false;
   }
 
   if (ELEM(bpa->data.mode, eBoidMode_OnLand, eBoidMode_Climbing) &&
       rule->flag & BOIDRULE_ON_LAND) {
-    return 1;
+    return true;
   }
 
   if (bpa->data.mode == eBoidMode_InAir && rule->flag & BOIDRULE_IN_AIR) {
-    return 1;
+    return true;
   }
 
-  return 0;
+  return false;
 }
 void boids_precalc_rules(ParticleSettings *part, float cfra)
 {
@@ -1026,29 +996,27 @@ static float boid_goal_signed_dist(float *boid_co, float *goal_co, float *goal_n
   return dot_v3v3(vec, goal_nor);
 }
 /* wanted_co is relative to boid location */
-static int apply_boid_rule(
+static bool apply_boid_rule(
     BoidBrainData *bbd, BoidRule *rule, BoidValues *val, ParticleData *pa, float fuzziness)
 {
   if (rule == NULL) {
-    return 0;
+    return false;
   }
 
-  if (boid_rule_applies(pa, bbd->part->boids, rule) == 0) {
-    return 0;
+  if (!boid_rule_applies(pa, bbd->part->boids, rule)) {
+    return false;
   }
 
-  if (boid_rules[rule->type](rule, bbd, val, pa) == 0) {
-    return 0;
+  if (!boid_rules[rule->type](rule, bbd, val, pa)) {
+    return false;
   }
 
   if (fuzziness < 0.0f || compare_len_v3v3(bbd->wanted_co,
                                            pa->prev_state.vel,
                                            fuzziness * len_v3(pa->prev_state.vel)) == 0) {
-    return 1;
+    return true;
   }
-  else {
-    return 0;
-  }
+  return false;
 }
 static BoidState *get_boid_state(BoidSettings *boids, ParticleData *pa)
 {
@@ -1069,13 +1037,14 @@ static BoidState *get_boid_state(BoidSettings *boids, ParticleData *pa)
 
   return state;
 }
-// static int boid_condition_is_true(BoidCondition *cond)
-//{
-//  /* TODO */
-//  return 0;
-//}
 
-/* determines the velocity the boid wants to have */
+#if 0 /* TODO */
+static int boid_condition_is_true(BoidCondition *cond)
+{
+ return 0;
+}
+#endif
+
 void boid_brain(BoidBrainData *bbd, int p, ParticleData *pa)
 {
   BoidRule *rule;
@@ -1085,7 +1054,6 @@ void boid_brain(BoidBrainData *bbd, int p, ParticleData *pa)
   BoidParticle *bpa = pa->boid;
   ParticleSystem *psys = bbd->sim->psys;
   int rand;
-  // BoidCondition *cond;
 
   if (bpa->data.health <= 0.0f) {
     pa->alive = PARS_DYING;
@@ -1093,15 +1061,17 @@ void boid_brain(BoidBrainData *bbd, int p, ParticleData *pa)
     return;
   }
 
-  // planned for near future
-  // cond = state->conditions.first;
-  // for (; cond; cond=cond->next) {
-  //  if (boid_condition_is_true(cond)) {
-  //      pa->boid->state_id = cond->state_id;
-  //      state = get_boid_state(boids, pa);
-  //      break; /* only first true condition is used */
-  //  }
-  //}
+  /* Planned for near future. */
+#if 0
+  BoidCondition *cond = state->conditions.first;
+  for (; cond; cond = cond->next) {
+    if (boid_condition_is_true(cond)) {
+      pa->boid->state_id = cond->state_id;
+      state = get_boid_state(boids, pa);
+      break; /* only first true condition is used */
+    }
+  }
+#endif
 
   zero_v3(bbd->wanted_co);
   bbd->wanted_speed = 0.0f;
@@ -1231,7 +1201,6 @@ void boid_brain(BoidBrainData *bbd, int p, ParticleData *pa)
     }
   }
 }
-/* tries to realize the wanted velocity taking all constraints into account */
 void boid_body(BoidBrainData *bbd, ParticleData *pa)
 {
   BoidSettings *boids = bbd->part->boids;
@@ -1388,6 +1357,7 @@ void boid_body(BoidBrainData *bbd, ParticleData *pa)
                       bbd->part->effector_weights,
                       &epoint,
                       force,
+                      NULL,
                       NULL);
 
   if (ELEM(bpa->data.mode, eBoidMode_OnLand, eBoidMode_Climbing)) {
@@ -1506,20 +1476,22 @@ void boid_body(BoidBrainData *bbd, ParticleData *pa)
     }
     case eBoidMode_Climbing: {
       boid_climb(boids, pa, ground_co, ground_nor);
-      // float nor[3];
-      // copy_v3_v3(nor, ground_nor);
+#if 0
+      float nor[3];
+      copy_v3_v3(nor, ground_nor);
 
-      ///* gather apparent gravity to r_ve */
-      // madd_v3_v3fl(pa->r_ve, ground_nor, -1.0);
-      // normalize_v3(pa->r_ve);
+      /* Gather apparent gravity to r_ve. */
+      madd_v3_v3fl(pa->r_ve, ground_nor, -1.0);
+      normalize_v3(pa->r_ve);
 
-      ///* raise boid it's size from surface */
-      // mul_v3_fl(nor, pa->size * boids->height);
-      // add_v3_v3v3(pa->state.co, ground_co, nor);
+      /* Raise boid it's size from surface. */
+      mul_v3_fl(nor, pa->size * boids->height);
+      add_v3_v3v3(pa->state.co, ground_co, nor);
 
-      ///* remove normal component from velocity */
-      // project_v3_v3v3(v, pa->state.vel, ground_nor);
-      // sub_v3_v3v3(pa->state.vel, pa->state.vel, v);
+      /* Remove normal component from velocity. */
+      project_v3_v3v3(v, pa->state.vel, ground_nor);
+      sub_v3_v3v3(pa->state.vel, pa->state.vel, v);
+#endif
       break;
     }
     case eBoidMode_OnLand: {

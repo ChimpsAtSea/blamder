@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2009 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2009 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spfile
@@ -37,16 +21,19 @@
 
 #include "RNA_access.h"
 #include "RNA_define.h"
+#include "RNA_prototypes.h"
 
 #include "ED_fileselect.h"
 
 #include "UI_interface.h"
+#include "UI_interface_icons.h"
 #include "UI_resources.h"
 
 #include "WM_api.h"
 #include "WM_types.h"
 
 #include "file_intern.h"
+#include "filelist.h"
 #include "fsmenu.h"
 
 #include <string.h>
@@ -55,6 +42,12 @@ static bool file_panel_operator_poll(const bContext *C, PanelType *UNUSED(pt))
 {
   SpaceFile *sfile = CTX_wm_space_file(C);
   return (sfile && sfile->op);
+}
+
+static bool file_panel_asset_browsing_poll(const bContext *C, PanelType *UNUSED(pt))
+{
+  SpaceFile *sfile = CTX_wm_space_file(C);
+  return sfile && sfile->files && ED_fileselect_is_asset_browser(sfile);
 }
 
 static void file_panel_operator_header(const bContext *C, Panel *panel)
@@ -72,7 +65,7 @@ static void file_panel_operator(const bContext *C, Panel *panel)
 
   UI_block_func_set(uiLayoutGetBlock(panel->layout), file_draw_check_cb, NULL, NULL);
 
-  /* Hack: temporary hide.*/
+  /* Hack: temporary hide. */
   const char *hide[] = {"filepath", "files", "directory", "filename"};
   for (int i = 0; i < ARRAY_SIZE(hide); i++) {
     PropertyRNA *prop = RNA_struct_find_property(op->ptr, hide[i]);
@@ -84,7 +77,7 @@ static void file_panel_operator(const bContext *C, Panel *panel)
   uiTemplateOperatorPropertyButs(
       C, panel->layout, op, UI_BUT_LABEL_ALIGN_NONE, UI_TEMPLATE_OP_PROPS_SHOW_EMPTY);
 
-  /* Hack: temporary hide.*/
+  /* Hack: temporary hide. */
   for (int i = 0; i < ARRAY_SIZE(hide); i++) {
     PropertyRNA *prop = RNA_struct_find_property(op->ptr, hide[i]);
     if (prop) {
@@ -103,7 +96,7 @@ void file_tool_props_region_panels_register(ARegionType *art)
   strcpy(pt->idname, "FILE_PT_operator");
   strcpy(pt->label, N_("Operator"));
   strcpy(pt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
-  pt->flag = PNL_NO_HEADER;
+  pt->flag = PANEL_TYPE_NO_HEADER;
   pt->poll = file_panel_operator_poll;
   pt->draw_header = file_panel_operator_header;
   pt->draw = file_panel_operator;
@@ -132,7 +125,7 @@ static void file_panel_execution_buttons_draw(const bContext *C, Panel *panel)
 {
   bScreen *screen = CTX_wm_screen(C);
   SpaceFile *sfile = CTX_wm_space_file(C);
-  FileSelectParams *params = ED_fileselect_get_params(sfile);
+  FileSelectParams *params = ED_fileselect_get_active_params(sfile);
   uiBlock *block = uiLayoutGetBlock(panel->layout);
   uiBut *but;
   uiLayout *row;
@@ -181,11 +174,11 @@ static void file_panel_execution_buttons_draw(const bContext *C, Panel *panel)
 
   if (params->flag & FILE_CHECK_EXISTING) {
     but_extra_rna_ptr = UI_but_extra_operator_icon_add(
-        but, "FILE_OT_filenum", WM_OP_EXEC_REGION_WIN, ICON_ADD);
-    RNA_int_set(but_extra_rna_ptr, "increment", 1);
-    but_extra_rna_ptr = UI_but_extra_operator_icon_add(
         but, "FILE_OT_filenum", WM_OP_EXEC_REGION_WIN, ICON_REMOVE);
     RNA_int_set(but_extra_rna_ptr, "increment", -1);
+    but_extra_rna_ptr = UI_but_extra_operator_icon_add(
+        but, "FILE_OT_filenum", WM_OP_EXEC_REGION_WIN, ICON_ADD);
+    RNA_int_set(but_extra_rna_ptr, "increment", 1);
   }
 
   /* check if this overrides a file and if the operator option is used */
@@ -217,8 +210,60 @@ void file_execute_region_panels_register(ARegionType *art)
   strcpy(pt->idname, "FILE_PT_execution_buttons");
   strcpy(pt->label, N_("Execute Buttons"));
   strcpy(pt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
-  pt->flag = PNL_NO_HEADER;
+  pt->flag = PANEL_TYPE_NO_HEADER;
   pt->poll = file_panel_operator_poll;
   pt->draw = file_panel_execution_buttons_draw;
+  BLI_addtail(&art->paneltypes, pt);
+}
+
+static void file_panel_asset_catalog_buttons_draw(const bContext *C, Panel *panel)
+{
+  bScreen *screen = CTX_wm_screen(C);
+  SpaceFile *sfile = CTX_wm_space_file(C);
+  /* May be null if the library wasn't loaded yet. */
+  struct AssetLibrary *asset_library = filelist_asset_library(sfile->files);
+  FileAssetSelectParams *params = ED_fileselect_get_asset_params(sfile);
+  BLI_assert(params != NULL);
+
+  uiLayout *col = uiLayoutColumn(panel->layout, false);
+  uiLayout *row = uiLayoutRow(col, true);
+
+  PointerRNA params_ptr;
+  RNA_pointer_create(&screen->id, &RNA_FileAssetSelectParams, params, &params_ptr);
+
+  uiItemR(row, &params_ptr, "asset_library_ref", 0, "", ICON_NONE);
+  if (params->asset_library_ref.type == ASSET_LIBRARY_LOCAL) {
+    bContext *mutable_ctx = CTX_copy(C);
+    if (WM_operator_name_poll(mutable_ctx, "asset.bundle_install")) {
+      uiItemS(col);
+      uiItemMenuEnumO(col,
+                      mutable_ctx,
+                      "asset.bundle_install",
+                      "asset_library_ref",
+                      "Copy Bundle to Asset Library...",
+                      ICON_IMPORT);
+    }
+    CTX_free(mutable_ctx);
+  }
+  else {
+    uiItemO(row, "", ICON_FILE_REFRESH, "ASSET_OT_library_refresh");
+  }
+
+  uiItemS(col);
+
+  file_create_asset_catalog_tree_view_in_layout(asset_library, col, sfile, params);
+}
+
+void file_tools_region_panels_register(ARegionType *art)
+{
+  PanelType *pt;
+
+  pt = MEM_callocN(sizeof(PanelType), "spacetype file asset catalog buttons");
+  strcpy(pt->idname, "FILE_PT_asset_catalog_buttons");
+  strcpy(pt->label, N_("Asset Catalogs"));
+  strcpy(pt->translation_context, BLT_I18NCONTEXT_DEFAULT_BPYRNA);
+  pt->flag = PANEL_TYPE_NO_HEADER;
+  pt->poll = file_panel_asset_browsing_poll;
+  pt->draw = file_panel_asset_catalog_buttons_draw;
   BLI_addtail(&art->paneltypes, pt);
 }

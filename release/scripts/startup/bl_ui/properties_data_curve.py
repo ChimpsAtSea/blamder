@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 import bpy
 from bpy.types import Panel
 from rna_prop_ui import PropertyPanel
@@ -118,15 +100,14 @@ class DATA_PT_shape_curve(CurveButtonsPanel, Panel):
             col.separator()
 
             sub = col.column()
-            sub.active = (curve.dimensions == '2D' or (curve.bevel_object is None and curve.dimensions == '3D'))
+            sub.active = (curve.dimensions == '2D' or (curve.bevel_mode != 'OBJECT' and curve.dimensions == '3D'))
             sub.prop(curve, "fill_mode")
-            col.prop(curve, "use_fill_deform")
 
         if is_curve:
             col = layout.column()
             col.separator()
 
-            sub = col.column()
+            sub = col.column(heading="Curve Deform", align=True)
             sub.prop(curve, "use_radius")
             sub.prop(curve, "use_stretch")
             sub.prop(curve, "use_deform_bounds")
@@ -135,7 +116,7 @@ class DATA_PT_shape_curve(CurveButtonsPanel, Panel):
 class DATA_PT_curve_texture_space(CurveButtonsPanel, Panel):
     bl_label = "Texture Space"
     bl_options = {'DEFAULT_CLOSED'}
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     def draw(self, context):
         layout = self.layout
@@ -171,10 +152,11 @@ class DATA_PT_geometry_curve(CurveButtonsPanelCurve, Panel):
         col.prop(curve, "offset")
 
         sub = col.column()
-        sub.active = (curve.bevel_object is None)
+        sub.active = (curve.bevel_mode != 'OBJECT')
         sub.prop(curve, "extrude")
 
         col.prop(curve, "taper_object")
+        col.prop(curve, "taper_radius_mode")
 
         if type(curve) is not TextCurve:
             # This setting makes no sense for texts, since we have no control over start/end of the bevel object curve.
@@ -193,37 +175,53 @@ class DATA_PT_geometry_curve_bevel(CurveButtonsPanelCurve, Panel):
 
     def draw(self, context):
         layout = self.layout
+
+        curve = context.curve
+        layout.prop(curve, "bevel_mode", expand=True)
+
+        layout.use_property_split = True
+
+        col = layout.column()
+        if curve.bevel_mode == 'OBJECT':
+            col.prop(curve, "bevel_object", text="Object")
+        else:
+            col.prop(curve, "bevel_depth", text="Depth")
+            col.prop(curve, "bevel_resolution", text="Resolution")
+        col.prop(curve, "use_fill_caps")
+
+        if curve.bevel_mode == 'PROFILE':
+            col.template_curveprofile(curve, "bevel_profile")
+
+
+class DATA_PT_geometry_curve_start_end(CurveButtonsPanelCurve, Panel):
+    bl_label = "Start & End Mapping"
+    bl_parent_id = "DATA_PT_geometry_curve"
+    bl_options = {'DEFAULT_CLOSED'}
+
+    @classmethod
+    def poll(cls, context):
+        # Text objects don't support these properties
+        return (type(context.curve) == Curve)
+
+    def draw(self, context):
+        layout = self.layout
         layout.use_property_split = True
 
         curve = context.curve
 
         col = layout.column()
-        sub = col.column()
-        sub.active = (curve.bevel_object is None)
-        sub.prop(curve, "bevel_depth", text="Depth")
-        sub.prop(curve, "bevel_resolution", text="Resolution")
 
-        col.prop(curve, "bevel_object", text="Object")
+        col.active = (
+            ((curve.bevel_depth > 0.0) or (curve.extrude > 0.0)) or
+            ((curve.bevel_mode == 'OBJECT') and curve.bevel_object is not None)
+        )
+        sub = col.column(align=True)
+        sub.prop(curve, "bevel_factor_start", text="Factor Start")
+        sub.prop(curve, "bevel_factor_end", text="End")
 
-        sub = col.column()
-        sub.active = curve.bevel_object is not None
-        sub.prop(curve, "use_fill_caps")
-
-        if type(curve) is not TextCurve:
-
-            col = layout.column()
-            col.active = (
-                (curve.bevel_depth > 0.0) or
-                (curve.extrude > 0.0) or
-                (curve.bevel_object is not None)
-            )
-            sub = col.column(align=True)
-            sub.prop(curve, "bevel_factor_start", text="Bevel Start")
-            sub.prop(curve, "bevel_factor_end", text="End")
-
-            sub = col.column(align=True)
-            sub.prop(curve, "bevel_factor_mapping_start", text="Bevel Mapping Start")
-            sub.prop(curve, "bevel_factor_mapping_end", text="End")
+        sub = col.column(align=True)
+        sub.prop(curve, "bevel_factor_mapping_start", text="Mapping Start")
+        sub.prop(curve, "bevel_factor_mapping_end", text="End")
 
 
 class DATA_PT_pathanim(CurveButtonsPanelCurve, Panel):
@@ -250,6 +248,7 @@ class DATA_PT_pathanim(CurveButtonsPanelCurve, Panel):
         # these are for paths only
         col.separator()
 
+        col.prop(curve, "use_path_clamp")
         col.prop(curve, "use_path_follow")
 
 
@@ -288,7 +287,6 @@ class DATA_PT_active_spline(CurveButtonsPanelActive, Panel):
 
                 if is_surf:
                     subsub = sub.column()
-                    subsub.active = (not act_spline.use_cyclic_v)
                     subsub.prop(act_spline, "use_bezier_v", text="V")
 
                 sub = col.column(heading="Endpoint", align=True)
@@ -296,7 +294,6 @@ class DATA_PT_active_spline(CurveButtonsPanelActive, Panel):
 
                 if is_surf:
                     subsub = sub.column()
-                    subsub.active = (not act_spline.use_cyclic_v)
                     subsub.prop(act_spline, "use_endpoint_v", text="V")
 
                 sub = col.column(align=True)
@@ -321,6 +318,17 @@ class DATA_PT_active_spline(CurveButtonsPanelActive, Panel):
                 col.prop(act_spline, "radius_interpolation", text="Radius")
 
             layout.prop(act_spline, "use_smooth")
+            if act_spline.type == 'NURBS':
+                col = None
+                for direction in range(2):
+                    message = act_spline.valid_message(direction)
+                    if not message:
+                        continue
+                    if col is None:
+                        layout.separator()
+                        col = layout.column(align=True)
+                    col.label(text=message, icon='INFO')
+                del col
 
 
 class DATA_PT_font(CurveButtonsPanelText, Panel):
@@ -467,7 +475,7 @@ class DATA_PT_text_boxes(CurveButtonsPanelText, Panel):
 
 
 class DATA_PT_custom_props_curve(CurveButtonsPanel, PropertyPanel, Panel):
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
     _context_path = "object.data"
     _property_type = bpy.types.Curve
 
@@ -478,6 +486,7 @@ classes = (
     DATA_PT_curve_texture_space,
     DATA_PT_geometry_curve,
     DATA_PT_geometry_curve_bevel,
+    DATA_PT_geometry_curve_start_end,
     DATA_PT_pathanim,
     DATA_PT_active_spline,
     DATA_PT_font,

@@ -1,24 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 by the Blender Foundation.
- * All rights reserved.
- * Modifier stack implementation.
- *
- * BKE_modifier.h contains the function prototypes for this file.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -28,6 +9,7 @@
 
 #include "MEM_guardedalloc.h"
 
+#include "BLI_ghash.h"
 #include "BLI_utildefines.h"
 
 #include "CLG_log.h"
@@ -35,14 +17,34 @@
 #include "BLT_translation.h"
 
 #include "DNA_ID.h"
+#include "DNA_collection_types.h"
+#include "DNA_node_types.h"
+#include "DNA_scene_types.h"
 
 #include "BKE_main.h"
+#include "BKE_node.h"
 
 #include "BKE_idtype.h"
 
 // static CLG_LogRef LOG = {"bke.idtype"};
 
-static IDTypeInfo *id_types[MAX_LIBARRAY] = {NULL};
+uint BKE_idtype_cache_key_hash(const void *key_v)
+{
+  const IDCacheKey *key = key_v;
+  size_t hash = BLI_ghashutil_uinthash(key->id_session_uuid);
+  hash = BLI_ghashutil_combine_hash(hash, BLI_ghashutil_uinthash((uint)key->offset_in_ID));
+  return (uint)hash;
+}
+
+bool BKE_idtype_cache_key_cmp(const void *key_a_v, const void *key_b_v)
+{
+  const IDCacheKey *key_a = key_a_v;
+  const IDCacheKey *key_b = key_b_v;
+  return (key_a->id_session_uuid != key_b->id_session_uuid) ||
+         (key_a->offset_in_ID != key_b->offset_in_ID);
+}
+
+static IDTypeInfo *id_types[INDEX_ID_MAX] = {NULL};
 
 static void id_type_init(void)
 {
@@ -57,7 +59,7 @@ static void id_type_init(void)
   INIT_TYPE(ID_LI);
   INIT_TYPE(ID_OB);
   INIT_TYPE(ID_ME);
-  INIT_TYPE(ID_CU);
+  INIT_TYPE(ID_CU_LEGACY);
   INIT_TYPE(ID_MB);
   INIT_TYPE(ID_MA);
   INIT_TYPE(ID_TE);
@@ -89,7 +91,7 @@ static void id_type_init(void)
   INIT_TYPE(ID_CF);
   INIT_TYPE(ID_WS);
   INIT_TYPE(ID_LP);
-  INIT_TYPE(ID_HA);
+  INIT_TYPE(ID_CV);
   INIT_TYPE(ID_PT);
   INIT_TYPE(ID_VO);
   INIT_TYPE(ID_SIM);
@@ -115,9 +117,8 @@ const IDTypeInfo *BKE_idtype_get_info_from_idcode(const short id_code)
       id_types[id_index]->name[0] != '\0') {
     return id_types[id_index];
   }
-  else {
-    return NULL;
-  }
+
+  return NULL;
 }
 
 const IDTypeInfo *BKE_idtype_get_info_from_id(const ID *id)
@@ -136,15 +137,8 @@ static const IDTypeInfo *idtype_get_info_from_name(const char *idtype_name)
   return NULL;
 }
 
-/* Various helpers/wrappers around IDTypeInfo structure. */
+/* Various helpers/wrappers around #IDTypeInfo structure. */
 
-/**
- * Convert an idcode into a name.
- *
- * \param idcode: The code to convert.
- * \return A static string representing the name of
- * the code.
- */
 const char *BKE_idtype_idcode_to_name(const short idcode)
 {
   const IDTypeInfo *id_type = BKE_idtype_get_info_from_idcode(idcode);
@@ -152,13 +146,6 @@ const char *BKE_idtype_idcode_to_name(const short idcode)
   return id_type != NULL ? id_type->name : NULL;
 }
 
-/**
- * Convert an idcode into a name (plural).
- *
- * \param idcode: The code to convert.
- * \return A static string representing the name of
- * the code.
- */
 const char *BKE_idtype_idcode_to_name_plural(const short idcode)
 {
   const IDTypeInfo *id_type = BKE_idtype_get_info_from_idcode(idcode);
@@ -166,12 +153,6 @@ const char *BKE_idtype_idcode_to_name_plural(const short idcode)
   return id_type != NULL ? id_type->name_plural : NULL;
 }
 
-/**
- * Convert an idcode into its translations' context.
- *
- * \param idcode: The code to convert.
- * \return A static string representing the i18n context of the code.
- */
 const char *BKE_idtype_idcode_to_translation_context(const short idcode)
 {
   const IDTypeInfo *id_type = BKE_idtype_get_info_from_idcode(idcode);
@@ -179,12 +160,6 @@ const char *BKE_idtype_idcode_to_translation_context(const short idcode)
   return id_type != NULL ? id_type->translation_context : BLT_I18NCONTEXT_DEFAULT;
 }
 
-/**
- * Convert an IDType name into an idcode (ie. ID_SCE)
- *
- * \param idtype_name: The IDType's 'user visible name' to convert.
- * \return The idcode for the name, or 0 if invalid.
- */
 short BKE_idtype_idcode_from_name(const char *idtype_name)
 {
   const IDTypeInfo *id_type = idtype_get_info_from_name(idtype_name);
@@ -192,23 +167,11 @@ short BKE_idtype_idcode_from_name(const char *idtype_name)
   return id_type != NULL ? id_type->id_code : 0;
 }
 
-/**
- * Return if the ID code is a valid ID code.
- *
- * \param idcode: The code to check.
- * \return Boolean, 0 when invalid.
- */
 bool BKE_idtype_idcode_is_valid(const short idcode)
 {
   return BKE_idtype_get_info_from_idcode(idcode) != NULL ? true : false;
 }
 
-/**
- * Return non-zero when an ID type is linkable.
- *
- * \param idcode: The code to check.
- * \return Boolean, 0 when non linkable.
- */
 bool BKE_idtype_idcode_is_linkable(const short idcode)
 {
   const IDTypeInfo *id_type = BKE_idtype_get_info_from_idcode(idcode);
@@ -216,27 +179,56 @@ bool BKE_idtype_idcode_is_linkable(const short idcode)
   return id_type != NULL ? (id_type->flags & IDTYPE_FLAGS_NO_LIBLINKING) == 0 : false;
 }
 
-/**
- * Convert an idcode into an idfilter (e.g. ID_OB -> FILTER_ID_OB).
- */
+bool BKE_idtype_idcode_is_only_appendable(const short idcode)
+{
+  const IDTypeInfo *id_type = BKE_idtype_get_info_from_idcode(idcode);
+  BLI_assert(id_type != NULL);
+  if (id_type != NULL && (id_type->flags & IDTYPE_FLAGS_ONLY_APPEND) != 0) {
+    /* Only appendable ID types should also always be linkable. */
+    BLI_assert((id_type->flags & IDTYPE_FLAGS_NO_LIBLINKING) == 0);
+    return true;
+  }
+  return false;
+}
+
+bool BKE_idtype_idcode_append_is_reusable(const short idcode)
+{
+  const IDTypeInfo *id_type = BKE_idtype_get_info_from_idcode(idcode);
+  BLI_assert(id_type != NULL);
+  if (id_type != NULL && (id_type->flags & IDTYPE_FLAGS_APPEND_IS_REUSABLE) != 0) {
+    /* All appendable ID types should also always be linkable. */
+    BLI_assert((id_type->flags & IDTYPE_FLAGS_NO_LIBLINKING) == 0);
+    return true;
+  }
+  return false;
+}
+
 uint64_t BKE_idtype_idcode_to_idfilter(const short idcode)
 {
 #define CASE_IDFILTER(_id) \
   case ID_##_id: \
     return FILTER_ID_##_id
 
-  switch (idcode) {
+#define CASE_IDFILTER_NONE(_id) \
+  case ID_##_id: \
+    return 0
+
+  switch ((ID_Type)idcode) {
     CASE_IDFILTER(AC);
     CASE_IDFILTER(AR);
     CASE_IDFILTER(BR);
     CASE_IDFILTER(CA);
     CASE_IDFILTER(CF);
-    CASE_IDFILTER(CU);
+    CASE_IDFILTER(CU_LEGACY);
     CASE_IDFILTER(GD);
     CASE_IDFILTER(GR);
-    CASE_IDFILTER(HA);
+    CASE_IDFILTER(CV);
     CASE_IDFILTER(IM);
+    CASE_IDFILTER_NONE(IP);
+    CASE_IDFILTER(KE);
     CASE_IDFILTER(LA);
+    CASE_IDFILTER(LI);
+    CASE_IDFILTER(LP);
     CASE_IDFILTER(LS);
     CASE_IDFILTER(LT);
     CASE_IDFILTER(MA);
@@ -250,32 +242,34 @@ uint64_t BKE_idtype_idcode_to_idfilter(const short idcode)
     CASE_IDFILTER(PAL);
     CASE_IDFILTER(PC);
     CASE_IDFILTER(PT);
-    CASE_IDFILTER(LP);
     CASE_IDFILTER(SCE);
+    CASE_IDFILTER(SCR);
     CASE_IDFILTER(SIM);
-    CASE_IDFILTER(SPK);
     CASE_IDFILTER(SO);
+    CASE_IDFILTER(SPK);
     CASE_IDFILTER(TE);
     CASE_IDFILTER(TXT);
     CASE_IDFILTER(VF);
     CASE_IDFILTER(VO);
+    CASE_IDFILTER(WM);
     CASE_IDFILTER(WO);
     CASE_IDFILTER(WS);
-    default:
-      return 0;
   }
 
+  BLI_assert_unreachable();
+  return 0;
+
 #undef CASE_IDFILTER
+#undef CASE_IDFILTER_NONE
 }
 
-/**
- * Convert an idfilter into an idcode (e.g. FILTER_ID_OB -> ID_OB).
- */
 short BKE_idtype_idcode_from_idfilter(const uint64_t idfilter)
 {
 #define CASE_IDFILTER(_id) \
   case FILTER_ID_##_id: \
     return ID_##_id
+
+#define CASE_IDFILTER_NONE(_id) (void)0
 
   switch (idfilter) {
     CASE_IDFILTER(AC);
@@ -283,12 +277,16 @@ short BKE_idtype_idcode_from_idfilter(const uint64_t idfilter)
     CASE_IDFILTER(BR);
     CASE_IDFILTER(CA);
     CASE_IDFILTER(CF);
-    CASE_IDFILTER(CU);
+    CASE_IDFILTER(CU_LEGACY);
     CASE_IDFILTER(GD);
     CASE_IDFILTER(GR);
-    CASE_IDFILTER(HA);
+    CASE_IDFILTER(CV);
     CASE_IDFILTER(IM);
+    CASE_IDFILTER_NONE(IP);
+    CASE_IDFILTER(KE);
     CASE_IDFILTER(LA);
+    CASE_IDFILTER(LI);
+    CASE_IDFILTER(LP);
     CASE_IDFILTER(LS);
     CASE_IDFILTER(LT);
     CASE_IDFILTER(MA);
@@ -302,26 +300,27 @@ short BKE_idtype_idcode_from_idfilter(const uint64_t idfilter)
     CASE_IDFILTER(PAL);
     CASE_IDFILTER(PC);
     CASE_IDFILTER(PT);
-    CASE_IDFILTER(LP);
     CASE_IDFILTER(SCE);
+    CASE_IDFILTER(SCR);
     CASE_IDFILTER(SIM);
-    CASE_IDFILTER(SPK);
     CASE_IDFILTER(SO);
+    CASE_IDFILTER(SPK);
     CASE_IDFILTER(TE);
     CASE_IDFILTER(TXT);
     CASE_IDFILTER(VF);
     CASE_IDFILTER(VO);
+    CASE_IDFILTER(WM);
     CASE_IDFILTER(WO);
-    default:
-      return 0;
+    CASE_IDFILTER(WS);
   }
 
+  BLI_assert_unreachable();
+  return 0;
+
 #undef CASE_IDFILTER
+#undef CASE_IDFILTER_NONE
 }
 
-/**
- * Convert an idcode into an index (e.g. ID_OB -> INDEX_ID_OB).
- */
 int BKE_idtype_idcode_to_index(const short idcode)
 {
 #define CASE_IDINDEX(_id) \
@@ -334,10 +333,10 @@ int BKE_idtype_idcode_to_index(const short idcode)
     CASE_IDINDEX(BR);
     CASE_IDINDEX(CA);
     CASE_IDINDEX(CF);
-    CASE_IDINDEX(CU);
+    CASE_IDINDEX(CU_LEGACY);
     CASE_IDINDEX(GD);
     CASE_IDINDEX(GR);
-    CASE_IDINDEX(HA);
+    CASE_IDINDEX(CV);
     CASE_IDINDEX(IM);
     CASE_IDINDEX(IP);
     CASE_IDINDEX(KE);
@@ -381,9 +380,6 @@ int BKE_idtype_idcode_to_index(const short idcode)
 #undef CASE_IDINDEX
 }
 
-/**
- * Get an idcode from an index (e.g. INDEX_ID_OB -> ID_OB).
- */
 short BKE_idtype_idcode_from_index(const int index)
 {
 #define CASE_IDCODE(_id) \
@@ -396,10 +392,10 @@ short BKE_idtype_idcode_from_index(const int index)
     CASE_IDCODE(BR);
     CASE_IDCODE(CA);
     CASE_IDCODE(CF);
-    CASE_IDCODE(CU);
+    CASE_IDCODE(CU_LEGACY);
     CASE_IDCODE(GD);
     CASE_IDCODE(GR);
-    CASE_IDCODE(HA);
+    CASE_IDCODE(CV);
     CASE_IDCODE(IM);
     CASE_IDCODE(IP);
     CASE_IDCODE(KE);
@@ -443,13 +439,41 @@ short BKE_idtype_idcode_from_index(const int index)
 #undef CASE_IDCODE
 }
 
-/**
- * Return an ID code and steps the index forward 1.
- *
- * \param index: start as 0.
- * \return the code, 0 when all codes have been returned.
- */
 short BKE_idtype_idcode_iter_step(int *index)
 {
   return (*index < ARRAY_SIZE(id_types)) ? BKE_idtype_idcode_from_index((*index)++) : 0;
+}
+
+void BKE_idtype_id_foreach_cache(struct ID *id,
+                                 IDTypeForeachCacheFunctionCallback function_callback,
+                                 void *user_data)
+{
+  const IDTypeInfo *type_info = BKE_idtype_get_info_from_id(id);
+  if (type_info->foreach_cache != NULL) {
+    type_info->foreach_cache(id, function_callback, user_data);
+  }
+
+  /* Handle 'private IDs'. */
+  bNodeTree *nodetree = ntreeFromID(id);
+  if (nodetree != NULL) {
+    type_info = BKE_idtype_get_info_from_id(&nodetree->id);
+    if (type_info == NULL) {
+      /* Very old .blend file seem to have empty names for their embedded node trees, see
+       * `blo_do_versions_250()`. Assume those are nodetrees then. */
+      type_info = BKE_idtype_get_info_from_idcode(ID_NT);
+    }
+    if (type_info->foreach_cache != NULL) {
+      type_info->foreach_cache(&nodetree->id, function_callback, user_data);
+    }
+  }
+
+  if (GS(id->name) == ID_SCE) {
+    Scene *scene = (Scene *)id;
+    if (scene->master_collection != NULL) {
+      type_info = BKE_idtype_get_info_from_id(&scene->master_collection->id);
+      if (type_info->foreach_cache != NULL) {
+        type_info->foreach_cache(&scene->master_collection->id, function_callback, user_data);
+      }
+    }
+  }
 }

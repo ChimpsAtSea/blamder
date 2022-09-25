@@ -1,20 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 """
 This module contains helper functions used for Freestyle style module
@@ -51,14 +35,14 @@ __all__ = (
     "stroke_normal",
     "StrokeCollector",
     "tripplewise",
-    )
+)
 
 # module members
 from _freestyle import (
     ContextFunctions,
     getCurrentScene,
     integrate,
-    )
+)
 
 # constructs for helper functions in Python
 from freestyle.types import (
@@ -66,7 +50,7 @@ from freestyle.types import (
     Stroke,
     StrokeShader,
     StrokeVertexIterator,
-    )
+)
 
 from mathutils import Vector
 from functools import lru_cache, namedtuple
@@ -167,7 +151,7 @@ def normal_at_I0D(it: Interface0DIterator) -> Vector:
         # this case sometimes has a small difference with Normal2DF0D (1e-3 -ish)
         it.decrement()
         a = it.object
-        curr, b = next(it), next(it)
+        _curr, b = next(it), next(it)
         # give iterator back in original state
         it.decrement()
     return (b.point - a.point).orthogonal().normalized()
@@ -245,8 +229,6 @@ def simplifyDouglasPeucker(points, tolerance):
     first_stack = []
     last_stack = []
 
-    new_points = []
-
     markers[first] = 1
     markers[last] = 1
 
@@ -288,7 +270,7 @@ class BoundingBox:
         "maximum",
         "size",
         "corners",
-        )
+    )
 
     def __init__(self, minimum: Vector, maximum: Vector):
         self.minimum = minimum
@@ -319,6 +301,7 @@ class BoundingBox:
 
 class StrokeCollector(StrokeShader):
     """Collects and Stores stroke objects"""
+
     def __init__(self):
         StrokeShader.__init__(self)
         self.strokes = []

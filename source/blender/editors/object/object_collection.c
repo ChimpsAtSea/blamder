@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) Blender Foundation
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edobj
@@ -49,6 +33,9 @@
 #include "RNA_access.h"
 #include "RNA_define.h"
 #include "RNA_enum_types.h"
+#include "RNA_prototypes.h"
+
+#include "UI_interface_icons.h"
 
 #include "object_intern.h"
 
@@ -94,7 +81,7 @@ static const EnumPropertyItem *collection_object_active_itemf(bContext *C,
     collection = NULL;
     while ((collection = BKE_collection_object_find(bmain, scene, collection, ob))) {
       item_tmp.identifier = item_tmp.name = collection->id.name + 2;
-      /* item_tmp.icon = ICON_ARMATURE_DATA; */
+      item_tmp.icon = UI_icon_color_from_collection(collection);
       item_tmp.value = i;
       RNA_enum_item_add(&item, &totitem, &item_tmp);
       i++;
@@ -483,13 +470,13 @@ static int collection_link_exec(bContext *C, wmOperator *op)
 
   /* Currently this should not be allowed (might be supported in the future though...). */
   if (ID_IS_OVERRIDE_LIBRARY(&collection->id)) {
-    BKE_report(op->reports, RPT_ERROR, "Could not add the collection because it is overridden.");
+    BKE_report(op->reports, RPT_ERROR, "Could not add the collection because it is overridden");
     return OPERATOR_CANCELLED;
   }
   /* Linked collections are already checked for by using RNA_collection_local_itemf
    * but operator can be called without invoke */
   if (ID_IS_LINKED(&collection->id)) {
-    BKE_report(op->reports, RPT_ERROR, "Could not add the collection because it is linked.");
+    BKE_report(op->reports, RPT_ERROR, "Could not add the collection because it is linked");
     return OPERATOR_CANCELLED;
   }
 
@@ -539,13 +526,19 @@ void OBJECT_OT_collection_link(wmOperatorType *ot)
   ot->prop = prop;
 }
 
-static int collection_remove_exec(bContext *C, wmOperator *UNUSED(op))
+static int collection_remove_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   Object *ob = ED_object_context(C);
   Collection *collection = CTX_data_pointer_get_type(C, "collection", &RNA_Collection).data;
 
   if (!ob || !collection) {
+    return OPERATOR_CANCELLED;
+  }
+  if (ID_IS_LINKED(collection) || ID_IS_OVERRIDE_LIBRARY(collection)) {
+    BKE_report(op->reports,
+               RPT_ERROR,
+               "Cannot remove an object from a linked or library override collection");
     return OPERATOR_CANCELLED;
   }
 
@@ -574,12 +567,20 @@ void OBJECT_OT_collection_remove(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-static int collection_unlink_exec(bContext *C, wmOperator *UNUSED(op))
+static int collection_unlink_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
   Collection *collection = CTX_data_pointer_get_type(C, "collection", &RNA_Collection).data;
 
   if (!collection) {
+    return OPERATOR_CANCELLED;
+  }
+  if (ID_IS_OVERRIDE_LIBRARY(collection) &&
+      collection->id.override_library->hierarchy_root != &collection->id) {
+    BKE_report(op->reports,
+               RPT_ERROR,
+               "Cannot unlink a library override collection which is not the root of its override "
+               "hierarchy");
     return OPERATOR_CANCELLED;
   }
 

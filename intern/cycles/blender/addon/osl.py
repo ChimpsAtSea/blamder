@@ -1,20 +1,6 @@
-#
-# Copyright 2011-2013 Blender Foundation
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-# http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
-
-# <pep8 compliant>
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2011-2022 Blender Foundation
+from __future__ import annotations
 
 import bpy
 import _cycles
@@ -85,6 +71,7 @@ def update_script_node(node, report):
             # write text datablock contents to temporary file
             osl_file = tempfile.NamedTemporaryFile(mode='w', suffix=".osl", delete=False)
             osl_file.write(script.as_string())
+            osl_file.write("\n")
             osl_file.close()
 
             ok, oso_path = osl_compile(osl_file.name, report)

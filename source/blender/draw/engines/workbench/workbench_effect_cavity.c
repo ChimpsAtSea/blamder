@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2020, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2020 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -31,7 +16,7 @@
 
 #include "BLI_rand.h"
 
-#include "../eevee/eevee_lut.h" /* TODO find somewhere to share blue noise Table */
+#include "../eevee/eevee_lut.h" /* TODO: find somewhere to share blue noise Table. */
 
 #include "workbench_engine.h"
 #include "workbench_private.h"
@@ -74,7 +59,7 @@ static struct GPUTexture *create_jitter_texture(int num_samples)
     /* This rotate the sample per pixels */
     jitter[i][0] = cosf(phi);
     jitter[i][1] = sinf(phi);
-    /* This offset the sample along it's direction axis (reduce banding) */
+    /* This offset the sample along its direction axis (reduce banding) */
     float bn = blue_noise[i][1] - 0.5f;
     CLAMP(bn, -0.499f, 0.499f); /* fix fireflies */
     jitter[i][2] = bn * num_samples_inv;
@@ -139,8 +124,8 @@ void workbench_cavity_samples_ubo_ensure(WORKBENCH_PrivateData *wpd)
     float *samples = create_disk_samples(cavity_sample_count_single_iteration, max_iter_count);
     wpd->vldata->cavity_jitter_tx = create_jitter_texture(cavity_sample_count);
     /* NOTE: Uniform buffer needs to always be filled to be valid. */
-    wpd->vldata->cavity_sample_ubo = DRW_uniformbuffer_create(
-        sizeof(float[4]) * CAVITY_MAX_SAMPLES, samples);
+    wpd->vldata->cavity_sample_ubo = GPU_uniformbuf_create_ex(
+        sizeof(float[4]) * CAVITY_MAX_SAMPLES, samples, "wb_CavitySamples");
     wpd->vldata->cavity_sample_count = cavity_sample_count;
     MEM_freeN(samples);
   }
@@ -164,10 +149,10 @@ void workbench_cavity_cache_init(WORKBENCH_Data *data)
 
     grp = DRW_shgroup_create(sh, psl->cavity_ps);
     DRW_shgroup_uniform_texture(grp, "normalBuffer", wpd->normal_buffer_tx);
-    DRW_shgroup_uniform_block(grp, "samples_block", wpd->vldata->cavity_sample_ubo);
-    DRW_shgroup_uniform_block(grp, "world_block", wpd->world_ubo);
+    DRW_shgroup_uniform_block(grp, "world_data", wpd->world_ubo);
 
     if (SSAO_ENABLED(wpd)) {
+      DRW_shgroup_uniform_block(grp, "samples_coords", wpd->vldata->cavity_sample_ubo);
       DRW_shgroup_uniform_texture(grp, "depthBuffer", dtxl->depth);
       DRW_shgroup_uniform_texture(grp, "cavityJitter", wpd->vldata->cavity_jitter_tx);
     }

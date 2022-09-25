@@ -1,23 +1,9 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
  *
- * This file is so python can define operators that C can call into.
+ * This file exposes functionality for defining to define operators that C can call into.
  * The generic callback functions for python operators are defines in
  * 'rna_wm.c', some calling into functions here to do python specific
  * functionality.
@@ -32,6 +18,7 @@
 
 #include "RNA_access.h"
 #include "RNA_define.h"
+#include "RNA_prototypes.h"
 
 #include "bpy_intern_string.h"
 #include "bpy_operator_wrap.h" /* own include */
@@ -68,7 +55,7 @@ static void operator_properties_init(wmOperatorType *ot)
     if (bl_property) {
       if (PyUnicode_Check(bl_property)) {
         /* since the property is explicitly given, raise an error if its not found */
-        prop_id = _PyUnicode_AsString(bl_property);
+        prop_id = PyUnicode_AsUTF8(bl_property);
         prop_raise_error = true;
       }
       else {

@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_CAMERA_TYPES_H__
-#define __DNA_CAMERA_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
 #include "DNA_defs.h"
@@ -71,6 +54,7 @@ typedef struct CameraBGImage {
 typedef struct CameraDOFSettings {
   /** Focal distance for depth of field. */
   struct Object *focus_object;
+  char focus_subtarget[64];
   float focus_distance;
   float aperture_fstop;
   float aperture_rotation;
@@ -203,16 +187,21 @@ enum {
   CAM_BGIMG_FLAG_FOREGROUND = (1 << 4),
 
   /* Camera framing options */
-  CAM_BGIMG_FLAG_CAMERA_ASPECT = (1 << 5), /* don't stretch to fit the camera view  */
-  CAM_BGIMG_FLAG_CAMERA_CROP = (1 << 6),   /* crop out the image */
+  /** Don't stretch to fit the camera view. */
+  CAM_BGIMG_FLAG_CAMERA_ASPECT = (1 << 5),
+  /** Crop out the image. */
+  CAM_BGIMG_FLAG_CAMERA_CROP = (1 << 6),
 
   /* Axis flip options */
   CAM_BGIMG_FLAG_FLIP_X = (1 << 7),
   CAM_BGIMG_FLAG_FLIP_Y = (1 << 8),
+
+  /* That background image has been inserted in local override (i.e. it can be fully edited!). */
+  CAM_BGIMG_FLAG_OVERRIDE_LIBRARY_LOCAL = (1 << 9),
 };
 
 /* CameraBGImage->source */
-/* may want to use 1 for select ?*/
+/* may want to use 1 for select? */
 enum {
   CAM_BGIMG_SOURCE_IMAGE = 0,
   CAM_BGIMG_SOURCE_MOVIE = 1,
@@ -225,6 +214,4 @@ enum {
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

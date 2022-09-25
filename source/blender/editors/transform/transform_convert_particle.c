@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -35,20 +19,22 @@
 #include "ED_particle.h"
 
 #include "transform.h"
+#include "transform_snap.h"
+
+/* Own include. */
 #include "transform_convert.h"
 
 /* -------------------------------------------------------------------- */
 /** \name Particle Edit Transform Creation
- *
  * \{ */
 
-void createTransParticleVerts(bContext *C, TransInfo *t)
+static void createTransParticleVerts(bContext *UNUSED(C), TransInfo *t)
 {
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
 
     TransData *td = NULL;
     TransDataExtension *tx;
-    Object *ob = CTX_data_active_object(C);
+    Object *ob = OBACT(t->view_layer);
     ParticleEditSettings *pset = PE_settings(t->scene);
     PTCacheEdit *edit = PE_get_current(t->depsgraph, t->scene, ob);
     ParticleSystem *psys = NULL;
@@ -89,7 +75,7 @@ void createTransParticleVerts(bContext *C, TransInfo *t)
       }
     }
 
-    /* note: in prop mode we need at least 1 selected */
+    /* NOTE: in prop mode we need at least 1 selected. */
     if (hasselected == 0) {
       return;
     }
@@ -180,7 +166,7 @@ void createTransParticleVerts(bContext *C, TransInfo *t)
         tail++;
       }
       if (is_prop_edit && head != tail) {
-        calc_distanceCurveVerts(head, tail - 1);
+        calc_distanceCurveVerts(head, tail - 1, false);
       }
     }
   }
@@ -190,10 +176,9 @@ void createTransParticleVerts(bContext *C, TransInfo *t)
 
 /* -------------------------------------------------------------------- */
 /** \name Node Transform Creation
- *
  * \{ */
 
-void flushTransParticles(TransInfo *t)
+static void flushTransParticles(TransInfo *t)
 {
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
     Scene *scene = t->scene;
@@ -245,3 +230,24 @@ void flushTransParticles(TransInfo *t)
 }
 
 /** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Recalc Transform Particles Data
+ * \{ */
+
+static void recalcData_particles(TransInfo *t)
+{
+  if (t->state != TRANS_CANCEL) {
+    applySnappingIndividual(t);
+  }
+  flushTransParticles(t);
+}
+
+/** \} */
+
+TransConvertTypeInfo TransConvertType_Particle = {
+    /* flags */ T_POINTS,
+    /* createTransData */ createTransParticleVerts,
+    /* recalcData */ recalcData_particles,
+    /* special_aftertrans_update */ NULL,
+};

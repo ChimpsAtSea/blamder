@@ -1,42 +1,22 @@
+#pragma BLENDER_REQUIRE(common_view_lib.glsl)
+#pragma BLENDER_REQUIRE(common_math_lib.glsl)
+
 /**
  * Separable Hexagonal Bokeh Blur by Colin Barré-Brisebois
  * https://colinbarrebrisebois.com/2017/04/18/hexagonal-bokeh-blur-revisited-part-1-basic-3-pass-version/
  * Converted and adapted from HLSL to GLSL by Clément Foucault
  */
 
-uniform vec2 invertedViewportSize;
-uniform vec2 nearFar;
-uniform vec3 dofParams;
-uniform float noiseOffset;
-uniform sampler2D inputCocTex;
-uniform sampler2D maxCocTilesTex;
-uniform sampler2D sceneColorTex;
-uniform sampler2D sceneDepthTex;
-uniform sampler2D backgroundTex;
-uniform sampler2D halfResColorTex;
-uniform sampler2D blurTex;
-uniform sampler2D noiseTex;
-
 #define dof_aperturesize dofParams.x
 #define dof_distance dofParams.y
 #define dof_invsensorsize dofParams.z
-
-#define M_PI 3.1415926535897932 /* pi */
-
-float max_v4(vec4 v)
-{
-  return max(max(v.x, v.y), max(v.z, v.w));
-}
-
-#define weighted_sum(a, b, c, d, e, e_sum) \
-  ((a)*e.x + (b)*e.y + (c)*e.z + (d)*e.w) / max(1e-6, e_sum);
 
 /* divide by sensor size to get the normalized size */
 #define calculate_coc(zdepth) \
   (dof_aperturesize * (dof_distance / zdepth - 1.0) * dof_invsensorsize)
 
 #define linear_depth(z) \
-  ((ProjectionMatrix[3][3] == 0.0) ? \
+  ((drw_view.winmat[3][3] == 0.0) ? \
        (nearFar.x * nearFar.y) / (z * (nearFar.x - nearFar.y) + nearFar.y) : \
        (z * 2.0 - 1.0) * nearFar.y)
 
@@ -59,9 +39,6 @@ float decode_signed_coc(vec2 cocs)
  * Custom Coc aware downsampling. Half res pass.
  */
 #ifdef PREPARE
-
-layout(location = 0) out vec4 halfResColor;
-layout(location = 1) out vec2 normalizedCoc;
 
 void main()
 {
@@ -93,8 +70,7 @@ void main()
   /* now write output to weighted buffers. */
   /* Take far plane pixels in priority. */
   vec4 w = any(notEqual(far_weights, vec4(0.0))) ? far_weights : near_weights;
-  float tot_weight = dot(w, vec4(1.0));
-  halfResColor = weighted_sum(color1, color2, color3, color4, w, tot_weight);
+  halfResColor = weighted_sum(color1, color2, color3, color4, w);
   halfResColor = clamp(halfResColor, 0.0, 3.0);
 
   normalizedCoc = encode_coc(coc_near, coc_far);
@@ -103,27 +79,28 @@ void main()
 
 /**
  * ----------------- STEP 0.5 ------------------
- * Custom Coc aware downsampling. Quater res pass.
+ * Custom Coc aware downsampling. Quarter res pass.
  */
 #ifdef DOWNSAMPLE
 
-layout(location = 0) out vec4 outColor;
-layout(location = 1) out vec2 outCocs;
-
 void main()
 {
-  ivec4 texel = ivec4(gl_FragCoord.xyxy) * 2 + ivec4(0, 0, 1, 1);
+  vec4 texel = vec4(gl_FragCoord.xyxy) * 2.0 + vec4(0.0, 0.0, 1.0, 1.0);
+  texel = (texel - 0.5) / vec4(textureSize(sceneColorTex, 0).xyxy);
 
-  vec4 color1 = texelFetch(sceneColorTex, texel.xy, 0);
-  vec4 color2 = texelFetch(sceneColorTex, texel.zw, 0);
-  vec4 color3 = texelFetch(sceneColorTex, texel.zy, 0);
-  vec4 color4 = texelFetch(sceneColorTex, texel.xw, 0);
+  /* Using texelFetch can bypass the mip range setting on some platform.
+   * Using texture Lod fix this issue. Note that we need to disable filtering to get the right
+   * texel values. */
+  vec4 color1 = textureLod(sceneColorTex, texel.xy, 0.0);
+  vec4 color2 = textureLod(sceneColorTex, texel.zw, 0.0);
+  vec4 color3 = textureLod(sceneColorTex, texel.zy, 0.0);
+  vec4 color4 = textureLod(sceneColorTex, texel.xw, 0.0);
 
   vec4 depths;
-  vec2 cocs1 = texelFetch(inputCocTex, texel.xy, 0).rg;
-  vec2 cocs2 = texelFetch(inputCocTex, texel.zw, 0).rg;
-  vec2 cocs3 = texelFetch(inputCocTex, texel.zy, 0).rg;
-  vec2 cocs4 = texelFetch(inputCocTex, texel.xw, 0).rg;
+  vec2 cocs1 = textureLod(inputCocTex, texel.xy, 0.0).rg;
+  vec2 cocs2 = textureLod(inputCocTex, texel.zw, 0.0).rg;
+  vec2 cocs3 = textureLod(inputCocTex, texel.zy, 0.0).rg;
+  vec2 cocs4 = textureLod(inputCocTex, texel.xw, 0.0).rg;
 
   vec4 cocs_near = vec4(cocs1.r, cocs2.r, cocs3.r, cocs4.r) * MAX_COC_SIZE;
   vec4 cocs_far = vec4(cocs1.g, cocs2.g, cocs3.g, cocs4.g) * MAX_COC_SIZE;
@@ -138,8 +115,7 @@ void main()
 
   /* now write output to weighted buffers. */
   vec4 w = any(notEqual(far_weights, vec4(0.0))) ? far_weights : near_weights;
-  float tot_weight = dot(w, vec4(1.0));
-  outColor = weighted_sum(color1, color2, color3, color4, w, tot_weight);
+  outColor = weighted_sum(color1, color2, color3, color4, w);
 
   outCocs = encode_coc(coc_near, coc_far);
 }
@@ -221,14 +197,6 @@ void main()
  * Outputs vertical blur and combined blur in MRT
  */
 #ifdef BLUR1
-layout(location = 0) out vec4 blurColor;
-
-#  define NUM_SAMPLES 49
-
-layout(std140) uniform dofSamplesBlock
-{
-  vec4 samples[NUM_SAMPLES];
-};
 
 vec2 get_random_vector(float offset)
 {
@@ -286,34 +254,10 @@ void main()
  * Morgan McGuire and Kyle Whitson
  * http://graphics.cs.williams.edu
  *
- *
- * Copyright (c) Morgan McGuire and Williams College, 2006
- * All rights reserved.
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions are
- * met:
- *
- * Redistributions of source code must retain the above copyright notice,
- * this list of conditions and the following disclaimer.
- *
- * Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR
- * A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
- * HOLDER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL,
- * SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT
- * LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
- * DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY
- * THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
- * (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
- * OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ * SPDX-License-Identifier: BSD-2-Clause
+ * Copyright 2006 Morgan McGuire and Williams College, All rights reserved.
  */
 #ifdef BLUR2
-out vec4 finalColor;
 
 void main()
 {
@@ -342,23 +286,23 @@ void main()
 
 #  define mnmx3(a, b, c) \
     mx3(a, b, c); \
-    s2(a, b);  // 3 exchanges
+    s2(a, b); /* 3 exchanges */
 #  define mnmx4(a, b, c, d) \
     s2(a, b); \
     s2(c, d); \
     s2(a, c); \
-    s2(b, d);  // 4 exchanges
+    s2(b, d); /* 4 exchanges */
 #  define mnmx5(a, b, c, d, e) \
     s2(a, b); \
     s2(c, d); \
     mn3(a, c, e); \
-    mx3(b, d, e);  // 6 exchanges
+    mx3(b, d, e); /* 6 exchanges */
 #  define mnmx6(a, b, c, d, e, f) \
     s2(a, d); \
     s2(b, e); \
     s2(c, f); \
     mn3(a, b, c); \
-    mx3(d, e, f);  // 7 exchanges
+    mx3(d, e, f); /* 7 exchanges */
 
   vec v[9];
 
@@ -390,16 +334,13 @@ void main()
  */
 #ifdef RESOLVE
 
-layout(location = 0) out vec4 finalColorAdd;
-layout(location = 1) out vec4 finalColorMul;
-
 void main()
 {
   /* Fullscreen pass */
   vec2 pixel_size = 0.5 / vec2(textureSize(halfResColorTex, 0).xy);
   vec2 uv = gl_FragCoord.xy * pixel_size;
 
-  /* TODO MAKE SURE TO ALIGN SAMPLE POSITION TO AVOID OFFSET IN THE BOKEH */
+  /* TODO: MAKE SURE TO ALIGN SAMPLE POSITION TO AVOID OFFSET IN THE BOKEH. */
   float depth = texelFetch(sceneDepthTex, ivec2(gl_FragCoord.xy), 0).r;
   float zdepth = linear_depth(depth);
   float coc = calculate_coc(zdepth);

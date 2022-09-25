@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 by Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edmesh
@@ -67,12 +51,11 @@ typedef struct {
 
   /* Aligned with objects array. */
   struct {
-    BMBackup mesh;
+    BMBackup mesh_backup;
     bool is_valid;
     bool is_dirty;
   } * backup;
   int backup_len;
-  short gizmo_flag;
 } BisectData;
 
 static void mesh_bisect_interactive_calc(bContext *C,
@@ -88,23 +71,27 @@ static void mesh_bisect_interactive_calc(bContext *C,
   int y_start = RNA_int_get(op->ptr, "ystart");
   int x_end = RNA_int_get(op->ptr, "xend");
   int y_end = RNA_int_get(op->ptr, "yend");
+  const bool use_flip = RNA_boolean_get(op->ptr, "flip");
 
   /* reference location (some point in front of the view) for finding a point on a plane */
   const float *co_ref = rv3d->ofs;
   float co_a_ss[2] = {x_start, y_start}, co_b_ss[2] = {x_end, y_end}, co_delta_ss[2];
   float co_a[3], co_b[3];
-  const float zfac = ED_view3d_calc_zfac(rv3d, co_ref, NULL);
+  const float zfac = ED_view3d_calc_zfac(rv3d, co_ref);
 
   /* view vector */
   ED_view3d_win_to_vector(region, co_a_ss, co_a);
 
   /* view delta */
   sub_v2_v2v2(co_delta_ss, co_a_ss, co_b_ss);
-  ED_view3d_win_to_delta(region, co_delta_ss, co_b, zfac);
+  ED_view3d_win_to_delta(region, co_delta_ss, zfac, co_b);
 
   /* cross both to get a normal */
   cross_v3_v3v3(plane_no, co_a, co_b);
   normalize_v3(plane_no); /* not needed but nicer for user */
+  if (use_flip) {
+    negate_v3(plane_no);
+  }
 
   /* point on plane, can use either start or endpoint */
   ED_view3d_win_to_3d(v3d, region, co_ref, co_a_ss, plane_co);
@@ -116,7 +103,7 @@ static int mesh_bisect_invoke(bContext *C, wmOperator *op, const wmEvent *event)
   int valid_objects = 0;
 
   /* If the properties are set or there is no rv3d,
-   * skip model and exec immediately. */
+   * skip modal and exec immediately. */
   if ((CTX_wm_region_view3d(C) == NULL) || (RNA_struct_property_is_set(op->ptr, "plane_co") &&
                                             RNA_struct_property_is_set(op->ptr, "plane_no"))) {
     return mesh_bisect_exec(C, op);
@@ -140,10 +127,19 @@ static int mesh_bisect_invoke(bContext *C, wmOperator *op, const wmEvent *event)
     return OPERATOR_CANCELLED;
   }
 
-  int ret = WM_gesture_straightline_invoke(C, op, event);
-  if (ret & OPERATOR_RUNNING_MODAL) {
-    View3D *v3d = CTX_wm_view3d(C);
+  /* Support flipping if side matters. */
+  int ret;
+  const bool clear_inner = RNA_boolean_get(op->ptr, "clear_inner");
+  const bool clear_outer = RNA_boolean_get(op->ptr, "clear_outer");
+  const bool use_fill = RNA_boolean_get(op->ptr, "use_fill");
+  if ((clear_inner != clear_outer) || use_fill) {
+    ret = WM_gesture_straightline_active_side_invoke(C, op, event);
+  }
+  else {
+    ret = WM_gesture_straightline_invoke(C, op, event);
+  }
 
+  if (ret & OPERATOR_RUNNING_MODAL) {
     wmGesture *gesture = op->customdata;
     BisectData *opdata;
 
@@ -160,14 +156,12 @@ static int mesh_bisect_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 
       if (em->bm->totedgesel != 0) {
         opdata->backup[ob_index].is_valid = true;
-        opdata->backup[ob_index].mesh = EDBM_redo_state_store(em);
+        opdata->backup[ob_index].mesh_backup = EDBM_redo_state_store(em);
       }
     }
 
     /* Misc other vars. */
     G.moving = G_TRANSFORM_EDIT;
-    opdata->gizmo_flag = v3d->gizmo_flag;
-    v3d->gizmo_flag = V3D_GIZMO_HIDE;
 
     /* Initialize modal callout. */
     ED_workspace_status_text(C, TIP_("LMB: Click and drag to draw cut line"));
@@ -176,15 +170,13 @@ static int mesh_bisect_invoke(bContext *C, wmOperator *op, const wmEvent *event)
   return ret;
 }
 
-static void edbm_bisect_exit(bContext *C, BisectData *opdata)
+static void edbm_bisect_exit(BisectData *opdata)
 {
-  View3D *v3d = CTX_wm_view3d(C);
-  v3d->gizmo_flag = opdata->gizmo_flag;
   G.moving = 0;
 
   for (int ob_index = 0; ob_index < opdata->backup_len; ob_index++) {
     if (opdata->backup[ob_index].is_valid) {
-      EDBM_redo_state_free(&opdata->backup[ob_index].mesh, NULL, false);
+      EDBM_redo_state_free(&opdata->backup[ob_index].mesh_backup);
     }
   }
   MEM_freeN(opdata->backup);
@@ -210,7 +202,7 @@ static int mesh_bisect_modal(bContext *C, wmOperator *op, const wmEvent *event)
   }
 
   if (ret & (OPERATOR_FINISHED | OPERATOR_CANCELLED)) {
-    edbm_bisect_exit(C, &opdata_back);
+    edbm_bisect_exit(&opdata_back);
 
 #ifdef USE_GIZMO
     /* Setup gizmos */
@@ -280,7 +272,7 @@ static int mesh_bisect_exec(bContext *C, wmOperator *op)
 
   /* -------------------------------------------------------------------- */
   /* Modal support */
-  /* Note: keep this isolated, exec can work without this */
+  /* NOTE: keep this isolated, exec can work without this. */
   if (opdata != NULL) {
     mesh_bisect_interactive_calc(C, op, plane_co, plane_no);
     /* Write back to the props. */
@@ -301,7 +293,7 @@ static int mesh_bisect_exec(bContext *C, wmOperator *op)
 
     if (opdata != NULL) {
       if (opdata->backup[ob_index].is_dirty) {
-        EDBM_redo_state_restore(opdata->backup[ob_index].mesh, em, false);
+        EDBM_redo_state_restore(&opdata->backup[ob_index].mesh_backup, em, false);
         opdata->backup[ob_index].is_dirty = false;
       }
     }
@@ -347,7 +339,7 @@ static int mesh_bisect_exec(bContext *C, wmOperator *op)
       BMOperator bmop_attr;
 
       /* The fill normal sign is ignored as the face-winding is defined by surrounding faces.
-       * The normal is passed so triangle fill wont have to calculate it. */
+       * The normal is passed so triangle fill won't have to calculate it. */
       normalize_v3_v3(normal_fill, plane_no_local);
 
       /* Fill */
@@ -383,7 +375,12 @@ static int mesh_bisect_exec(bContext *C, wmOperator *op)
         bm, bmop.slots_out, "geom_cut.out", BM_VERT | BM_EDGE, BM_ELEM_SELECT, true);
 
     if (EDBM_op_finish(em, &bmop, op, true)) {
-      EDBM_update_generic(obedit->data, true, true);
+      EDBM_update(obedit->data,
+                  &(const struct EDBMUpdate_Params){
+                      .calc_looptri = true,
+                      .calc_normals = false,
+                      .is_destructive = true,
+                  });
       EDBM_selectmode_flush(em);
       ret = OPERATOR_FINISHED;
     }
@@ -444,15 +441,17 @@ void MESH_OT_bisect(struct wmOperatorType *ot)
   RNA_def_boolean(
       ot->srna, "clear_outer", false, "Clear Outer", "Remove geometry in front of the plane");
 
-  RNA_def_float(ot->srna,
-                "threshold",
-                0.0001,
-                0.0,
-                10.0,
-                "Axis Threshold",
-                "Preserves the existing geometry along the cut plane",
-                0.00001,
-                0.1);
+  prop = RNA_def_float(ot->srna,
+                       "threshold",
+                       0.0001,
+                       0.0,
+                       10.0,
+                       "Axis Threshold",
+                       "Preserves the existing geometry along the cut plane",
+                       0.00001,
+                       0.1);
+  /* Without higher precision, the default value displays as zero. */
+  RNA_def_property_ui_range(prop, 0.0, 10.0, 0.01, 5);
 
   WM_operator_properties_gesture_straightline(ot, WM_CURSOR_EDIT);
 
@@ -762,7 +761,7 @@ static void MESH_GGT_bisect(struct wmGizmoGroupType *gzgt)
   gzgt->name = "Mesh Bisect";
   gzgt->idname = "MESH_GGT_bisect";
 
-  gzgt->flag = WM_GIZMOGROUPTYPE_3D;
+  gzgt->flag = WM_GIZMOGROUPTYPE_3D | WM_GIZMOGROUPTYPE_DRAW_MODAL_EXCLUDE;
 
   gzgt->gzmap_params.spaceid = SPACE_VIEW3D;
   gzgt->gzmap_params.regionid = RGN_TYPE_WINDOW;

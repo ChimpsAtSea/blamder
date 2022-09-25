@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 from bpy.types import (
     Panel,
@@ -45,7 +27,7 @@ class PhysicButtonsPanel:
 
 class PHYSICS_PT_field(PhysicButtonsPanel, Panel):
     bl_label = "Force Fields"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -67,7 +49,7 @@ class PHYSICS_PT_field(PhysicButtonsPanel, Panel):
 class PHYSICS_PT_field_settings(PhysicButtonsPanel, Panel):
     bl_label = "Settings"
     bl_parent_id = 'PHYSICS_PT_field'
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -93,7 +75,6 @@ class PHYSICS_PT_field_settings(PhysicButtonsPanel, Panel):
 
         elif field.type == 'GUIDE':
             col = flow.column()
-            col.prop(field, "guide_minimum")
             col.prop(field, "guide_free")
             col.prop(field, "falloff_power")
             col.prop(field, "use_guide_path_add")
@@ -102,13 +83,22 @@ class PHYSICS_PT_field_settings(PhysicButtonsPanel, Panel):
             col.separator()
 
             col = flow.column()
-            col.prop(field, "guide_clump_amount", text="Clumping amount")
+            col.prop(field, "guide_clump_amount", text="Clumping Amount")
             col.prop(field, "guide_clump_shape")
-            col.prop(field, "use_max_distance")
 
-            sub = col.column()
+            col.separator()
+
+            col.prop(field, "guide_minimum", text="Min Distance")
+
+            col = layout.column(align=False, heading="Max Distance")
+            col.use_property_decorate = False
+            row = col.row(align=True)
+            sub = row.row(align=True)
+            sub.prop(field, "use_max_distance", text="")
+            sub = sub.row(align=True)
             sub.active = field.use_max_distance
-            sub.prop(field, "distance_max")
+            sub.prop(field, "distance_max", text="")
+            row.prop_decorator(field, "distance_max")
 
         elif field.type == 'TEXTURE':
             col = flow.column()
@@ -117,6 +107,9 @@ class PHYSICS_PT_field_settings(PhysicButtonsPanel, Panel):
             col.separator()
 
             col.prop(field, "strength")
+
+            sub = col.column(heading="Affect")
+            sub.prop(field, "apply_to_location", text="Location")
 
             col = flow.column()
             col.prop(field, "texture_nabla")
@@ -127,6 +120,10 @@ class PHYSICS_PT_field_settings(PhysicButtonsPanel, Panel):
             col = flow.column()
             col.prop(field, "strength")
             col.prop(field, "flow")
+
+            sub = col.column(heading="Affect")
+            sub.prop(field, "apply_to_location", text="Location")
+            sub.prop(field, "apply_to_rotation", text="Rotation")
 
             col = flow.column()
             col.prop(field, "source_object")
@@ -139,7 +136,7 @@ class PHYSICS_PT_field_settings(PhysicButtonsPanel, Panel):
 class PHYSICS_PT_field_settings_kink(PhysicButtonsPanel, Panel):
     bl_label = "Kink"
     bl_parent_id = 'PHYSICS_PT_field_settings'
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -173,7 +170,7 @@ class PHYSICS_PT_field_settings_kink(PhysicButtonsPanel, Panel):
 class PHYSICS_PT_field_settings_texture_select(PhysicButtonsPanel, Panel):
     bl_label = "Texture"
     bl_parent_id = 'PHYSICS_PT_field_settings'
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -195,7 +192,7 @@ class PHYSICS_PT_field_settings_texture_select(PhysicButtonsPanel, Panel):
 class PHYSICS_PT_field_falloff(PhysicButtonsPanel, Panel):
     bl_label = "Falloff"
     bl_parent_id = "PHYSICS_PT_field"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -220,7 +217,7 @@ class PHYSICS_PT_field_falloff(PhysicButtonsPanel, Panel):
 class PHYSICS_PT_field_falloff_angular(PhysicButtonsPanel, Panel):
     bl_label = "Angular"
     bl_parent_id = "PHYSICS_PT_field_falloff"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -259,7 +256,7 @@ class PHYSICS_PT_field_falloff_angular(PhysicButtonsPanel, Panel):
 class PHYSICS_PT_field_falloff_radial(PhysicButtonsPanel, Panel):
     bl_label = "Radial"
     bl_parent_id = "PHYSICS_PT_field_falloff"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -303,7 +300,7 @@ def collision_warning(layout):
 
 class PHYSICS_PT_collision(PhysicButtonsPanel, Panel):
     bl_label = "Collision"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -334,7 +331,7 @@ class PHYSICS_PT_collision(PhysicButtonsPanel, Panel):
 class PHYSICS_PT_collision_particle(PhysicButtonsPanel, Panel):
     bl_label = "Particle"
     bl_parent_id = "PHYSICS_PT_collision"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):
@@ -378,9 +375,9 @@ class PHYSICS_PT_collision_particle(PhysicButtonsPanel, Panel):
 
 
 class PHYSICS_PT_collision_softbody(PhysicButtonsPanel, Panel):
-    bl_label = "Softbody And Cloth"
+    bl_label = "Softbody & Cloth"
     bl_parent_id = "PHYSICS_PT_collision"
-    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_WORKBENCH'}
+    COMPAT_ENGINES = {'BLENDER_RENDER', 'BLENDER_EEVEE', 'BLENDER_EEVEE_NEXT', 'BLENDER_WORKBENCH'}
 
     @classmethod
     def poll(cls, context):

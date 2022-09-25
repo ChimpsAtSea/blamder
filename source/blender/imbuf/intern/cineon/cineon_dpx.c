@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2006 Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2006 Blender Foundation. */
 
 /** \file
  * \ingroup imbcineon
@@ -84,7 +69,7 @@ static struct ImBuf *imb_load_dpx_cineon(const unsigned char *mem,
   return ibuf;
 }
 
-static int imb_save_dpx_cineon(ImBuf *ibuf, const char *filename, int use_cineon, int flags)
+static int imb_save_dpx_cineon(ImBuf *ibuf, const char *filepath, int use_cineon, int flags)
 {
   LogImageFile *logImage;
   float *fbuf;
@@ -101,7 +86,7 @@ static int imb_save_dpx_cineon(ImBuf *ibuf, const char *filename, int use_cineon
 
   depth = (ibuf->planes + 7) >> 3;
   if (depth > 4 || depth < 3) {
-    printf("DPX/Cineon: unsupported depth: %d for file: '%s'\n", depth, filename);
+    printf("DPX/Cineon: unsupported depth: %d for file: '%s'\n", depth, filepath);
     return 0;
   }
 
@@ -118,7 +103,7 @@ static int imb_save_dpx_cineon(ImBuf *ibuf, const char *filename, int use_cineon
     bitspersample = 8;
   }
 
-  logImage = logImageCreate(filename,
+  logImage = logImageCreate(filepath,
                             use_cineon,
                             ibuf->x,
                             ibuf->y,
@@ -136,10 +121,10 @@ static int imb_save_dpx_cineon(ImBuf *ibuf, const char *filename, int use_cineon
   }
 
   if (ibuf->rect_float != NULL && bitspersample != 8) {
-    /* don't use the float buffer to save 8 bpp picture to prevent color banding
-     * (there's no dithering algorithm behind the logImageSetDataRGBA function) */
+    /* Don't use the float buffer to save 8 BPP picture to prevent color banding
+     * (there's no dithering algorithm behind the #logImageSetDataRGBA function). */
 
-    fbuf = (float *)MEM_mallocN(ibuf->x * ibuf->y * 4 * sizeof(float),
+    fbuf = (float *)MEM_mallocN(sizeof(float[4]) * ibuf->x * ibuf->y,
                                 "fbuf in imb_save_dpx_cineon");
 
     for (y = 0; y < ibuf->y; y++) {
@@ -158,7 +143,7 @@ static int imb_save_dpx_cineon(ImBuf *ibuf, const char *filename, int use_cineon
       IMB_rect_from_float(ibuf);
     }
 
-    fbuf = (float *)MEM_mallocN(ibuf->x * ibuf->y * 4 * sizeof(float),
+    fbuf = (float *)MEM_mallocN(sizeof(float[4]) * ibuf->x * ibuf->y,
                                 "fbuf in imb_save_dpx_cineon");
     if (fbuf == NULL) {
       printf("DPX/Cineon: error allocating memory.\n");
@@ -183,14 +168,14 @@ static int imb_save_dpx_cineon(ImBuf *ibuf, const char *filename, int use_cineon
   return rvalue;
 }
 
-int imb_save_cineon(struct ImBuf *buf, const char *myfile, int flags)
+bool imb_save_cineon(struct ImBuf *buf, const char *filepath, int flags)
 {
-  return imb_save_dpx_cineon(buf, myfile, 1, flags);
+  return imb_save_dpx_cineon(buf, filepath, 1, flags);
 }
 
-int imb_is_cineon(const unsigned char *buf)
+bool imb_is_a_cineon(const unsigned char *buf, size_t size)
 {
-  return logImageIsCineon(buf);
+  return logImageIsCineon(buf, size);
 }
 
 ImBuf *imb_load_cineon(const unsigned char *mem,
@@ -198,20 +183,20 @@ ImBuf *imb_load_cineon(const unsigned char *mem,
                        int flags,
                        char colorspace[IM_MAX_SPACE])
 {
-  if (imb_is_cineon(mem)) {
-    return imb_load_dpx_cineon(mem, size, 1, flags, colorspace);
+  if (!imb_is_a_cineon(mem, size)) {
+    return NULL;
   }
-  return NULL;
+  return imb_load_dpx_cineon(mem, size, 1, flags, colorspace);
 }
 
-int imb_save_dpx(struct ImBuf *buf, const char *myfile, int flags)
+bool imb_save_dpx(struct ImBuf *buf, const char *filepath, int flags)
 {
-  return imb_save_dpx_cineon(buf, myfile, 0, flags);
+  return imb_save_dpx_cineon(buf, filepath, 0, flags);
 }
 
-int imb_is_dpx(const unsigned char *buf)
+bool imb_is_a_dpx(const unsigned char *buf, size_t size)
 {
-  return logImageIsDpx(buf);
+  return logImageIsDpx(buf, size);
 }
 
 ImBuf *imb_load_dpx(const unsigned char *mem,
@@ -219,8 +204,8 @@ ImBuf *imb_load_dpx(const unsigned char *mem,
                     int flags,
                     char colorspace[IM_MAX_SPACE])
 {
-  if (imb_is_dpx(mem)) {
-    return imb_load_dpx_cineon(mem, size, 0, flags, colorspace);
+  if (!imb_is_a_dpx(mem, size)) {
+    return NULL;
   }
-  return NULL;
+  return imb_load_dpx_cineon(mem, size, 0, flags, colorspace);
 }

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -36,13 +20,13 @@
 #include "BLT_translation.h"
 
 #include "transform.h"
-#include "transform_mode.h"
+#include "transform_convert.h"
 #include "transform_snap.h"
 
-/* -------------------------------------------------------------------- */
-/* Transform (Curve Shrink/Fatten) */
+#include "transform_mode.h"
 
-/** \name Transform Curve Shrink/Fatten
+/* -------------------------------------------------------------------- */
+/** \name Transform (Curve Shrink/Fatten)
  * \{ */
 
 static void applyCurveShrinkFatten(TransInfo *t, const int UNUSED(mval[2]))
@@ -51,9 +35,9 @@ static void applyCurveShrinkFatten(TransInfo *t, const int UNUSED(mval[2]))
   int i;
   char str[UI_MAX_DRAW_STR];
 
-  ratio = t->values[0];
+  ratio = t->values[0] + t->values_modal_offset[0];
 
-  snapGridIncrement(t, &ratio);
+  transform_snap_increment(t, &ratio);
 
   applyNumInput(&t->num, &ratio);
 
@@ -80,10 +64,8 @@ static void applyCurveShrinkFatten(TransInfo *t, const int UNUSED(mval[2]))
       if (td->val) {
         *td->val = td->ival * ratio;
         /* apply PET */
-        *td->val = (*td->val * td->factor) + ((1.0f - td->factor) * td->ival);
-        if (*td->val <= 0.0f) {
-          *td->val = 0.001f;
-        }
+        *td->val = interpf(*td->val, td->ival, td->factor);
+        CLAMP_MIN(*td->val, 0.0f);
       }
     }
   }
@@ -102,19 +84,14 @@ void initCurveShrinkFatten(TransInfo *t)
 
   t->idx_max = 0;
   t->num.idx_max = 0;
-  t->snap[0] = 0.0f;
-  t->snap[1] = 0.1f;
-  t->snap[2] = t->snap[1] * 0.1f;
+  t->snap[0] = 0.1f;
+  t->snap[1] = t->snap[0] * 0.1f;
 
-  copy_v3_fl(t->num.val_inc, t->snap[1]);
+  copy_v3_fl(t->num.val_inc, t->snap[0]);
   t->num.unit_sys = t->scene->unit.system;
   t->num.unit_type[0] = B_UNIT_NONE;
 
-  t->flag |= T_NO_ZERO;
-#ifdef USE_NUM_NO_ZERO
-  t->num.val_flag[0] |= NUM_NO_ZERO;
-#endif
-
   t->flag |= T_NO_CONSTRAINT;
 }
+
 /** \} */

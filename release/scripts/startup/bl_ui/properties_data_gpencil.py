@@ -1,28 +1,11 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 import bpy
 from bpy.types import Menu, Panel, UIList
 from rna_prop_ui import PropertyPanel
 
 from bl_ui.properties_grease_pencil_common import (
     GreasePencilLayerMasksPanel,
+    GreasePencilLayerTransformPanel,
     GreasePencilLayerAdjustmentsPanel,
     GreasePencilLayerRelationsPanel,
     GreasePencilLayerDisplayPanel,
@@ -90,8 +73,10 @@ class GPENCIL_MT_layer_context_menu(Menu):
         layout = self.layout
         ob = context.object
         gpd = ob.data
+        gpl = gpd.layers.active
 
-        layout.operator("gpencil.layer_duplicate", icon='DUPLICATE')
+        layout.operator("gpencil.layer_duplicate", text="Duplicate", icon='DUPLICATE').mode = 'ALL'
+        layout.operator("gpencil.layer_duplicate", text="Duplicate Empty Keyframes").mode = 'EMPTY'
 
         layout.separator()
 
@@ -101,15 +86,18 @@ class GPENCIL_MT_layer_context_menu(Menu):
         layout.separator()
 
         layout.operator("gpencil.lock_all", icon='LOCKED', text="Lock All")
-        layout.operator("gpencil.unlock_all", icon='UNLOCKED', text="UnLock All")
+        layout.operator("gpencil.unlock_all", icon='UNLOCKED', text="Unlock All")
         layout.prop(gpd, "use_autolock_layers", text="Autolock Inactive Layers")
+        layout.prop(gpl, "lock_material")
 
         layout.separator()
 
-        layout.operator("gpencil.layer_merge", icon='SORT_ASC', text="Merge Down")
+        layout.operator("gpencil.layer_merge", icon='SORT_ASC', text="Merge Down").mode = 'ACTIVE'
+        layout.operator("gpencil.layer_merge", text="Merge All").mode = 'ALL'
 
         layout.separator()
-        layout.menu("VIEW3D_MT_gpencil_copy_layer")
+        layout.operator("gpencil.layer_duplicate_object", text="Copy Layer to Selected").only_active = True
+        layout.operator("gpencil.layer_duplicate_object", text="Copy All Layers to Selected").only_active = False
 
 
 class DATA_PT_gpencil_layers(DataButtonsPanel, Panel):
@@ -188,6 +176,12 @@ class DATA_PT_gpencil_layer_masks(LayerDataButtonsPanel, GreasePencilLayerMasksP
     bl_options = {'DEFAULT_CLOSED'}
 
 
+class DATA_PT_gpencil_layer_transform(LayerDataButtonsPanel, GreasePencilLayerTransformPanel, Panel):
+    bl_label = "Transform"
+    bl_parent_id = 'DATA_PT_gpencil_layers'
+    bl_options = {'DEFAULT_CLOSED'}
+
+
 class DATA_PT_gpencil_layer_adjustments(LayerDataButtonsPanel, GreasePencilLayerAdjustmentsPanel, Panel):
     bl_label = "Adjustments"
     bl_parent_id = 'DATA_PT_gpencil_layers'
@@ -214,10 +208,6 @@ class DATA_PT_gpencil_onion_skinning(DataButtonsPanel, Panel):
 
         layout = self.layout
         layout.use_property_split = True
-        layout.enabled = gpd.users <= 1
-
-        if gpd.users > 1:
-            layout.label(text="Multiuser datablock not supported", icon='ERROR')
 
         col = layout.column()
         col.prop(gpd, "onion_mode")
@@ -267,7 +257,7 @@ class DATA_PT_gpencil_onion_skinning_display(DataButtonsPanel, Panel):
         layout.use_property_split = True
         layout.enabled = gpd.users <= 1
 
-        layout.prop(gpd, "use_ghosts_always", text="View In Render")
+        layout.prop(gpd, "use_ghosts_always", text="View in Render")
 
         col = layout.column(align=True)
         col.prop(gpd, "use_onion_fade", text="Fade")
@@ -277,7 +267,7 @@ class DATA_PT_gpencil_onion_skinning_display(DataButtonsPanel, Panel):
 
 
 class GPENCIL_MT_gpencil_vertex_group(Menu):
-    bl_label = "GP Vertex Groups"
+    bl_label = "Grease Pencil Vertex Groups"
 
     def draw(self, context):
         layout = self.layout
@@ -335,6 +325,11 @@ class DATA_PT_gpencil_vertex_groups(ObjectButtonsPanel, Panel):
         col.operator("object.vertex_group_add", icon='ADD', text="")
         col.operator("object.vertex_group_remove", icon='REMOVE', text="").all = False
 
+        if group:
+            col.separator()
+            col.operator("object.vertex_group_move", icon='TRIA_UP', text="").direction = 'UP'
+            col.operator("object.vertex_group_move", icon='TRIA_DOWN', text="").direction = 'DOWN'
+
         if ob.vertex_groups:
             row = layout.row()
 
@@ -373,6 +368,8 @@ class DATA_PT_gpencil_strokes(DataButtonsPanel, Panel):
         sub.active = gpd.stroke_thickness_space == 'WORLDSPACE'
         sub.prop(gpd, "pixel_factor", text="Thickness Scale")
 
+        col.prop(gpd, "edit_curve_resolution")
+
 
 class DATA_PT_gpencil_display(DataButtonsPanel, Panel):
     bl_label = "Viewport Display"
@@ -384,7 +381,6 @@ class DATA_PT_gpencil_display(DataButtonsPanel, Panel):
         layout.use_property_decorate = False
 
         gpd = context.gpencil
-        gpl = gpd.layers.active
 
         layout.prop(gpd, "edit_line_color", text="Edit Line Color")
 
@@ -426,6 +422,7 @@ classes = (
     DATA_PT_gpencil_onion_skinning_custom_colors,
     DATA_PT_gpencil_onion_skinning_display,
     DATA_PT_gpencil_layer_masks,
+    DATA_PT_gpencil_layer_transform,
     DATA_PT_gpencil_layer_adjustments,
     DATA_PT_gpencil_layer_relations,
     DATA_PT_gpencil_layer_display,

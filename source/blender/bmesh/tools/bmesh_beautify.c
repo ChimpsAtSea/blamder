@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -49,8 +35,17 @@
 /* GSet for edge rotation */
 
 typedef struct EdRotState {
-  int v1, v2; /*  edge vert, small -> large */
-  int f1, f2; /*  face vert, small -> large */
+  /**
+   * Edge vert indices (ordered small -> large).
+   */
+  int v_pair[2];
+  /**
+   * Face vert indices (small -> large).
+   *
+   * Each face-vertex points to a connected triangles vertex
+   * that's isn't part of the edge defined by `v_pair`.
+   */
+  int f_pair[2];
 } EdRotState;
 
 #if 0
@@ -58,7 +53,7 @@ typedef struct EdRotState {
 static uint erot_gsetutil_hash(const void *ptr)
 {
   const EdRotState *e_state = (const EdRotState *)ptr;
-  return BLI_ghashutil_inthash_v4(&e_state->v1);
+  return BLI_ghashutil_inthash_v4(&e_state->v_pair[0]);
 }
 #endif
 #if 0
@@ -66,33 +61,31 @@ static int erot_gsetutil_cmp(const void *a, const void *b)
 {
   const EdRotState *e_state_a = (const EdRotState *)a;
   const EdRotState *e_state_b = (const EdRotState *)b;
-  if (e_state_a->v1 < e_state_b->v1) {
+  if (e_state_a->v_pair[0] < e_state_b->v_pair[0]) {
     return -1;
   }
-  else if (e_state_a->v1 > e_state_b->v1) {
+  if (e_state_a->v_pair[0] > e_state_b->v_pair[0]) {
     return 1;
   }
-  else if (e_state_a->v2 < e_state_b->v2) {
+  if (e_state_a->v_pair[1] < e_state_b->v_pair[1]) {
     return -1;
   }
-  else if (e_state_a->v2 > e_state_b->v2) {
+  if (e_state_a->v_pair[1] > e_state_b->v_pair[1]) {
     return 1;
   }
-  else if (e_state_a->f1 < e_state_b->f1) {
+  if (e_state_a->f_pair[0] < e_state_b->f_pair[0]) {
     return -1;
   }
-  else if (e_state_a->f1 > e_state_b->f1) {
+  if (e_state_a->f_pair[0] > e_state_b->f_pair[0]) {
     return 1;
   }
-  else if (e_state_a->f2 < e_state_b->f2) {
+  if (e_state_a->f_pair[1] < e_state_b->f_pair[1]) {
     return -1;
   }
-  else if (e_state_a->f2 > e_state_b->f2) {
+  if (e_state_a->f_pair[1] > e_state_b->f_pair[1]) {
     return 1;
   }
-  else {
-    return 0;
-  }
+  return 0;
 }
 #endif
 static GSet *erot_gset_new(void)
@@ -119,7 +112,7 @@ static void erot_state_ex(const BMEdge *e, int v_index[2], int f_index[2])
   EDGE_ORD(v_index[0], v_index[1]);
 
   /* verts of each of the 2 faces attached to this edge
-   * (that are not apart of this edge) */
+   * (that are not a part of this edge) */
   f_index[0] = BM_elem_index_get(e->l->prev->v);
   f_index[1] = BM_elem_index_get(e->l->radial_next->prev->v);
   EDGE_ORD(f_index[0], f_index[1]);
@@ -127,12 +120,12 @@ static void erot_state_ex(const BMEdge *e, int v_index[2], int f_index[2])
 
 static void erot_state_current(const BMEdge *e, EdRotState *e_state)
 {
-  erot_state_ex(e, &e_state->v1, &e_state->f1);
+  erot_state_ex(e, e_state->v_pair, e_state->f_pair);
 }
 
 static void erot_state_alternate(const BMEdge *e, EdRotState *e_state)
 {
-  erot_state_ex(e, &e_state->f1, &e_state->v1);
+  erot_state_ex(e, e_state->f_pair, e_state->v_pair);
 }
 
 /* -------------------------------------------------------------------- */
@@ -141,7 +134,8 @@ static void erot_state_alternate(const BMEdge *e, EdRotState *e_state)
 static float bm_edge_calc_rotate_beauty__area(const float v1[3],
                                               const float v2[3],
                                               const float v3[3],
-                                              const float v4[3])
+                                              const float v4[3],
+                                              const bool lock_degenerate)
 {
   /* not a loop (only to be able to break out) */
   do {
@@ -199,7 +193,8 @@ static float bm_edge_calc_rotate_beauty__area(const float v1[3],
      * Allowing to rotate out of a degenerate state can flip the faces
      * (when performed iteratively).
      */
-    return BLI_polyfill_beautify_quad_rotate_calc_ex(v1_xy, v2_xy, v3_xy, v4_xy, true, NULL);
+    return BLI_polyfill_beautify_quad_rotate_calc_ex(
+        v1_xy, v2_xy, v3_xy, v4_xy, lock_degenerate, NULL);
   } while (false);
 
   return FLT_MAX;
@@ -233,12 +228,6 @@ static float bm_edge_calc_rotate_beauty__angle(const float v1[3],
   return FLT_MAX;
 }
 
-/**
- * Assuming we have 2 triangles sharing an edge (2 - 4),
- * check if the edge running from (1 - 3) gives better results.
- *
- * \return (negative number means the edge can be rotated, lager == better).
- */
 float BM_verts_calc_rotate_beauty(const BMVert *v1,
                                   const BMVert *v2,
                                   const BMVert *v3,
@@ -262,7 +251,8 @@ float BM_verts_calc_rotate_beauty(const BMVert *v1,
 
     switch (method) {
       case 0:
-        return bm_edge_calc_rotate_beauty__area(v1->co, v2->co, v3->co, v4->co);
+        return bm_edge_calc_rotate_beauty__area(
+            v1->co, v2->co, v3->co, v4->co, flag & EDGE_RESTRICT_DEGENERATE);
       default:
         return bm_edge_calc_rotate_beauty__angle(v1->co, v2->co, v3->co, v4->co);
     }
@@ -274,10 +264,10 @@ float BM_verts_calc_rotate_beauty(const BMVert *v1,
 static float bm_edge_calc_rotate_beauty(const BMEdge *e, const short flag, const short method)
 {
   const BMVert *v1, *v2, *v3, *v4;
-  v1 = e->l->prev->v;              /* first vert co */
-  v2 = e->l->v;                    /* e->v1 or e->v2*/
-  v3 = e->l->radial_next->prev->v; /* second vert co */
-  v4 = e->l->next->v;              /* e->v1 or e->v2*/
+  v1 = e->l->prev->v;              /* First vert co */
+  v2 = e->l->v;                    /* `e->v1` or `e->v2`. */
+  v3 = e->l->radial_next->prev->v; /* Second vert co */
+  v4 = e->l->next->v;              /* `e->v1` or `e->v2`. */
 
   return BM_verts_calc_rotate_beauty(v1, v2, v3, v4, flag, method);
 }
@@ -371,9 +361,6 @@ static void bm_edge_update_beauty_cost(BMEdge *e,
 /* -------------------------------------------------------------------- */
 /* Beautify Fill */
 
-/**
- * \note This function sets the edge indices to invalid values.
- */
 void BM_mesh_beautify_fill(BMesh *bm,
                            BMEdge **edge_array,
                            const int edge_array_len,
@@ -426,7 +413,7 @@ void BM_mesh_beautify_fill(BMesh *bm,
       GSet *e_state_set = edge_state_arr[i];
 
       /* add the new state into the set so we don't move into this state again
-       * note: we could add the previous state too but this isn't essential)
+       * NOTE: we could add the previous state too but this isn't essential)
        *       for avoiding eternal loops */
       EdRotState *e_state = BLI_mempool_alloc(edge_state_pool);
       erot_state_current(e, e_state);

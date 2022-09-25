@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -55,7 +41,7 @@ static float bm_vert_edge_face_angle(BMVert *v,
 #define ANGLE_TO_UNIT (1.0f / UNIT_TO_ANGLE)
 
   const float angle = BM_vert_calc_edge_angle(v);
-  /* note: could be either edge, it doesn't matter */
+  /* NOTE: could be either edge, it doesn't matter. */
   if (v->e && BM_edge_is_manifold(v->e)) {
     /* Checking delimited is important here,
      * otherwise the boundary between two materials for e.g.
@@ -171,7 +157,10 @@ static float bm_edge_calc_dissolve_error(const BMEdge *e,
 
 #ifdef USE_DEGENERATE_CHECK
 
-static void mul_v2_m3v3_center(float r[2], float m[3][3], const float a[3], const float center[3])
+static void mul_v2_m3v3_center(float r[2],
+                               const float m[3][3],
+                               const float a[3],
+                               const float center[3])
 {
   BLI_assert(r != a);
   BLI_assert(r != center);
@@ -185,7 +174,7 @@ static void mul_v2_m3v3_center(float r[2], float m[3][3], const float a[3], cons
 
 static bool bm_loop_collapse_is_degenerate(BMLoop *l_ear)
 {
-  /* calculate relative to the centeral vertex for higher precision */
+  /* Calculate relative to the central vertex for higher precision. */
   const float *center = l_ear->v->co;
 
   float tri_2d[3][2];
@@ -278,9 +267,7 @@ static bool bm_vert_collapse_is_degenerate(BMVert *v)
     }
     return false;
   }
-  else {
-    return true;
-  }
+  return true;
 }
 #endif /* USE_DEGENERATE_CHECK */
 
@@ -375,9 +362,6 @@ void BM_mesh_decimate_dissolve_ex(BMesh *bm,
             }
           } while ((l_iter = l_iter->next) != l_first);
         }
-        else {
-          BMO_error_clear(bm);
-        }
       }
 
       if (UNLIKELY(f_new == NULL)) {
@@ -400,7 +384,7 @@ void BM_mesh_decimate_dissolve_ex(BMesh *bm,
       earray[i] = e_iter;
     }
     /* Remove all edges/verts left behind from dissolving,
-     * NULL'ing the vertex array so we dont re-use. */
+     * NULL'ing the vertex array so we don't re-use. */
     for (i = bm->totedge - 1; i != -1; i--) {
       e_iter = earray[i];
 
@@ -438,7 +422,7 @@ void BM_mesh_decimate_dissolve_ex(BMesh *bm,
     for (i = 0; i < vinput_len; i++) {
       BMVert *v = vinput_arr[i];
       if (LIKELY(v != NULL) && BM_vert_is_edge_pair(v)) {
-        BM_vert_collapse_edge(bm, v->e, v, true, true); /* join edges */
+        BM_vert_collapse_edge(bm, v->e, v, true, true, true); /* join edges */
       }
     }
   }
@@ -481,7 +465,7 @@ void BM_mesh_decimate_dissolve_ex(BMesh *bm,
           BM_vert_is_edge_pair(v)
 #endif
       ) {
-        e_new = BM_vert_collapse_edge(bm, v->e, v, true, true); /* join edges */
+        e_new = BM_vert_collapse_edge(bm, v->e, v, true, true, true); /* join edges */
 
         if (e_new) {
 

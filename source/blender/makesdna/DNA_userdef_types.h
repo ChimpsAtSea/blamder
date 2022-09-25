@@ -1,37 +1,22 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_USERDEF_TYPES_H__
-#define __DNA_USERDEF_TYPES_H__
+#pragma once
 
 #include "DNA_listBase.h"
 #include "DNA_texture_types.h" /* ColorBand */
+#include "DNA_userdef_enums.h"
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-/* themes; defines in BIF_resource.h */
+/* Themes; defines in `BIF_resource.h`. */
+
 struct ColorBand;
 
 /* ************************ style definitions ******************** */
@@ -51,39 +36,41 @@ typedef enum eUIFont_ID {
   /* UIFONT_CUSTOM2 = 3, */ /* UNUSED */
 } eUIFont_ID;
 
-/* default fonts to load/initialize */
-/* first font is the default (index 0), others optional */
+/**
+ * Default fonts to load/initialize.
+ * First font is the default (index 0), others optional.
+ */
+#
+#
 typedef struct uiFont {
   struct uiFont *next, *prev;
   /** 1024 = FILE_MAX. */
-  char filename[1024];
+  char filepath[1024];
   /** From blfont lib. */
   short blf_id;
   /** Own id (eUIFont_ID). */
   short uifont_id;
-  /** Fonts that read from left to right. */
-  short r_to_l;
-  char _pad0[2];
 } uiFont;
 
 /** This state defines appearance of text. */
 typedef struct uiFontStyle {
   /** Saved in file, 0 is default. */
   short uifont_id;
-  /** Actual size depends on 'global' dpi. */
-  short points;
-  /** Unfitted or default kerning value. */
-  short kerning;
+  char _pad1[2];
+  /** Actual size depends on 'global' DPI. */
+  float points;
   /** Style hint. */
   short italic, bold;
   /** Value is amount of pixels blur. */
   short shadow;
   /** Shadow offset in pixels. */
   short shadx, shady;
+  char _pad0[2];
   /** Total alpha. */
   float shadowalpha;
   /** 1 value, typically white or black anyway. */
   float shadowcolor;
+  char _pad2[4];
 } uiFontStyle;
 
 /* this is fed to the layout engine and widget code */
@@ -159,6 +146,7 @@ typedef struct ThemeUI {
   uiWidgetColors wcol_num, wcol_numslider, wcol_tab;
   uiWidgetColors wcol_menu, wcol_pulldown, wcol_menu_back, wcol_menu_item, wcol_tooltip;
   uiWidgetColors wcol_box, wcol_scroll, wcol_progress, wcol_list_item, wcol_pie_menu;
+  uiWidgetColors wcol_view_item;
 
   uiWidgetStateColors wcol_state;
 
@@ -208,6 +196,9 @@ typedef struct ThemeUI {
   /** Intensity of the border icons. >0 will render an border around themed
    * icons. */
   float icon_border_intensity;
+  float panel_roundness;
+  char _pad2[4];
+
 } ThemeUI;
 
 /* try to put them all in one, if needed a special struct can be created as well
@@ -262,7 +253,7 @@ typedef struct ThemeSpace {
   /** Region background. */
   unsigned char execution_buts[4];
 
-  /* note, cannot use name 'panel' because of DNA mapping old files */
+  /* NOTE: cannot use name 'panel' because of DNA mapping old files. */
   uiPanelColors panelcolors;
 
   unsigned char shade1[4];
@@ -276,12 +267,13 @@ typedef struct ThemeSpace {
   unsigned char wire[4], wire_edit[4], select[4];
   unsigned char lamp[4], speaker[4], empty[4], camera[4];
   unsigned char active[4], group[4], group_active[4], transform[4];
-  unsigned char vertex[4], vertex_select[4], vertex_bevel[4], vertex_unreferenced[4];
+  unsigned char vertex[4], vertex_select[4], vertex_active[4], vertex_bevel[4],
+      vertex_unreferenced[4];
   unsigned char edge[4], edge_select[4];
   unsigned char edge_seam[4], edge_sharp[4], edge_facesel[4], edge_crease[4], edge_bevel[4];
   /** Solid faces. */
   unsigned char face[4], face_select[4], face_back[4], face_front[4];
-  /**  selected color. */
+  /** Selected color. */
   unsigned char face_dot[4];
   unsigned char extra_edge_len[4], extra_edge_angle[4], extra_face_angle[4], extra_face_area[4];
   unsigned char normal[4];
@@ -320,20 +312,23 @@ typedef struct ThemeSpace {
   unsigned char vertex_size, outline_width, obcenter_dia, facedot_size;
   unsigned char noodle_curving;
   unsigned char grid_levels;
+  char _pad5[3];
+  float dash_alpha;
 
-  /* syntax for textwindow and nodes */
-  unsigned char syntaxl[4], syntaxs[4];  // in nodespace used for backdrop matte
-  unsigned char syntaxb[4], syntaxn[4];  // in nodespace used for color input
-  unsigned char syntaxv[4], syntaxc[4];  // in nodespace used for converter group
-  unsigned char syntaxd[4], syntaxr[4];  // in nodespace used for distort
+  /* Syntax for text-window and nodes. */
+  unsigned char syntaxl[4], syntaxs[4]; /* in nodespace used for backdrop matte */
+  unsigned char syntaxb[4], syntaxn[4]; /* in nodespace used for color input */
+  unsigned char syntaxv[4], syntaxc[4]; /* in nodespace used for converter group */
+  unsigned char syntaxd[4], syntaxr[4]; /* in nodespace used for distort */
 
   unsigned char line_numbers[4];
-  char _pad6[7];
+  char _pad6[3];
 
   unsigned char nodeclass_output[4], nodeclass_filter[4];
   unsigned char nodeclass_vector[4], nodeclass_texture[4];
   unsigned char nodeclass_shader[4], nodeclass_script[4];
   unsigned char nodeclass_pattern[4], nodeclass_layout[4];
+  unsigned char nodeclass_geometry[4], nodeclass_attribute[4];
 
   /** For sequence editor. */
   unsigned char movie[4], movieclip[4], mask[4], image[4], scene[4], audio[4];
@@ -341,6 +336,7 @@ typedef struct ThemeSpace {
   unsigned char active_strip[4], selected_strip[4];
 
   /** For dopesheet - scale factor for size of keyframes (i.e. height of channels). */
+  char _pad7[1];
   float keyframe_scale_fac;
 
   unsigned char editmesh_active[4];
@@ -358,7 +354,7 @@ typedef struct ThemeSpace {
   unsigned char path_before[4], path_after[4];
   unsigned char path_keyframe_before[4], path_keyframe_after[4];
   unsigned char camera_path[4];
-  unsigned char _pad1[2];
+  unsigned char _pad1[6];
 
   unsigned char gp_vertex_size;
   unsigned char gp_vertex[4], gp_vertex_select[4];
@@ -373,10 +369,8 @@ typedef struct ThemeSpace {
 
   /** Two uses, for uvs with modifier applied on mesh and uvs during painting. */
   unsigned char uv_shadow[4];
-  /** Uvs of other objects. */
-  unsigned char uv_others[4];
 
-  /** Outliner - filter match. */
+  /** Search filter match, used for property search and in the outliner. */
   unsigned char match[4];
   /** Outliner - selected item. */
   unsigned char selected_highlight[4];
@@ -439,7 +433,7 @@ typedef enum eBackgroundGradientTypes {
   TH_BACKGROUND_GRADIENT_RADIAL = 2,
 } eBackgroundGradientTypes;
 
-/* set of colors for use as a custom color set for Objects/Bones wire drawing */
+/** Set of colors for use as a custom color set for Objects/Bones wire drawing. */
 typedef struct ThemeWireColor {
   unsigned char solid[4];
   unsigned char select[4];
@@ -455,6 +449,14 @@ typedef enum eWireColor_Flags {
   TH_WIRECOLOR_CONSTCOLS = (1 << 0),
   /* TH_WIRECOLOR_TEXTCOLS = (1 << 1), */ /* UNUSED */
 } eWireColor_Flags;
+
+typedef struct ThemeCollectionColor {
+  unsigned char color[4];
+} ThemeCollectionColor;
+
+typedef struct ThemeStripColor {
+  unsigned char color[4];
+} ThemeStripColor;
 
 /**
  * A theme.
@@ -489,24 +491,30 @@ typedef struct bTheme {
   ThemeSpace space_clip;
   ThemeSpace space_topbar;
   ThemeSpace space_statusbar;
+  ThemeSpace space_spreadsheet;
 
   /* 20 sets of bone colors for this theme */
   ThemeWireColor tarm[20];
-  /*ThemeWireColor tobj[20];*/
+  // ThemeWireColor tobj[20];
+
+  /* See COLLECTION_COLOR_TOT for the number of collection colors. */
+  ThemeCollectionColor collection_color[8];
+
+  /* See SEQUENCE_COLOR_TOT for the total number of strip colors. */
+  ThemeStripColor strip_color[9];
 
   int active_theme_area;
-  char _pad0[4];
 } bTheme;
 
 #define UI_THEMESPACE_START(btheme) \
   (CHECK_TYPE_INLINE(btheme, bTheme *), &((btheme)->space_properties))
 #define UI_THEMESPACE_END(btheme) \
-  (CHECK_TYPE_INLINE(btheme, bTheme *), (&((btheme)->space_statusbar) + 1))
+  (CHECK_TYPE_INLINE(btheme, bTheme *), (&((btheme)->space_spreadsheet) + 1))
 
 typedef struct bAddon {
   struct bAddon *next, *prev;
   char module[64];
-  /** User-Defined Properties on this  Addon (for storing preferences). */
+  /** User-Defined Properties on this add-on (for storing preferences). */
   IDProperty *prop;
 } bAddon;
 
@@ -539,7 +547,7 @@ typedef struct bUserMenuItem_Op {
   bUserMenuItem item;
   char op_idname[64];
   struct IDProperty *prop;
-  char opcontext;
+  char opcontext; /* #wmOperatorCallContext */
   char _pad0[7];
 } bUserMenuItem_Op;
 
@@ -563,6 +571,13 @@ enum {
   USER_MENU_TYPE_PROP = 4,
 };
 
+typedef struct bUserAssetLibrary {
+  struct bUserAssetLibrary *next, *prev;
+
+  char name[64];   /* MAX_NAME */
+  char path[1024]; /* FILE_MAX */
+} bUserAssetLibrary;
+
 typedef struct SolidLight {
   int flag;
   float smooth;
@@ -584,6 +599,7 @@ typedef struct WalkNavigation {
 } WalkNavigation;
 
 typedef struct UserDef_Runtime {
+  /** Mark as changed so the preferences are saved on exit. */
   char is_dirty;
   char _pad0[7];
 } UserDef_Runtime;
@@ -618,9 +634,26 @@ typedef struct UserDef_FileSpaceData {
 } UserDef_FileSpaceData;
 
 typedef struct UserDef_Experimental {
+  /* Debug options, always available. */
   char use_undo_legacy;
+  char no_override_auto_resync;
+  char use_cycles_debug;
+  char show_asset_debug_info;
+  char no_asset_indexing;
+  char SANITIZE_AFTER_HERE;
+  char _pad0;
+  /* The following options are automatically sanitized (set to 0)
+   * when the release cycle is not alpha. */
+  char use_new_curves_tools;
+  char use_new_point_cloud_type;
+  char use_full_frame_compositor;
+  char use_sculpt_tools_tilt;
+  char use_extended_asset_browser;
+  char use_override_templates;
+  char enable_eevee_next;
+  char use_sculpt_texture_paint;
+  char use_draw_manager_acquire_lock;
   /** `makesdna` does not allow empty structs. */
-  char _pad0[7];
 } UserDef_Experimental;
 
 #define USER_EXPERIMENTAL_TEST(userdef, member) \
@@ -633,12 +666,12 @@ typedef struct UserDef {
   /** #eUserPref_Flag. */
   int flag;
   /** #eDupli_ID_Flags. */
-  short dupflag;
+  unsigned int dupflag;
   /** #eUserPref_PrefFlag preferences for the preferences. */
   char pref_flag;
   char savetime;
   char mouse_emulate_3_button_modifier;
-  char _pad4[3];
+  char _pad4[1];
   /** FILE_MAXDIR length. */
   char tempdir[768];
   char fontdir[768];
@@ -648,6 +681,21 @@ typedef struct UserDef {
   /** 768 = FILE_MAXDIR. */
   char render_cachedir[768];
   char textudir[768];
+  /**
+   * Optional user location for scripts.
+   *
+   * This supports the same layout as Blender's scripts directory `release/scripts`.
+   *
+   * \note Unlike most paths, changing this is not fully supported at run-time,
+   * requiring a restart to properly take effect. Supporting this would cause complications as
+   * the script path can contain `startup`, `addons` & `modules` etc. properly unwinding the
+   * Python environment to the state it _would_ have been in gets complicated.
+   *
+   * Although this is partially supported as the `sys.path` is refreshed when loading preferences.
+   * This is done to support #PREFERENCES_OT_copy_prev which is available to the user when they
+   * launch with a new version of Blender. In this case setting the script path on top of
+   * factory settings will work without problems.
+   */
   char pythondir[768];
   char sounddir[768];
   char i18ndir[768];
@@ -657,16 +705,15 @@ typedef struct UserDef {
   char anim_player[1024];
   int anim_player_preset;
 
-  /** Minimum spacing between gridlines in View2D grids. */
+  /** Minimum spacing between grid-lines in View2D grids. */
   short v2d_min_gridsize;
-  /** #eTimecodeStyles, style of timecode display. */
+  /** #eTimecodeStyles, style of time-code display. */
   short timecode_style;
 
   short versions;
   short dbl_click_time;
 
-  char _pad0[2];
-  char wheellinescroll;
+  char _pad0[3];
   char mini_axis_type;
   /** #eUserpref_UI_Flag. */
   int uiflag;
@@ -686,21 +733,22 @@ typedef struct UserDef {
   int audioformat;
   int audiochannels;
 
-  /** Setting for UI scale. */
+  /** Setting for UI scale (fractional), before screen DPI has been applied. */
   float ui_scale;
   /** Setting for UI line width. */
   int ui_line_width;
-  /** Runtime, full DPI divided by pixelsize. */
+  /** Runtime, full DPI divided by `pixelsize`. */
   int dpi;
-  /** Runtime, multiplier to scale UI elements based on DPI. */
+  /** Runtime, multiplier to scale UI elements based on DPI (fractional). */
   float dpi_fac;
+  /** Runtime, `1.0 / dpi_fac` */
   float inv_dpi_fac;
-  /** Runtime, line width and point size based on DPI. */
+  /** Runtime, calculated from line-width and point-size based on DPI (rounded to int). */
   float pixelsize;
   /** Deprecated, for forward compatibility. */
   int virtual_pixel;
 
-  /** Console scrollback limit. */
+  /** Console scroll-back limit. */
   int scrollback;
   /** Node insert offset (aka auto-offset) margin, but might be useful for later stuff as well. */
   char node_margin;
@@ -722,6 +770,8 @@ typedef struct UserDef {
   struct ListBase autoexec_paths;
   /** #bUserMenu. */
   struct ListBase user_menus;
+  /** #bUserAssetLibrary */
+  struct ListBase asset_libraries;
 
   char keyconfigstr[64];
 
@@ -729,14 +779,18 @@ typedef struct UserDef {
   char _pad1[2];
   int undomemory;
   float gpu_viewport_quality DNA_DEPRECATED;
-  short gp_manhattendist, gp_euclideandist, gp_eraser;
+  short gp_manhattandist, gp_euclideandist, gp_eraser;
   /** #eGP_UserdefSettings. */
   short gp_settings;
   char _pad13[4];
   struct SolidLight light_param[4];
   float light_ambient[3];
-  char _pad3[4];
-  short gizmo_flag, gizmo_size;
+  char gizmo_flag;
+  /** Generic gizmo size. */
+  char gizmo_size;
+  /** Navigate gizmo size. */
+  char gizmo_size_navigate_v3d;
+  char _pad3[5];
   short edit_studio_light;
   short lookdev_sphere_size;
   short vbotimeout, vbocollectrate;
@@ -751,7 +805,7 @@ typedef struct UserDef {
   short rvisize;
   /** Rotating view icon brightness. */
   short rvibright;
-  /** Maximum number of recently used files to remember . */
+  /** Maximum number of recently used files to remember. */
   short recent_files;
   /** Milliseconds to spend spinning the view. */
   short smooth_viewtx;
@@ -804,16 +858,16 @@ typedef struct UserDef {
 
   float glalphaclip;
 
-  /** #eAutokey_Mode, autokeying mode. */
+  /** #eAutokey_Mode, auto-keying mode. */
   short autokey_mode;
   /** Flags for autokeying. */
   short autokey_flag;
+  /** Flags for animation. */
+  short animation_flag;
 
   /** Options for text rendering. */
   char text_render;
   char navigation_mode;
-
-  char _pad9[2];
 
   /** Turn-table rotation amount per-pixel in radians. Scaled with DPI. */
   float view_rotate_sensitivity_turntable;
@@ -859,8 +913,7 @@ typedef struct UserDef {
   /** Pie menu distance from center before a direction is set. */
   short pie_menu_threshold;
 
-  short opensubdiv_compute_type;
-  short _pad6;
+  short _pad6[2];
 
   char factor_display_type;
 
@@ -873,10 +926,14 @@ typedef struct UserDef {
   int sequencer_disk_cache_compression; /* eUserpref_DiskCacheCompression */
   int sequencer_disk_cache_size_limit;
   short sequencer_disk_cache_flag;
-  char _pad5[2];
+  short sequencer_proxy_setup; /* eUserpref_SeqProxySetup */
 
   float collection_instance_empty_size;
-  char _pad10[4];
+  char text_flag;
+  char _pad10[1];
+
+  char file_preview_type; /* eUserpref_File_Preview_Type */
+  char statusbar_flag;    /* eUserpref_StatusBar_Flag */
 
   struct WalkNavigation walk_navigation;
 
@@ -890,7 +947,7 @@ typedef struct UserDef {
   UserDef_Runtime runtime;
 } UserDef;
 
-/* from blenkernel blender.c */
+/** From blenkernel `blender.c`. */
 extern UserDef U;
 
 /* ***************** USERDEF ****************** */
@@ -946,7 +1003,7 @@ typedef enum eUserPref_Flag {
   USER_NONUMPAD = (1 << 13),
   USER_ADD_CURSORALIGNED = (1 << 14),
   USER_FILECOMPRESS = (1 << 15),
-  USER_SAVE_PREVIEWS = (1 << 16),
+  USER_FLAG_UNUSED_5 = (1 << 16), /* dirty */
   USER_CUSTOM_RANGE = (1 << 17),
   USER_ADD_EDITMODE = (1 << 18),
   USER_ADD_VIEWALIGNED = (1 << 19),
@@ -960,6 +1017,14 @@ typedef enum eUserPref_Flag {
   USER_FLAG_UNUSED_27 = (1 << 27), /* dirty */
 } eUserPref_Flag;
 
+/** #UserDef.file_preview_type */
+typedef enum eUserpref_File_Preview_Type {
+  USER_FILE_PREVIEW_NONE = 0,
+  USER_FILE_PREVIEW_AUTO,
+  USER_FILE_PREVIEW_SCREENSHOT,
+  USER_FILE_PREVIEW_CAMERA,
+} eUserpref_File_Preview_Type;
+
 typedef enum eUserPref_PrefFlag {
   USER_PREF_FLAG_SAVE = (1 << 0),
 } eUserPref_PrefFlag;
@@ -972,15 +1037,19 @@ typedef enum ePathCompare_Flag {
 /* Helper macro for checking frame clamping */
 #define FRAMENUMBER_MIN_CLAMP(cfra) \
   { \
-    if ((U.flag & USER_NONEGFRAMES) && (cfra < 0)) \
+    if ((U.flag & USER_NONEGFRAMES) && (cfra < 0)) { \
       cfra = 0; \
+    } \
   } \
   (void)0
 
 /** #UserDef.viewzoom */
 typedef enum eViewZoom_Style {
-  USER_ZOOM_CONT = 0,
+  /** Update zoom continuously with a timer while dragging the cursor. */
+  USER_ZOOM_CONTINUE = 0,
+  /** Map changes in distance from the view center to zoom. */
   USER_ZOOM_SCALE = 1,
+  /** Map horizontal/vertical motion to zoom. */
   USER_ZOOM_DOLLY = 2,
 } eViewZoom_Style;
 
@@ -1025,7 +1094,7 @@ typedef enum eUserpref_UI_Flag {
   USER_HIDE_DOT = (1 << 16),
   USER_SHOW_GIZMO_NAVIGATE = (1 << 17),
   USER_SHOW_VIEWPORTNAME = (1 << 18),
-  USER_CAM_LOCK_NO_PARENT = (1 << 19),
+  USER_UIFLAG_UNUSED_3 = (1 << 19), /* Cleared. */
   USER_ZOOM_TO_MOUSEPOS = (1 << 20),
   USER_SHOW_FPS = (1 << 21),
   USER_UIFLAG_UNUSED_22 = (1 << 22), /* cleared */
@@ -1052,7 +1121,7 @@ typedef enum eUserpref_UI_Flag {
 typedef enum eUserpref_UI_Flag2 {
   USER_UIFLAG2_UNUSED_0 = (1 << 0), /* cleared */
   USER_REGION_OVERLAP = (1 << 1),
-  USER_TRACKPAD_NATURAL = (1 << 2),
+  USER_UIFLAG2_UNUSED_2 = (1 << 2),
   USER_UIFLAG2_UNUSED_3 = (1 << 3), /* dirty */
 } eUserpref_UI_Flag2;
 
@@ -1061,6 +1130,7 @@ typedef enum eUserpref_GPU_Flag {
   USER_GPU_FLAG_NO_DEPT_PICK = (1 << 0),
   USER_GPU_FLAG_NO_EDIT_MODE_SMOOTH_WIRE = (1 << 1),
   USER_GPU_FLAG_OVERLAY_SMOOTH_WIRE = (1 << 2),
+  USER_GPU_FLAG_SUBDIVISION_EVALUATION = (1 << 3),
 } eUserpref_GPU_Flag;
 
 /** #UserDef.tablet_api */
@@ -1072,19 +1142,31 @@ typedef enum eUserpref_TableAPI {
 
 /** #UserDef.app_flag */
 typedef enum eUserpref_APP_Flag {
-  USER_APP_LOCK_UI_LAYOUT = (1 << 0),
+  USER_APP_LOCK_CORNER_SPLIT = (1 << 0),
+  USER_APP_HIDE_REGION_TOGGLE = (1 << 1),
+  USER_APP_LOCK_EDGE_RESIZE = (1 << 2),
 } eUserpref_APP_Flag;
+
+/** #UserDef.statusbar_flag */
+typedef enum eUserpref_StatusBar_Flag {
+  STATUSBAR_SHOW_MEMORY = (1 << 0),
+  STATUSBAR_SHOW_VRAM = (1 << 1),
+  STATUSBAR_SHOW_STATS = (1 << 2),
+  STATUSBAR_SHOW_VERSION = (1 << 3),
+} eUserpref_StatusBar_Flag;
 
 /**
  * Auto-Keying mode.
  * #UserDef.autokey_mode
  */
 typedef enum eAutokey_Mode {
-  /* AUTOKEY_ON is a bitflag */
+  /* AUTOKEY_ON is a bit-flag. */
   AUTOKEY_ON = 1,
 
-  /** AUTOKEY_ON + 2**n...  (i.e. AUTOKEY_MODE_NORMAL = AUTOKEY_ON + 2)
-   * to preserve setting, even when autokey turned off  */
+  /**
+   * AUTOKEY_ON + 2**n...  (i.e. AUTOKEY_MODE_NORMAL = AUTOKEY_ON + 2)
+   * to preserve setting, even when auto-key turned off.
+   */
   AUTOKEY_MODE_NORMAL = 3,
   AUTOKEY_MODE_EDITKEYS = 5,
 } eAutokey_Mode;
@@ -1118,6 +1200,15 @@ typedef enum eAutokey_Flag {
   ANIMRECORD_FLAG_WITHNLA = (1 << 10),
 } eAutokey_Flag;
 
+/**
+ * Animation flags
+ * #UserDef.animation_flag, used for animation flags that aren't covered by more specific flags
+ * (like eAutokey_Flag).
+ */
+typedef enum eUserpref_Anim_Flags {
+  USER_ANIM_SHOW_CHANNEL_GROUP_COLORS = (1 << 0),
+} eUserpref_Anim_Flags;
+
 /** #UserDef.transopts */
 typedef enum eUserpref_Translation_Flags {
   USER_TR_TOOLTIPS = (1 << 0),
@@ -1131,26 +1222,13 @@ typedef enum eUserpref_Translation_Flags {
   USER_TR_NEWDATANAME = (1 << 8),
 } eUserpref_Translation_Flags;
 
-/** #UserDef.dupflag */
-typedef enum eDupli_ID_Flags {
-  USER_DUP_MESH = (1 << 0),
-  USER_DUP_CURVE = (1 << 1),
-  USER_DUP_SURF = (1 << 2),
-  USER_DUP_FONT = (1 << 3),
-  USER_DUP_MBALL = (1 << 4),
-  USER_DUP_LAMP = (1 << 5),
-  /* USER_DUP_FCURVE = (1 << 6), */ /* UNUSED, keep because we may implement. */
-  USER_DUP_MAT = (1 << 7),
-  /* USER_DUP_TEX = (1 << 8), */ /* UNUSED, keep because we may implement. */
-  USER_DUP_ARM = (1 << 9),
-  USER_DUP_ACT = (1 << 10),
-  USER_DUP_PSYS = (1 << 11),
-  USER_DUP_LIGHTPROBE = (1 << 12),
-  USER_DUP_GPENCIL = (1 << 13),
-  USER_DUP_HAIR = (1 << 14),
-  USER_DUP_POINTCLOUD = (1 << 15),
-  USER_DUP_VOLUME = (1 << 16),
-} eDupli_ID_Flags;
+/**
+ * Text Editor options
+ * #UserDef.text_flag
+ */
+typedef enum eTextEdit_Flags {
+  USER_TEXT_EDIT_AUTO_CLOSE = (1 << 0),
+} eTextEdit_Flags;
 
 /**
  * Text draw options
@@ -1208,7 +1286,7 @@ typedef enum eTimecodeStyles {
   USER_TIMECODE_SECONDS_ONLY = 4,
   /**
    * Private (not exposed as generic choices) options.
-   * milliseconds for sub-frames , SubRip format- HH:MM:SS,sss.
+   * milliseconds for sub-frames, SubRip format- HH:MM:SS,sss.
    */
   USER_TIMECODE_SUBRIP = 100,
 } eTimecodeStyles;
@@ -1241,6 +1319,7 @@ typedef enum eNdof_Flag {
   NDOF_PANY_INVERT_AXIS = (1 << 13),
   NDOF_PANZ_INVERT_AXIS = (1 << 14),
   NDOF_TURNTABLE = (1 << 15),
+  NDOF_CAMERA_PAN_ZOOM = (1 << 16),
 } eNdof_Flag;
 
 #define NDOF_PIXELS_PER_SECOND 600.0f
@@ -1306,6 +1385,11 @@ typedef enum eUserpref_DiskCacheCompression {
   USER_SEQ_DISK_CACHE_COMPRESSION_HIGH = 2,
 } eUserpref_DiskCacheCompression;
 
+typedef enum eUserpref_SeqProxySetup {
+  USER_SEQ_PROXY_SETUP_MANUAL = 0,
+  USER_SEQ_PROXY_SETUP_AUTOMATIC = 1,
+} eUserpref_SeqProxySetup;
+
 /* Locale Ids. Auto will try to get local from OS. Our default is English though. */
 /** #UserDef.language */
 enum {
@@ -1315,6 +1399,4 @@ enum {
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

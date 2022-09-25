@@ -1,24 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2006-2007 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2006-2007 Blender Foundation. All rights reserved. */
 
-#ifndef __BKE_STUDIOLIGHT_H__
-#define __BKE_STUDIOLIGHT_H__
+#pragma once
 
 /** \file
  * \ingroup bke
@@ -30,7 +13,7 @@
 
 #include "BLI_path_util.h"
 
-#include "DNA_userdef_types.h"
+#include "DNA_userdef_types.h" /* for #SolidLight */
 
 #ifdef __cplusplus
 extern "C" {
@@ -74,7 +57,7 @@ struct ImBuf;
 struct GPUTexture;
 struct StudioLight;
 
-/* StudioLight.flag */
+/** #StudioLight.flag */
 enum StudioLightFlag {
   STUDIOLIGHT_SPHERICAL_HARMONICS_COEFFICIENTS_CALCULATED = (1 << 0),
   /*  STUDIOLIGHT_LIGHT_DIRECTION_CALCULATED                  = (1 << 1), */
@@ -144,20 +127,28 @@ typedef struct StudioLight {
   void *free_function_data;
 } StudioLight;
 
+/* API */
+
 void BKE_studiolight_init(void);
 void BKE_studiolight_free(void);
-void BKE_studiolight_default(SolidLight lights[4], float light_ambient[4]);
+void BKE_studiolight_default(SolidLight lights[4], float light_ambient[3]);
 struct StudioLight *BKE_studiolight_find(const char *name, int flag);
 struct StudioLight *BKE_studiolight_findindex(int index, int flag);
 struct StudioLight *BKE_studiolight_find_default(int flag);
 void BKE_studiolight_preview(uint *icon_buffer, StudioLight *sl, int icon_id_type);
 struct ListBase *BKE_studiolight_listbase(void);
+/**
+ * Ensure state of studio-lights.
+ */
 void BKE_studiolight_ensure_flag(StudioLight *sl, int flag);
 void BKE_studiolight_refresh(void);
-StudioLight *BKE_studiolight_load(const char *path, int orientation);
+StudioLight *BKE_studiolight_load(const char *path, int type);
 StudioLight *BKE_studiolight_create(const char *path,
                                     const SolidLight light[4],
                                     const float light_ambient[3]);
+/**
+ * Only useful for workbench while editing the user-preferences.
+ */
 StudioLight *BKE_studiolight_studio_edit_get(void);
 void BKE_studiolight_remove(StudioLight *sl);
 void BKE_studiolight_set_free_function(StudioLight *sl,
@@ -168,5 +159,3 @@ void BKE_studiolight_unset_icon_id(StudioLight *sl, int icon_id);
 #ifdef __cplusplus
 }
 #endif
-
-#endif /*  __BKE_STUDIOLIGHT_H__ */

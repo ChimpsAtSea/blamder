@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_SCREEN_TYPES_H__
-#define __DNA_SCREEN_TYPES_H__
+#pragma once
 
 #include "DNA_defs.h"
 #include "DNA_listBase.h"
@@ -31,30 +14,38 @@
 
 #include "DNA_ID.h"
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 struct ARegion;
 struct ARegionType;
 struct PanelType;
+struct PointerRNA;
 struct Scene;
 struct SpaceLink;
 struct SpaceType;
+struct uiBlock;
 struct uiLayout;
+struct uiList;
 struct wmDrawBuffer;
 struct wmTimer;
 struct wmTooltipState;
 
-/* TODO Doing this is quite ugly :)
+/* TODO: Doing this is quite ugly :)
  * Once the top-bar is merged bScreen should be refactored to use ScrAreaMap. */
 #define AREAMAP_FROM_SCREEN(screen) ((ScrAreaMap *)&(screen)->vertbase)
 
 typedef struct bScreen {
   ID id;
 
-  /* TODO Should become ScrAreaMap now.
-   * ** NOTE: KEEP ORDER IN SYNC WITH ScrAreaMap! (see AREAMAP_FROM_SCREEN macro above) ** */
+  /* TODO: Should become ScrAreaMap now.
+   * NOTE: KEEP ORDER IN SYNC WITH #ScrAreaMap! (see AREAMAP_FROM_SCREEN macro above). */
   /** Screens have vertices/edges to define areas. */
   ListBase vertbase;
   ListBase edgebase;
   ListBase areabase;
+  /* End variables that must be in sync with #ScrAreaMap. */
 
   /** Screen level regions (menus), runtime only. */
   ListBase regionbase;
@@ -65,12 +56,12 @@ typedef struct bScreen {
   short flag;
   /** Winid from WM, starts with 1. */
   short winid;
-  /** User-setting for which editors get redrawn during anim playback. */
+  /** User-setting for which editors get redrawn during animation playback. */
   short redraws_flag;
 
-  /** Temp screen in a temp window, don't save (like user prefs). */
+  /** Temp screen in a temp window, don't save (like user-preferences). */
   char temp;
-  /** Temp screen for image render display or fileselect. */
+  /** Temp screen for image render display or file-select. */
   char state;
   /** Notifier for drawing edges. */
   char do_draw;
@@ -94,7 +85,7 @@ typedef struct bScreen {
   /** If set, screen has timer handler added in window. */
   struct wmTimer *animtimer;
   /** Context callback. */
-  void *context;
+  void /*bContextDataCallback*/ *context;
 
   /** Runtime. */
   struct wmTooltipState *tool_tip;
@@ -133,8 +124,23 @@ typedef struct Panel_Runtime {
   /* Applied to Panel.ofsx, but saved separately so we can track changes between redraws. */
   int region_ofsx;
 
-  /* For instanced panels: Index of the list item the panel corresponds to. */
-  int list_index;
+  char _pad[4];
+
+  /**
+   * Pointer for storing which data the panel corresponds to.
+   * Useful when there can be multiple instances of the same panel type.
+   *
+   * \note A panel and its sub-panels share the same custom data pointer.
+   * This avoids freeing the same pointer twice when panels are removed.
+   */
+  struct PointerRNA *custom_data_ptr;
+
+  /* Pointer to the panel's block. Useful when changes to panel #uiBlocks
+   * need some context from traversal of the panel "tree". */
+  struct uiBlock *block;
+
+  /* Non-owning pointer. The context is stored in the block. */
+  struct bContextStore *context;
 } Panel_Runtime;
 
 /** The part from uiBlock that needs saved in file. */
@@ -157,10 +163,8 @@ typedef struct Panel {
   /** Panel size excluding children. */
   int blocksizex, blocksizey;
   short labelofs;
-  char _pad[2];
   short flag, runtime_flag;
-  short control;
-  short snap;
+  char _pad[6];
   /** Panels are aligned according to increasing sort-order. */
   int sortorder;
   /** Runtime for panel manipulation. */
@@ -170,6 +174,34 @@ typedef struct Panel {
 
   Panel_Runtime runtime;
 } Panel;
+
+/**
+ * Used for passing expansion between instanced panel data and the panels themselves.
+ * There are 16 defines because the expansion data is typically stored in a short.
+ *
+ * \note Expansion for instanced panels is stored in depth first order. For example, the value of
+ * UI_SUBPANEL_DATA_EXPAND_2 correspond to mean the expansion of the second subpanel or the first
+ * subpanel's first subpanel.
+ */
+typedef enum uiPanelDataExpansion {
+  UI_PANEL_DATA_EXPAND_ROOT = (1 << 0),
+  UI_SUBPANEL_DATA_EXPAND_1 = (1 << 1),
+  UI_SUBPANEL_DATA_EXPAND_2 = (1 << 2),
+  UI_SUBPANEL_DATA_EXPAND_3 = (1 << 3),
+  UI_SUBPANEL_DATA_EXPAND_4 = (1 << 4),
+  UI_SUBPANEL_DATA_EXPAND_5 = (1 << 5),
+  UI_SUBPANEL_DATA_EXPAND_6 = (1 << 6),
+  UI_SUBPANEL_DATA_EXPAND_7 = (1 << 7),
+  UI_SUBPANEL_DATA_EXPAND_8 = (1 << 8),
+  UI_SUBPANEL_DATA_EXPAND_9 = (1 << 9),
+  UI_SUBPANEL_DATA_EXPAND_10 = (1 << 10),
+  UI_SUBPANEL_DATA_EXPAND_11 = (1 << 11),
+  UI_SUBPANEL_DATA_EXPAND_12 = (1 << 12),
+  UI_SUBPANEL_DATA_EXPAND_13 = (1 << 13),
+  UI_SUBPANEL_DATA_EXPAND_14 = (1 << 14),
+  UI_SUBPANEL_DATA_EXPAND_15 = (1 << 15),
+  UI_SUBPANEL_DATA_EXPAND_16 = (1 << 16),
+} uiPanelDataExpansion;
 
 /**
  * Notes on Panel Categories:
@@ -196,23 +228,31 @@ typedef struct PanelCategoryDyn {
   rcti rect;
 } PanelCategoryDyn;
 
-/* region stack of active tabs */
+/** Region stack of active tabs. */
 typedef struct PanelCategoryStack {
   struct PanelCategoryStack *next, *prev;
   char idname[64];
 } PanelCategoryStack;
+
+typedef void (*uiListFreeRuntimeDataFunc)(struct uiList *ui_list);
 
 /* uiList dynamic data... */
 /* These two Lines with # tell makesdna this struct can be excluded. */
 #
 #
 typedef struct uiListDyn {
+  /** Callback to free UI data when freeing UI-Lists in BKE. */
+  uiListFreeRuntimeDataFunc free_runtime_data_fn;
+
   /** Number of rows needed to draw all elements. */
   int height;
   /** Actual visual height of the list (in rows). */
   int visual_height;
   /** Minimal visual height of the list (in rows). */
   int visual_height_min;
+
+  /** Number of columns drawn for grid layouts. */
+  int columns;
 
   /** Number of items in collection. */
   int items_len;
@@ -226,11 +266,19 @@ typedef struct uiListDyn {
   int resize;
   int resize_prev;
 
+  /** Allocated custom data. Freed together with the #uiList (and when re-assigning). */
+  void *customdata;
+
   /* Filtering data. */
   /** Items_len length. */
   int *items_filter_flags;
   /** Org_idx -> new_idx, items_len length. */
   int *items_filter_neworder;
+
+  struct wmOperatorType *custom_drag_optype;
+  struct PointerRNA *custom_drag_opptr;
+  struct wmOperatorType *custom_activate_optype;
+  struct PointerRNA *custom_activate_opptr;
 } uiListDyn;
 
 typedef struct uiList { /* some list UI data need to be saved in file */
@@ -242,7 +290,7 @@ typedef struct uiList { /* some list UI data need to be saved in file */
   /** Defined as UI_MAX_NAME_STR. */
   char list_id[64];
 
-  /** How items are layedout in the list. */
+  /** How items are laid out in the list. */
   int layout_type;
   int flag;
 
@@ -276,16 +324,12 @@ typedef struct TransformOrientation {
 typedef struct uiPreview {
   struct uiPreview *next, *prev;
 
-  /** Defined as UI_MAX_NAME_STR. */
+  /** Defined as #UI_MAX_NAME_STR. */
   char preview_id[64];
   short height;
   char _pad1[6];
 } uiPreview;
 
-/* These two lines with # tell makesdna this struct can be excluded.
- * Should be: #ifndef WITH_GLOBAL_AREA_WRITING */
-#
-#
 typedef struct ScrGlobalAreaData {
   /* Global areas have a non-dynamic size. That means, changing the window
    * size doesn't affect their size at all. However, they can still be
@@ -321,7 +365,7 @@ typedef struct ScrArea_Runtime {
 typedef struct ScrArea {
   struct ScrArea *next, *prev;
 
-  /** Ordered (bl, tl, tr, br). */
+  /** Ordered (bottom-left, top-left, top-right, bottom-right). */
   ScrVert *v1, *v2, *v3, *v4;
   /** If area==full, this is the parent. */
   bScreen *full;
@@ -395,6 +439,9 @@ typedef struct ARegion_Runtime {
 
   /* The offset needed to not overlap with window scrollbars. Only used by HUD regions for now. */
   int offset_x, offset_y;
+
+  /* Maps uiBlock->name to uiBlock for faster lookups. */
+  struct GHash *block_name_map;
 } ARegion_Runtime;
 
 typedef struct ARegion {
@@ -427,7 +474,7 @@ typedef struct ARegion {
   /** Private, cached notifier events. */
   short do_draw;
   /** Private, cached notifier events. */
-  short do_draw_overlay;
+  short do_draw_paintcursor;
   /** Private, set for indicate drawing overlapped. */
   short overlap;
   /** Temporary copy of flag settings for clean fullscreen. */
@@ -459,7 +506,7 @@ typedef struct ARegion {
 
   /** Use this string to draw info. */
   char *headerstr;
-  /** XXX 2.50, need spacedata equivalent?. */
+  /** XXX 2.50, need spacedata equivalent? */
   void *regiondata;
 
   ARegion_Runtime runtime;
@@ -487,6 +534,8 @@ enum {
   AREA_FLAG_STACKED_FULLSCREEN = (1 << 7),
   /** Update action zones (even if the mouse is not intersecting them). */
   AREA_FLAG_ACTIONZONES_UPDATE = (1 << 8),
+  /** For off-screen areas. */
+  AREA_FLAG_OFFSCREEN = (1 << 9),
 };
 
 #define AREAGRID 4
@@ -526,37 +575,14 @@ typedef enum eScreen_Redraws_Flag {
 /** #Panel.flag */
 enum {
   PNL_SELECT = (1 << 0),
-  PNL_CLOSEDX = (1 << 1),
-  PNL_CLOSEDY = (1 << 2),
-  PNL_CLOSED = (PNL_CLOSEDX | PNL_CLOSEDY),
-  /*PNL_TABBED    = (1 << 3), */ /*UNUSED*/
-  PNL_OVERLAP = (1 << 4),
+  PNL_UNUSED_1 = (1 << 1), /* Cleared */
+  PNL_CLOSED = (1 << 2),
+  // PNL_TABBED = (1 << 3),  /* UNUSED */
+  // PNL_OVERLAP = (1 << 4), /* UNUSED */
   PNL_PIN = (1 << 5),
   PNL_POPOVER = (1 << 6),
   /** The panel has been drag-drop reordered and the instanced panel list needs to be rebuilt. */
   PNL_INSTANCED_LIST_ORDER_CHANGED = (1 << 7),
-};
-
-/** #Panel.snap - for snapping to screen edges */
-#define PNL_SNAP_NONE 0
-/* #define PNL_SNAP_TOP     1 */
-/* #define PNL_SNAP_RIGHT       2 */
-#define PNL_SNAP_BOTTOM 4
-/* #define PNL_SNAP_LEFT        8 */
-
-/* #define PNL_SNAP_DIST        9.0 */
-
-/* paneltype flag */
-enum {
-  PNL_DEFAULT_CLOSED = (1 << 0),
-  PNL_NO_HEADER = (1 << 1),
-  /** Makes buttons in the header shrink/stretch to fill full layout width. */
-  PNL_LAYOUT_HEADER_EXPAND = (1 << 2),
-  PNL_LAYOUT_VERT_BAR = (1 << 3),
-  /** This panel type represents data external to the UI. */
-  PNL_INSTANCED = (1 << 4),
-  /** Draw panel like a box widget. */
-  PNL_DRAW_BOX = (1 << 6),
 };
 
 /* Fallback panel category (only for old scripts which need updating) */
@@ -567,6 +593,7 @@ enum {
   UILST_LAYOUT_DEFAULT = 0,
   UILST_LAYOUT_COMPACT = 1,
   UILST_LAYOUT_GRID = 2,
+  UILST_LAYOUT_BIG_PREVIEW_GRID = 3,
 };
 
 /** #uiList.flag */
@@ -601,15 +628,17 @@ enum {
   /* Bitflags affecting behavior of any kind of sorting. */
   /** Special flag to indicate that order is locked (not user-changeable). */
   UILST_FLT_SORT_LOCK = 1u << 30,
-  /** Special value, bitflag used to reverse order! */
+  /** Special value, bit-flag used to reverse order! */
   UILST_FLT_SORT_REVERSE = 1u << 31,
 };
 
 #define UILST_FLT_SORT_MASK (((unsigned int)(UILST_FLT_SORT_REVERSE | UILST_FLT_SORT_LOCK)) - 1)
 
-/* regiontype, first two are the default set */
-/* Do NOT change order, append on end. Types are hardcoded needed */
-enum {
+/**
+ * regiontype, first two are the default set.
+ * \warning Do NOT change order, append on end. Types are hard-coded needed.
+ */
+typedef enum eRegion_Type {
   RGN_TYPE_WINDOW = 0,
   RGN_TYPE_HEADER = 1,
   RGN_TYPE_CHANNELS = 2,
@@ -625,12 +654,23 @@ enum {
   RGN_TYPE_EXECUTE = 10,
   RGN_TYPE_FOOTER = 11,
   RGN_TYPE_TOOL_HEADER = 12,
-};
+  /* Region type used exclusively by internal code and add-ons to register draw callbacks to the XR
+   * context (surface, mirror view). Does not represent any real region. */
+  RGN_TYPE_XR = 13,
+
+#define RGN_TYPE_NUM (RGN_TYPE_XR + 1)
+} eRegion_Type;
+
 /* use for function args */
 #define RGN_TYPE_ANY -1
 
 /* Region supports panel tabs (categories). */
 #define RGN_TYPE_HAS_CATEGORY_MASK (1 << RGN_TYPE_UI)
+
+/* Check for any kind of header region. */
+#define RGN_TYPE_IS_HEADER_ANY(regiontype) \
+  (((1 << (regiontype)) & \
+    ((1 << RGN_TYPE_HEADER) | 1 << (RGN_TYPE_TOOL_HEADER) | (1 << RGN_TYPE_FOOTER))) != 0)
 
 /** #ARegion.alignment */
 enum {
@@ -651,6 +691,7 @@ enum {
 
 /** Mask out flags so we can check the alignment. */
 #define RGN_ALIGN_ENUM_FROM_MASK(align) ((align) & ((1 << 4) - 1))
+#define RGN_ALIGN_FLAG_FROM_MASK(align) ((align) & ~((1 << 4) - 1))
 
 /** #ARegion.flag */
 enum {
@@ -672,6 +713,14 @@ enum {
   /** When the user sets the region is hidden,
    * needed for floating regions that may be hidden for other reasons. */
   RGN_FLAG_HIDDEN_BY_USER = (1 << 7),
+  /** Property search filter is active. */
+  RGN_FLAG_SEARCH_FILTER_ACTIVE = (1 << 8),
+  /**
+   * Update the expansion of the region's panels and switch contexts. Only Set
+   * temporarily when the search filter is updated and cleared at the end of the
+   * region's layout pass. so that expansion is still interactive,
+   */
+  RGN_FLAG_SEARCH_FILTER_UPDATE = (1 << 9),
 };
 
 /** #ARegion.do_draw */
@@ -695,4 +744,6 @@ enum {
   RGN_DRAW_EDITOR_OVERLAYS = 32,
 };
 
-#endif /* __DNA_SCREEN_TYPES_H__ */
+#ifdef __cplusplus
+}
+#endif

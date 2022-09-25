@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
@@ -29,7 +13,6 @@
 #include "BLI_string.h"
 
 #include "BKE_context.h"
-#include "BKE_nla.h"
 #include "BKE_unit.h"
 
 #include "ED_screen.h"
@@ -40,13 +23,13 @@
 #include "BLT_translation.h"
 
 #include "transform.h"
-#include "transform_mode.h"
+#include "transform_convert.h"
 #include "transform_snap.h"
 
-/* -------------------------------------------------------------------- */
-/* Transform (Animation Translation) */
+#include "transform_mode.h"
 
-/** \name Transform Animation Translation
+/* -------------------------------------------------------------------- */
+/** \name Transform (Animation Translation)
  * \{ */
 
 static void headerTimeTranslate(TransInfo *t, char str[UI_MAX_DRAW_STR])
@@ -60,53 +43,49 @@ static void headerTimeTranslate(TransInfo *t, char str[UI_MAX_DRAW_STR])
   }
   else {
     const short autosnap = getAnimEdit_SnapMode(t);
-    float val = t->values_final[0];
+    float ival = TRANS_DATA_CONTAINER_FIRST_OK(t)->data->ival;
+    float val = ival + t->values_final[0];
 
-    float snap_val;
-    snapFrameTransform(t, autosnap, false, val, &snap_val);
+    snapFrameTransform(t, autosnap, ival, val, &val);
+    float delta_x = val - ival;
+
+    if (ELEM(autosnap, SACTSNAP_SECOND, SACTSNAP_TSTEP)) {
+      /* Convert to seconds. */
+      const Scene *scene = t->scene;
+      const double secf = FPS;
+      delta_x /= secf;
+      val /= secf;
+    }
 
     if (autosnap == SACTSNAP_FRAME) {
-      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.2f (%.4f)", snap_val, val);
+      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.2f (%.4f)", delta_x, val);
     }
     else if (autosnap == SACTSNAP_SECOND) {
-      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.2f sec (%.4f)", snap_val, val);
+      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.2f sec (%.4f)", delta_x, val);
     }
     else if (autosnap == SACTSNAP_TSTEP) {
-      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.4f sec", snap_val);
+      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.4f sec", delta_x);
     }
     else {
-      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.4f", snap_val);
+      BLI_snprintf(&tvec[0], NUM_STR_REP_LEN, "%.4f", delta_x);
     }
   }
 
-  ofs += BLI_snprintf(str, UI_MAX_DRAW_STR, TIP_("DeltaX: %s"), &tvec[0]);
+  ofs += BLI_snprintf_rlen(str, UI_MAX_DRAW_STR, TIP_("DeltaX: %s"), &tvec[0]);
 
   if (t->flag & T_PROP_EDIT_ALL) {
-    ofs += BLI_snprintf(
+    ofs += BLI_snprintf_rlen(
         str + ofs, UI_MAX_DRAW_STR - ofs, TIP_(" Proportional size: %.2f"), t->prop_size);
   }
 }
 
 static void applyTimeTranslateValue(TransInfo *t, const float deltax)
 {
-  const short autosnap = getAnimEdit_SnapMode(t);
-
   FOREACH_TRANS_DATA_CONTAINER (t, tc) {
+    /* It doesn't matter whether we apply to t->data. */
     TransData *td = tc->data;
-    TransData2D *td2d = tc->data_2d;
-    /* It doesn't matter whether we apply to t->data or
-     * t->data2d, but t->data2d is more convenient. */
-    for (int i = 0; i < tc->data_len; i++, td++, td2d++) {
-      /* It is assumed that td->extra is a pointer to the AnimData,
-       * whose active action is where this keyframe comes from.
-       * (this is only valid when not in NLA)
-       * (also: masks and gpencil dont have animadata)
-       */
-      AnimData *adt = (t->spacetype != SPACE_NLA) ? td->extra : NULL;
-
-      /* apply nearest snapping */
-      *(td->val) = td->ival + deltax * td->factor;
-      doAnimEdit_SnapFrame(t, td, td2d, adt, autosnap);
+    for (int i = 0; i < tc->data_len; i++, td++) {
+      *(td->val) = td->loc[0] = td->ival + deltax * td->factor;
     }
   }
 }
@@ -150,18 +129,18 @@ void initTimeTranslate(TransInfo *t)
 
   initMouseInputMode(t, &t->mouse, INPUT_NONE);
 
-  /* num-input has max of (n-1) */
+  /* Numeric-input has max of (n-1). */
   t->idx_max = 0;
   t->num.flag = 0;
   t->num.idx_max = t->idx_max;
 
-  /* initialize snap like for everything else */
-  t->snap[0] = 0.0f;
-  t->snap[1] = t->snap[2] = 1.0f;
+  /* Initialize snap like for everything else. */
+  t->snap[0] = t->snap[1] = 1.0f;
 
-  copy_v3_fl(t->num.val_inc, t->snap[1]);
+  copy_v3_fl(t->num.val_inc, t->snap[0]);
   t->num.unit_sys = t->scene->unit.system;
-  /* No time unit supporting frames currently... */
+  /* No time unit supporting frames currently. */
   t->num.unit_type[0] = B_UNIT_NONE;
 }
+
 /** \} */

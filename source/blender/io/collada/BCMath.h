@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
  */
 
-#ifndef __BCMATH_H__
-#define __BCMATH_H__
+#pragma once
 
 #include "BlenderTypes.h"
 
@@ -79,31 +64,33 @@ class BCMatrix {
   BCMatrix(Object *ob);
   BCMatrix();
 
-  void get_matrix(DMatrix &matrix, const bool transposed = false, const int precision = -1) const;
+  /**
+   * We need double here because the OpenCollada API needs it.
+   * precision = -1 indicates to not limit the precision.
+   */
+  void get_matrix(DMatrix &matrix, bool transposed = false, int precision = -1) const;
   void get_matrix(Matrix &matrix,
-                  const bool transposed = false,
-                  const int precision = -1,
-                  const bool inverted = false) const;
+                  bool transposed = false,
+                  int precision = -1,
+                  bool inverted = false) const;
   void set_transform(Object *ob);
   void set_transform(Matrix &mat);
   void add_transform(Matrix &to,
                      const Matrix &transform,
                      const Matrix &from,
-                     const bool inverted = false);
+                     bool inverted = false);
   void apply_transform(Matrix &to,
                        const Matrix &transform,
                        const Matrix &from,
-                       const bool inverted = false);
+                       bool inverse = false);
   void add_inverted_transform(Matrix &to, const Matrix &transform, const Matrix &from);
-  void add_transform(const Matrix &matrix, const bool inverted = false);
-  void add_transform(const BCMatrix &matrix, const bool inverted = false);
-  void apply_transform(const BCMatrix &matrix, const bool inverted = false);
+  void add_transform(const Matrix &matrix, bool inverted = false);
+  void add_transform(const BCMatrix &matrix, bool inverted = false);
+  void apply_transform(const BCMatrix &matrix, bool inverted = false);
 
-  const bool in_range(const BCMatrix &other, float distance) const;
+  bool in_range(const BCMatrix &other, float distance) const;
 
   static void sanitize(Matrix &matrix, int precision);
   static void sanitize(DMatrix &matrix, int precision);
   static void transpose(Matrix &matrix);
 };
-
-#endif /* __BCMATH_H__ */

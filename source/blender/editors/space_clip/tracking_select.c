@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2011 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spclip
@@ -153,9 +137,9 @@ static float dist_to_rect(const float co[2],
                           const float max[2])
 {
   float d1, d2, d3, d4;
-  float p[2] = {co[0] - pos[0], co[1] - pos[1]};
-  float v1[2] = {min[0], min[1]}, v2[2] = {max[0], min[1]};
-  float v3[2] = {max[0], max[1]}, v4[2] = {min[0], max[1]};
+  const float p[2] = {co[0] - pos[0], co[1] - pos[1]};
+  const float v1[2] = {min[0], min[1]}, v2[2] = {max[0], min[1]};
+  const float v3[2] = {max[0], max[1]}, v4[2] = {min[0], max[1]};
 
   d1 = dist_squared_to_line_segment_v2(p, v1, v2);
   d2 = dist_squared_to_line_segment_v2(p, v2, v3);
@@ -165,11 +149,11 @@ static float dist_to_rect(const float co[2],
   return sqrtf(min_ffff(d1, d2, d3, d4));
 }
 
-/* Distance to quad defined by it's corners, corners are relative to pos */
+/* Distance to quad defined by its corners, corners are relative to pos */
 static float dist_to_crns(const float co[2], const float pos[2], const float crns[4][2])
 {
   float d1, d2, d3, d4;
-  float p[2] = {co[0] - pos[0], co[1] - pos[1]};
+  const float p[2] = {co[0] - pos[0], co[1] - pos[1]};
   const float *v1 = crns[0], *v2 = crns[1];
   const float *v3 = crns[2], *v4 = crns[3];
 
@@ -289,7 +273,18 @@ void ed_tracking_deselect_all_plane_tracks(ListBase *plane_tracks_base)
   }
 }
 
-static int mouse_select(bContext *C, const float co[2], const bool extend, const bool deselect_all)
+static bool select_poll(bContext *C)
+{
+  SpaceClip *sc = CTX_wm_space_clip(C);
+
+  if (sc) {
+    return sc->clip && sc->view == SC_VIEW_CLIP;
+  }
+
+  return false;
+}
+
+static int select_exec(bContext *C, wmOperator *op)
 {
   SpaceClip *sc = CTX_wm_space_clip(C);
   MovieClip *clip = ED_space_clip_get_clip(sc);
@@ -297,12 +292,38 @@ static int mouse_select(bContext *C, const float co[2], const bool extend, const
   ListBase *tracksbase = BKE_tracking_get_active_tracks(tracking);
   ListBase *plane_tracks_base = BKE_tracking_get_active_plane_tracks(tracking);
   MovieTrackingTrack *act_track = BKE_tracking_track_get_active(tracking);
-  MovieTrackingTrack *track;
-  MovieTrackingPlaneTrack *plane_track;
+  const bool extend = RNA_boolean_get(op->ptr, "extend");
+  const bool deselect_all = RNA_boolean_get(op->ptr, "deselect_all");
+
+  float co[2];
+  RNA_float_get_array(op->ptr, "location", co);
+
+  /* Special code which allows to slide a marker which belongs to currently selected but not yet
+   * active track. If such track is found activate it and return pass-though so that marker slide
+   * operator can be used immediately after.
+   * This logic makes it convenient to slide markers when left mouse selection is used. */
+  if (!extend) {
+    MovieTrackingTrack *track = tracking_find_slidable_track_in_proximity(C, co);
+    if (track != NULL) {
+      MovieClip *clip_iter = ED_space_clip_get_clip(sc);
+
+      clip_iter->tracking.act_track = track;
+
+      WM_event_add_notifier(C, NC_GEOM | ND_SELECT, NULL);
+      DEG_id_tag_update(&clip_iter->id, ID_RECALC_SELECT);
+
+      return OPERATOR_PASS_THROUGH;
+    }
+  }
+
   float distance_to_track, distance_to_plane_track;
 
-  track = find_nearest_track(sc, tracksbase, co, &distance_to_track);
-  plane_track = find_nearest_plane_track(sc, plane_tracks_base, co, &distance_to_plane_track);
+  MovieTrackingTrack *track = find_nearest_track(sc, tracksbase, co, &distance_to_track);
+  MovieTrackingPlaneTrack *plane_track = find_nearest_plane_track(
+      sc, plane_tracks_base, co, &distance_to_plane_track);
+
+  ClipViewLockState lock_state;
+  ED_clip_view_lock_state_store(C, &lock_state);
 
   /* Do not select beyond some reasonable distance, that is useless and
    * prevents the 'deselect on nothing' behavior. */
@@ -373,14 +394,9 @@ static int mouse_select(bContext *C, const float co[2], const bool extend, const
   else if (deselect_all) {
     ed_tracking_deselect_all_tracks(tracksbase);
     ed_tracking_deselect_all_plane_tracks(plane_tracks_base);
-    /* Mask as well if we are in combined mask / track view. */
-    ED_mask_deselect_all(C);
   }
 
-  if (!extend) {
-    sc->xlockof = 0.0f;
-    sc->ylockof = 0.0f;
-  }
+  ED_clip_view_lock_state_restore_no_jump(C, &lock_state);
 
   BKE_tracking_dopesheet_tag_update(tracking);
 
@@ -391,51 +407,12 @@ static int mouse_select(bContext *C, const float co[2], const bool extend, const
   return OPERATOR_FINISHED | OPERATOR_PASS_THROUGH;
 }
 
-static bool select_poll(bContext *C)
-{
-  SpaceClip *sc = CTX_wm_space_clip(C);
-
-  if (sc) {
-    return sc->clip && sc->view == SC_VIEW_CLIP;
-  }
-
-  return false;
-}
-
-static int select_exec(bContext *C, wmOperator *op)
-{
-  float co[2];
-
-  RNA_float_get_array(op->ptr, "location", co);
-  const bool extend = RNA_boolean_get(op->ptr, "extend");
-  const bool deselect_all = RNA_boolean_get(op->ptr, "deselect_all");
-
-  return mouse_select(C, co, extend, deselect_all);
-}
-
 static int select_invoke(bContext *C, wmOperator *op, const wmEvent *event)
 {
   SpaceClip *sc = CTX_wm_space_clip(C);
   ARegion *region = CTX_wm_region(C);
 
   float co[2];
-  const bool extend = RNA_boolean_get(op->ptr, "extend");
-
-  if (!extend) {
-    MovieTrackingTrack *track = tracking_marker_check_slide(C, event, NULL, NULL, NULL);
-
-    if (track) {
-      MovieClip *clip = ED_space_clip_get_clip(sc);
-
-      clip->tracking.act_track = track;
-
-      WM_event_add_notifier(C, NC_GEOM | ND_SELECT, NULL);
-      DEG_id_tag_update(&clip->id, ID_RECALC_SELECT);
-
-      return OPERATOR_PASS_THROUGH;
-    }
-  }
-
   ED_clip_mouse_pos(sc, region, event->mval, co);
   RNA_float_set_array(op->ptr, "location", co);
 
@@ -459,11 +436,12 @@ void CLIP_OT_select(wmOperatorType *ot)
 
   /* properties */
   PropertyRNA *prop;
-  RNA_def_boolean(ot->srna,
-                  "extend",
-                  0,
-                  "Extend",
-                  "Extend selection rather than clearing the existing selection");
+  prop = RNA_def_boolean(ot->srna,
+                         "extend",
+                         0,
+                         "Extend",
+                         "Extend selection rather than clearing the existing selection");
+  RNA_def_property_flag(prop, PROP_SKIP_SAVE);
   prop = RNA_def_boolean(ot->srna,
                          "deselect_all",
                          false,
@@ -546,9 +524,8 @@ static int box_select_exec(bContext *C, wmOperator *op)
   for (plane_track = plane_tracks_base->first; plane_track; plane_track = plane_track->next) {
     if ((plane_track->flag & PLANE_TRACK_HIDDEN) == 0) {
       MovieTrackingPlaneMarker *plane_marker = BKE_tracking_plane_marker_get(plane_track, framenr);
-      int i;
 
-      for (i = 0; i < 4; i++) {
+      for (int i = 0; i < 4; i++) {
         if (BLI_rctf_isect_pt_v(&rectf, plane_marker->corners[i])) {
           if (select) {
             plane_track->flag |= SELECT;
@@ -651,9 +628,8 @@ static int do_lasso_select_marker(bContext *C,
   for (plane_track = plane_tracks_base->first; plane_track; plane_track = plane_track->next) {
     if ((plane_track->flag & PLANE_TRACK_HIDDEN) == 0) {
       MovieTrackingPlaneMarker *plane_marker = BKE_tracking_plane_marker_get(plane_track, framenr);
-      int i;
 
-      for (i = 0; i < 4; i++) {
+      for (int i = 0; i < 4; i++) {
         float screen_co[2];
 
         /* marker in screen coords */
@@ -722,7 +698,7 @@ void CLIP_OT_select_lasso(wmOperatorType *ot)
   ot->cancel = WM_gesture_lasso_cancel;
 
   /* flags */
-  ot->flag = OPTYPE_UNDO;
+  ot->flag = OPTYPE_UNDO | OPTYPE_DEPENDS_ON_CURSOR;
 
   /* properties */
   WM_operator_properties_gesture_lasso(ot);
@@ -731,7 +707,9 @@ void CLIP_OT_select_lasso(wmOperatorType *ot)
 
 /********************** circle select operator *********************/
 
-static int point_inside_ellipse(float point[2], float offset[2], float ellipse[2])
+static int point_inside_ellipse(const float point[2],
+                                const float offset[2],
+                                const float ellipse[2])
 {
   /* normalized ellipse: ell[0] = scaleX, ell[1] = scaleY */
   float x, y;
@@ -742,7 +720,9 @@ static int point_inside_ellipse(float point[2], float offset[2], float ellipse[2
   return x * x + y * y < 1.0f;
 }
 
-static int marker_inside_ellipse(MovieTrackingMarker *marker, float offset[2], float ellipse[2])
+static int marker_inside_ellipse(MovieTrackingMarker *marker,
+                                 const float offset[2],
+                                 const float ellipse[2])
 {
   return point_inside_ellipse(marker->pos, offset, ellipse);
 }
@@ -808,9 +788,8 @@ static int circle_select_exec(bContext *C, wmOperator *op)
   for (plane_track = plane_tracks_base->first; plane_track; plane_track = plane_track->next) {
     if ((plane_track->flag & PLANE_TRACK_HIDDEN) == 0) {
       MovieTrackingPlaneMarker *plane_marker = BKE_tracking_plane_marker_get(plane_track, framenr);
-      int i;
 
-      for (i = 0; i < 4; i++) {
+      for (int i = 0; i < 4; i++) {
         if (point_inside_ellipse(plane_marker->corners[i], offset, ellipse)) {
           if (select) {
             plane_track->flag |= SELECT;
@@ -849,6 +828,7 @@ void CLIP_OT_select_circle(wmOperatorType *ot)
   ot->modal = WM_gesture_circle_modal;
   ot->exec = circle_select_exec;
   ot->poll = ED_space_clip_tracking_poll;
+  ot->get_name = ED_select_circle_get_name;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -866,14 +846,16 @@ static int select_all_exec(bContext *C, wmOperator *op)
   MovieClip *clip = ED_space_clip_get_clip(sc);
   MovieTracking *tracking = &clip->tracking;
 
-  int action = RNA_enum_get(op->ptr, "action");
+  const int action = RNA_enum_get(op->ptr, "action");
+
+  ClipViewLockState lock_state;
+  ED_clip_view_lock_state_store(C, &lock_state);
 
   bool has_selection = false;
-
   ED_clip_select_all(sc, action, &has_selection);
 
-  if (!has_selection) {
-    sc->flag &= ~SC_LOCK_SELECTION;
+  if (has_selection) {
+    ED_clip_view_lock_state_restore_no_jump(C, &lock_state);
   }
 
   BKE_tracking_dopesheet_tag_update(tracking);
@@ -974,15 +956,15 @@ static int select_grouped_exec(bContext *C, wmOperator *op)
 void CLIP_OT_select_grouped(wmOperatorType *ot)
 {
   static const EnumPropertyItem select_group_items[] = {
-      {0, "KEYFRAMED", 0, "Keyframed tracks", "Select all keyframed tracks"},
-      {1, "ESTIMATED", 0, "Estimated tracks", "Select all estimated tracks"},
-      {2, "TRACKED", 0, "Tracked tracks", "Select all tracked tracks"},
-      {3, "LOCKED", 0, "Locked tracks", "Select all locked tracks"},
-      {4, "DISABLED", 0, "Disabled tracks", "Select all disabled tracks"},
+      {0, "KEYFRAMED", 0, "Keyframed Tracks", "Select all keyframed tracks"},
+      {1, "ESTIMATED", 0, "Estimated Tracks", "Select all estimated tracks"},
+      {2, "TRACKED", 0, "Tracked Tracks", "Select all tracked tracks"},
+      {3, "LOCKED", 0, "Locked Tracks", "Select all locked tracks"},
+      {4, "DISABLED", 0, "Disabled Tracks", "Select all disabled tracks"},
       {5,
        "COLOR",
        0,
-       "Tracks with same color",
+       "Tracks with Same Color",
        "Select all tracks with same color as active track"},
       {6, "FAILED", 0, "Failed Tracks", "Select all tracks which failed to be reconstructed"},
       {0, NULL, 0, NULL, NULL},

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bli
@@ -29,20 +15,33 @@
 #include "BLI_listbase.h"
 #include "BLI_math.h"
 #include "BLI_mempool.h"
+#include "BLI_mempool_private.h"
 #include "BLI_task.h"
 #include "BLI_threads.h"
 
 #include "atomic_ops.h"
 
+/* -------------------------------------------------------------------- */
+/** \name Macros
+ * \{ */
+
 /* Allows to avoid using malloc for userdata_chunk in tasks, when small enough. */
 #define MALLOCA(_size) ((_size) <= 8192) ? alloca((_size)) : MEM_mallocN((_size), __func__)
 #define MALLOCA_FREE(_mem, _size) \
-  if (((_mem) != NULL) && ((_size) > 8192)) \
-  MEM_freeN((_mem))
+  if (((_mem) != NULL) && ((_size) > 8192)) { \
+    MEM_freeN((_mem)); \
+  } \
+  ((void)0)
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Generic Iteration
+ * \{ */
 
 BLI_INLINE void task_parallel_calc_chunk_size(const TaskParallelSettings *settings,
-                                              const int tot_items,
-                                              int num_tasks,
+                                              const int items_num,
+                                              int tasks_num,
                                               int *r_chunk_size)
 {
   int chunk_size = 0;
@@ -51,7 +50,7 @@ BLI_INLINE void task_parallel_calc_chunk_size(const TaskParallelSettings *settin
     /* Some users of this helper will still need a valid chunk size in case processing is not
      * threaded. We can use a bigger one than in default threaded case then. */
     chunk_size = 1024;
-    num_tasks = 1;
+    tasks_num = 1;
   }
   else if (settings->min_iter_per_thread > 0) {
     /* Already set by user, no need to do anything here. */
@@ -62,24 +61,24 @@ BLI_INLINE void task_parallel_calc_chunk_size(const TaskParallelSettings *settin
      * The idea here is to increase the chunk size to compensate for a rather measurable threading
      * overhead caused by fetching tasks. With too many CPU threads we are starting
      * to spend too much time in those overheads.
-     * First values are: 1 if num_tasks < 16;
-     *              else 2 if num_tasks < 32;
-     *              else 3 if num_tasks < 48;
-     *              else 4 if num_tasks < 64;
+     * First values are: 1 if tasks_num < 16;
+     *              else 2 if tasks_num < 32;
+     *              else 3 if tasks_num < 48;
+     *              else 4 if tasks_num < 64;
      *                   etc.
-     * Note: If we wanted to keep the 'power of two' multiplier, we'd need something like:
-     *     1 << max_ii(0, (int)(sizeof(int) * 8) - 1 - bitscan_reverse_i(num_tasks) - 3)
+     * NOTE: If we wanted to keep the 'power of two' multiplier, we'd need something like:
+     *     1 << max_ii(0, (int)(sizeof(int) * 8) - 1 - bitscan_reverse_i(tasks_num) - 3)
      */
-    const int num_tasks_factor = max_ii(1, num_tasks >> 3);
+    const int tasks_num_factor = max_ii(1, tasks_num >> 3);
 
     /* We could make that 'base' 32 number configurable in TaskParallelSettings too, or maybe just
      * always use that heuristic using TaskParallelSettings.min_iter_per_thread as basis? */
-    chunk_size = 32 * num_tasks_factor;
+    chunk_size = 32 * tasks_num_factor;
 
     /* Basic heuristic to avoid threading on low amount of items.
      * We could make that limit configurable in settings too. */
-    if (tot_items > 0 && tot_items < max_ii(256, chunk_size * 2)) {
-      chunk_size = tot_items;
+    if (items_num > 0 && items_num < max_ii(256, chunk_size * 2)) {
+      chunk_size = items_num;
     }
   }
 
@@ -96,7 +95,7 @@ typedef struct TaskParallelIteratorState {
   /* Common data also passed to the generator callback. */
   TaskParallelIteratorStateShared iter_shared;
   /* Total number of items. If unknown, set it to a negative number. */
-  int tot_items;
+  int items_num;
 } TaskParallelIteratorState;
 
 static void parallel_iterator_func_do(TaskParallelIteratorState *__restrict state,
@@ -167,12 +166,10 @@ static void task_parallel_iterator_no_threads(const TaskParallelSettings *settin
 {
   /* Prepare user's TLS data. */
   void *userdata_chunk = settings->userdata_chunk;
-  const size_t userdata_chunk_size = settings->userdata_chunk_size;
-  void *userdata_chunk_local = NULL;
-  const bool use_userdata_chunk = (userdata_chunk_size != 0) && (userdata_chunk != NULL);
-  if (use_userdata_chunk) {
-    userdata_chunk_local = MALLOCA(userdata_chunk_size);
-    memcpy(userdata_chunk_local, userdata_chunk, userdata_chunk_size);
+  if (userdata_chunk) {
+    if (settings->func_init != NULL) {
+      settings->func_init(state->userdata, userdata_chunk);
+    }
   }
 
   /* Also marking it as non-threaded for the iterator callback. */
@@ -180,19 +177,21 @@ static void task_parallel_iterator_no_threads(const TaskParallelSettings *settin
 
   parallel_iterator_func_do(state, userdata_chunk);
 
-  if (use_userdata_chunk && settings->func_free != NULL) {
-    /* `func_free` should only free data that was created during execution of `func`. */
-    settings->func_free(state->userdata, userdata_chunk_local);
+  if (userdata_chunk) {
+    if (settings->func_free != NULL) {
+      /* `func_free` should only free data that was created during execution of `func`. */
+      settings->func_free(state->userdata, userdata_chunk);
+    }
   }
 }
 
 static void task_parallel_iterator_do(const TaskParallelSettings *settings,
                                       TaskParallelIteratorState *state)
 {
-  const int num_threads = BLI_task_scheduler_num_threads();
+  const int threads_num = BLI_task_scheduler_num_threads();
 
   task_parallel_calc_chunk_size(
-      settings, state->tot_items, num_threads, &state->iter_shared.chunk_size);
+      settings, state->items_num, threads_num, &state->iter_shared.chunk_size);
 
   if (!settings->use_threading) {
     task_parallel_iterator_no_threads(settings, state);
@@ -200,13 +199,13 @@ static void task_parallel_iterator_do(const TaskParallelSettings *settings,
   }
 
   const int chunk_size = state->iter_shared.chunk_size;
-  const int tot_items = state->tot_items;
-  const size_t num_tasks = tot_items >= 0 ?
-                               (size_t)min_ii(num_threads, state->tot_items / chunk_size) :
-                               (size_t)num_threads;
+  const int items_num = state->items_num;
+  const size_t tasks_num = items_num >= 0 ?
+                               (size_t)min_ii(threads_num, state->items_num / chunk_size) :
+                               (size_t)threads_num;
 
-  BLI_assert(num_tasks > 0);
-  if (num_tasks == 1) {
+  BLI_assert(tasks_num > 0);
+  if (tasks_num == 1) {
     task_parallel_iterator_no_threads(settings, state);
     return;
   }
@@ -224,13 +223,16 @@ static void task_parallel_iterator_do(const TaskParallelSettings *settings,
   TaskPool *task_pool = BLI_task_pool_create(state, TASK_PRIORITY_HIGH);
 
   if (use_userdata_chunk) {
-    userdata_chunk_array = MALLOCA(userdata_chunk_size * num_tasks);
+    userdata_chunk_array = MALLOCA(userdata_chunk_size * tasks_num);
   }
 
-  for (size_t i = 0; i < num_tasks; i++) {
+  for (size_t i = 0; i < tasks_num; i++) {
     if (use_userdata_chunk) {
       userdata_chunk_local = (char *)userdata_chunk_array + (userdata_chunk_size * i);
       memcpy(userdata_chunk_local, userdata_chunk, userdata_chunk_size);
+      if (settings->func_init != NULL) {
+        settings->func_init(state->userdata, userdata_chunk_local);
+      }
     }
     /* Use this pool's pre-allocated tasks. */
     BLI_task_pool_push(task_pool, parallel_iterator_func, userdata_chunk_local, false, NULL);
@@ -239,49 +241,36 @@ static void task_parallel_iterator_do(const TaskParallelSettings *settings,
   BLI_task_pool_work_and_wait(task_pool);
   BLI_task_pool_free(task_pool);
 
-  if (use_userdata_chunk && (settings->func_reduce != NULL || settings->func_free != NULL)) {
-    for (size_t i = 0; i < num_tasks; i++) {
-      userdata_chunk_local = (char *)userdata_chunk_array + (userdata_chunk_size * i);
-      if (settings->func_reduce != NULL) {
-        settings->func_reduce(state->userdata, userdata_chunk, userdata_chunk_local);
-      }
-      if (settings->func_free != NULL) {
-        settings->func_free(state->userdata, userdata_chunk_local);
+  if (use_userdata_chunk) {
+    if (settings->func_reduce != NULL || settings->func_free != NULL) {
+      for (size_t i = 0; i < tasks_num; i++) {
+        userdata_chunk_local = (char *)userdata_chunk_array + (userdata_chunk_size * i);
+        if (settings->func_reduce != NULL) {
+          settings->func_reduce(state->userdata, userdata_chunk, userdata_chunk_local);
+        }
+        if (settings->func_free != NULL) {
+          settings->func_free(state->userdata, userdata_chunk_local);
+        }
       }
     }
-    MALLOCA_FREE(userdata_chunk_array, userdata_chunk_size * num_tasks);
+    MALLOCA_FREE(userdata_chunk_array, userdata_chunk_size * tasks_num);
   }
 
   BLI_spin_end(&spin_lock);
   state->iter_shared.spin_lock = NULL;
 }
 
-/**
- * This function allows to parallelize for loops using a generic iterator.
- *
- * \param userdata: Common userdata passed to all instances of \a func.
- * \param iter_func: Callback function used to generate chunks of items.
- * \param init_item: The initial item, if necessary (may be NULL if unused).
- * \param init_index: The initial index.
- * \param tot_items: The total amount of items to iterate over
- *                   (if unknown, set it to a negative number).
- * \param func: Callback function.
- * \param settings: See public API doc of TaskParallelSettings for description of all settings.
- *
- * \note Static scheduling is only available when \a tot_items is >= 0.
- */
-
 void BLI_task_parallel_iterator(void *userdata,
                                 TaskParallelIteratorIterFunc iter_func,
                                 void *init_item,
                                 const int init_index,
-                                const int tot_items,
+                                const int items_num,
                                 TaskParallelIteratorFunc func,
                                 const TaskParallelSettings *settings)
 {
   TaskParallelIteratorState state = {0};
 
-  state.tot_items = tot_items;
+  state.items_num = items_num;
   state.iter_shared.next_index = init_index;
   state.iter_shared.next_item = init_item;
   state.iter_shared.is_finished = false;
@@ -291,6 +280,12 @@ void BLI_task_parallel_iterator(void *userdata,
 
   task_parallel_iterator_do(settings, &state);
 }
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name ListBase Iteration
+ * \{ */
 
 static void task_parallel_listbase_get(void *__restrict UNUSED(userdata),
                                        const TaskParallelTLS *__restrict UNUSED(tls),
@@ -308,17 +303,6 @@ static void task_parallel_listbase_get(void *__restrict UNUSED(userdata),
   (*r_next_index)++;
 }
 
-/**
- * This function allows to parallelize for loops over ListBase items.
- *
- * \param listbase: The double linked list to loop over.
- * \param userdata: Common userdata passed to all instances of \a func.
- * \param func: Callback function.
- * \param settings: See public API doc of ParallelRangeSettings for description of all settings.
- *
- * \note There is no static scheduling here,
- * since it would need another full loop over items to count them.
- */
 void BLI_task_parallel_listbase(ListBase *listbase,
                                 void *userdata,
                                 TaskParallelIteratorFunc func,
@@ -330,7 +314,7 @@ void BLI_task_parallel_listbase(ListBase *listbase,
 
   TaskParallelIteratorState state = {0};
 
-  state.tot_items = BLI_listbase_count(listbase);
+  state.items_num = BLI_listbase_count(listbase);
   state.iter_shared.next_index = 0;
   state.iter_shared.next_item = listbase->first;
   state.iter_shared.is_finished = false;
@@ -341,8 +325,11 @@ void BLI_task_parallel_listbase(ListBase *listbase,
   task_parallel_iterator_do(settings, &state);
 }
 
-#undef MALLOCA
-#undef MALLOCA_FREE
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name MemPool Iteration
+ * \{ */
 
 typedef struct ParallelMempoolState {
   void *userdata;
@@ -352,72 +339,113 @@ typedef struct ParallelMempoolState {
 static void parallel_mempool_func(TaskPool *__restrict pool, void *taskdata)
 {
   ParallelMempoolState *__restrict state = BLI_task_pool_user_data(pool);
-  BLI_mempool_iter *iter = taskdata;
-  MempoolIterData *item;
+  BLI_mempool_threadsafe_iter *iter = &((ParallelMempoolTaskData *)taskdata)->ts_iter;
+  TaskParallelTLS *tls = &((ParallelMempoolTaskData *)taskdata)->tls;
 
-  while ((item = BLI_mempool_iterstep(iter)) != NULL) {
-    state->func(state->userdata, item);
+  MempoolIterData *item;
+  while ((item = mempool_iter_threadsafe_step(iter)) != NULL) {
+    state->func(state->userdata, item, tls);
   }
 }
 
-/**
- * This function allows to parallelize for loops over Mempool items.
- *
- * \param mempool: The iterable BLI_mempool to loop over.
- * \param userdata: Common userdata passed to all instances of \a func.
- * \param func: Callback function.
- * \param use_threading: If \a true, actually split-execute loop in threads,
- * else just do a sequential for loop
- * (allows caller to use any kind of test to switch on parallelization or not).
- *
- * \note There is no static scheduling here.
- */
 void BLI_task_parallel_mempool(BLI_mempool *mempool,
                                void *userdata,
                                TaskParallelMempoolFunc func,
-                               const bool use_threading)
+                               const TaskParallelSettings *settings)
 {
-  TaskPool *task_pool;
-  ParallelMempoolState state;
-  int i, num_threads, num_tasks;
-
-  if (BLI_mempool_len(mempool) == 0) {
+  if (UNLIKELY(BLI_mempool_len(mempool) == 0)) {
     return;
   }
 
-  if (!use_threading) {
+  void *userdata_chunk = settings->userdata_chunk;
+  const size_t userdata_chunk_size = settings->userdata_chunk_size;
+  void *userdata_chunk_array = NULL;
+  const bool use_userdata_chunk = (userdata_chunk_size != 0) && (userdata_chunk != NULL);
+
+  if (!settings->use_threading) {
+    TaskParallelTLS tls = {NULL};
+    if (use_userdata_chunk) {
+      if (settings->func_init != NULL) {
+        settings->func_init(userdata, userdata_chunk);
+      }
+      tls.userdata_chunk = userdata_chunk;
+    }
+
     BLI_mempool_iter iter;
     BLI_mempool_iternew(mempool, &iter);
 
-    for (void *item = BLI_mempool_iterstep(&iter); item != NULL;
-         item = BLI_mempool_iterstep(&iter)) {
-      func(userdata, item);
+    void *item;
+    while ((item = BLI_mempool_iterstep(&iter))) {
+      func(userdata, item, &tls);
     }
+
+    if (use_userdata_chunk) {
+      if (settings->func_free != NULL) {
+        /* `func_free` should only free data that was created during execution of `func`. */
+        settings->func_free(userdata, userdata_chunk);
+      }
+    }
+
     return;
   }
 
-  task_pool = BLI_task_pool_create(&state, TASK_PRIORITY_HIGH);
-  num_threads = BLI_task_scheduler_num_threads();
+  ParallelMempoolState state;
+  TaskPool *task_pool = BLI_task_pool_create(&state, TASK_PRIORITY_HIGH);
+  const int threads_num = BLI_task_scheduler_num_threads();
 
   /* The idea here is to prevent creating task for each of the loop iterations
    * and instead have tasks which are evenly distributed across CPU cores and
    * pull next item to be crunched using the threaded-aware BLI_mempool_iter.
    */
-  num_tasks = num_threads + 2;
+  const int tasks_num = threads_num + 2;
 
   state.userdata = userdata;
   state.func = func;
 
-  BLI_mempool_iter *mempool_iterators = BLI_mempool_iter_threadsafe_create(mempool,
-                                                                           (size_t)num_tasks);
+  if (use_userdata_chunk) {
+    userdata_chunk_array = MALLOCA(userdata_chunk_size * tasks_num);
+  }
 
-  for (i = 0; i < num_tasks; i++) {
+  ParallelMempoolTaskData *mempool_iterator_data = mempool_iter_threadsafe_create(
+      mempool, (size_t)tasks_num);
+
+  for (int i = 0; i < tasks_num; i++) {
+    void *userdata_chunk_local = NULL;
+    if (use_userdata_chunk) {
+      userdata_chunk_local = (char *)userdata_chunk_array + (userdata_chunk_size * i);
+      memcpy(userdata_chunk_local, userdata_chunk, userdata_chunk_size);
+      if (settings->func_init != NULL) {
+        settings->func_init(userdata, userdata_chunk_local);
+      }
+    }
+    mempool_iterator_data[i].tls.userdata_chunk = userdata_chunk_local;
+
     /* Use this pool's pre-allocated tasks. */
-    BLI_task_pool_push(task_pool, parallel_mempool_func, &mempool_iterators[i], false, NULL);
+    BLI_task_pool_push(task_pool, parallel_mempool_func, &mempool_iterator_data[i], false, NULL);
   }
 
   BLI_task_pool_work_and_wait(task_pool);
   BLI_task_pool_free(task_pool);
 
-  BLI_mempool_iter_threadsafe_free(mempool_iterators);
+  if (use_userdata_chunk) {
+    if ((settings->func_free != NULL) || (settings->func_reduce != NULL)) {
+      for (int i = 0; i < tasks_num; i++) {
+        if (settings->func_reduce) {
+          settings->func_reduce(
+              userdata, userdata_chunk, mempool_iterator_data[i].tls.userdata_chunk);
+        }
+        if (settings->func_free) {
+          settings->func_free(userdata, mempool_iterator_data[i].tls.userdata_chunk);
+        }
+      }
+    }
+    MALLOCA_FREE(userdata_chunk_array, userdata_chunk_size * tasks_num);
+  }
+
+  mempool_iter_threadsafe_destroy(mempool_iterator_data);
 }
+
+#undef MALLOCA
+#undef MALLOCA_FREE
+
+/** \} */

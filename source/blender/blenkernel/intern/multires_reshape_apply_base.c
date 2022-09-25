@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2020 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2020 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -72,7 +56,7 @@ void multires_reshape_apply_base_update_mesh_coords(MultiresReshapeContext *resh
 
 /* Assumes no is normalized; return value's sign is negative if v is on the other side of the
  * plane. */
-static float v3_dist_from_plane(float v[3], float center[3], float no[3])
+static float v3_dist_from_plane(const float v[3], const float center[3], const float no[3])
 {
   float s[3];
   sub_v3_v3v3(s, v, center);
@@ -81,11 +65,6 @@ static float v3_dist_from_plane(float v[3], float center[3], float no[3])
 
 void multires_reshape_apply_base_refit_base_mesh(MultiresReshapeContext *reshape_context)
 {
-  if (reshape_context->mmd->simple) {
-    /* Simple subdivisions does not move base mesh verticies, so no refitting is needed. */
-    return;
-  }
-
   Mesh *base_mesh = reshape_context->base_mesh;
 
   MeshElemMap *pmap;
@@ -99,7 +78,7 @@ void multires_reshape_apply_base_refit_base_mesh(MultiresReshapeContext *reshape
                                 base_mesh->totloop);
 
   float(*origco)[3] = MEM_calloc_arrayN(
-      base_mesh->totvert, 3 * sizeof(float), "multires apply base origco");
+      base_mesh->totvert, sizeof(float[3]), "multires apply base origco");
   for (int i = 0; i < base_mesh->totvert; i++) {
     copy_v3_v3(origco[i], base_mesh->mvert[i].co);
   }
@@ -140,7 +119,7 @@ void multires_reshape_apply_base_refit_base_mesh(MultiresReshapeContext *reshape
       fake_poly.totloop = p->totloop;
       fake_poly.loopstart = 0;
       fake_loops = MEM_malloc_arrayN(p->totloop, sizeof(MLoop), "fake_loops");
-      fake_co = MEM_malloc_arrayN(p->totloop, 3 * sizeof(float), "fake_co");
+      fake_co = MEM_malloc_arrayN(p->totloop, sizeof(float[3]), "fake_co");
 
       for (int k = 0; k < p->totloop; k++) {
         const int vndx = base_mesh->mloop[p->loopstart + k].v;
@@ -177,7 +156,7 @@ void multires_reshape_apply_base_refit_base_mesh(MultiresReshapeContext *reshape
   /* Vertices were moved around, need to update normals after all the vertices are updated
    * Probably this is possible to do in the loop above, but this is rather tricky because
    * we don't know all needed vertices' coordinates there yet. */
-  BKE_mesh_calc_normals(base_mesh);
+  BKE_mesh_tag_coords_changed(base_mesh);
 }
 
 void multires_reshape_apply_base_refine_from_base(MultiresReshapeContext *reshape_context)

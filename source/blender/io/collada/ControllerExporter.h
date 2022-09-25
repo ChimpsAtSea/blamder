@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
  */
 
-#ifndef __CONTROLLEREXPORTER_H__
-#define __CONTROLLEREXPORTER_H__
+#pragma once
 
 #include <list>
 #include <string>
@@ -57,9 +42,9 @@ class ControllerExporter : public COLLADASW::LibraryControllers,
   BCExportSettings export_settings;
 
  public:
-  // XXX exporter writes wrong data for shared armatures.  A separate
-  // controller should be written for each armature-mesh binding how do
-  // we make controller ids then?
+  /* XXX exporter writes wrong data for shared armatures.  A separate
+   * controller should be written for each armature-mesh binding how do
+   * we make controller ids then? */
   ControllerExporter(BlenderContext &blender_context,
                      COLLADASW::StreamWriter *sw,
                      BCExportSettings &export_settings)
@@ -92,13 +77,12 @@ class ControllerExporter : public COLLADASW::LibraryControllers,
 
   std::string get_controller_id(Key *key, Object *ob);
 
-  // ob should be of type OB_MESH
-  // both args are required
+  /** `ob` should be of type OB_MESH, both arguments are required. */
   void export_skin_controller(Object *ob, Object *ob_arm);
 
   void export_morph_controller(Object *ob, Key *key);
 
-  void add_joints_element(ListBase *defbase,
+  void add_joints_element(const ListBase *defbase,
                           const std::string &joints_source_id,
                           const std::string &inv_bind_mat_source_id);
 
@@ -108,19 +92,22 @@ class ControllerExporter : public COLLADASW::LibraryControllers,
 
   std::string add_morph_weights(Key *key, Object *ob);
 
+  /**
+   * Added to implement support for animations.
+   */
   void add_weight_extras(Key *key);
 
   std::string add_joints_source(Object *ob_arm,
-                                ListBase *defbase,
+                                const ListBase *defbase,
                                 const std::string &controller_id);
 
   std::string add_inv_bind_mats_source(Object *ob_arm,
-                                       ListBase *defbase,
+                                       const ListBase *defbase,
                                        const std::string &controller_id);
 
-  Bone *get_bone_from_defgroup(Object *ob_arm, bDeformGroup *def);
+  Bone *get_bone_from_defgroup(Object *ob_arm, const bDeformGroup *def);
 
-  bool is_bone_defgroup(Object *ob_arm, bDeformGroup *def);
+  bool is_bone_defgroup(Object *ob_arm, const bDeformGroup *def);
 
   std::string add_weights_source(Mesh *me,
                                  const std::string &controller_id,
@@ -133,5 +120,3 @@ class ControllerExporter : public COLLADASW::LibraryControllers,
 
   void write_bone_URLs(COLLADASW::InstanceController &ins, Object *ob_arm, Bone *bone);
 };
-
-#endif

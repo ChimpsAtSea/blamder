@@ -1,35 +1,19 @@
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# The Original Code is Copyright (C) 2006, Blender Foundation
-# All rights reserved.
-# ***** END GPL LICENSE BLOCK *****
+# SPDX-License-Identifier: GPL-2.0-or-later
+# Copyright 2006 Blender Foundation. All rights reserved.
 
 # add_subdirectory(atomic)  # header only
+add_subdirectory(atomic)
 add_subdirectory(clog)
 add_subdirectory(ghost)
 add_subdirectory(guardedalloc)
 add_subdirectory(libmv)
 add_subdirectory(memutil)
-add_subdirectory(numaapi)
 add_subdirectory(opencolorio)
 add_subdirectory(opensubdiv)
 add_subdirectory(mikktspace)
 add_subdirectory(glew-mx)
 add_subdirectory(eigen)
+add_subdirectory(sky)
 
 if(WITH_AUDASPACE)
   add_subdirectory(audaspace)
@@ -76,6 +60,17 @@ if(WITH_QUADRIFLOW)
   add_subdirectory(quadriflow)
 endif()
 
+if(WITH_CODEC_FFMPEG)
+  add_subdirectory(ffmpeg)
+endif()
+
 if(UNIX AND NOT APPLE)
   add_subdirectory(libc_compat)
+endif()
+
+if(UNIX AND NOT APPLE)
+  # Important this comes after "ghost" as it uses includes defined by GHOST's CMake.
+  if(WITH_GHOST_WAYLAND AND WITH_GHOST_WAYLAND_DYNLOAD)
+    add_subdirectory(wayland_dynload)
+  endif()
 endif()

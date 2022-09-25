@@ -31,8 +31,11 @@
 #ifndef CERES_INTERNAL_TRUST_REGION_MINIMIZER_H_
 #define CERES_INTERNAL_TRUST_REGION_MINIMIZER_H_
 
+#include <memory>
+
+#include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/scoped_ptr.h"
+#include "ceres/internal/export.h"
 #include "ceres/minimizer.h"
 #include "ceres/solver.h"
 #include "ceres/sparse_matrix.h"
@@ -46,14 +49,12 @@ namespace internal {
 // Generic trust region minimization algorithm.
 //
 // For example usage, see SolverImpl::Minimize.
-class TrustRegionMinimizer : public Minimizer {
+class CERES_NO_EXPORT TrustRegionMinimizer final : public Minimizer {
  public:
-  ~TrustRegionMinimizer();
-
   // This method is not thread safe.
-  virtual void Minimize(const Minimizer::Options& options,
-                        double* parameters,
-                        Solver::Summary* solver_summary);
+  void Minimize(const Minimizer::Options& options,
+                double* parameters,
+                Solver::Summary* solver_summary) override;
 
  private:
   void Init(const Minimizer::Options& options,
@@ -63,7 +64,7 @@ class TrustRegionMinimizer : public Minimizer {
   bool FinalizeIterationAndCheckIfMinimizerCanContinue();
   bool ComputeTrustRegionStep();
 
-  bool EvaluateGradientAndJacobian();
+  bool EvaluateGradientAndJacobian(bool new_evaluation_point);
   void ComputeCandidatePointAndEvaluateCost();
 
   void DoLineSearch(const Vector& x,
@@ -80,7 +81,6 @@ class TrustRegionMinimizer : public Minimizer {
   bool MinTrustRegionRadiusReached();
 
   bool IsStepSuccessful();
-  void HandleUnsuccessfulStep();
   bool HandleSuccessfulStep();
   bool HandleInvalidStep();
 
@@ -94,7 +94,7 @@ class TrustRegionMinimizer : public Minimizer {
   SparseMatrix* jacobian_;
   TrustRegionStrategy* strategy_;
 
-  scoped_ptr<TrustRegionStepEvaluator> step_evaluator_;
+  std::unique_ptr<TrustRegionStepEvaluator> step_evaluator_;
 
   bool is_not_silent_;
   bool inner_iterations_are_enabled_;
@@ -162,5 +162,7 @@ class TrustRegionMinimizer : public Minimizer {
 
 }  // namespace internal
 }  // namespace ceres
+
+#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_TRUST_REGION_MINIMIZER_H_

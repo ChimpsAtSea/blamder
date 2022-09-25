@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edinterface
@@ -28,9 +12,12 @@
 #include "MEM_guardedalloc.h"
 
 #include "GPU_batch.h"
+#include "GPU_batch_presets.h"
 #include "GPU_immediate.h"
 #include "GPU_matrix.h"
+#include "GPU_shader_shared.h"
 #include "GPU_state.h"
+#include "GPU_texture.h"
 
 #include "BLI_blenlib.h"
 #include "BLI_fileops_types.h"
@@ -39,14 +26,17 @@
 #include "BLI_utildefines.h"
 
 #include "DNA_brush_types.h"
+#include "DNA_collection_types.h"
 #include "DNA_curve_types.h"
 #include "DNA_dynamicpaint_types.h"
 #include "DNA_gpencil_types.h"
 #include "DNA_object_types.h"
 #include "DNA_screen_types.h"
+#include "DNA_sequence_types.h"
 #include "DNA_space_types.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "BKE_appdir.h"
 #include "BKE_context.h"
@@ -63,6 +53,7 @@
 
 #include "ED_datafiles.h"
 #include "ED_keyframes_draw.h"
+#include "ED_keyframes_keylist.h"
 #include "ED_render.h"
 
 #include "UI_interface.h"
@@ -97,11 +88,12 @@ typedef void (*VectorDrawFunc)(int x, int y, int w, int h, float alpha);
 #define ICON_TYPE_COLOR_TEXTURE 1
 #define ICON_TYPE_MONO_TEXTURE 2
 #define ICON_TYPE_BUFFER 3
-#define ICON_TYPE_VECTOR 4
-#define ICON_TYPE_GEOM 5
-#define ICON_TYPE_EVENT 6 /* draw keymap entries using custom renderer. */
-#define ICON_TYPE_GPLAYER 7
-#define ICON_TYPE_BLANK 8
+#define ICON_TYPE_IMBUF 4
+#define ICON_TYPE_VECTOR 5
+#define ICON_TYPE_GEOM 6
+#define ICON_TYPE_EVENT 7 /* draw keymap entries using custom renderer. */
+#define ICON_TYPE_GPLAYER 8
+#define ICON_TYPE_BLANK 9
 
 typedef struct DrawInfo {
   int type;
@@ -134,7 +126,7 @@ typedef struct DrawInfo {
 } DrawInfo;
 
 typedef struct IconTexture {
-  GLuint id[2];
+  struct GPUTexture *tex[2];
   int num_textures;
   int w;
   int h;
@@ -151,7 +143,7 @@ typedef struct IconType {
 /* Static here to cache results of icon directory scan, so it's not
  * scanning the file-system each time the menu is drawn. */
 static struct ListBase iconfilelist = {NULL, NULL};
-static IconTexture icongltex = {{0, 0}, 0, 0, 0, 0.0f, 0.0f};
+static IconTexture icongltex = {{NULL, NULL}, 0, 0, 0, 0.0f, 0.0f};
 
 #ifndef WITH_HEADLESS
 
@@ -176,16 +168,12 @@ static const IconType icontypes[] = {
 static DrawInfo *def_internal_icon(
     ImBuf *bbuf, int icon_id, int xofs, int yofs, int size, int type, int theme_color)
 {
-  Icon *new_icon = NULL;
-  IconImage *iimg = NULL;
-  DrawInfo *di;
-
-  new_icon = MEM_callocN(sizeof(Icon), "texicon");
+  Icon *new_icon = MEM_callocN(sizeof(Icon), "texicon");
 
   new_icon->obj = NULL; /* icon is not for library object */
   new_icon->id_type = 0;
 
-  di = MEM_callocN(sizeof(DrawInfo), "drawinfo");
+  DrawInfo *di = MEM_callocN(sizeof(DrawInfo), "drawinfo");
   di->type = type;
 
   if (ELEM(type, ICON_TYPE_COLOR_TEXTURE, ICON_TYPE_MONO_TEXTURE)) {
@@ -196,7 +184,7 @@ static DrawInfo *def_internal_icon(
     di->data.texture.h = size;
   }
   else if (type == ICON_TYPE_BUFFER) {
-    iimg = MEM_callocN(sizeof(IconImage), "icon_img");
+    IconImage *iimg = MEM_callocN(sizeof(IconImage), "icon_img");
     iimg->w = size;
     iimg->h = size;
 
@@ -232,15 +220,12 @@ static DrawInfo *def_internal_icon(
 
 static void def_internal_vicon(int icon_id, VectorDrawFunc drawFunc)
 {
-  Icon *new_icon = NULL;
-  DrawInfo *di;
-
-  new_icon = MEM_callocN(sizeof(Icon), "texicon");
+  Icon *new_icon = MEM_callocN(sizeof(Icon), "texicon");
 
   new_icon->obj = NULL; /* icon is not for library object */
   new_icon->id_type = 0;
 
-  di = MEM_callocN(sizeof(DrawInfo), "drawinfo");
+  DrawInfo *di = MEM_callocN(sizeof(DrawInfo), "drawinfo");
   di->type = ICON_TYPE_VECTOR;
   di->data.vector.func = drawFunc;
 
@@ -254,66 +239,33 @@ static void def_internal_vicon(int icon_id, VectorDrawFunc drawFunc)
 
 /* Utilities */
 
-static void viconutil_set_point(GLint pt[2], int x, int y)
-{
-  pt[0] = x;
-  pt[1] = y;
-}
-
-static void vicon_small_tri_right_draw(int x, int y, int w, int UNUSED(h), float alpha)
-{
-  GLint pts[3][2];
-  int cx = x + w / 2 - 4;
-  int cy = y + w / 2;
-  int d = w / 5, d2 = w / 7;
-
-  viconutil_set_point(pts[0], cx - d2, cy + d);
-  viconutil_set_point(pts[1], cx - d2, cy - d);
-  viconutil_set_point(pts[2], cx + d2, cy);
-
-  uint pos = GPU_vertformat_attr_add(
-      immVertexFormat(), "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
-  immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
-  immUniformColor4f(0.2f, 0.2f, 0.2f, alpha);
-
-  immBegin(GPU_PRIM_TRIS, 3);
-  immVertex2iv(pos, pts[0]);
-  immVertex2iv(pos, pts[1]);
-  immVertex2iv(pos, pts[2]);
-  immEnd();
-
-  immUnbindProgram();
-}
-
 static void vicon_keytype_draw_wrapper(
     int x, int y, int w, int h, float alpha, short key_type, short handle_type)
 {
-  /* init dummy theme state for Action Editor - where these colors are defined
-   * (since we're doing this offscreen, free from any particular space_id)
-   */
+  /* Initialize dummy theme state for Action Editor - where these colors are defined
+   * (since we're doing this off-screen, free from any particular space_id). */
   struct bThemeState theme_state;
 
   UI_Theme_Store(&theme_state);
   UI_SetTheme(SPACE_ACTION, RGN_TYPE_WINDOW);
 
-  /* the "x" and "y" given are the bottom-left coordinates of the icon,
-   * while the draw_keyframe_shape() function needs the midpoint for
-   * the keyframe
-   */
-  float xco = x + w / 2 + 0.5f;
-  float yco = y + h / 2 + 0.5f;
+  /* The "x" and "y" given are the bottom-left coordinates of the icon,
+   * while the #draw_keyframe_shape() function needs the midpoint for the keyframe. */
+  const float xco = x + w / 2 + 0.5f;
+  const float yco = y + h / 2 + 0.5f;
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos_id = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-  uint size_id = GPU_vertformat_attr_add(format, "size", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
-  uint color_id = GPU_vertformat_attr_add(
+  KeyframeShaderBindings sh_bindings;
+  sh_bindings.pos_id = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  sh_bindings.size_id = GPU_vertformat_attr_add(format, "size", GPU_COMP_F32, 1, GPU_FETCH_FLOAT);
+  sh_bindings.color_id = GPU_vertformat_attr_add(
       format, "color", GPU_COMP_U8, 4, GPU_FETCH_INT_TO_FLOAT_UNIT);
-  uint outline_color_id = GPU_vertformat_attr_add(
+  sh_bindings.outline_color_id = GPU_vertformat_attr_add(
       format, "outlineColor", GPU_COMP_U8, 4, GPU_FETCH_INT_TO_FLOAT_UNIT);
-  uint flags_id = GPU_vertformat_attr_add(format, "flags", GPU_COMP_U32, 1, GPU_FETCH_INT);
+  sh_bindings.flags_id = GPU_vertformat_attr_add(format, "flags", GPU_COMP_U32, 1, GPU_FETCH_INT);
 
   GPU_program_point_size(true);
-  immBindBuiltinProgram(GPU_SHADER_KEYFRAME_DIAMOND);
+  immBindBuiltinProgram(GPU_SHADER_KEYFRAME_SHAPE);
   immUniform1f("outline_scale", 1.0f);
   immUniform2f("ViewportSize", -1.0f, -1.0f);
   immBegin(GPU_PRIM_POINTS, 1);
@@ -322,7 +274,7 @@ static void vicon_keytype_draw_wrapper(
    * - size: (default icon size == 16, default dopesheet icon size == 10)
    * - sel: true unless in handletype icons (so that "keyframe" state shows the iconic yellow icon)
    */
-  bool sel = (handle_type == KEYFRAME_HANDLE_NONE);
+  const bool sel = (handle_type == KEYFRAME_HANDLE_NONE);
 
   draw_keyframe_shape(xco,
                       yco,
@@ -331,11 +283,7 @@ static void vicon_keytype_draw_wrapper(
                       key_type,
                       KEYFRAME_SHAPE_BOTH,
                       alpha,
-                      pos_id,
-                      size_id,
-                      color_id,
-                      outline_color_id,
-                      flags_id,
+                      &sh_bindings,
                       handle_type,
                       KEYFRAME_EXTREME_NONE);
 
@@ -459,6 +407,90 @@ DEF_ICON_VECTOR_COLORSET_DRAW_NTH(20, 19)
 
 #  undef DEF_ICON_VECTOR_COLORSET_DRAW_NTH
 
+static void vicon_collection_color_draw(
+    short color_tag, int x, int y, int w, int UNUSED(h), float UNUSED(alpha))
+{
+  bTheme *btheme = UI_GetTheme();
+  const ThemeCollectionColor *collection_color = &btheme->collection_color[color_tag];
+
+  const float aspect = (float)ICON_DEFAULT_WIDTH / (float)w;
+
+  UI_icon_draw_ex(
+      x, y, ICON_OUTLINER_COLLECTION, aspect, 1.0f, 0.0f, collection_color->color, true);
+}
+
+#  define DEF_ICON_COLLECTION_COLOR_DRAW(index, color) \
+    static void vicon_collection_color_draw_##index(int x, int y, int w, int h, float alpha) \
+    { \
+      vicon_collection_color_draw(color, x, y, w, h, alpha); \
+    }
+
+DEF_ICON_COLLECTION_COLOR_DRAW(01, COLLECTION_COLOR_01);
+DEF_ICON_COLLECTION_COLOR_DRAW(02, COLLECTION_COLOR_02);
+DEF_ICON_COLLECTION_COLOR_DRAW(03, COLLECTION_COLOR_03);
+DEF_ICON_COLLECTION_COLOR_DRAW(04, COLLECTION_COLOR_04);
+DEF_ICON_COLLECTION_COLOR_DRAW(05, COLLECTION_COLOR_05);
+DEF_ICON_COLLECTION_COLOR_DRAW(06, COLLECTION_COLOR_06);
+DEF_ICON_COLLECTION_COLOR_DRAW(07, COLLECTION_COLOR_07);
+DEF_ICON_COLLECTION_COLOR_DRAW(08, COLLECTION_COLOR_08);
+
+#  undef DEF_ICON_COLLECTION_COLOR_DRAW
+
+static void vicon_strip_color_draw(
+    short color_tag, int x, int y, int w, int UNUSED(h), float UNUSED(alpha))
+{
+  bTheme *btheme = UI_GetTheme();
+  const ThemeStripColor *strip_color = &btheme->strip_color[color_tag];
+
+  const float aspect = (float)ICON_DEFAULT_WIDTH / (float)w;
+
+  UI_icon_draw_ex(x, y, ICON_SNAP_FACE, aspect, 1.0f, 0.0f, strip_color->color, true);
+}
+
+#  define DEF_ICON_STRIP_COLOR_DRAW(index, color) \
+    static void vicon_strip_color_draw_##index(int x, int y, int w, int h, float alpha) \
+    { \
+      vicon_strip_color_draw(color, x, y, w, h, alpha); \
+    }
+
+DEF_ICON_STRIP_COLOR_DRAW(01, SEQUENCE_COLOR_01);
+DEF_ICON_STRIP_COLOR_DRAW(02, SEQUENCE_COLOR_02);
+DEF_ICON_STRIP_COLOR_DRAW(03, SEQUENCE_COLOR_03);
+DEF_ICON_STRIP_COLOR_DRAW(04, SEQUENCE_COLOR_04);
+DEF_ICON_STRIP_COLOR_DRAW(05, SEQUENCE_COLOR_05);
+DEF_ICON_STRIP_COLOR_DRAW(06, SEQUENCE_COLOR_06);
+DEF_ICON_STRIP_COLOR_DRAW(07, SEQUENCE_COLOR_07);
+DEF_ICON_STRIP_COLOR_DRAW(08, SEQUENCE_COLOR_08);
+DEF_ICON_STRIP_COLOR_DRAW(09, SEQUENCE_COLOR_09);
+
+#  undef DEF_ICON_STRIP_COLOR_DRAW
+
+#  define ICON_INDIRECT_DATA_ALPHA 0.6f
+
+static void vicon_strip_color_draw_library_data_indirect(
+    int x, int y, int w, int UNUSED(h), float alpha)
+{
+  const float aspect = (float)ICON_DEFAULT_WIDTH / (float)w;
+
+  UI_icon_draw_ex(
+      x, y, ICON_LIBRARY_DATA_DIRECT, aspect, ICON_INDIRECT_DATA_ALPHA * alpha, 0.0f, NULL, false);
+}
+
+static void vicon_strip_color_draw_library_data_override_noneditable(
+    int x, int y, int w, int UNUSED(h), float alpha)
+{
+  const float aspect = (float)ICON_DEFAULT_WIDTH / (float)w;
+
+  UI_icon_draw_ex(x,
+                  y,
+                  ICON_LIBRARY_DATA_OVERRIDE,
+                  aspect,
+                  ICON_INDIRECT_DATA_ALPHA * alpha * 0.75f,
+                  0.0f,
+                  NULL,
+                  false);
+}
+
 /* Dynamically render icon instead of rendering a plain color to a texture/buffer
  * This is not strictly a "vicon", as it needs access to icon->obj to get the color info,
  * but it works in a very similar way.
@@ -481,22 +513,20 @@ static void vicon_gplayer_color_draw(Icon *icon, int x, int y, int w, int h)
   immUnbindProgram();
 }
 
-#  ifndef WITH_HEADLESS
-
 static void init_brush_icons(void)
 {
 
-#    define INIT_BRUSH_ICON(icon_id, name) \
-      { \
-        uchar *rect = (uchar *)datatoc_##name##_png; \
-        int size = datatoc_##name##_png_size; \
-        DrawInfo *di; \
+#  define INIT_BRUSH_ICON(icon_id, name) \
+    { \
+      uchar *rect = (uchar *)datatoc_##name##_png; \
+      const int size = datatoc_##name##_png_size; \
+      DrawInfo *di; \
 \
-        di = def_internal_icon(NULL, icon_id, 0, 0, w, ICON_TYPE_BUFFER, 0); \
-        di->data.buffer.image->datatoc_rect = rect; \
-        di->data.buffer.image->datatoc_size = size; \
-      } \
-      ((void)0)
+      di = def_internal_icon(NULL, icon_id, 0, 0, w, ICON_TYPE_BUFFER, 0); \
+      di->data.buffer.image->datatoc_rect = rect; \
+      di->data.buffer.image->datatoc_size = size; \
+    } \
+    ((void)0)
   /* end INIT_BRUSH_ICON */
 
   const int w = 96; /* warning, brush size hardcoded in C, but it gets scaled */
@@ -516,6 +546,7 @@ static void init_brush_icons(void)
   INIT_BRUSH_ICON(ICON_BRUSH_MASK, mask);
   INIT_BRUSH_ICON(ICON_BRUSH_MIX, mix);
   INIT_BRUSH_ICON(ICON_BRUSH_NUDGE, nudge);
+  INIT_BRUSH_ICON(ICON_BRUSH_PAINT_SELECT, paint_select);
   INIT_BRUSH_ICON(ICON_BRUSH_PINCH, pinch);
   INIT_BRUSH_ICON(ICON_BRUSH_SCRAPE, scrape);
   INIT_BRUSH_ICON(ICON_BRUSH_SMEAR, smear);
@@ -554,7 +585,20 @@ static void init_brush_icons(void)
   INIT_BRUSH_ICON(ICON_GPBRUSH_ERASE_HARD, gp_brush_erase_hard);
   INIT_BRUSH_ICON(ICON_GPBRUSH_ERASE_STROKE, gp_brush_erase_stroke);
 
-#    undef INIT_BRUSH_ICON
+  /* Curves sculpt. */
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_ADD, curves_sculpt_add);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_COMB, curves_sculpt_comb);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_CUT, curves_sculpt_cut);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_DELETE, curves_sculpt_delete);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_DENSITY, curves_sculpt_density);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_GROW_SHRINK, curves_sculpt_grow_shrink);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_PINCH, curves_sculpt_pinch);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_PUFF, curves_sculpt_puff);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_SLIDE, curves_sculpt_slide);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_SMOOTH, curves_sculpt_smooth);
+  INIT_BRUSH_ICON(ICON_BRUSH_CURVES_SNAKE_HOOK, curves_sculpt_snake_hook);
+
+#  undef INIT_BRUSH_ICON
 }
 
 static DrawInfo *g_di_event_list = NULL;
@@ -570,18 +614,6 @@ int UI_icon_from_event_type(short event_type, short event_value)
   else if (event_type == EVT_RIGHTALTKEY) {
     event_type = EVT_LEFTALTKEY;
   }
-  else if (event_type == EVT_TWEAK_L) {
-    event_type = LEFTMOUSE;
-    event_value = KM_CLICK_DRAG;
-  }
-  else if (event_type == EVT_TWEAK_M) {
-    event_type = MIDDLEMOUSE;
-    event_value = KM_CLICK_DRAG;
-  }
-  else if (event_type == EVT_TWEAK_R) {
-    event_type = RIGHTMOUSE;
-    event_value = KM_CLICK_DRAG;
-  }
 
   DrawInfo *di = g_di_event_list;
   do {
@@ -593,10 +625,10 @@ int UI_icon_from_event_type(short event_type, short event_value)
   if (event_type == LEFTMOUSE) {
     return ELEM(event_value, KM_CLICK, KM_PRESS) ? ICON_MOUSE_LMB : ICON_MOUSE_LMB_DRAG;
   }
-  else if (event_type == MIDDLEMOUSE) {
+  if (event_type == MIDDLEMOUSE) {
     return ELEM(event_value, KM_CLICK, KM_PRESS) ? ICON_MOUSE_MMB : ICON_MOUSE_MMB_DRAG;
   }
-  else if (event_type == RIGHTMOUSE) {
+  if (event_type == RIGHTMOUSE) {
     return ELEM(event_value, KM_CLICK, KM_PRESS) ? ICON_MOUSE_RMB : ICON_MOUSE_RMB_DRAG;
   }
 
@@ -628,16 +660,16 @@ static void init_event_icons(void)
 {
   DrawInfo *di_next = NULL;
 
-#    define INIT_EVENT_ICON(icon_id, type, value) \
-      { \
-        DrawInfo *di = def_internal_icon(NULL, icon_id, 0, 0, w, ICON_TYPE_EVENT, 0); \
-        di->data.input.event_type = type; \
-        di->data.input.event_value = value; \
-        di->data.input.icon = icon_id; \
-        di->data.input.next = di_next; \
-        di_next = di; \
-      } \
-      ((void)0)
+#  define INIT_EVENT_ICON(icon_id, type, value) \
+    { \
+      DrawInfo *di = def_internal_icon(NULL, icon_id, 0, 0, w, ICON_TYPE_EVENT, 0); \
+      di->data.input.event_type = type; \
+      di->data.input.event_value = value; \
+      di->data.input.icon = icon_id; \
+      di->data.input.next = di_next; \
+      di_next = di; \
+    } \
+    ((void)0)
   /* end INIT_EVENT_ICON */
 
   const int w = 16; /* DUMMY */
@@ -693,7 +725,7 @@ static void init_event_icons(void)
 
   g_di_event_list = di_next;
 
-#    undef INIT_EVENT_ICON
+#  undef INIT_EVENT_ICON
 }
 
 static void icon_verify_datatoc(IconImage *iimg)
@@ -731,7 +763,7 @@ static ImBuf *create_mono_icon_with_border(ImBuf *buf,
 
   for (int y = 0; y < ICON_GRID_ROWS; y++) {
     for (int x = 0; x < ICON_GRID_COLS; x++) {
-      IconType icontype = icontypes[y * ICON_GRID_COLS + x];
+      const IconType icontype = icontypes[y * ICON_GRID_COLS + x];
       if (icontype.type != ICON_TYPE_MONO_TEXTURE) {
         continue;
       }
@@ -742,7 +774,7 @@ static ImBuf *create_mono_icon_with_border(ImBuf *buf,
       sy = sy / resolution_divider;
 
       /* blur the alpha channel and store it in blurred_alpha_buffer */
-      int blur_size = 2 / resolution_divider;
+      const int blur_size = 2 / resolution_divider;
       for (int bx = 0; bx < icon_width; bx++) {
         const int asx = MAX2(bx - blur_size, 0);
         const int aex = MIN2(bx + blur_size + 1, icon_width);
@@ -750,14 +782,14 @@ static ImBuf *create_mono_icon_with_border(ImBuf *buf,
           const int asy = MAX2(by - blur_size, 0);
           const int aey = MIN2(by + blur_size + 1, icon_height);
 
-          // blur alpha channel
+          /* blur alpha channel */
           const int write_offset = by * (ICON_GRID_W + 2 * ICON_MONO_BORDER_OUTSET) + bx;
           float alpha_accum = 0.0;
           uint alpha_samples = 0;
           for (int ax = asx; ax < aex; ax++) {
             for (int ay = asy; ay < aey; ay++) {
               const int offset_read = (sy + ay) * buf->x + (sx + ax);
-              uint color_read = buf->rect[offset_read];
+              const uint color_read = buf->rect[offset_read];
               const float alpha_read = ((color_read & 0xff000000) >> 24) / 255.0;
               alpha_accum += alpha_read;
               alpha_samples += 1;
@@ -789,8 +821,8 @@ static ImBuf *create_mono_icon_with_border(ImBuf *buf,
           blend_color_interpolate_float(dest_rgba, orig_rgba, border_rgba, 1.0 - orig_rgba[3]);
           linearrgb_to_srgb_v4(dest_srgb, dest_rgba);
 
-          uint alpha_mask = ((uint)(dest_srgb[3] * 255)) << 24;
-          uint cpack = rgb_to_cpack(dest_srgb[0], dest_srgb[1], dest_srgb[2]) | alpha_mask;
+          const uint alpha_mask = ((uint)(dest_srgb[3] * 255)) << 24;
+          const uint cpack = rgb_to_cpack(dest_srgb[0], dest_srgb[1], dest_srgb[2]) | alpha_mask;
           result->rect[offset_write] = cpack;
         }
       }
@@ -802,21 +834,22 @@ static ImBuf *create_mono_icon_with_border(ImBuf *buf,
 static void free_icons_textures(void)
 {
   if (icongltex.num_textures > 0) {
-    glDeleteTextures(icongltex.num_textures, icongltex.id);
-    icongltex.id[0] = 0;
-    icongltex.id[1] = 0;
+    for (int i = 0; i < 2; i++) {
+      if (icongltex.tex[i]) {
+        GPU_texture_free(icongltex.tex[i]);
+        icongltex.tex[i] = NULL;
+      }
+    }
     icongltex.num_textures = 0;
   }
 }
 
-/* Reload the textures for internal icons.
- * This function will release the previous textures. */
 void UI_icons_reload_internal_textures(void)
 {
   bTheme *btheme = UI_GetTheme();
   ImBuf *b16buf = NULL, *b32buf = NULL, *b16buf_border = NULL, *b32buf_border = NULL;
   const float icon_border_intensity = btheme->tui.icon_border_intensity;
-  bool need_icons_with_border = icon_border_intensity > 0.0f;
+  const bool need_icons_with_border = icon_border_intensity > 0.0f;
 
   if (b16buf == NULL) {
     b16buf = IMB_ibImageFromMemory((const uchar *)datatoc_blender_icons16_png,
@@ -854,69 +887,25 @@ void UI_icons_reload_internal_textures(void)
 
     /* Allocate OpenGL texture. */
     icongltex.num_textures = need_icons_with_border ? 2 : 1;
-    glGenTextures(icongltex.num_textures, icongltex.id);
 
     /* Note the filter and LOD bias were tweaked to better preserve icon
      * sharpness at different UI scales. */
-    if (icongltex.id[0]) {
+    if (icongltex.tex[0] == NULL) {
       icongltex.w = b32buf->x;
       icongltex.h = b32buf->y;
       icongltex.invw = 1.0f / b32buf->x;
       icongltex.invh = 1.0f / b32buf->y;
 
-      glBindTexture(GL_TEXTURE_2D, icongltex.id[0]);
-      glTexImage2D(GL_TEXTURE_2D,
-                   0,
-                   GL_RGBA8,
-                   b32buf->x,
-                   b32buf->y,
-                   0,
-                   GL_RGBA,
-                   GL_UNSIGNED_BYTE,
-                   b32buf->rect);
-      glTexImage2D(GL_TEXTURE_2D,
-                   1,
-                   GL_RGBA8,
-                   b16buf->x,
-                   b16buf->y,
-                   0,
-                   GL_RGBA,
-                   GL_UNSIGNED_BYTE,
-                   b16buf->rect);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-      glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, -0.5f);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 1);
-      glBindTexture(GL_TEXTURE_2D, 0);
+      icongltex.tex[0] = GPU_texture_create_2d("icons", b32buf->x, b32buf->y, 2, GPU_RGBA8, NULL);
+      GPU_texture_update_mipmap(icongltex.tex[0], 0, GPU_DATA_UBYTE, b32buf->rect);
+      GPU_texture_update_mipmap(icongltex.tex[0], 1, GPU_DATA_UBYTE, b16buf->rect);
     }
 
-    if (need_icons_with_border && icongltex.id[1]) {
-      glBindTexture(GL_TEXTURE_2D, icongltex.id[1]);
-      glTexImage2D(GL_TEXTURE_2D,
-                   0,
-                   GL_RGBA8,
-                   b32buf_border->x,
-                   b32buf_border->y,
-                   0,
-                   GL_RGBA,
-                   GL_UNSIGNED_BYTE,
-                   b32buf_border->rect);
-      glTexImage2D(GL_TEXTURE_2D,
-                   1,
-                   GL_RGBA8,
-                   b16buf_border->x,
-                   b16buf_border->y,
-                   0,
-                   GL_RGBA,
-                   GL_UNSIGNED_BYTE,
-                   b16buf_border->rect);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_NEAREST);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-      glTexParameterf(GL_TEXTURE_2D, GL_TEXTURE_LOD_BIAS, -0.5f);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_BASE_LEVEL, 0);
-      glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 1);
-      glBindTexture(GL_TEXTURE_2D, 0);
+    if (need_icons_with_border && icongltex.tex[1] == NULL) {
+      icongltex.tex[1] = GPU_texture_create_2d(
+          "icons_border", b32buf_border->x, b32buf_border->y, 2, GPU_RGBA8, NULL);
+      GPU_texture_update_mipmap(icongltex.tex[1], 0, GPU_DATA_UBYTE, b32buf_border->rect);
+      GPU_texture_update_mipmap(icongltex.tex[1], 1, GPU_DATA_UBYTE, b16buf_border->rect);
     }
   }
 
@@ -928,9 +917,7 @@ void UI_icons_reload_internal_textures(void)
 
 static void init_internal_icons(void)
 {
-  int x, y;
-
-#    if 0  // temp disabled
+#  if 0 /* temp disabled */
   if ((btheme != NULL) && btheme->tui.iconfile[0]) {
     char *icondir = BKE_appdir_folder_id(BLENDER_DATAFILES, "icons");
     char iconfilestr[FILE_MAX];
@@ -955,13 +942,13 @@ static void init_internal_icons(void)
       printf("%s: 'icons' data path not found, continuing\n", __func__);
     }
   }
-#    endif
+#  endif
 
   /* Define icons. */
-  for (y = 0; y < ICON_GRID_ROWS; y++) {
+  for (int y = 0; y < ICON_GRID_ROWS; y++) {
     /* Row W has monochrome icons. */
-    for (x = 0; x < ICON_GRID_COLS; x++) {
-      IconType icontype = icontypes[y * ICON_GRID_COLS + x];
+    for (int x = 0; x < ICON_GRID_COLS; x++) {
+      const IconType icontype = icontypes[y * ICON_GRID_COLS + x];
       if (!ELEM(icontype.type, ICON_TYPE_COLOR_TEXTURE, ICON_TYPE_MONO_TEXTURE)) {
         continue;
       }
@@ -975,8 +962,6 @@ static void init_internal_icons(void)
                         icontype.theme_color);
     }
   }
-
-  def_internal_vicon(ICON_SMALL_TRI_RIGHT_VEC, vicon_small_tri_right_draw);
 
   def_internal_vicon(ICON_KEYTYPE_KEYFRAME_VEC, vicon_keytype_keyframe_draw);
   def_internal_vicon(ICON_KEYTYPE_BREAKDOWN_VEC, vicon_keytype_breakdown_draw);
@@ -1010,27 +995,46 @@ static void init_internal_icons(void)
   def_internal_vicon(ICON_COLORSET_18_VEC, vicon_colorset_draw_18);
   def_internal_vicon(ICON_COLORSET_19_VEC, vicon_colorset_draw_19);
   def_internal_vicon(ICON_COLORSET_20_VEC, vicon_colorset_draw_20);
+
+  def_internal_vicon(ICON_COLLECTION_COLOR_01, vicon_collection_color_draw_01);
+  def_internal_vicon(ICON_COLLECTION_COLOR_02, vicon_collection_color_draw_02);
+  def_internal_vicon(ICON_COLLECTION_COLOR_03, vicon_collection_color_draw_03);
+  def_internal_vicon(ICON_COLLECTION_COLOR_04, vicon_collection_color_draw_04);
+  def_internal_vicon(ICON_COLLECTION_COLOR_05, vicon_collection_color_draw_05);
+  def_internal_vicon(ICON_COLLECTION_COLOR_06, vicon_collection_color_draw_06);
+  def_internal_vicon(ICON_COLLECTION_COLOR_07, vicon_collection_color_draw_07);
+  def_internal_vicon(ICON_COLLECTION_COLOR_08, vicon_collection_color_draw_08);
+
+  def_internal_vicon(ICON_SEQUENCE_COLOR_01, vicon_strip_color_draw_01);
+  def_internal_vicon(ICON_SEQUENCE_COLOR_02, vicon_strip_color_draw_02);
+  def_internal_vicon(ICON_SEQUENCE_COLOR_03, vicon_strip_color_draw_03);
+  def_internal_vicon(ICON_SEQUENCE_COLOR_04, vicon_strip_color_draw_04);
+  def_internal_vicon(ICON_SEQUENCE_COLOR_05, vicon_strip_color_draw_05);
+  def_internal_vicon(ICON_SEQUENCE_COLOR_06, vicon_strip_color_draw_06);
+  def_internal_vicon(ICON_SEQUENCE_COLOR_07, vicon_strip_color_draw_07);
+  def_internal_vicon(ICON_SEQUENCE_COLOR_08, vicon_strip_color_draw_08);
+  def_internal_vicon(ICON_SEQUENCE_COLOR_09, vicon_strip_color_draw_09);
+
+  def_internal_vicon(ICON_LIBRARY_DATA_INDIRECT, vicon_strip_color_draw_library_data_indirect);
+  def_internal_vicon(ICON_LIBRARY_DATA_OVERRIDE_NONEDITABLE,
+                     vicon_strip_color_draw_library_data_override_noneditable);
 }
-#  endif /* WITH_HEADLESS */
 
 static void init_iconfile_list(struct ListBase *list)
 {
-  IconFile *ifile;
-  struct direntry *dir;
-  int totfile, i, index = 1;
-  const char *icondir;
-
   BLI_listbase_clear(list);
-  icondir = BKE_appdir_folder_id(BLENDER_DATAFILES, "icons");
+  const char *icondir = BKE_appdir_folder_id(BLENDER_DATAFILES, "icons");
 
   if (icondir == NULL) {
     return;
   }
 
-  totfile = BLI_filelist_dir_contents(icondir, &dir);
+  struct direntry *dir;
+  const int totfile = BLI_filelist_dir_contents(icondir, &dir);
 
-  for (i = 0; i < totfile; i++) {
-    if ((dir[i].type & S_IFREG)) {
+  int index = 1;
+  for (int i = 0; i < totfile; i++) {
+    if (dir[i].type & S_IFREG) {
       const char *filename = dir[i].relname;
 
       if (BLI_path_extension_check(filename, ".png")) {
@@ -1063,7 +1067,7 @@ static void init_iconfile_list(struct ListBase *list)
 #  endif /* removed */
 
         /* found a potential icon file, so make an entry for it in the cache list */
-        ifile = MEM_callocN(sizeof(IconFile), "IconFile");
+        IconFile *ifile = MEM_callocN(sizeof(IconFile), "IconFile");
 
         BLI_strncpy(ifile->filename, filename, sizeof(ifile->filename));
         ifile->index = index;
@@ -1131,23 +1135,25 @@ void UI_icons_free_drawinfo(void *drawinfo)
 {
   DrawInfo *di = drawinfo;
 
-  if (di) {
-    if (di->type == ICON_TYPE_BUFFER) {
-      if (di->data.buffer.image) {
-        if (di->data.buffer.image->rect) {
-          MEM_freeN(di->data.buffer.image->rect);
-        }
-        MEM_freeN(di->data.buffer.image);
-      }
-    }
-    else if (di->type == ICON_TYPE_GEOM) {
-      if (di->data.geom.image_cache) {
-        IMB_freeImBuf(di->data.geom.image_cache);
-      }
-    }
-
-    MEM_freeN(di);
+  if (di == NULL) {
+    return;
   }
+
+  if (di->type == ICON_TYPE_BUFFER) {
+    if (di->data.buffer.image) {
+      if (di->data.buffer.image->rect) {
+        MEM_freeN(di->data.buffer.image->rect);
+      }
+      MEM_freeN(di->data.buffer.image);
+    }
+  }
+  else if (di->type == ICON_TYPE_GEOM) {
+    if (di->data.geom.image_cache) {
+      IMB_freeImBuf(di->data.geom.image_cache);
+    }
+  }
+
+  MEM_freeN(di);
 }
 
 /**
@@ -1155,13 +1161,15 @@ void UI_icons_free_drawinfo(void *drawinfo)
  */
 static DrawInfo *icon_create_drawinfo(Icon *icon)
 {
-  int icon_data_type = icon->obj_type;
-  DrawInfo *di = NULL;
+  const int icon_data_type = icon->obj_type;
 
-  di = MEM_callocN(sizeof(DrawInfo), "di_icon");
+  DrawInfo *di = MEM_callocN(sizeof(DrawInfo), "di_icon");
 
   if (ELEM(icon_data_type, ICON_DATA_ID, ICON_DATA_PREVIEW)) {
     di->type = ICON_TYPE_PREVIEW;
+  }
+  else if (icon_data_type == ICON_DATA_IMBUF) {
+    di->type = ICON_TYPE_IMBUF;
   }
   else if (icon_data_type == ICON_DATA_GEOM) {
     di->type = ICON_TYPE_GEOM;
@@ -1190,13 +1198,9 @@ static DrawInfo *icon_ensure_drawinfo(Icon *icon)
   return di;
 }
 
-/* note!, returns unscaled by DPI */
 int UI_icon_get_width(int icon_id)
 {
-  Icon *icon = NULL;
-  DrawInfo *di = NULL;
-
-  icon = BKE_icon_get(icon_id);
+  Icon *icon = BKE_icon_get(icon_id);
 
   if (icon == NULL) {
     if (G.debug & G_DEBUG) {
@@ -1205,7 +1209,7 @@ int UI_icon_get_width(int icon_id)
     return 0;
   }
 
-  di = icon_ensure_drawinfo(icon);
+  DrawInfo *di = icon_ensure_drawinfo(icon);
   if (di) {
     return ICON_DEFAULT_WIDTH;
   }
@@ -1253,9 +1257,7 @@ void UI_icons_init()
 #endif
 }
 
-/* Render size for preview images and icons
- */
-int UI_preview_render_size(enum eIconSizes size)
+int UI_icon_preview_to_render_size(enum eIconSizes size)
 {
   switch (size) {
     case ICON_SIZE_ICON:
@@ -1271,7 +1273,7 @@ int UI_preview_render_size(enum eIconSizes size)
  */
 static void icon_create_rect(struct PreviewImage *prv_img, enum eIconSizes size)
 {
-  uint render_size = UI_preview_render_size(size);
+  const uint render_size = UI_icon_preview_to_render_size(size);
 
   if (!prv_img) {
     if (G.debug & G_DEBUG) {
@@ -1318,7 +1320,7 @@ static void ui_studiolight_free_function(StudioLight *sl, void *data)
     return;
   }
 
-  // get icons_id, get icons and kill wm jobs
+  /* get icons_id, get icons and kill wm jobs */
   if (sl->icon_id_radiance) {
     ui_studiolight_kill_icon_preview_job(wm, sl->icon_id_radiance);
   }
@@ -1345,62 +1347,70 @@ void ui_icon_ensure_deferred(const bContext *C, const int icon_id, const bool bi
 {
   Icon *icon = BKE_icon_get(icon_id);
 
-  if (icon) {
-    DrawInfo *di = icon_ensure_drawinfo(icon);
+  if (icon == NULL) {
+    return;
+  }
 
-    if (di) {
-      switch (di->type) {
-        case ICON_TYPE_PREVIEW: {
-          ID *id = (icon->id_type != 0) ? icon->obj : NULL;
-          PreviewImage *prv = id ? BKE_previewimg_id_ensure(id) : icon->obj;
-          /* Using jobs for screen previews crashes due to offscreen rendering.
-           * XXX would be nicer if PreviewImage could store if it supports jobs */
-          const bool use_jobs = !id || (GS(id->name) != ID_SCR);
+  DrawInfo *di = icon_ensure_drawinfo(icon);
 
-          if (prv) {
-            const int size = big ? ICON_SIZE_PREVIEW : ICON_SIZE_ICON;
+  if (di == NULL) {
+    return;
+  }
 
-            if (id || (prv->tag & PRV_TAG_DEFFERED) != 0) {
-              ui_id_preview_image_render_size(C, NULL, id, prv, size, use_jobs);
-            }
-          }
-          break;
-        }
-        case ICON_TYPE_BUFFER: {
-          if (icon->obj_type == ICON_DATA_STUDIOLIGHT) {
-            if (di->data.buffer.image == NULL) {
-              wmWindowManager *wm = CTX_wm_manager(C);
-              StudioLight *sl = icon->obj;
-              BKE_studiolight_set_free_function(sl, &ui_studiolight_free_function, wm);
-              IconImage *img = MEM_mallocN(sizeof(IconImage), __func__);
+  switch (di->type) {
+    case ICON_TYPE_PREVIEW: {
+      ID *id = (icon->id_type != 0) ? icon->obj : NULL;
+      PreviewImage *prv = id ? BKE_previewimg_id_ensure(id) : icon->obj;
+      /* Using jobs for screen previews crashes due to off-screen rendering.
+       * XXX: would be nicer if #PreviewImage could store if it supports jobs. */
+      const bool use_jobs = !id || (GS(id->name) != ID_SCR);
 
-              img->w = STUDIOLIGHT_ICON_SIZE;
-              img->h = STUDIOLIGHT_ICON_SIZE;
-              size_t size = STUDIOLIGHT_ICON_SIZE * STUDIOLIGHT_ICON_SIZE * sizeof(uint);
-              img->rect = MEM_mallocN(size, __func__);
-              memset(img->rect, 0, size);
-              di->data.buffer.image = img;
+      if (prv) {
+        const int size = big ? ICON_SIZE_PREVIEW : ICON_SIZE_ICON;
 
-              wmJob *wm_job = WM_jobs_get(
-                  wm, CTX_wm_window(C), icon, "StudioLight Icon", 0, WM_JOB_TYPE_STUDIOLIGHT);
-              Icon **tmp = MEM_callocN(sizeof(Icon *), __func__);
-              *tmp = icon;
-              WM_jobs_customdata_set(wm_job, tmp, MEM_freeN);
-              WM_jobs_timer(wm_job, 0.01, 0, NC_WINDOW);
-              WM_jobs_callbacks(
-                  wm_job, ui_studiolight_icon_job_exec, NULL, NULL, ui_studiolight_icon_job_end);
-              WM_jobs_start(CTX_wm_manager(C), wm_job);
-            }
-          }
-          break;
+        if (id || (prv->tag & PRV_TAG_DEFFERED) != 0) {
+          ui_id_preview_image_render_size(C, NULL, id, prv, size, use_jobs);
         }
       }
+      break;
+    }
+    case ICON_TYPE_BUFFER: {
+      if (icon->obj_type == ICON_DATA_STUDIOLIGHT) {
+        if (di->data.buffer.image == NULL) {
+          wmWindowManager *wm = CTX_wm_manager(C);
+          StudioLight *sl = icon->obj;
+          BKE_studiolight_set_free_function(sl, &ui_studiolight_free_function, wm);
+          IconImage *img = MEM_mallocN(sizeof(IconImage), __func__);
+
+          img->w = STUDIOLIGHT_ICON_SIZE;
+          img->h = STUDIOLIGHT_ICON_SIZE;
+          const size_t size = STUDIOLIGHT_ICON_SIZE * STUDIOLIGHT_ICON_SIZE * sizeof(uint);
+          img->rect = MEM_mallocN(size, __func__);
+          memset(img->rect, 0, size);
+          di->data.buffer.image = img;
+
+          wmJob *wm_job = WM_jobs_get(
+              wm, CTX_wm_window(C), icon, "StudioLight Icon", 0, WM_JOB_TYPE_STUDIOLIGHT);
+          Icon **tmp = MEM_callocN(sizeof(Icon *), __func__);
+          *tmp = icon;
+          WM_jobs_customdata_set(wm_job, tmp, MEM_freeN);
+          WM_jobs_timer(wm_job, 0.01, 0, NC_WINDOW);
+          WM_jobs_callbacks(
+              wm_job, ui_studiolight_icon_job_exec, NULL, NULL, ui_studiolight_icon_job_end);
+          WM_jobs_start(CTX_wm_manager(C), wm_job);
+        }
+      }
+      break;
     }
   }
 }
 
-/* only called when icon has changed */
-/* only call with valid pointer from UI_icon_draw */
+/**
+ * * Only call with valid pointer from UI_icon_draw.
+ * * Only called when icon has changed.
+ *
+ * Note that if an ID doesn't support jobs for preview creation, \a use_job will be ignored.
+ */
 static void icon_set_image(const bContext *C,
                            Scene *scene,
                            ID *id,
@@ -1423,18 +1433,16 @@ static void icon_set_image(const bContext *C,
   const bool delay = prv_img->rect[size] != NULL;
   icon_create_rect(prv_img, size);
 
-  if (use_job) {
+  if (use_job && (!id || BKE_previewimg_id_supports_jobs(id))) {
     /* Job (background) version */
-    ED_preview_icon_job(
-        C, prv_img, id, prv_img->rect[size], prv_img->w[size], prv_img->h[size], delay);
+    ED_preview_icon_job(C, prv_img, id, size, delay);
   }
   else {
     if (!scene) {
       scene = CTX_data_scene(C);
     }
     /* Immediate version */
-    ED_preview_icon_render(
-        CTX_data_main(C), scene, id, prv_img->rect[size], prv_img->w[size], prv_img->h[size]);
+    ED_preview_icon_render(C, scene, prv_img, id, size);
   }
 }
 
@@ -1442,41 +1450,47 @@ PreviewImage *UI_icon_to_preview(int icon_id)
 {
   Icon *icon = BKE_icon_get(icon_id);
 
-  if (icon) {
-    DrawInfo *di = (DrawInfo *)icon->drawinfo;
-    if (di) {
-      if (di->type == ICON_TYPE_PREVIEW) {
-        PreviewImage *prv = (icon->id_type != 0) ? BKE_previewimg_id_ensure((ID *)icon->obj) :
-                                                   icon->obj;
+  if (icon == NULL) {
+    return NULL;
+  }
 
-        if (prv) {
-          return BKE_previewimg_copy(prv);
-        }
-      }
-      else if (di->data.buffer.image) {
-        ImBuf *bbuf;
+  DrawInfo *di = (DrawInfo *)icon->drawinfo;
 
-        bbuf = IMB_ibImageFromMemory(di->data.buffer.image->datatoc_rect,
-                                     di->data.buffer.image->datatoc_size,
-                                     IB_rect,
-                                     NULL,
-                                     __func__);
-        if (bbuf) {
-          PreviewImage *prv = BKE_previewimg_create();
+  if (di == NULL) {
+    return NULL;
+  }
 
-          prv->rect[0] = bbuf->rect;
+  if (di->type == ICON_TYPE_PREVIEW) {
+    PreviewImage *prv = (icon->id_type != 0) ? BKE_previewimg_id_ensure((ID *)icon->obj) :
+                                               icon->obj;
 
-          prv->w[0] = bbuf->x;
-          prv->h[0] = bbuf->y;
-
-          bbuf->rect = NULL;
-          IMB_freeImBuf(bbuf);
-
-          return prv;
-        }
-      }
+    if (prv) {
+      return BKE_previewimg_copy(prv);
     }
   }
+  else if (di->data.buffer.image) {
+    ImBuf *bbuf;
+
+    bbuf = IMB_ibImageFromMemory(di->data.buffer.image->datatoc_rect,
+                                 di->data.buffer.image->datatoc_size,
+                                 IB_rect,
+                                 NULL,
+                                 __func__);
+    if (bbuf) {
+      PreviewImage *prv = BKE_previewimg_create();
+
+      prv->rect[0] = bbuf->rect;
+
+      prv->w[0] = bbuf->x;
+      prv->h[0] = bbuf->y;
+
+      bbuf->rect = NULL;
+      IMB_freeImBuf(bbuf);
+
+      return prv;
+    }
+  }
+
   return NULL;
 }
 
@@ -1491,21 +1505,23 @@ static void icon_draw_rect(float x,
                            float alpha,
                            const float desaturate)
 {
-  ImBuf *ima = NULL;
   int draw_w = w;
   int draw_h = h;
   int draw_x = x;
-  int draw_y = y;
+  /* We need to round y, to avoid the icon jittering in some cases. */
+  int draw_y = round_fl_to_int(y);
 
   /* sanity check */
   if (w <= 0 || h <= 0 || w > 2000 || h > 2000) {
     printf("%s: icons are %i x %i pixels?\n", __func__, w, h);
-    BLI_assert(!"invalid icon size");
+    BLI_assert_msg(0, "invalid icon size");
     return;
   }
   /* modulate color */
-  float col[4] = {alpha, alpha, alpha, alpha};
+  const float col[4] = {alpha, alpha, alpha, alpha};
 
+  float scale_x = 1.0f;
+  float scale_y = 1.0f;
   /* rect contains image in 'rendersize', we only scale if needed */
   if (rw != w || rh != h) {
     /* preserve aspect ratio and center */
@@ -1519,13 +1535,9 @@ static void icon_draw_rect(float x,
       draw_h = h;
       draw_x += (w - draw_w) / 2;
     }
-    /* if the image is squared, the draw_ initialization values are good */
-
-    /* first allocate imbuf for scaling and copy preview into it */
-    ima = IMB_allocImBuf(rw, rh, 32, IB_rect);
-    memcpy(ima->rect, rect, rw * rh * sizeof(uint));
-    IMB_scaleImBuf(ima, draw_w, draw_h); /* scale it */
-    rect = ima->rect;
+    scale_x = draw_w / (float)rw;
+    scale_y = draw_h / (float)rh;
+    /* If the image is squared, the `draw_*` initialization values are good. */
   }
 
   /* draw */
@@ -1542,22 +1554,8 @@ static void icon_draw_rect(float x,
     immUniform1f("factor", desaturate);
   }
 
-  immDrawPixelsTex(&state,
-                   draw_x,
-                   draw_y,
-                   draw_w,
-                   draw_h,
-                   GL_RGBA,
-                   GL_UNSIGNED_BYTE,
-                   GL_NEAREST,
-                   rect,
-                   1.0f,
-                   1.0f,
-                   col);
-
-  if (ima) {
-    IMB_freeImBuf(ima);
-  }
+  immDrawPixelsTexScaledFullSize(
+      &state, draw_x, draw_y, rw, rh, GPU_RGBA8, true, rect, scale_x, scale_y, 1.0f, 1.0f, col);
 }
 
 /* High enough to make a difference, low enough so that
@@ -1590,28 +1588,31 @@ void UI_icon_draw_cache_begin(void)
   g_icon_draw_cache.enabled = true;
 }
 
-static void icon_draw_cache_texture_flush_ex(GLuint texture,
+static void icon_draw_cache_texture_flush_ex(GPUTexture *texture,
                                              IconTextureDrawCall *texture_draw_calls)
 {
   if (texture_draw_calls->calls == 0) {
     return;
   }
 
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, texture);
-
   GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_2D_IMAGE_MULTI_RECT_COLOR);
   GPU_shader_bind(shader);
 
-  int img_loc = GPU_shader_get_uniform(shader, "image");
-  int data_loc = GPU_shader_get_uniform(shader, "calls_data");
+  const int data_binding = GPU_shader_get_uniform_block_binding(shader, "multi_rect_data");
+  GPUUniformBuf *ubo = GPU_uniformbuf_create_ex(
+      sizeof(struct MultiRectCallData), texture_draw_calls->drawcall_cache, __func__);
+  GPU_uniformbuf_bind(ubo, data_binding);
 
-  glUniform1i(img_loc, 0);
-  glUniform4fv(data_loc, ICON_DRAW_CACHE_SIZE * 3, (float *)texture_draw_calls->drawcall_cache);
+  const int img_binding = GPU_shader_get_texture_binding(shader, "image");
+  GPU_texture_bind_ex(texture, GPU_SAMPLER_ICON, img_binding, false);
 
-  GPU_draw_primitive(GPU_PRIM_TRIS, 6 * texture_draw_calls->calls);
+  GPUBatch *quad = GPU_batch_preset_quad();
+  GPU_batch_set_shader(quad, shader);
+  GPU_batch_draw_instanced(quad, texture_draw_calls->calls);
 
-  glBindTexture(GL_TEXTURE_2D, 0);
+  GPU_texture_unbind(texture);
+  GPU_uniformbuf_unbind(ubo);
+  GPU_uniformbuf_free(ubo);
 
   texture_draw_calls->calls = 0;
 }
@@ -1631,18 +1632,17 @@ static void icon_draw_cache_flush_ex(bool only_full_caches)
     /* We need to flush widget base first to ensure correct ordering. */
     UI_widgetbase_draw_cache_flush();
 
-    GPU_blend_set_func(GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+    GPU_blend(GPU_BLEND_ALPHA_PREMULT);
 
     if (!only_full_caches || g_icon_draw_cache.normal.calls == ICON_DRAW_CACHE_SIZE) {
-      icon_draw_cache_texture_flush_ex(icongltex.id[0], &g_icon_draw_cache.normal);
+      icon_draw_cache_texture_flush_ex(icongltex.tex[0], &g_icon_draw_cache.normal);
     }
 
     if (!only_full_caches || g_icon_draw_cache.border.calls == ICON_DRAW_CACHE_SIZE) {
-      icon_draw_cache_texture_flush_ex(icongltex.id[1], &g_icon_draw_cache.border);
+      icon_draw_cache_texture_flush_ex(icongltex.tex[1], &g_icon_draw_cache.border);
     }
 
-    GPU_blend_set_func_separate(
-        GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+    GPU_blend(GPU_BLEND_ALPHA);
   }
 }
 
@@ -1656,9 +1656,9 @@ void UI_icon_draw_cache_end(void)
     return;
   }
 
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
   icon_draw_cache_flush_ex(false);
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 }
 
 static void icon_draw_texture_cached(float x,
@@ -1726,40 +1726,42 @@ static void icon_draw_texture(float x,
   /* We need to flush widget base first to ensure correct ordering. */
   UI_widgetbase_draw_cache_flush();
 
-  GPU_blend_set_func(GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_ALPHA_PREMULT);
 
-  float x1, x2, y1, y2;
+  const float x1 = ix * icongltex.invw;
+  const float x2 = (ix + ih) * icongltex.invw;
+  const float y1 = iy * icongltex.invh;
+  const float y2 = (iy + ih) * icongltex.invh;
 
-  x1 = ix * icongltex.invw;
-  x2 = (ix + ih) * icongltex.invw;
-  y1 = iy * icongltex.invh;
-  y2 = (iy + ih) * icongltex.invh;
-
-  glActiveTexture(GL_TEXTURE0);
-  glBindTexture(GL_TEXTURE_2D, with_border ? icongltex.id[1] : icongltex.id[0]);
+  GPUTexture *texture = with_border ? icongltex.tex[1] : icongltex.tex[0];
 
   GPUShader *shader = GPU_shader_get_builtin_shader(GPU_SHADER_2D_IMAGE_RECT_COLOR);
   GPU_shader_bind(shader);
 
+  const int img_binding = GPU_shader_get_texture_binding(shader, "image");
+  const int color_loc = GPU_shader_get_builtin_uniform(shader, GPU_UNIFORM_COLOR);
+  const int rect_tex_loc = GPU_shader_get_uniform(shader, "rect_icon");
+  const int rect_geom_loc = GPU_shader_get_uniform(shader, "rect_geom");
+
   if (rgb) {
-    glUniform4f(
-        GPU_shader_get_builtin_uniform(shader, GPU_UNIFORM_COLOR), rgb[0], rgb[1], rgb[2], alpha);
+    GPU_shader_uniform_vector(shader, color_loc, 4, 1, (float[4]){UNPACK3(rgb), alpha});
   }
   else {
-    glUniform4f(
-        GPU_shader_get_builtin_uniform(shader, GPU_UNIFORM_COLOR), alpha, alpha, alpha, alpha);
+    GPU_shader_uniform_vector(shader, color_loc, 4, 1, (float[4]){alpha, alpha, alpha, alpha});
   }
 
-  glUniform1i(GPU_shader_get_uniform(shader, "image"), 0);
-  glUniform4f(GPU_shader_get_uniform(shader, "rect_icon"), x1, y1, x2, y2);
-  glUniform4f(GPU_shader_get_uniform(shader, "rect_geom"), x, y, x + w, y + h);
+  GPU_shader_uniform_vector(shader, rect_tex_loc, 4, 1, (float[4]){x1, y1, x2, y2});
+  GPU_shader_uniform_vector(shader, rect_geom_loc, 4, 1, (float[4]){x, y, x + w, y + h});
 
-  GPU_draw_primitive(GPU_PRIM_TRI_STRIP, 4);
+  GPU_texture_bind_ex(texture, GPU_SAMPLER_ICON, img_binding, false);
 
-  glBindTexture(GL_TEXTURE_2D, 0);
+  GPUBatch *quad = GPU_batch_preset_quad();
+  GPU_batch_set_shader(quad, shader);
+  GPU_batch_draw(quad);
 
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_texture_unbind(texture);
+
+  GPU_blend(GPU_BLEND_ALPHA);
 }
 
 /* Drawing size for preview images */
@@ -1787,12 +1789,9 @@ static void icon_draw_size(float x,
                            const bool mono_border)
 {
   bTheme *btheme = UI_GetTheme();
-  Icon *icon = NULL;
-  IconImage *iimg;
   const float fdraw_size = (float)draw_size;
-  int w, h;
 
-  icon = BKE_icon_get(icon_id);
+  Icon *icon = BKE_icon_get(icon_id);
   alpha *= btheme->tui.icon_alpha;
 
   if (icon == NULL) {
@@ -1803,15 +1802,22 @@ static void icon_draw_size(float x,
   }
 
   /* scale width and height according to aspect */
-  w = (int)(fdraw_size / aspect + 0.5f);
-  h = (int)(fdraw_size / aspect + 0.5f);
+  int w = (int)(fdraw_size / aspect + 0.5f);
+  int h = (int)(fdraw_size / aspect + 0.5f);
 
   DrawInfo *di = icon_ensure_drawinfo(icon);
 
   /* We need to flush widget base first to ensure correct ordering. */
   UI_widgetbase_draw_cache_flush();
 
-  if (di->type == ICON_TYPE_VECTOR) {
+  if (di->type == ICON_TYPE_IMBUF) {
+    ImBuf *ibuf = icon->obj;
+
+    GPU_blend(GPU_BLEND_ALPHA_PREMULT);
+    icon_draw_rect(x, y, w, h, aspect, ibuf->x, ibuf->y, ibuf->rect, alpha, desaturate);
+    GPU_blend(GPU_BLEND_ALPHA);
+  }
+  else if (di->type == ICON_TYPE_VECTOR) {
     /* vector icons use the uiBlock transformation, they are not drawn
      * with untransformed coordinates like the other icons */
     di->data.vector.func((int)x, (int)y, w, h, 1.0f);
@@ -1847,11 +1853,9 @@ static void icon_draw_size(float x,
       di->data.geom.inverted = invert;
     }
 
-    GPU_blend_set_func_separate(
-        GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+    GPU_blend(GPU_BLEND_ALPHA_PREMULT);
     icon_draw_rect(x, y, w, h, aspect, w, h, ibuf->rect, alpha, desaturate);
-    GPU_blend_set_func_separate(
-        GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+    GPU_blend(GPU_BLEND_ALPHA);
   }
   else if (di->type == ICON_TYPE_EVENT) {
     const short event_type = di->data.input.event_type;
@@ -1874,7 +1878,7 @@ static void icon_draw_size(float x,
   }
   else if (di->type == ICON_TYPE_MONO_TEXTURE) {
     /* Monochrome icon that uses text or theme color. */
-    bool with_border = mono_border && (btheme->tui.icon_border_intensity > 0.0f);
+    const bool with_border = mono_border && (btheme->tui.icon_border_intensity > 0.0f);
     float color[4];
     if (mono_rgba) {
       rgba_uchar_to_float(color, (const uchar *)mono_rgba);
@@ -1909,7 +1913,7 @@ static void icon_draw_size(float x,
 
   else if (di->type == ICON_TYPE_BUFFER) {
     /* it is a builtin icon */
-    iimg = di->data.buffer.image;
+    IconImage *iimg = di->data.buffer.image;
 #ifndef WITH_HEADLESS
     icon_verify_datatoc(iimg);
 #endif
@@ -1932,12 +1936,10 @@ static void icon_draw_size(float x,
       }
 
       /* Preview images use premultiplied alpha. */
-      GPU_blend_set_func_separate(
-          GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+      GPU_blend(GPU_BLEND_ALPHA_PREMULT);
       icon_draw_rect(
           x, y, w, h, aspect, pi->w[size], pi->h[size], pi->rect[size], alpha, desaturate);
-      GPU_blend_set_func_separate(
-          GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+      GPU_blend(GPU_BLEND_ALPHA);
     }
   }
   else if (di->type == ICON_TYPE_GPLAYER) {
@@ -1962,38 +1964,51 @@ static void ui_id_preview_image_render_size(
   }
 }
 
-void UI_id_icon_render(const bContext *C, Scene *scene, ID *id, const bool big, const bool use_job)
+void UI_icon_render_id_ex(const bContext *C,
+                          Scene *scene,
+                          ID *id_to_render,
+                          const enum eIconSizes size,
+                          const bool use_job,
+                          PreviewImage *r_preview_image)
+{
+  ui_id_preview_image_render_size(C, scene, id_to_render, r_preview_image, size, use_job);
+}
+
+void UI_icon_render_id(
+    const bContext *C, Scene *scene, ID *id, const enum eIconSizes size, const bool use_job)
 {
   PreviewImage *pi = BKE_previewimg_id_ensure(id);
+  if (pi == NULL) {
+    return;
+  }
 
-  if (pi) {
-    if (big) {
-      /* bigger preview size */
-      ui_id_preview_image_render_size(C, scene, id, pi, ICON_SIZE_PREVIEW, use_job);
-    }
-    else {
-      /* icon size */
-      ui_id_preview_image_render_size(C, scene, id, pi, ICON_SIZE_ICON, use_job);
+  ID *id_to_render = id;
+
+  /* For objects, first try if a preview can created via the object data. */
+  if (GS(id->name) == ID_OB) {
+    Object *ob = (Object *)id;
+    if (ED_preview_id_is_supported(ob->data)) {
+      id_to_render = ob->data;
     }
   }
+
+  if (!ED_preview_id_is_supported(id_to_render)) {
+    return;
+  }
+
+  UI_icon_render_id_ex(C, scene, id_to_render, size, use_job, pi);
 }
 
 static void ui_id_icon_render(const bContext *C, ID *id, bool use_jobs)
 {
   PreviewImage *pi = BKE_previewimg_id_ensure(id);
-  enum eIconSizes i;
 
   if (!pi) {
     return;
   }
 
-  for (i = 0; i < NUM_ICON_SIZES; i++) {
-    /* check if rect needs to be created; changed
-     * only set by dynamic icons */
-    if (((pi->flag[i] & PRV_CHANGED) || !pi->rect[i])) {
-      icon_set_image(C, NULL, id, pi, i, use_jobs);
-      pi->flag[i] &= ~PRV_CHANGED;
-    }
+  for (enum eIconSizes i = 0; i < NUM_ICON_SIZES; i++) {
+    ui_id_preview_image_render_size(C, NULL, id, pi, i, use_jobs);
   }
 }
 
@@ -2032,6 +2047,9 @@ static int ui_id_brush_get_icon(const bContext *C, ID *id)
       }
       else if (ob->mode & OB_MODE_TEXTURE_PAINT) {
         paint_mode = PAINT_MODE_TEXTURE_3D;
+      }
+      else if (ob->mode & OB_MODE_SCULPT_CURVES) {
+        paint_mode = PAINT_MODE_SCULPT_CURVES;
       }
     }
     else if (space_type == SPACE_IMAGE) {
@@ -2139,7 +2157,8 @@ static int ui_id_brush_get_icon(const bContext *C, ID *id)
       }
       return id->icon_id;
     }
-    else if (paint_mode != PAINT_MODE_INVALID) {
+
+    if (paint_mode != PAINT_MODE_INVALID) {
       items = BKE_paint_get_tool_enum_from_paintmode(paint_mode);
       const uint tool_offset = BKE_paint_get_brush_tool_offset_from_paintmode(paint_mode);
       const int tool_type = *(char *)POINTER_OFFSET(br, tool_offset);
@@ -2158,7 +2177,7 @@ static int ui_id_brush_get_icon(const bContext *C, ID *id)
 static int ui_id_screen_get_icon(const bContext *C, ID *id)
 {
   BKE_icon_id_ensure(id);
-  /* Don't use jobs here, offscreen rendering doesn't like this and crashes. */
+  /* Don't use jobs here, off-screen rendering doesn't like this and crashes. */
   ui_id_icon_render(C, id, false);
 
   return id->icon_id;
@@ -2180,10 +2199,13 @@ int ui_id_icon_get(const bContext *C, ID *id, const bool big)
     case ID_LA: /* fall through */
       iconid = BKE_icon_id_ensure(id);
       /* checks if not exists, or changed */
-      UI_id_icon_render(C, NULL, id, big, true);
+      UI_icon_render_id(C, NULL, id, big ? ICON_SIZE_PREVIEW : ICON_SIZE_ICON, true);
       break;
     case ID_SCR:
       iconid = ui_id_screen_get_icon(C, id);
+      break;
+    case ID_GR:
+      iconid = UI_icon_color_from_collection((Collection *)id);
       break;
     default:
       break;
@@ -2192,7 +2214,32 @@ int ui_id_icon_get(const bContext *C, ID *id, const bool big)
   return iconid;
 }
 
-int UI_rnaptr_icon_get(bContext *C, PointerRNA *ptr, int rnaicon, const bool big)
+int UI_icon_from_library(const ID *id)
+{
+  if (ID_IS_LINKED(id)) {
+    if (id->tag & LIB_TAG_MISSING) {
+      return ICON_LIBRARY_DATA_BROKEN;
+    }
+    if (id->tag & LIB_TAG_INDIRECT) {
+      return ICON_LIBRARY_DATA_INDIRECT;
+    }
+    return ICON_LIBRARY_DATA_DIRECT;
+  }
+  if (ID_IS_OVERRIDE_LIBRARY(id)) {
+    if (!ID_IS_OVERRIDE_LIBRARY_REAL(id) ||
+        (id->override_library->flag & IDOVERRIDE_LIBRARY_FLAG_SYSTEM_DEFINED) != 0) {
+      return ICON_LIBRARY_DATA_OVERRIDE_NONEDITABLE;
+    }
+    return ICON_LIBRARY_DATA_OVERRIDE;
+  }
+  if (ID_IS_ASSET(id)) {
+    return ICON_ASSET_MANAGER;
+  }
+
+  return ICON_NONE;
+}
+
+int UI_icon_from_rnaptr(const bContext *C, PointerRNA *ptr, int rnaicon, const bool big)
 {
   ID *id = NULL;
 
@@ -2219,10 +2266,10 @@ int UI_rnaptr_icon_get(bContext *C, PointerRNA *ptr, int rnaicon, const bool big
     if (surface->format == MOD_DPAINT_SURFACE_F_PTEX) {
       return ICON_SHADING_TEXTURE;
     }
-    else if (surface->format == MOD_DPAINT_SURFACE_F_VERTEX) {
+    if (surface->format == MOD_DPAINT_SURFACE_F_VERTEX) {
       return ICON_OUTLINER_DATA_MESH;
     }
-    else if (surface->format == MOD_DPAINT_SURFACE_F_IMAGESEQ) {
+    if (surface->format == MOD_DPAINT_SURFACE_F_IMAGESEQ) {
       return ICON_FILE_IMAGE;
     }
   }
@@ -2241,7 +2288,7 @@ int UI_rnaptr_icon_get(bContext *C, PointerRNA *ptr, int rnaicon, const bool big
 
   /* get icon from ID */
   if (id) {
-    int icon = ui_id_icon_get(C, id, big);
+    const int icon = ui_id_icon_get(C, id, big);
 
     return icon ? icon : rnaicon;
   }
@@ -2249,9 +2296,9 @@ int UI_rnaptr_icon_get(bContext *C, PointerRNA *ptr, int rnaicon, const bool big
   return rnaicon;
 }
 
-int UI_idcode_icon_get(const int idcode)
+int UI_icon_from_idcode(const int idcode)
 {
-  switch (idcode) {
+  switch ((ID_Type)idcode) {
     case ID_AC:
       return ICON_ACTION;
     case ID_AR:
@@ -2262,12 +2309,12 @@ int UI_idcode_icon_get(const int idcode)
       return ICON_CAMERA_DATA;
     case ID_CF:
       return ICON_FILE;
-    case ID_CU:
+    case ID_CU_LEGACY:
       return ICON_CURVE_DATA;
     case ID_GD:
-      return ICON_GREASEPENCIL;
+      return ICON_OUTLINER_DATA_GREASEPENCIL;
     case ID_GR:
-      return ICON_GROUP;
+      return ICON_OUTLINER_COLLECTION;
     case ID_IM:
       return ICON_IMAGE_DATA;
     case ID_LA:
@@ -2285,7 +2332,7 @@ int UI_idcode_icon_get(const int idcode)
     case ID_ME:
       return ICON_MESH_DATA;
     case ID_MSK:
-      return ICON_MOD_MASK; /* TODO! this would need its own icon! */
+      return ICON_MOD_MASK; /* TODO: this would need its own icon! */
     case ID_NT:
       return ICON_NODETREE;
     case ID_OB:
@@ -2293,9 +2340,9 @@ int UI_idcode_icon_get(const int idcode)
     case ID_PA:
       return ICON_PARTICLE_DATA;
     case ID_PAL:
-      return ICON_COLOR; /* TODO! this would need its own icon! */
+      return ICON_COLOR; /* TODO: this would need its own icon! */
     case ID_PC:
-      return ICON_CURVE_BEZCURVE; /* TODO! this would need its own icon! */
+      return ICON_CURVE_BEZCURVE; /* TODO: this would need its own icon! */
     case ID_LP:
       return ICON_OUTLINER_DATA_LIGHTPROBE;
     case ID_SCE:
@@ -2310,8 +2357,8 @@ int UI_idcode_icon_get(const int idcode)
       return ICON_TEXT;
     case ID_VF:
       return ICON_FONT_DATA;
-    case ID_HA:
-      return ICON_HAIR_DATA;
+    case ID_CV:
+      return ICON_CURVES_DATA;
     case ID_PT:
       return ICON_POINTCLOUD_DATA;
     case ID_VO:
@@ -2323,12 +2370,59 @@ int UI_idcode_icon_get(const int idcode)
     case ID_SIM:
       /* TODO: Use correct icon. */
       return ICON_PHYSICS;
-    default:
-      return ICON_NONE;
+
+    /* No icons for these ID-types. */
+    case ID_LI:
+    case ID_IP:
+    case ID_KE:
+    case ID_SCR:
+    case ID_WM:
+      break;
   }
+  return ICON_NONE;
 }
 
-/* draws icon with dpi scale factor */
+int UI_icon_from_object_mode(const int mode)
+{
+  switch ((eObjectMode)mode) {
+    case OB_MODE_OBJECT:
+      return ICON_OBJECT_DATAMODE;
+    case OB_MODE_EDIT:
+    case OB_MODE_EDIT_GPENCIL:
+      return ICON_EDITMODE_HLT;
+    case OB_MODE_SCULPT:
+    case OB_MODE_SCULPT_GPENCIL:
+    case OB_MODE_SCULPT_CURVES:
+      return ICON_SCULPTMODE_HLT;
+    case OB_MODE_VERTEX_PAINT:
+    case OB_MODE_VERTEX_GPENCIL:
+      return ICON_VPAINT_HLT;
+    case OB_MODE_WEIGHT_PAINT:
+    case OB_MODE_WEIGHT_GPENCIL:
+      return ICON_WPAINT_HLT;
+    case OB_MODE_TEXTURE_PAINT:
+      return ICON_TPAINT_HLT;
+    case OB_MODE_PARTICLE_EDIT:
+      return ICON_PARTICLEMODE;
+    case OB_MODE_POSE:
+      return ICON_POSE_HLT;
+    case OB_MODE_PAINT_GPENCIL:
+      return ICON_GREASEPENCIL;
+  }
+  return ICON_NONE;
+}
+
+int UI_icon_color_from_collection(const Collection *collection)
+{
+  int icon = ICON_OUTLINER_COLLECTION;
+
+  if (collection->color_tag != COLLECTION_COLOR_NONE) {
+    icon = ICON_COLLECTION_COLOR_01 + collection->color_tag;
+  }
+
+  return icon;
+}
+
 void UI_icon_draw(float x, float y, int icon_id)
 {
   UI_icon_draw_ex(x, y, icon_id, U.inv_dpi_fac, 1.0f, 0.0f, NULL, false);
@@ -2353,7 +2447,7 @@ void UI_icon_draw_ex(float x,
                      const uchar mono_color[4],
                      const bool mono_border)
 {
-  int draw_size = get_draw_size(ICON_SIZE_ICON);
+  const int draw_size = get_draw_size(ICON_SIZE_ICON);
   icon_draw_size(x,
                  y,
                  icon_id,
@@ -2368,9 +2462,10 @@ void UI_icon_draw_ex(float x,
 
 /* ********** Alert Icons ********** */
 
-ImBuf *UI_alert_image(eAlertIcon icon)
+ImBuf *UI_icon_alert_imbuf_get(eAlertIcon icon)
 {
 #ifdef WITH_HEADLESS
+  UNUSED_VARS(icon);
   return NULL;
 #else
   const int ALERT_IMG_SIZE = 256;

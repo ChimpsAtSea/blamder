@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) Blender Foundation, 2008
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. */
 
 /** \file
  * \ingroup spapi
@@ -33,18 +18,23 @@
 #include "BKE_context.h"
 #include "BKE_screen.h"
 
+#include "GPU_state.h"
+
 #include "UI_interface.h"
 #include "UI_view2d.h"
 
 #include "ED_anim_api.h"
 #include "ED_armature.h"
+#include "ED_asset.h"
 #include "ED_clip.h"
 #include "ED_curve.h"
+#include "ED_curves.h"
+#include "ED_curves_sculpt.h"
 #include "ED_fileselect.h"
+#include "ED_geometry.h"
 #include "ED_gizmo_library.h"
 #include "ED_gpencil.h"
 #include "ED_lattice.h"
-#include "ED_logic.h"
 #include "ED_markers.h"
 #include "ED_mask.h"
 #include "ED_mball.h"
@@ -62,20 +52,17 @@
 #include "ED_space_api.h"
 #include "ED_transform.h"
 #include "ED_userpref.h"
+#include "ED_util.h"
 #include "ED_uvedit.h"
 
 #include "io_ops.h"
 
-/* only call once on startup, storage is global in BKE kernel listbase */
 void ED_spacetypes_init(void)
 {
-  const ListBase *spacetypes;
-  SpaceType *type;
-
-  /* UI_UNIT_X is now a variable, is used in some spacetype inits? */
+  /* UI unit is a variable, may be used in some space type initialization. */
   U.widget_unit = 20;
 
-  /* create space types */
+  /* Create space types. */
   ED_spacetype_outliner();
   ED_spacetype_view3d();
   ED_spacetype_ipo();
@@ -94,24 +81,28 @@ void ED_spacetypes_init(void)
   ED_spacetype_clip();
   ED_spacetype_statusbar();
   ED_spacetype_topbar();
-  //  ...
+  ED_spacetype_spreadsheet();
 
-  /* register operator types for screen and all spaces */
+  /* Register operator types for screen and all spaces. */
   ED_operatortypes_userpref();
   ED_operatortypes_workspace();
   ED_operatortypes_scene();
   ED_operatortypes_screen();
   ED_operatortypes_anim();
   ED_operatortypes_animchannels();
+  ED_operatortypes_asset();
   ED_operatortypes_gpencil();
   ED_operatortypes_object();
   ED_operatortypes_lattice();
   ED_operatortypes_mesh();
+  ED_operatortypes_geometry();
   ED_operatortypes_sculpt();
+  ED_operatortypes_sculpt_curves();
   ED_operatortypes_uvedit();
   ED_operatortypes_paint();
   ED_operatortypes_physics();
   ED_operatortypes_curve();
+  ED_operatortypes_curves();
   ED_operatortypes_armature();
   ED_operatortypes_marker();
   ED_operatortypes_metaball();
@@ -119,13 +110,16 @@ void ED_spacetypes_init(void)
   ED_operatortypes_render();
   ED_operatortypes_mask();
   ED_operatortypes_io();
+  ED_operatortypes_edutils();
 
   ED_operatortypes_view2d();
   ED_operatortypes_ui();
 
   ED_screen_user_menu_register();
 
-  /* gizmo types */
+  ED_uilisttypes_ui();
+
+  /* Gizmo types. */
   ED_gizmotypes_button_2d();
   ED_gizmotypes_dial_3d();
   ED_gizmotypes_move_3d();
@@ -137,10 +131,10 @@ void ED_spacetypes_init(void)
   ED_gizmotypes_cage_3d();
   ED_gizmotypes_snap_3d();
 
-  /* register types for operators and gizmos */
-  spacetypes = BKE_spacetypes_list();
-  for (type = spacetypes->first; type; type = type->next) {
-    /* init gizmo types first, operator-types need them */
+  /* Register types for operators and gizmos. */
+  const ListBase *spacetypes = BKE_spacetypes_list();
+  LISTBASE_FOREACH (const SpaceType *, type, spacetypes) {
+    /* Initialize gizmo types first, operator types need them. */
     if (type->gizmos) {
       type->gizmos();
     }
@@ -152,13 +146,11 @@ void ED_spacetypes_init(void)
 
 void ED_spacemacros_init(void)
 {
-  const ListBase *spacetypes;
-  SpaceType *type;
-
-  /* Macros's must go last since they reference other operators.
-   * We need to have them go after python operators too */
+  /* Macros must go last since they reference other operators.
+   * They need to be registered after python operators too. */
   ED_operatormacros_armature();
   ED_operatormacros_mesh();
+  ED_operatormacros_uvedit();
   ED_operatormacros_metaball();
   ED_operatormacros_node();
   ED_operatormacros_object();
@@ -171,25 +163,20 @@ void ED_spacemacros_init(void)
   ED_operatormacros_sequencer();
   ED_operatormacros_paint();
   ED_operatormacros_gpencil();
+  ED_operatormacros_nla();
 
-  /* register dropboxes (can use macros) */
-  spacetypes = BKE_spacetypes_list();
-  for (type = spacetypes->first; type; type = type->next) {
+  /* Register dropboxes (can use macros). */
+  ED_dropboxes_ui();
+  const ListBase *spacetypes = BKE_spacetypes_list();
+  LISTBASE_FOREACH (const SpaceType *, type, spacetypes) {
     if (type->dropboxes) {
       type->dropboxes();
     }
   }
 }
 
-/* called in wm.c */
-/* keymap definitions are registered only once per WM initialize, usually on file read,
- * using the keymap the actual areas/regions add the handlers */
 void ED_spacetypes_keymap(wmKeyConfig *keyconf)
 {
-  const ListBase *spacetypes;
-  SpaceType *stype;
-  ARegionType *atype;
-
   ED_keymap_screen(keyconf);
   ED_keymap_anim(keyconf);
   ED_keymap_animchannels(keyconf);
@@ -211,20 +198,20 @@ void ED_spacetypes_keymap(wmKeyConfig *keyconf)
 
   ED_keymap_transform(keyconf);
 
-  spacetypes = BKE_spacetypes_list();
-  for (stype = spacetypes->first; stype; stype = stype->next) {
-    if (stype->keymap) {
-      stype->keymap(keyconf);
+  const ListBase *spacetypes = BKE_spacetypes_list();
+  LISTBASE_FOREACH (const SpaceType *, type, spacetypes) {
+    if (type->keymap) {
+      type->keymap(keyconf);
     }
-    for (atype = stype->regiontypes.first; atype; atype = atype->next) {
-      if (atype->keymap) {
-        atype->keymap(keyconf);
+    LISTBASE_FOREACH (ARegionType *, region_type, &type->regiontypes) {
+      if (region_type->keymap) {
+        region_type->keymap(keyconf);
       }
     }
   }
 }
 
-/* ********************** custom drawcall api ***************** */
+/* ********************** Custom Draw Call API ***************** */
 
 typedef struct RegionDrawCB {
   struct RegionDrawCB *next, *prev;
@@ -251,26 +238,49 @@ void *ED_region_draw_cb_activate(ARegionType *art,
   return rdc;
 }
 
-void ED_region_draw_cb_exit(ARegionType *art, void *handle)
+bool ED_region_draw_cb_exit(ARegionType *art, void *handle)
 {
-  RegionDrawCB *rdc;
-
-  for (rdc = art->drawcalls.first; rdc; rdc = rdc->next) {
+  LISTBASE_FOREACH (RegionDrawCB *, rdc, &art->drawcalls) {
     if (rdc == (RegionDrawCB *)handle) {
       BLI_remlink(&art->drawcalls, rdc);
       MEM_freeN(rdc);
-      return;
+      return true;
+    }
+  }
+  return false;
+}
+
+static void ed_region_draw_cb_draw(const bContext *C, ARegion *region, ARegionType *art, int type)
+{
+  LISTBASE_FOREACH_MUTABLE (RegionDrawCB *, rdc, &art->drawcalls) {
+    if (rdc->type == type) {
+      rdc->draw(C, region, rdc->customdata);
+
+      /* This is needed until we get rid of BGL which can change the states we are tracking. */
+      GPU_bgl_end();
     }
   }
 }
 
 void ED_region_draw_cb_draw(const bContext *C, ARegion *region, int type)
 {
-  RegionDrawCB *rdc;
+  ed_region_draw_cb_draw(C, region, region->type, type);
+}
 
-  for (rdc = region->type->drawcalls.first; rdc; rdc = rdc->next) {
-    if (rdc->type == type) {
-      rdc->draw(C, region, rdc->customdata);
+void ED_region_surface_draw_cb_draw(ARegionType *art, int type)
+{
+  ed_region_draw_cb_draw(NULL, NULL, art, type);
+}
+
+void ED_region_draw_cb_remove_by_type(ARegionType *art, void *draw_fn, void (*free)(void *))
+{
+  LISTBASE_FOREACH_MUTABLE (RegionDrawCB *, rdc, &art->drawcalls) {
+    if (rdc->draw == draw_fn) {
+      if (free) {
+        free(rdc->customdata);
+      }
+      BLI_remlink(&art->drawcalls, rdc);
+      MEM_freeN(rdc);
     }
   }
 }
@@ -280,7 +290,7 @@ void ED_region_draw_cb_draw(const bContext *C, ARegion *region, int type)
 void ED_spacetype_xxx(void);
 
 /* allocate and init some vars */
-static SpaceLink *xxx_new(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
+static SpaceLink *xxx_create(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
 {
   return NULL;
 }
@@ -290,7 +300,7 @@ static void xxx_free(SpaceLink *UNUSED(sl))
 {
 }
 
-/* spacetype; init callback for usage, should be redoable */
+/* spacetype; init callback for usage, should be re-doable. */
 static void xxx_init(wmWindowManager *UNUSED(wm), ScrArea *UNUSED(area))
 {
 
@@ -324,7 +334,7 @@ void ED_spacetype_xxx(void)
 
   st.spaceid = SPACE_VIEW3D;
 
-  st.new = xxx_new;
+  st.create = xxx_create;
   st.free = xxx_free;
   st.init = xxx_init;
   st.duplicate = xxx_duplicate;

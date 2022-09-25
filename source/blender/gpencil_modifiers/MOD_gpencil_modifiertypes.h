@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup modifiers
  */
 
-#ifndef __MOD_GPENCIL_MODIFIERTYPES_H__
-#define __MOD_GPENCIL_MODIFIERTYPES_H__
+#pragma once
 
 #include "BKE_gpencil_modifier.h"
 
@@ -36,6 +21,7 @@ extern GpencilModifierTypeInfo modifierType_Gpencil_Array;
 extern GpencilModifierTypeInfo modifierType_Gpencil_Build;
 extern GpencilModifierTypeInfo modifierType_Gpencil_Opacity;
 extern GpencilModifierTypeInfo modifierType_Gpencil_Lattice;
+extern GpencilModifierTypeInfo modifierType_Gpencil_Length;
 extern GpencilModifierTypeInfo modifierType_Gpencil_Mirror;
 extern GpencilModifierTypeInfo modifierType_Gpencil_Smooth;
 extern GpencilModifierTypeInfo modifierType_Gpencil_Hook;
@@ -44,8 +30,13 @@ extern GpencilModifierTypeInfo modifierType_Gpencil_Armature;
 extern GpencilModifierTypeInfo modifierType_Gpencil_Time;
 extern GpencilModifierTypeInfo modifierType_Gpencil_Multiply;
 extern GpencilModifierTypeInfo modifierType_Gpencil_Texture;
+extern GpencilModifierTypeInfo modifierType_Gpencil_WeightProximity;
+extern GpencilModifierTypeInfo modifierType_Gpencil_WeightAngle;
+extern GpencilModifierTypeInfo modifierType_Gpencil_Lineart;
+extern GpencilModifierTypeInfo modifierType_Gpencil_Dash;
+extern GpencilModifierTypeInfo modifierType_Gpencil_Shrinkwrap;
+extern GpencilModifierTypeInfo modifierType_Gpencil_Envelope;
 
 /* MOD_gpencil_util.c */
-void gpencil_modifier_type_init(GpencilModifierTypeInfo *types[]);
 
-#endif /* __MOD_GPENCIL_MODIFIERTYPES_H__ */
+void gpencil_modifier_type_init(GpencilModifierTypeInfo *types[]);

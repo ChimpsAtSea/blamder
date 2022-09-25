@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2017 by Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2017 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup draw
@@ -83,10 +67,9 @@ static int lattice_render_verts_len_get(Lattice *lt)
   if ((lt->flag & LT_OUTSIDE) == 0) {
     return vert_len_calc(u, v, w);
   }
-  else {
-    /* TODO remove internal coords */
-    return vert_len_calc(u, v, w);
-  }
+
+  /* TODO: remove internal coords. */
+  return vert_len_calc(u, v, w);
 }
 
 static int lattice_render_edges_len_get(Lattice *lt)
@@ -102,10 +85,9 @@ static int lattice_render_edges_len_get(Lattice *lt)
   if ((lt->flag & LT_OUTSIDE) == 0) {
     return edge_len_calc(u, v, w);
   }
-  else {
-    /* TODO remove internal coords */
-    return edge_len_calc(u, v, w);
-  }
+
+  /* TODO: remove internal coords. */
+  return edge_len_calc(u, v, w);
 }
 
 /* ---------------------------------------------------------------------- */
@@ -127,7 +109,7 @@ typedef struct LatticeRenderData {
 
   int actbp;
 
-  struct MDeformVert *dvert;
+  const struct MDeformVert *dvert;
 } LatticeRenderData;
 
 enum {
@@ -167,7 +149,7 @@ static LatticeRenderData *lattice_render_data_create(Lattice *lt, const int type
     }
     if (types & (LR_DATATYPE_EDGE)) {
       rdata->edge_len = lattice_render_edges_len_get(lt);
-      /*no edge data */
+      /* No edge data. */
     }
   }
 
@@ -252,12 +234,11 @@ static bool lattice_batch_cache_valid(Lattice *lt)
   if (cache->is_dirty) {
     return false;
   }
-  else {
-    if ((cache->dims.u_len != lt->pntsu) || (cache->dims.v_len != lt->pntsv) ||
-        (cache->dims.w_len != lt->pntsw) ||
-        ((cache->show_only_outside != ((lt->flag & LT_OUTSIDE) != 0)))) {
-      return false;
-    }
+
+  if ((cache->dims.u_len != lt->pntsu) || (cache->dims.v_len != lt->pntsv) ||
+      (cache->dims.w_len != lt->pntsw) ||
+      ((cache->show_only_outside != ((lt->flag & LT_OUTSIDE) != 0)))) {
+    return false;
   }
 
   return true;
@@ -308,7 +289,7 @@ void DRW_lattice_batch_cache_dirty_tag(Lattice *lt, int mode)
       cache->is_dirty = true;
       break;
     case BKE_LATTICE_BATCH_DIRTY_SELECT:
-      /* TODO Separate Flag vbo */
+      /* TODO: Separate Flag VBO. */
       GPU_BATCH_DISCARD_SAFE(cache->overlay_verts);
       break;
     default:
@@ -392,11 +373,11 @@ static GPUIndexBuf *lattice_batch_cache_get_edges(LatticeRenderData *rdata,
 #define LATT_INDEX(u, v, w) ((((w)*rdata->dims.v_len + (v)) * rdata->dims.u_len) + (u))
 
     for (int w = 0; w < rdata->dims.w_len; w++) {
-      int wxt = (w == 0 || w == rdata->dims.w_len - 1);
+      int wxt = (ELEM(w, 0, rdata->dims.w_len - 1));
       for (int v = 0; v < rdata->dims.v_len; v++) {
-        int vxt = (v == 0 || v == rdata->dims.v_len - 1);
+        int vxt = (ELEM(v, 0, rdata->dims.v_len - 1));
         for (int u = 0; u < rdata->dims.u_len; u++) {
-          int uxt = (u == 0 || u == rdata->dims.u_len - 1);
+          int uxt = (ELEM(u, 0, rdata->dims.u_len - 1));
 
           if (w && ((uxt || vxt) || !rdata->show_only_outside)) {
             GPU_indexbuf_add_line_verts(&elb, LATT_INDEX(u, v, w - 1), LATT_INDEX(u, v, w));

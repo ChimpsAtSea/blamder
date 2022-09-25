@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -48,17 +34,17 @@ using namespace std;
 
 namespace Freestyle {
 
-Canvas *Canvas::_pInstance = 0;
+Canvas *Canvas::_pInstance = nullptr;
 
-const char *Canvas::_MapsPath = 0;
+const char *Canvas::_MapsPath = nullptr;
 
 Canvas::Canvas()
 {
-  _SelectedFEdge = 0;
+  _SelectedFEdge = nullptr;
   _pInstance = this;
   PseudoNoise::init(42);
-  _Renderer = 0;
-  _current_sm = NULL;
+  _Renderer = nullptr;
+  _current_sm = nullptr;
   _steerableViewMap = new SteerableViewMap(NB_STEERABLE_VIEWMAP - 1);
   _basic = false;
 }
@@ -76,12 +62,12 @@ Canvas::Canvas(const Canvas &iBrother)
 
 Canvas::~Canvas()
 {
-  _pInstance = 0;
+  _pInstance = nullptr;
 
   Clear();
   if (_Renderer) {
     delete _Renderer;
-    _Renderer = 0;
+    _Renderer = nullptr;
   }
   // FIXME: think about an easy control for the maps memory management...
   if (!_maps.empty()) {
@@ -90,9 +76,7 @@ Canvas::~Canvas()
     }
     _maps.clear();
   }
-  if (_steerableViewMap) {
-    delete _steerableViewMap;
-  }
+  delete _steerableViewMap;
 }
 
 void Canvas::preDraw()
@@ -349,8 +333,8 @@ void Canvas::loadMap(const char *iFileName,
   qimg = &newMap;
 #endif
   /* OCIO_TODO: support different input color space */
-  ImBuf *qimg = IMB_loadiffname(filePath.c_str(), 0, NULL);
-  if (qimg == 0) {
+  ImBuf *qimg = IMB_loadiffname(filePath.c_str(), 0, nullptr);
+  if (qimg == nullptr) {
     cerr << "Could not load image file " << filePath << endl;
     return;
   }

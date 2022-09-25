@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8-80 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 __all__ = (
     "mesh_linked_uv_islands",
@@ -268,7 +250,8 @@ def ngon_tessellate(from_data, indices, fix_loops=True, debug_print=True):
         # Manhatten length of a vector, faster then length.
         return abs(co[0]) + abs(co[1]) + abs(co[2])
 
-    def vert_treplet(v, i):
+    def vert_from_vector_with_extra_data(v, i):
+        # Calculate data per-vector, for reuse.
         return v, vector_to_tuple(v, 6), i, mlen(v)
 
     def ed_key_mlen(v1, v2):
@@ -298,12 +281,12 @@ def ngon_tessellate(from_data, indices, fix_loops=True, debug_print=True):
 
         if type(from_data) in {tuple, list}:
             verts = [
-                vert_treplet(Vector(from_data[i]), ii)
+                vert_from_vector_with_extra_data(Vector(from_data[i]), ii)
                 for ii, i in enumerate(indices)
             ]
         else:
             verts = [
-                vert_treplet(from_data.vertices[i].co, ii)
+                vert_from_vector_with_extra_data(from_data.vertices[i].co, ii)
                 for ii, i in enumerate(indices)
             ]
 

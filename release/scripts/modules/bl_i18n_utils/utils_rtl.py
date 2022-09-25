@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-
-# ***** BEGIN GPL LICENSE BLOCK *****
-#
-# This program is free software; you can redistribute it and/or
-# modify it under the terms of the GNU General Public License
-# as published by the Free Software Foundation; either version 2
-# of the License, or (at your option) any later version.
-#
-# This program is distributed in the hope that it will be useful,
-# but WITHOUT ANY WARRANTY; without even the implied warranty of
-# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-# GNU General Public License for more details.
-#
-# You should have received a copy of the GNU General Public License
-# along with this program; if not, write to the Free Software Foundation,
-# Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ***** END GPL LICENSE BLOCK *****
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # Pre-process right-to-left languages.
 # You can use it either standalone, or through import_po_from_branches or
@@ -32,32 +13,31 @@
 #        \", %s, %x12, %.4f, etc.), protecting them from ugly (evil) fribidi,
 #        which seems completely unaware of such things (as unicode is...).
 
-import sys
 import ctypes
 import re
 
 
-#define FRIBIDI_MASK_NEUTRAL    0x00000040L /* Is neutral */
+# define FRIBIDI_MASK_NEUTRAL    0x00000040L /* Is neutral */
 FRIBIDI_PAR_ON = 0x00000040
 
 
-#define FRIBIDI_FLAG_SHAPE_MIRRORING    0x00000001
-#define FRIBIDI_FLAG_REORDER_NSM    0x00000002
+# define FRIBIDI_FLAG_SHAPE_MIRRORING    0x00000001
+# define FRIBIDI_FLAG_REORDER_NSM    0x00000002
 
-#define FRIBIDI_FLAG_SHAPE_ARAB_PRES    0x00000100
-#define FRIBIDI_FLAG_SHAPE_ARAB_LIGA    0x00000200
-#define FRIBIDI_FLAG_SHAPE_ARAB_CONSOLE 0x00000400
+# define FRIBIDI_FLAG_SHAPE_ARAB_PRES    0x00000100
+# define FRIBIDI_FLAG_SHAPE_ARAB_LIGA    0x00000200
+# define FRIBIDI_FLAG_SHAPE_ARAB_CONSOLE 0x00000400
 
-#define FRIBIDI_FLAG_REMOVE_BIDI    0x00010000
-#define FRIBIDI_FLAG_REMOVE_JOINING 0x00020000
-#define FRIBIDI_FLAG_REMOVE_SPECIALS    0x00040000
+# define FRIBIDI_FLAG_REMOVE_BIDI    0x00010000
+# define FRIBIDI_FLAG_REMOVE_JOINING 0x00020000
+# define FRIBIDI_FLAG_REMOVE_SPECIALS    0x00040000
 
-#define FRIBIDI_FLAGS_DEFAULT       ( \
+# define FRIBIDI_FLAGS_DEFAULT       ( \
 #   FRIBIDI_FLAG_SHAPE_MIRRORING    | \
 #   FRIBIDI_FLAG_REORDER_NSM    | \
 #   FRIBIDI_FLAG_REMOVE_SPECIALS    )
 
-#define FRIBIDI_FLAGS_ARABIC        ( \
+# define FRIBIDI_FLAGS_ARABIC        ( \
 #   FRIBIDI_FLAG_SHAPE_ARAB_PRES    | \
 #   FRIBIDI_FLAG_SHAPE_ARAB_LIGA    )
 
@@ -85,11 +65,11 @@ def protect_format_seq(msg):
 #    LRM = "\u200E"
 #    RLM = "\u200F"
     LRE = "\u202A"
-    RLE = "\u202B"
+#    RLE = "\u202B"
     PDF = "\u202C"
     LRO = "\u202D"
-    RLO = "\u202E"
-    uctrl = {LRE, RLE, PDF, LRO, RLO}
+#    RLO = "\u202E"
+    # uctrl = {LRE, RLE, PDF, LRO, RLO}
     # Most likely incomplete, but seems to cover current needs.
     format_codes = set("tslfd")
     digits = set(".0123456789")

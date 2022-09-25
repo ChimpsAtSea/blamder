@@ -1,24 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
-#ifndef __IMB_IMBUF_TYPES_H__
-#define __IMB_IMBUF_TYPES_H__
+#pragma once
 
 #include "DNA_vec_types.h" /* for rcti */
 
@@ -58,19 +41,18 @@ typedef struct DDSData {
 
 /**
  * \ingroup imbuf
- * This is the abstraction of an image.  ImBuf is the basic type used for all
- * imbuf operations.
+ * This is the abstraction of an image. ImBuf is the basic type used for all imbuf operations.
  *
  * Also; add new variables to the end to save pain!
  */
 
-/* Warning: Keep explicit value assignments here,
+/* WARNING: Keep explicit value assignments here,
  * this file is included in areas where not all format defines are set
  * (e.g. intern/dds only get WITH_DDS, even if TIFF, HDR etc are also defined).
  * See T46524. */
 
 /** #ImBuf.ftype flag, main image types. */
-enum eImbTypes {
+enum eImbFileType {
   IMB_FTYPE_PNG = 1,
   IMB_FTYPE_TGA = 2,
   IMB_FTYPE_JPG = 3,
@@ -97,7 +79,13 @@ enum eImbTypes {
 #ifdef WITH_DDS
   IMB_FTYPE_DDS = 13,
 #endif
+#ifdef WITH_WEBP
+  IMB_FTYPE_WEBP = 14,
+#endif
 };
+
+/* Only for readability. */
+#define IMB_FTYPE_NONE 0
 
 /* ibuf->foptions flag, type specific options.
  * Some formats include compression rations on some bits */
@@ -141,10 +129,9 @@ typedef struct ImbFormatOptions {
   char quality;
 } ImbFormatOptions;
 
-/**
- * \name Imbuf Component flags
+/* -------------------------------------------------------------------- */
+/** \name Imbuf Component flags
  * \brief These flags determine the components of an ImBuf struct.
- *
  * \{ */
 
 typedef enum eImBufFlags {
@@ -173,17 +160,22 @@ typedef enum eImBufFlags {
 } eImBufFlags;
 
 /** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Image Buffer
+ * \{ */
+
 typedef struct ImBuf {
-  struct ImBuf *next, *prev; /**< allow lists of ImBufs, for caches or flipbooks */
+  struct ImBuf *next, *prev; /** < allow lists of #ImBufs, for caches or flip-books. */
 
   /* dimensions */
   /** Width and Height of our image buffer.
    * Should be 'unsigned int' since most formats use this.
-   * but this is problematic with texture math in imagetexture.c
+   * but this is problematic with texture math in `imagetexture.c`
    * avoid problems and use int. - campbell */
   int x, y;
 
-  /** Active amount of bits/bitplanes */
+  /** Active amount of bits/bit-planes. */
   unsigned char planes;
   /** Number of channels in `rect_float` (0 = 4 channel default) */
   int channels;
@@ -209,7 +201,7 @@ typedef struct ImBuf {
    */
   float *rect_float;
 
-  /* resolution - pixels per meter */
+  /** Resolution in pixels per meter. Multiply by `0.0254` for DPI. */
   double ppm[2];
 
   /* tiled pixel storage */
@@ -244,7 +236,7 @@ typedef struct ImBuf {
 
   /* file information */
   /** file type we are going to save as */
-  enum eImbTypes ftype;
+  enum eImbFileType ftype;
   /** file format specific flags */
   ImbFormatOptions foptions;
   /** filename associated with this image */
@@ -259,7 +251,7 @@ typedef struct ImBuf {
   int refcounter;
 
   /* some parameters to pass along for packing images */
-  /** Compressed image only used with png and exr currently */
+  /** Compressed image only used with PNG and EXR currently. */
   unsigned char *encodedbuffer;
   /** Size of data written to encodedbuffer */
   unsigned int encodedsize;
@@ -283,7 +275,7 @@ typedef struct ImBuf {
 } ImBuf;
 
 /**
- * \brief userflags: Flags used internally by blender for imagebuffers
+ * \brief userflags: Flags used internally by blender for image-buffers.
  */
 
 enum {
@@ -299,11 +291,14 @@ enum {
   IB_PERSISTENT = (1 << 5),
 };
 
-/**
- * \name Imbuf preset profile tags
- * \brief Some predefined color space profiles that 8 bit imbufs can represent
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Imbuf Preset Profile Tags
  *
+ * \brief Some predefined color space profiles that 8 bit imbufs can represent.
  * \{ */
+
 #define IB_PROFILE_NONE 0
 #define IB_PROFILE_LINEAR_RGB 1
 #define IB_PROFILE_SRGB 2
@@ -320,7 +315,7 @@ enum {
 #  endif /* DDS_MAKEFOURCC */
 
 /*
- * FOURCC codes for DX compressed-texture pixel formats
+ * FOURCC codes for DX compressed-texture pixel formats.
  */
 
 #  define FOURCC_DDS (DDS_MAKEFOURCC('D', 'D', 'S', ' '))
@@ -335,13 +330,13 @@ extern const char *imb_ext_image[];
 extern const char *imb_ext_movie[];
 extern const char *imb_ext_audio[];
 
-/* image formats that can only be loaded via filepath */
+/** Image formats that can only be loaded via filepath. */
 extern const char *imb_ext_image_filepath_only[];
 
-/**
- * \name Imbuf Color Management Flag
- * \brief Used with #ImBuf.colormanage_flag
+/* -------------------------------------------------------------------- */
+/** \name Imbuf Color Management Flag
  *
+ * \brief Used with #ImBuf.colormanage_flag
  * \{ */
 
 enum {
@@ -353,5 +348,3 @@ enum {
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* __IMB_IMBUF_TYPES_H__ */

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -44,45 +28,53 @@
 #include "intern/node/deg_node_time.h"
 
 #include "intern/depsgraph.h"
+#include "intern/depsgraph_tag.h"
 
-/* Evaluate all nodes tagged for updating. */
-void DEG_evaluate_on_refresh(Main *bmain, Depsgraph *graph)
+namespace deg = blender::deg;
+
+static void deg_flush_updates_and_refresh(deg::Depsgraph *deg_graph)
 {
-  DEG::Depsgraph *deg_graph = reinterpret_cast<DEG::Depsgraph *>(graph);
-  deg_graph->ctime = BKE_scene_frame_get(deg_graph->scene);
-  /* Update time on primary timesource. */
-  DEG::TimeSourceNode *tsrc = deg_graph->find_time_source();
-  tsrc->cfra = deg_graph->ctime;
-  /* Update time in scene. */
+  /* Update the time on the cow scene. */
   if (deg_graph->scene_cow) {
-    BKE_scene_frame_set(deg_graph->scene_cow, deg_graph->ctime);
+    BKE_scene_frame_set(deg_graph->scene_cow, deg_graph->frame);
   }
-  DEG::deg_graph_flush_updates(bmain, deg_graph);
-  DEG::deg_evaluate_on_refresh(deg_graph);
-  deg_graph->need_update_time = false;
+
+  deg::graph_tag_ids_for_visible_update(deg_graph);
+  deg::deg_graph_flush_updates(deg_graph);
+  deg::deg_evaluate_on_refresh(deg_graph);
 }
 
-/* Frame-change happened for root scene that graph belongs to. */
-void DEG_evaluate_on_framechange(Main *bmain, Depsgraph *graph, float ctime)
+void DEG_evaluate_on_refresh(Depsgraph *graph)
 {
-  DEG::Depsgraph *deg_graph = reinterpret_cast<DEG::Depsgraph *>(graph);
-  deg_graph->ctime = ctime;
-  /* Update time on primary timesource. */
-  DEG::TimeSourceNode *tsrc = deg_graph->find_time_source();
-  tsrc->cfra = ctime;
-  deg_graph->need_update_time = true;
-  DEG::deg_graph_flush_updates(bmain, deg_graph);
-  /* Update time in scene. */
-  if (deg_graph->scene_cow) {
-    BKE_scene_frame_set(deg_graph->scene_cow, deg_graph->ctime);
+  deg::Depsgraph *deg_graph = reinterpret_cast<deg::Depsgraph *>(graph);
+  const Scene *scene = DEG_get_input_scene(graph);
+  const float frame = BKE_scene_frame_get(scene);
+  const float ctime = BKE_scene_ctime_get(scene);
+
+  if (deg_graph->frame != frame || ctime != deg_graph->ctime) {
+    deg_graph->tag_time_source();
+    deg_graph->frame = frame;
+    deg_graph->ctime = ctime;
   }
-  /* Perform recalculation updates. */
-  DEG::deg_evaluate_on_refresh(deg_graph);
-  deg_graph->need_update_time = false;
+  else if (scene->id.recalc & ID_RECALC_FRAME_CHANGE) {
+    /* Comparing depsgraph & scene frame fails in the case of undo,
+     * since the undo state is stored before updates from the frame change have been applied.
+     * In this case reading back the undo state will behave as if no updates on frame change
+     * is needed as the #Depsgraph.ctime & frame will match the values in the input scene.
+     * Use #ID_RECALC_FRAME_CHANGE to detect that recalculation is necessary. see: T66913. */
+    deg_graph->tag_time_source();
+  }
+
+  deg_flush_updates_and_refresh(deg_graph);
 }
 
-bool DEG_needs_eval(Depsgraph *graph)
+void DEG_evaluate_on_framechange(Depsgraph *graph, float frame)
 {
-  DEG::Depsgraph *deg_graph = reinterpret_cast<DEG::Depsgraph *>(graph);
-  return !deg_graph->entry_tags.is_empty() || deg_graph->need_update_time;
+  deg::Depsgraph *deg_graph = reinterpret_cast<deg::Depsgraph *>(graph);
+  const Scene *scene = DEG_get_input_scene(graph);
+
+  deg_graph->tag_time_source();
+  deg_graph->frame = frame;
+  deg_graph->ctime = BKE_scene_frame_to_ctime(scene, frame);
+  deg_flush_updates_and_refresh(deg_graph);
 }

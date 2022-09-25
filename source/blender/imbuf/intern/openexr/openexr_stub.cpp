@@ -1,36 +1,21 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright by Gernot Ziegler <gz@lysator.liu.se>.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright by Gernot Ziegler <gz@lysator.liu.se>. All rights reserved. */
 
 /** \file
  * \ingroup openexr
  */
 
 #include "openexr_api.h"
-#include "openexr_multi.h"
+
+#include "IMB_openexr.h"
 
 void *IMB_exr_get_handle(void)
 {
-  return NULL;
+  return nullptr;
 }
 void *IMB_exr_get_handle_name(const char * /*name*/)
 {
-  return NULL;
+  return nullptr;
 }
 void IMB_exr_add_channel(void * /*handle*/,
                          const char * /*layname*/,
@@ -43,24 +28,25 @@ void IMB_exr_add_channel(void * /*handle*/,
 {
 }
 
-int IMB_exr_begin_read(void * /*handle*/,
-                       const char * /*filename*/,
-                       int * /*width*/,
-                       int * /*height*/)
+bool IMB_exr_begin_read(void * /*handle*/,
+                        const char * /*filepath*/,
+                        int * /*width*/,
+                        int * /*height*/,
+                        const bool /*add_channels*/)
 {
-  return 0;
+  return false;
 }
-int IMB_exr_begin_write(void * /*handle*/,
-                        const char * /*filename*/,
-                        int /*width*/,
-                        int /*height*/,
-                        int /*compress*/,
-                        const struct StampData * /*stamp*/)
+bool IMB_exr_begin_write(void * /*handle*/,
+                         const char * /*filepath*/,
+                         int /*width*/,
+                         int /*height*/,
+                         int /*compress*/,
+                         const struct StampData * /*stamp*/)
 {
-  return 0;
+  return false;
 }
 void IMB_exrtile_begin_write(void * /*handle*/,
-                             const char * /*filename*/,
+                             const char * /*filepath*/,
                              int /*mipmap*/,
                              int /*width*/,
                              int /*height*/,
@@ -82,7 +68,7 @@ float *IMB_exr_channel_rect(void * /*handle*/,
                             const char * /*passname*/,
                             const char * /*view*/)
 {
-  return NULL;
+  return nullptr;
 }
 
 void IMB_exr_read_channels(void * /*handle*/)

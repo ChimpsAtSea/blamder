@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2016 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spclip
@@ -24,13 +8,15 @@
 #include "MEM_guardedalloc.h"
 
 #include "BLI_math.h"
+#include "BLI_string.h"
 #include "BLI_utildefines.h"
+
+#include "BLT_translation.h"
 
 #include "BKE_context.h"
 #include "BKE_global.h"
 #include "BKE_main.h"
 #include "BKE_movieclip.h"
-#include "BKE_report.h"
 #include "BKE_tracking.h"
 
 #include "WM_api.h"
@@ -46,7 +32,7 @@
 
 #include "DEG_depsgraph.h"
 
-#include "clip_intern.h"  // own include
+#include "clip_intern.h" /* own include */
 #include "tracking_ops_intern.h"
 
 /********************** Track operator *********************/
@@ -145,10 +131,10 @@ static bool track_markers_initjob(bContext *C, TrackMarkersJob *tmj, bool backwa
 
   if (sequence) {
     if (backwards) {
-      tmj->efra = SFRA;
+      tmj->efra = scene->r.sfra;
     }
     else {
-      tmj->efra = EFRA;
+      tmj->efra = scene->r.efra;
     }
     tmj->efra = BKE_movieclip_remap_scene_to_clip_frame(clip, tmj->efra);
   }
@@ -185,7 +171,7 @@ static bool track_markers_initjob(bContext *C, TrackMarkersJob *tmj, bool backwa
     }
   }
 
-  tmj->context = BKE_autotrack_context_new(clip, &sc->user, backwards, true);
+  tmj->context = BKE_autotrack_context_new(clip, &sc->user, backwards);
 
   clip->tracking_context = tmj->context;
 
@@ -194,8 +180,8 @@ static bool track_markers_initjob(bContext *C, TrackMarkersJob *tmj, bool backwa
   /* XXX: silly to store this, but this data is needed to update scene and
    *      movie-clip numbers when tracking is finished. This introduces
    *      better feedback for artists.
-   *      Maybe there's another way to solve this problem, but can't think
-   *      better way atm.
+   *      Maybe there's another way to solve this problem,
+   *      but can't think better way at the moment.
    *      Anyway, this way isn't more unstable as animation rendering
    *      animation which uses the same approach (except storing screen).
    */
@@ -214,10 +200,18 @@ static bool track_markers_initjob(bContext *C, TrackMarkersJob *tmj, bool backwa
   return true;
 }
 
-static void track_markers_startjob(void *tmv, short *stop, short *do_update, float *progress)
+static void track_markers_startjob(
+    void *tmv,
+    /* Cannot be const, this function implements wm_jobs_start_callback.
+     * NOLINTNEXTLINE: readability-non-const-parameter. */
+    short *stop,
+    short *do_update,
+    float *progress)
 {
   TrackMarkersJob *tmj = (TrackMarkersJob *)tmv;
   int framenr = tmj->sfra;
+
+  BKE_autotrack_context_start(tmj->context);
 
   while (framenr != tmj->efra) {
     if (tmj->delay > 0) {
@@ -275,7 +269,7 @@ static void track_markers_endjob(void *tmv)
   tmj->clip->tracking_context = NULL;
   tmj->scene->r.cfra = BKE_movieclip_remap_clip_to_scene_frame(tmj->clip, tmj->lastfra);
   if (wm != NULL) {
-    // XXX: ...
+    /* XXX */
     // ED_update_for_newframe(tmj->main, tmj->scene);
   }
 
@@ -351,21 +345,20 @@ static int track_markers(bContext *C, wmOperator *op, bool use_job)
     G.is_break = false;
 
     WM_jobs_start(CTX_wm_manager(C), wm_job);
-    WM_cursor_wait(0);
+    WM_cursor_wait(false);
 
     /* Add modal handler for ESC. */
     WM_event_add_modal_handler(C, op);
 
     return OPERATOR_RUNNING_MODAL;
   }
-  else {
-    short stop = 0, do_update = 0;
-    float progress = 0.0f;
-    track_markers_startjob(tmj, &stop, &do_update, &progress);
-    track_markers_endjob(tmj);
-    track_markers_freejob(tmj);
-    return OPERATOR_FINISHED;
-  }
+
+  short stop = 0, do_update = 0;
+  float progress = 0.0f;
+  track_markers_startjob(tmj, &stop, &do_update, &progress);
+  track_markers_endjob(tmj);
+  track_markers_freejob(tmj);
+  return OPERATOR_FINISHED;
 }
 
 static int track_markers_exec(bContext *C, wmOperator *op)
@@ -394,6 +387,28 @@ static int track_markers_modal(bContext *C, wmOperator *UNUSED(op), const wmEven
   return OPERATOR_PASS_THROUGH;
 }
 
+static char *track_markers_desc(bContext *UNUSED(C), wmOperatorType *UNUSED(op), PointerRNA *ptr)
+{
+  const bool backwards = RNA_boolean_get(ptr, "backwards");
+  const bool sequence = RNA_boolean_get(ptr, "sequence");
+
+  if (backwards && sequence) {
+    return BLI_strdup(TIP_("Track the selected markers backward for the entire clip"));
+  }
+  if (backwards && !sequence) {
+    return BLI_strdup(TIP_("Track the selected markers backward by one frame"));
+  }
+  if (!backwards && sequence) {
+    return BLI_strdup(TIP_("Track the selected markers forward for the entire clip"));
+  }
+  if (!backwards && !sequence) {
+    return BLI_strdup(TIP_("Track the selected markers forward by one frame"));
+  }
+
+  /* Use default description. */
+  return NULL;
+}
+
 void CLIP_OT_track_markers(wmOperatorType *ot)
 {
   /* identifiers */
@@ -406,6 +421,7 @@ void CLIP_OT_track_markers(wmOperatorType *ot)
   ot->invoke = track_markers_invoke;
   ot->modal = track_markers_modal;
   ot->poll = ED_space_clip_tracking_poll;
+  ot->get_description = track_markers_desc;
 
   /* flags */
   ot->flag = OPTYPE_UNDO;

@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_BASE_OBJECT_H__
-#define __FREESTYLE_BASE_OBJECT_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -40,7 +25,7 @@ class BaseObject {
   {
   }
 
-  /*! At least makes a release on this.
+  /** At least makes a release on this.
    *  The BaseObject::destroy method must be explicitly called at the end of any overloaded destroy
    */
   virtual int destroy()
@@ -48,13 +33,13 @@ class BaseObject {
     return release();
   }
 
-  /*! Increments the reference counter */
+  /** Increments the reference counter */
   inline int addRef()
   {
     return ++_ref_counter;
   }
 
-  /*! Decrements the reference counter */
+  /** Decrements the reference counter */
   inline int release()
   {
     if (_ref_counter) {
@@ -72,5 +57,3 @@ class BaseObject {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_BASE_OBJECT_H__

@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2016, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2016 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -46,22 +31,22 @@ static void square_to_circle(float x, float y, float *r, float *T)
   if (x > -y) {
     if (x > y) {
       *r = x;
-      *T = (M_PI / 4.0f) * (y / x);
+      *T = M_PI_4 * (y / x);
     }
     else {
       *r = y;
-      *T = (M_PI / 4.0f) * (2 - (x / y));
+      *T = M_PI_4 * (2 - (x / y));
     }
   }
   else {
     if (x < y) {
       *r = -x;
-      *T = (M_PI / 4.0f) * (4 + (y / x));
+      *T = M_PI_4 * (4 + (y / x));
     }
     else {
       *r = -y;
       if (y != 0) {
-        *T = (M_PI / 4.0f) * (6 - (x / y));
+        *T = M_PI_4 * (6 - (x / y));
       }
       else {
         *T = 0.0f;
@@ -74,17 +59,17 @@ static void square_to_circle(float x, float y, float *r, float *T)
 #define KERNEL_RAD (3)
 #define SAMP_LEN SQUARE_UNSAFE(KERNEL_RAD * 2 + 1)
 
-static void workbench_dof_setup_samples(struct GPUUniformBuffer **ubo,
+static void workbench_dof_setup_samples(struct GPUUniformBuf **ubo,
                                         float **data,
                                         float bokeh_sides,
                                         float bokeh_rotation,
                                         float bokeh_ratio)
 {
   if (*data == NULL) {
-    *data = MEM_callocN(sizeof(float) * 4 * SAMP_LEN, "workbench dof samples");
+    *data = MEM_callocN(sizeof(float[4]) * SAMP_LEN, "workbench dof samples");
   }
   if (*ubo == NULL) {
-    *ubo = DRW_uniformbuffer_create(sizeof(float) * 4 * SAMP_LEN, NULL);
+    *ubo = GPU_uniformbuf_create(sizeof(float[4]) * SAMP_LEN);
   }
 
   float *samp = *data;
@@ -104,7 +89,7 @@ static void workbench_dof_setup_samples(struct GPUUniformBuffer **ubo,
         square_to_circle(x, y, &r, &T);
         samp[2] = r;
 
-        /* Bokeh shape parametrisation */
+        /* Bokeh shape parameterization. */
         if (bokeh_sides > 1.0f) {
           float denom = T - (2.0 * M_PI / bokeh_sides) *
                                 floorf((bokeh_sides * T + M_PI) / (2.0 * M_PI));
@@ -120,7 +105,7 @@ static void workbench_dof_setup_samples(struct GPUUniformBuffer **ubo,
     }
   }
 
-  DRW_uniformbuffer_update(*ubo, *data);
+  GPU_uniformbuf_update(*ubo, *data);
 }
 
 void workbench_dof_engine_init(WORKBENCH_Data *vedata)
@@ -133,14 +118,14 @@ void workbench_dof_engine_init(WORKBENCH_Data *vedata)
   const DRWContextState *draw_ctx = DRW_context_state_get();
   RegionView3D *rv3d = draw_ctx->rv3d;
   View3D *v3d = draw_ctx->v3d;
-  Scene *scene = draw_ctx->scene;
+
   Object *camera;
 
   if (v3d && rv3d) {
     camera = (rv3d->persp == RV3D_CAMOB) ? v3d->camera : NULL;
   }
   else {
-    camera = scene->camera;
+    camera = wpd->cam_original_ob;
   }
 
   Camera *cam = camera != NULL ? camera->data : NULL;
@@ -155,9 +140,9 @@ void workbench_dof_engine_init(WORKBENCH_Data *vedata)
   }
 
   const float *full_size = DRW_viewport_size_get();
-  int size[2] = {max_ii(1, (int)full_size[0] / 2), max_ii(1, (int)full_size[1] / 2)};
-#if 0 /* TODO(fclem) finish COC min_max optimisation */
-  /* NOTE: We Ceil here in order to not miss any edge texel if using a NPO2 texture.  */
+  const int size[2] = {max_ii(1, (int)full_size[0] / 2), max_ii(1, (int)full_size[1] / 2)};
+#if 0 /* TODO(fclem): finish COC min_max optimization. */
+  /* NOTE: We Ceil here in order to not miss any edge texel if using a NPO2 texture. */
   int shrink_h_size[2] = {ceilf(size[0] / 8.0f), size[1]};
   int shrink_w_size[2] = {shrink_h_size[0], ceilf(size[1] / 8.0f)};
 #endif
@@ -168,7 +153,7 @@ void workbench_dof_engine_init(WORKBENCH_Data *vedata)
       &txl->coc_halfres_tx, size[0], size[1], GPU_RG8, DRW_TEX_FILTER | DRW_TEX_MIPMAP);
   wpd->dof_blur_tx = DRW_texture_pool_query_2d(
       size[0], size[1], GPU_RGBA16F, &draw_engine_workbench);
-#if 0 /* TODO(fclem) finish COC min_max optimisation */
+#if 0 /* TODO(fclem): finish COC min_max optimization. */
   wpd->coc_temp_tx = DRW_texture_pool_query_2d(
       shrink_h_size[0], shrink_h_size[1], GPU_RG8, &draw_engine_workbench);
   wpd->coc_tiles_tx[0] = DRW_texture_pool_query_2d(
@@ -183,7 +168,7 @@ void workbench_dof_engine_init(WORKBENCH_Data *vedata)
                                     GPU_ATTACHMENT_TEXTURE(txl->dof_source_tx),
                                     GPU_ATTACHMENT_TEXTURE(txl->coc_halfres_tx),
                                 });
-#if 0 /* TODO(fclem) finish COC min_max optimisation */
+#if 0 /* TODO(fclem): finish COC min_max optimization. */
   GPU_framebuffer_ensure_config(&fbl->dof_coc_tile_h_fb,
                                 {
                                     GPU_ATTACHMENT_NONE,
@@ -218,9 +203,9 @@ void workbench_dof_engine_init(WORKBENCH_Data *vedata)
     float focus_dist = BKE_camera_object_dof_distance(camera);
     float focal_len = cam->lens;
 
-    /* TODO(fclem) deduplicate with eevee */
+    /* TODO(fclem): de-duplicate with EEVEE. */
     const float scale_camera = 0.001f;
-    /* we want radius here for the aperture number  */
+    /* We want radius here for the aperture number. */
     float aperture = 0.5f * scale_camera * focal_len / fstop;
     float focal_len_scaled = scale_camera * focal_len;
     float sensor_scaled = scale_camera * sensor;
@@ -286,11 +271,11 @@ void workbench_dof_cache_init(WORKBENCH_Data *vedata)
     psl->dof_down2_ps = DRW_pass_create("DoF DownSample", DRW_STATE_WRITE_COLOR);
 
     DRWShadingGroup *grp = DRW_shgroup_create(downsample_sh, psl->dof_down2_ps);
-    DRW_shgroup_uniform_texture(grp, "sceneColorTex", txl->dof_source_tx);
+    DRW_shgroup_uniform_texture_ex(grp, "sceneColorTex", txl->dof_source_tx, GPU_SAMPLER_DEFAULT);
     DRW_shgroup_uniform_texture(grp, "inputCocTex", txl->coc_halfres_tx);
     DRW_shgroup_call_procedural_triangles(grp, NULL, 1);
   }
-#if 0 /* TODO(fclem) finish COC min_max optimization */
+#if 0 /* TODO(fclem): finish COC min_max optimization */
   {
     psl->dof_flatten_h_ps = DRW_pass_create("DoF Flatten Coc H", DRW_STATE_WRITE_COLOR);
 
@@ -328,7 +313,7 @@ void workbench_dof_cache_init(WORKBENCH_Data *vedata)
 
     float offset = wpd->taa_sample / (float)max_ii(1, wpd->taa_sample_len);
     DRWShadingGroup *grp = DRW_shgroup_create(blur1_sh, psl->dof_blur1_ps);
-    DRW_shgroup_uniform_block(grp, "dofSamplesBlock", wpd->vldata->dof_sample_ubo);
+    DRW_shgroup_uniform_block(grp, "samples", wpd->vldata->dof_sample_ubo);
     DRW_shgroup_uniform_texture(grp, "noiseTex", wpd->vldata->cavity_jitter_tx);
     DRW_shgroup_uniform_texture(grp, "inputCocTex", txl->coc_halfres_tx);
     DRW_shgroup_uniform_texture(grp, "halfResColorTex", txl->dof_source_tx);
@@ -385,7 +370,7 @@ void workbench_dof_draw_pass(WORKBENCH_Data *vedata)
   GPU_framebuffer_recursive_downsample(
       fbl->dof_downsample_fb, 2, workbench_dof_downsample_level, psl);
 
-#if 0 /* TODO(fclem) finish COC min_max optimization */
+#if 0 /* TODO(fclem): finish COC min_max optimization */
   GPU_framebuffer_bind(fbl->dof_coc_tile_h_fb);
   DRW_draw_pass(psl->dof_flatten_h_ps);
 

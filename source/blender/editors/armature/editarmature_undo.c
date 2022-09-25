@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edarmature
@@ -26,14 +10,18 @@
 #include "CLG_log.h"
 
 #include "DNA_armature_types.h"
+#include "DNA_layer_types.h"
 #include "DNA_object_types.h"
+#include "DNA_scene_types.h"
 
 #include "BLI_array_utils.h"
 #include "BLI_listbase.h"
 
+#include "BKE_armature.h"
 #include "BKE_context.h"
 #include "BKE_layer.h"
 #include "BKE_main.h"
+#include "BKE_object.h"
 #include "BKE_undo_system.h"
 
 #include "DEG_depsgraph.h"
@@ -63,8 +51,8 @@ static void undoarm_to_editarm(UndoArmature *uarm, bArmature *arm)
 {
   EditBone *ebone;
 
-  ED_armature_ebone_listbase_free(arm->edbo);
-  ED_armature_ebone_listbase_copy(arm->edbo, &uarm->lb);
+  ED_armature_ebone_listbase_free(arm->edbo, true);
+  ED_armature_ebone_listbase_copy(arm->edbo, &uarm->lb, true);
 
   /* active bone */
   if (uarm->act_edbone) {
@@ -85,7 +73,7 @@ static void *undoarm_from_editarm(UndoArmature *uarm, bArmature *arm)
   /* TODO: include size of ID-properties. */
   uarm->undo_size = 0;
 
-  ED_armature_ebone_listbase_copy(&uarm->lb, arm->edbo);
+  ED_armature_ebone_listbase_copy(&uarm->lb, arm->edbo, false);
 
   /* active bone */
   if (arm->act_edbone) {
@@ -104,7 +92,7 @@ static void *undoarm_from_editarm(UndoArmature *uarm, bArmature *arm)
 
 static void undoarm_free_data(UndoArmature *uarm)
 {
-  ED_armature_ebone_listbase_free(&uarm->lb);
+  ED_armature_ebone_listbase_free(&uarm->lb, false);
 }
 
 static Object *editarm_object_from_context(bContext *C)
@@ -175,16 +163,18 @@ static bool armature_undosys_step_encode(struct bContext *C, struct Main *bmain,
   return true;
 }
 
-static void armature_undosys_step_decode(
-    struct bContext *C, struct Main *bmain, UndoStep *us_p, int UNUSED(dir), bool UNUSED(is_final))
+static void armature_undosys_step_decode(struct bContext *C,
+                                         struct Main *bmain,
+                                         UndoStep *us_p,
+                                         const eUndoStepDir UNUSED(dir),
+                                         bool UNUSED(is_final))
 {
   ArmatureUndoStep *us = (ArmatureUndoStep *)us_p;
 
-  /* Load all our objects  into edit-mode, clear everything else. */
   ED_undo_object_editmode_restore_helper(
       C, &us->elems[0].obedit_ref.ptr, us->elems_len, sizeof(*us->elems));
 
-  BLI_assert(armature_undosys_poll(C));
+  BLI_assert(BKE_object_is_in_editmode(us->elems[0].obedit_ref.ptr));
 
   for (uint i = 0; i < us->elems_len; i++) {
     ArmatureUndoStep_Elem *elem = &us->elems[i];
@@ -200,12 +190,15 @@ static void armature_undosys_step_decode(
     }
     undoarm_to_editarm(&elem->data, arm);
     arm->needs_flush_to_id = 1;
-    DEG_id_tag_update(&obedit->id, ID_RECALC_GEOMETRY);
+    DEG_id_tag_update(&arm->id, ID_RECALC_GEOMETRY);
   }
 
   /* The first element is always active */
   ED_undo_object_set_active_or_warn(
-      CTX_data_view_layer(C), us->elems[0].obedit_ref.ptr, us_p->name, &LOG);
+      CTX_data_scene(C), CTX_data_view_layer(C), us->elems[0].obedit_ref.ptr, us_p->name, &LOG);
+
+  /* Check after setting active. */
+  BLI_assert(armature_undosys_poll(C));
 
   bmain->is_memfile_undo_flush_needed = true;
 
@@ -235,7 +228,6 @@ static void armature_undosys_foreach_ID_ref(UndoStep *us_p,
   }
 }
 
-/* Export for ED_undo_sys. */
 void ED_armature_undosys_type(UndoType *ut)
 {
   ut->name = "Edit Armature";
@@ -246,7 +238,7 @@ void ED_armature_undosys_type(UndoType *ut)
 
   ut->step_foreach_ID_ref = armature_undosys_foreach_ID_ref;
 
-  ut->use_context = true;
+  ut->flags = UNDOTYPE_FLAG_NEED_CONTEXT_FOR_ENCODE;
 
   ut->step_size = sizeof(ArmatureUndoStep);
 }

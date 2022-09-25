@@ -1,21 +1,7 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
- * \ingroup memutil
+ * \ingroup intern_memutil
  */
 
 #ifndef __MEM_ALLOCATOR_H__
@@ -62,8 +48,8 @@ template<typename _Tp> struct MEM_Allocator {
     return &__x;
   }
 
-  // NB: __n is permitted to be 0.  The C++ standard says nothing
-  // about what the return value is when __n == 0.
+  /* NOTE: `__n` is permitted to be 0.
+   * The C++ standard says nothing about what the return value is when `__n == 0`. */
   _Tp *allocate(size_type __n, const void * = 0)
   {
     _Tp *__ret = NULL;

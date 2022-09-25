@@ -1,29 +1,12 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
  * Macro's used in GHOST debug target.
  */
 
-#ifndef __GHOST_RECT_H__
-#define __GHOST_RECT_H__
+#pragma once
 
 #include "GHOST_Types.h"
 
@@ -38,12 +21,12 @@ class GHOST_Rect {
  public:
   /**
    * Constructs a rectangle with the given values.
-   * \param l requested left coordinate of the rectangle
-   * \param t requested top coordinate of the rectangle
-   * \param r requested right coordinate of the rectangle
-   * \param b requested bottom coordinate of the rectangle
+   * \param l: requested left coordinate of the rectangle.
+   * \param t: requested top coordinate of the rectangle.
+   * \param r: requested right coordinate of the rectangle.
+   * \param b: requested bottom coordinate of the rectangle.
    */
-  GHOST_Rect(GHOST_TInt32 l = 0, GHOST_TInt32 t = 0, GHOST_TInt32 r = 0, GHOST_TInt32 b = 0)
+  GHOST_Rect(int32_t l = 0, int32_t t = 0, int32_t r = 0, int32_t b = 0)
       : m_l(l), m_t(t), m_r(r), m_b(b)
   {
   }
@@ -57,15 +40,15 @@ class GHOST_Rect {
 
   /**
    * Access to rectangle width.
-   * \return  width of the rectangle
+   * \return width of the rectangle.
    */
-  virtual inline GHOST_TInt32 getWidth() const;
+  virtual inline int32_t getWidth() const;
 
   /**
    * Access to rectangle height.
-   * \return  height of the rectangle
+   * \return height of the rectangle.
    */
-  virtual inline GHOST_TInt32 getHeight() const;
+  virtual inline int32_t getHeight() const;
 
   /**
    * Sets all members of the rectangle.
@@ -74,7 +57,7 @@ class GHOST_Rect {
    * \param r: requested right coordinate of the rectangle.
    * \param b: requested bottom coordinate of the rectangle.
    */
-  virtual inline void set(GHOST_TInt32 l, GHOST_TInt32 t, GHOST_TInt32 r, GHOST_TInt32 b);
+  virtual inline void set(int32_t l, int32_t t, int32_t r, int32_t b);
 
   /**
    * Returns whether this rectangle is empty.
@@ -87,7 +70,7 @@ class GHOST_Rect {
    * Returns whether this rectangle is valid.
    * Valid rectangles are rectangles that have m_l <= m_r and m_t <= m_b.
    * Thus, empty rectangles are valid.
-   * \return  boolean value (true==valid rectangle)
+   * \return boolean value (true==valid rectangle)
    */
   virtual inline bool isValid() const;
 
@@ -96,7 +79,7 @@ class GHOST_Rect {
    * The method avoids negative insets making the rectangle invalid
    * \param i: The amount of offset given to each extreme (negative values shrink the rectangle).
    */
-  virtual void inset(GHOST_TInt32 i);
+  virtual void inset(int32_t i);
 
   /**
    * Does a union of the rectangle given and this rectangle.
@@ -110,87 +93,90 @@ class GHOST_Rect {
    * \param x: The x-coordinate of the point.
    * \param y: The y-coordinate of the point.
    */
-  virtual inline void unionPoint(GHOST_TInt32 x, GHOST_TInt32 y);
+  virtual inline void unionPoint(int32_t x, int32_t y);
 
   /**
    * Grows the rectangle to included a point.
-   * \param x   The x-coordinate of the point.
-   * \param y   The y-coordinate of the point.
+   * \param x: The x-coordinate of the point.
+   * \param y: The y-coordinate of the point.
    */
-  virtual inline void wrapPoint(GHOST_TInt32 &x,
-                                GHOST_TInt32 &y,
-                                GHOST_TInt32 ofs,
-                                GHOST_TAxisFlag axis);
+  virtual inline void wrapPoint(int32_t &x, int32_t &y, int32_t ofs, GHOST_TAxisFlag axis);
+  /**
+   * Confine x & y within the rectangle (inclusive).
+   * \param x: The x-coordinate of the point.
+   * \param y: The y-coordinate of the point.
+   */
+  virtual inline void clampPoint(int32_t &x, int32_t &y);
 
   /**
    * Returns whether the point is inside this rectangle.
    * Point on the boundary is considered inside.
-   * \param x x-coordinate of point to test.
-   * \param y y-coordinate of point to test.
+   * \param x: x-coordinate of point to test.
+   * \param y: y-coordinate of point to test.
    * \return boolean value (true if point is inside).
    */
-  virtual inline bool isInside(GHOST_TInt32 x, GHOST_TInt32 y) const;
+  virtual inline bool isInside(int32_t x, int32_t y) const;
 
   /**
    * Returns whether the rectangle is inside this rectangle.
-   * \param   r   rectangle to test.
-   * \return  visibility (not, partially or fully visible).
+   * \param r: rectangle to test.
+   * \return visibility (not, partially or fully visible).
    */
   virtual GHOST_TVisibility getVisibility(GHOST_Rect &r) const;
 
   /**
    * Sets rectangle members.
    * Sets rectangle members such that it is centered at the given location.
-   * \param   cx  requested center x-coordinate of the rectangle
-   * \param   cy  requested center y-coordinate of the rectangle
+   * \param cx: requested center x-coordinate of the rectangle.
+   * \param cy: requested center y-coordinate of the rectangle.
    */
-  virtual void setCenter(GHOST_TInt32 cx, GHOST_TInt32 cy);
+  virtual void setCenter(int32_t cx, int32_t cy);
 
   /**
    * Sets rectangle members.
    * Sets rectangle members such that it is centered at the given location,
    * with the width requested.
-   * \param   cx  requested center x-coordinate of the rectangle
-   * \param   cy  requested center y-coordinate of the rectangle
-   * \param   w   requested width of the rectangle
-   * \param   h   requested height of the rectangle
+   * \param cx: requested center x-coordinate of the rectangle.
+   * \param cy: requested center y-coordinate of the rectangle.
+   * \param w: requested width of the rectangle.
+   * \param h: requested height of the rectangle.
    */
-  virtual void setCenter(GHOST_TInt32 cx, GHOST_TInt32 cy, GHOST_TInt32 w, GHOST_TInt32 h);
+  virtual void setCenter(int32_t cx, int32_t cy, int32_t w, int32_t h);
 
   /**
    * Clips a rectangle.
    * Updates the rectangle given such that it will fit within this one.
    * This can result in an empty rectangle.
-   * \param   r   the rectangle to clip
-   * \return  whether clipping has occurred
+   * \param r: the rectangle to clip.
+   * \return whether clipping has occurred
    */
   virtual bool clip(GHOST_Rect &r) const;
 
   /** Left coordinate of the rectangle */
-  GHOST_TInt32 m_l;
+  int32_t m_l;
   /** Top coordinate of the rectangle */
-  GHOST_TInt32 m_t;
+  int32_t m_t;
   /** Right coordinate of the rectangle */
-  GHOST_TInt32 m_r;
+  int32_t m_r;
   /** Bottom coordinate of the rectangle */
-  GHOST_TInt32 m_b;
+  int32_t m_b;
 
 #ifdef WITH_CXX_GUARDEDALLOC
   MEM_CXX_CLASS_ALLOC_FUNCS("GHOST:GHOST_Rect")
 #endif
 };
 
-inline GHOST_TInt32 GHOST_Rect::getWidth() const
+inline int32_t GHOST_Rect::getWidth() const
 {
   return m_r - m_l;
 }
 
-inline GHOST_TInt32 GHOST_Rect::getHeight() const
+inline int32_t GHOST_Rect::getHeight() const
 {
   return m_b - m_t;
 }
 
-inline void GHOST_Rect::set(GHOST_TInt32 l, GHOST_TInt32 t, GHOST_TInt32 r, GHOST_TInt32 b)
+inline void GHOST_Rect::set(int32_t l, int32_t t, int32_t r, int32_t b)
 {
   m_l = l;
   m_t = t;
@@ -210,35 +196,40 @@ inline bool GHOST_Rect::isValid() const
 
 inline void GHOST_Rect::unionRect(const GHOST_Rect &r)
 {
-  if (r.m_l < m_l)
+  if (r.m_l < m_l) {
     m_l = r.m_l;
-  if (r.m_r > m_r)
+  }
+  if (r.m_r > m_r) {
     m_r = r.m_r;
-  if (r.m_t < m_t)
+  }
+  if (r.m_t < m_t) {
     m_t = r.m_t;
-  if (r.m_b > m_b)
+  }
+  if (r.m_b > m_b) {
     m_b = r.m_b;
+  }
 }
 
-inline void GHOST_Rect::unionPoint(GHOST_TInt32 x, GHOST_TInt32 y)
+inline void GHOST_Rect::unionPoint(int32_t x, int32_t y)
 {
-  if (x < m_l)
+  if (x < m_l) {
     m_l = x;
-  if (x > m_r)
+  }
+  if (x > m_r) {
     m_r = x;
-  if (y < m_t)
+  }
+  if (y < m_t) {
     m_t = y;
-  if (y > m_b)
+  }
+  if (y > m_b) {
     m_b = y;
+  }
 }
 
-inline void GHOST_Rect::wrapPoint(GHOST_TInt32 &x,
-                                  GHOST_TInt32 &y,
-                                  GHOST_TInt32 ofs,
-                                  GHOST_TAxisFlag axis)
+inline void GHOST_Rect::wrapPoint(int32_t &x, int32_t &y, int32_t ofs, GHOST_TAxisFlag axis)
 {
-  GHOST_TInt32 w = getWidth();
-  GHOST_TInt32 h = getHeight();
+  int32_t w = getWidth();
+  int32_t h = getHeight();
 
   /* highly unlikely but avoid eternal loop */
   if (w - ofs * 2 <= 0 || h - ofs * 2 <= 0) {
@@ -246,22 +237,41 @@ inline void GHOST_Rect::wrapPoint(GHOST_TInt32 &x,
   }
 
   if (axis & GHOST_kAxisX) {
-    while (x - ofs < m_l)
+    while (x - ofs < m_l) {
       x += w - (ofs * 2);
-    while (x + ofs > m_r)
+    }
+    while (x + ofs > m_r) {
       x -= w - (ofs * 2);
+    }
   }
-  if (axis & GHOST_kGrabAxisY) {
-    while (y - ofs < m_t)
+  if (axis & GHOST_kAxisY) {
+    while (y - ofs < m_t) {
       y += h - (ofs * 2);
-    while (y + ofs > m_b)
+    }
+    while (y + ofs > m_b) {
       y -= h - (ofs * 2);
+    }
   }
 }
 
-inline bool GHOST_Rect::isInside(GHOST_TInt32 x, GHOST_TInt32 y) const
+inline void GHOST_Rect::clampPoint(int32_t &x, int32_t &y)
+{
+  if (x < m_l) {
+    x = m_l;
+  }
+  else if (x > m_r) {
+    x = m_r;
+  }
+
+  if (y < m_t) {
+    y = m_t;
+  }
+  else if (y > m_b) {
+    y = m_b;
+  }
+}
+
+inline bool GHOST_Rect::isInside(int32_t x, int32_t y) const
 {
   return (x >= m_l) && (x <= m_r) && (y >= m_t) && (y <= m_b);
 }
-
-#endif  // __GHOST_RECT_H__

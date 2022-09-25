@@ -1,24 +1,5 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 import bpy
-import os
 from bpy.types import Operator
 from bpy.props import FloatProperty
 from mathutils import (
@@ -124,8 +105,8 @@ def CLIP_default_settings_from_track(clip, track, framenr):
     search[1] = search[1] * height
 
     settings.default_correlation_min = track.correlation_min
-    settings.default_pattern_size = max(pattern[0], pattern[1])
-    settings.default_search_size = max(search[0], search[1])
+    settings.default_pattern_size = int(max(pattern[0], pattern[1]))
+    settings.default_search_size = int(max(search[0], search[1]))
     settings.default_frames_limit = track.frames_limit
     settings.default_pattern_match = track.pattern_match
     settings.default_margin = track.margin
@@ -139,7 +120,7 @@ def CLIP_default_settings_from_track(clip, track, framenr):
     settings.default_weight = track.weight
 
 
-class CLIP_OT_filter_tracks(bpy.types.Operator):
+class CLIP_OT_filter_tracks(Operator):
     """Filter tracks which has weirdly looking spikes in motion curves"""
     bl_label = "Filter Tracks"
     bl_idname = "clip.filter_tracks"
@@ -207,8 +188,8 @@ class CLIP_OT_filter_tracks(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        space = context.space_data
-        return (space.type == 'CLIP_EDITOR') and space.clip
+        sc = context.space_data
+        return sc and (sc.type == 'CLIP_EDITOR') and sc.clip
 
     def execute(self, context):
         num_tracks = self._filter_values(context, self.track_threshold)
@@ -216,14 +197,14 @@ class CLIP_OT_filter_tracks(bpy.types.Operator):
         return {'FINISHED'}
 
 
-class CLIP_OT_set_active_clip(bpy.types.Operator):
+class CLIP_OT_set_active_clip(Operator):
     bl_label = "Set Active Clip"
     bl_idname = "clip.set_active_clip"
 
     @classmethod
     def poll(cls, context):
-        space = context.space_data
-        return space.type == 'CLIP_EDITOR' and space.clip
+        sc = context.space_data
+        return sc and (sc.type == 'CLIP_EDITOR') and sc.clip
 
     def execute(self, context):
         clip = context.space_data.clip
@@ -269,8 +250,8 @@ class CLIP_OT_track_to_empty(Operator):
 
     @classmethod
     def poll(cls, context):
-        space = context.space_data
-        return space.type == 'CLIP_EDITOR' and space.clip
+        sc = context.space_data
+        return sc and (sc.type == 'CLIP_EDITOR') and sc.clip
 
     def execute(self, context):
         sc = context.space_data
@@ -294,7 +275,7 @@ class CLIP_OT_bundles_to_mesh(Operator):
     @classmethod
     def poll(cls, context):
         sc = context.space_data
-        return (sc.type == 'CLIP_EDITOR') and sc.clip
+        return sc and (sc.type == 'CLIP_EDITOR') and sc.clip
 
     def execute(self, context):
         from bpy_extras.io_utils import unpack_list
@@ -342,12 +323,8 @@ class CLIP_OT_delete_proxy(Operator):
 
     @classmethod
     def poll(cls, context):
-        if context.space_data.type != 'CLIP_EDITOR':
-            return False
-
         sc = context.space_data
-
-        return sc.clip
+        return sc and (sc.type == 'CLIP_EDITOR') and sc.clip
 
     def invoke(self, context, event):
         wm = context.window_manager
@@ -356,6 +333,7 @@ class CLIP_OT_delete_proxy(Operator):
 
     @staticmethod
     def _rmproxy(abspath):
+        import os
         import shutil
 
         if not os.path.exists(abspath):
@@ -367,6 +345,7 @@ class CLIP_OT_delete_proxy(Operator):
             os.remove(abspath)
 
     def execute(self, context):
+        import os
         sc = context.space_data
         clip = sc.clip
         if clip.use_proxy_custom_directory:
@@ -414,8 +393,8 @@ class CLIP_OT_delete_proxy(Operator):
 
 
 class CLIP_OT_set_viewport_background(Operator):
-    """Set current movie clip as a camera background in 3D view-port """ \
-        """(works only when a 3D view-port is visible)"""
+    """Set current movie clip as a camera background in 3D Viewport """ \
+        """(works only when a 3D Viewport is visible)"""
 
     bl_idname = "clip.set_viewport_background"
     bl_label = "Set as Background"
@@ -423,12 +402,8 @@ class CLIP_OT_set_viewport_background(Operator):
 
     @classmethod
     def poll(cls, context):
-        if context.space_data.type != 'CLIP_EDITOR':
-            return False
-
         sc = context.space_data
-
-        return sc.clip
+        return sc and (sc.type == 'CLIP_EDITOR') and sc.clip
 
     def execute(self, context):
         sc = context.space_data
@@ -486,7 +461,10 @@ class CLIP_OT_constraint_to_fcurve(Operator):
             return {'FINISHED'}
 
         # Find start and end frames.
-        if con.object:
+        if con.type == 'CAMERA_SOLVER':
+            # Camera solver constraint is always referring to camera.
+            tracks = clip.tracking.tracks
+        elif con.object:
             tracking_object = clip.tracking.objects.get(con.object, None)
             if not tracking_object:
                 self.report({'ERROR'}, "Motion Tracking object not found")
@@ -559,13 +537,11 @@ class CLIP_OT_setup_tracking_scene(Operator):
     @classmethod
     def poll(cls, context):
         sc = context.space_data
-
-        if sc.type != 'CLIP_EDITOR':
-            return False
-
-        clip = sc.clip
-
-        return clip and clip.tracking.reconstruction.is_valid
+        if sc and sc.type == 'CLIP_EDITOR':
+            clip = sc.clip
+            if clip and clip.tracking.reconstruction.is_valid:
+                return True
+        return False
 
     @staticmethod
     def _setupScene(context):
@@ -955,9 +931,9 @@ class CLIP_OT_setup_tracking_scene(Operator):
             """Make all the newly created and the old objects of a collection """ \
                 """to be properly setup for shadow catch"""
             for ob in collection.objects:
-                ob.cycles.is_shadow_catcher = True
+                ob.is_shadow_catcher = True
                 for child in collection.children:
-                    setup_shadow_catcher_collection(child)
+                    setup_shadow_catcher_objects(child)
 
         scene = context.scene
         fg_coll = bpy.data.collections["foreground", None]
@@ -1008,19 +984,17 @@ class CLIP_OT_track_settings_as_default(Operator):
     """Copy tracking settings from active track to default settings"""
 
     bl_idname = "clip.track_settings_as_default"
-    bl_label = "Track Settings As Default"
+    bl_label = "Track Settings as Default"
     bl_options = {'UNDO', 'REGISTER'}
 
     @classmethod
     def poll(cls, context):
         sc = context.space_data
-
-        if sc.type != 'CLIP_EDITOR':
-            return False
-
-        clip = sc.clip
-
-        return clip and clip.tracking.tracks.active
+        if sc and sc.type == 'CLIP_EDITOR':
+            clip = sc.clip
+            if clip and clip.tracking.tracks.active:
+                return True
+        return False
 
     def execute(self, context):
         sc = context.space_data
@@ -1034,7 +1008,7 @@ class CLIP_OT_track_settings_as_default(Operator):
         return {'FINISHED'}
 
 
-class CLIP_OT_track_settings_to_track(bpy.types.Operator):
+class CLIP_OT_track_settings_to_track(Operator):
     """Copy tracking settings from active track to selected tracks"""
 
     bl_label = "Copy Track Settings"
@@ -1064,11 +1038,12 @@ class CLIP_OT_track_settings_to_track(bpy.types.Operator):
 
     @classmethod
     def poll(cls, context):
-        space = context.space_data
-        if space.type != 'CLIP_EDITOR':
-            return False
-        clip = space.clip
-        return clip and clip.tracking.tracks.active
+        sc = context.space_data
+        if sc and sc.type == 'CLIP_EDITOR':
+            clip = sc.clip
+            if clip and clip.tracking.tracks.active:
+                return True
+        return False
 
     def execute(self, context):
         space = context.space_data

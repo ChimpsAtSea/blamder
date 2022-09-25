@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
@@ -23,28 +9,26 @@
 
 #include <Python.h>
 
-#include "RNA_types.h"
+#include "../generic/py_capi_rna.h"
+#include "../generic/python_utildefines.h"
 
-#include "BLI_utildefines.h"
-
-#include "bpy_capi_utils.h"
-#include "bpy_rna.h"
-#include "bpy_rna_callback.h"
-
-#include "DNA_screen_types.h"
 #include "DNA_space_types.h"
 
 #include "RNA_access.h"
 #include "RNA_enum_types.h"
+#include "RNA_prototypes.h"
 
-#include "BKE_context.h"
 #include "BKE_screen.h"
 
 #include "WM_api.h"
 
 #include "ED_space_api.h"
 
-#include "../generic/python_utildefines.h"
+#include "BPY_extern.h" /* For public API. */
+
+#include "bpy_capi_utils.h"
+#include "bpy_rna.h"
+#include "bpy_rna_callback.h" /* Own include. */
 
 /* Use this to stop other capsules from being mis-used. */
 static const char *rna_capsual_id = "RNA_HANDLE";
@@ -84,7 +68,7 @@ static void cb_region_draw(const bContext *C, ARegion *UNUSED(region), void *cus
 static PyObject *PyC_Tuple_CopySized(PyObject *src, int len_dst)
 {
   PyObject *dst = PyTuple_New(len_dst);
-  int len_src = PyTuple_GET_SIZE(src);
+  const int len_src = PyTuple_GET_SIZE(src);
   BLI_assert(len_src <= len_dst);
   for (int i = 0; i < len_src; i++) {
     PyObject *item = PyTuple_GET_ITEM(src, i);
@@ -258,7 +242,16 @@ static eSpace_Type rna_Space_refine_reverse(StructRNA *srna)
   if (srna == &RNA_SpaceClipEditor) {
     return SPACE_CLIP;
   }
+  if (srna == &RNA_SpaceSpreadsheet) {
+    return SPACE_SPREADSHEET;
+  }
   return SPACE_EMPTY;
+}
+
+static void cb_rna_capsule_destructor(PyObject *capsule)
+{
+  PyObject *args = PyCapsule_GetContext(capsule);
+  Py_DECREF(args);
 }
 
 PyObject *pyrna_callback_classmethod_add(PyObject *UNUSED(self), PyObject *args)
@@ -286,105 +279,84 @@ PyObject *pyrna_callback_classmethod_add(PyObject *UNUSED(self), PyObject *args)
   /* class specific callbacks */
 
   if (srna == &RNA_WindowManager) {
-    const char *error_prefix = "WindowManager.draw_cursor_add";
     struct {
-      const char *space_type_str;
-      const char *region_type_str;
-
-      int space_type;
-      int region_type;
+      struct BPy_EnumProperty_Parse space_type_enum;
+      struct BPy_EnumProperty_Parse region_type_enum;
     } params = {
-        .space_type_str = NULL,
-        .region_type_str = NULL,
-        .space_type = SPACE_TYPE_ANY,
-        .region_type = RGN_TYPE_ANY,
+        .space_type_enum = {.items = rna_enum_space_type_items, .value = SPACE_TYPE_ANY},
+        .region_type_enum = {.items = rna_enum_region_type_items, .value = RGN_TYPE_ANY},
     };
 
     if (!PyArg_ParseTuple(args,
-                          "OOO!|ss:WindowManager.draw_cursor_add",
+                          "OOO!|O&O&:WindowManager.draw_cursor_add",
                           &cls,
                           &cb_func, /* already assigned, no matter */
                           &PyTuple_Type,
                           &cb_args,
-                          &params.space_type_str,
-                          &params.region_type_str)) {
+                          pyrna_enum_value_parse_string,
+                          &params.space_type_enum,
+                          pyrna_enum_value_parse_string,
+                          &params.region_type_enum)) {
       return NULL;
     }
 
-    if (params.space_type_str && pyrna_enum_value_from_id(rna_enum_space_type_items,
-                                                          params.space_type_str,
-                                                          &params.space_type,
-                                                          error_prefix) == -1) {
-      return NULL;
-    }
-    else if (params.region_type_str && pyrna_enum_value_from_id(rna_enum_region_type_items,
-                                                                params.region_type_str,
-                                                                &params.region_type,
-                                                                error_prefix) == -1) {
-      return NULL;
-    }
-
-    handle = WM_paint_cursor_activate(
-        params.space_type, params.region_type, NULL, cb_wm_cursor_draw, (void *)args);
+    handle = WM_paint_cursor_activate(params.space_type_enum.value,
+                                      params.region_type_enum.value,
+                                      NULL,
+                                      cb_wm_cursor_draw,
+                                      (void *)args);
   }
   else if (RNA_struct_is_a(srna, &RNA_Space)) {
-    const char *error_prefix = "Space.draw_handler_add";
     struct {
-      const char *region_type_str;
-      const char *event_str;
-
-      int region_type;
-      int event;
-    } params;
+      struct BPy_EnumProperty_Parse region_type_enum;
+      struct BPy_EnumProperty_Parse event_enum;
+    } params = {
+        .region_type_enum = {.items = rna_enum_region_type_items},
+        .event_enum = {.items = region_draw_mode_items},
+    };
 
     if (!PyArg_ParseTuple(args,
-                          "OOO!ss:Space.draw_handler_add",
+                          "OOO!O&O&:Space.draw_handler_add",
                           &cls,
                           &cb_func, /* already assigned, no matter */
                           &PyTuple_Type,
                           &cb_args,
-                          &params.region_type_str,
-                          &params.event_str)) {
+                          pyrna_enum_value_parse_string,
+                          &params.region_type_enum,
+                          pyrna_enum_value_parse_string,
+                          &params.event_enum)) {
       return NULL;
     }
 
-    if (pyrna_enum_value_from_id(
-            region_draw_mode_items, params.event_str, &params.event, error_prefix) == -1) {
+    const eSpace_Type spaceid = rna_Space_refine_reverse(srna);
+    if (spaceid == SPACE_EMPTY) {
+      PyErr_Format(PyExc_TypeError, "unknown space type '%.200s'", RNA_struct_identifier(srna));
       return NULL;
     }
-    else if (pyrna_enum_value_from_id(rna_enum_region_type_items,
-                                      params.region_type_str,
-                                      &params.region_type,
-                                      error_prefix) == -1) {
+
+    SpaceType *st = BKE_spacetype_from_id(spaceid);
+    ARegionType *art = BKE_regiontype_from_id(st, params.region_type_enum.value);
+    if (art == NULL) {
+      PyErr_Format(
+          PyExc_TypeError, "region type %R not in space", params.region_type_enum.value_orig);
       return NULL;
     }
-    else {
-      const eSpace_Type spaceid = rna_Space_refine_reverse(srna);
-      if (spaceid == SPACE_EMPTY) {
-        PyErr_Format(PyExc_TypeError, "unknown space type '%.200s'", RNA_struct_identifier(srna));
-        return NULL;
-      }
-      else {
-        SpaceType *st = BKE_spacetype_from_id(spaceid);
-        ARegionType *art = BKE_regiontype_from_id(st, params.region_type);
-        if (art == NULL) {
-          PyErr_Format(
-              PyExc_TypeError, "region type '%.200s' not in space", params.region_type_str);
-          return NULL;
-        }
-        handle = ED_region_draw_cb_activate(art, cb_region_draw, (void *)args, params.event);
-      }
-    }
+    handle = ED_region_draw_cb_activate(
+        art, cb_region_draw, (void *)args, params.event_enum.value);
   }
   else {
     PyErr_SetString(PyExc_TypeError, "callback_add(): type does not support callbacks");
     return NULL;
   }
 
+  /* Keep the 'args' reference as long as the callback exists.
+   * This reference is decremented in #BPY_callback_screen_free and #BPY_callback_wm_free. */
+  Py_INCREF(args);
+
   PyObject *ret = PyCapsule_New((void *)handle, rna_capsual_id, NULL);
 
-  /* Store 'args' in context as well as the handler custom-data,
-   * because the handle may be freed by Blender (new file, new window... etc) */
+  /* Store 'args' in context as well for simple access. */
+  PyCapsule_SetDestructor(ret, cb_rna_capsule_destructor);
   PyCapsule_SetContext(ret, args);
   Py_INCREF(args);
 
@@ -398,6 +370,7 @@ PyObject *pyrna_callback_classmethod_remove(PyObject *UNUSED(self), PyObject *ar
   void *handle;
   StructRNA *srna;
   bool capsule_clear = false;
+  bool handle_removed = false;
 
   if (PyTuple_GET_SIZE(args) < 2) {
     PyErr_SetString(PyExc_ValueError, "callback_remove(handler): expected at least 2 args");
@@ -415,68 +388,110 @@ PyObject *pyrna_callback_classmethod_remove(PyObject *UNUSED(self), PyObject *ar
                     "callback_remove(handler): NULL handler given, invalid or already removed");
     return NULL;
   }
-  PyObject *handle_args = PyCapsule_GetContext(py_handle);
 
   if (srna == &RNA_WindowManager) {
     if (!PyArg_ParseTuple(
             args, "OO!:WindowManager.draw_cursor_remove", &cls, &PyCapsule_Type, &py_handle)) {
       return NULL;
     }
-    WM_paint_cursor_end(handle);
+    handle_removed = WM_paint_cursor_end(handle);
     capsule_clear = true;
   }
   else if (RNA_struct_is_a(srna, &RNA_Space)) {
     const char *error_prefix = "Space.draw_handler_remove";
     struct {
-      const char *region_type_str;
-
-      int region_type;
-    } params;
+      struct BPy_EnumProperty_Parse region_type_enum;
+    } params = {
+        .region_type_enum = {.items = rna_enum_region_type_items},
+    };
 
     if (!PyArg_ParseTuple(args,
-                          "OO!s:Space.draw_handler_remove",
+                          "OO!O&:Space.draw_handler_remove",
                           &cls,
                           &PyCapsule_Type,
                           &py_handle, /* already assigned, no matter */
-                          &params.region_type_str)) {
+                          pyrna_enum_value_parse_string,
+                          &params.region_type_enum)) {
       return NULL;
     }
 
-    if (pyrna_enum_value_from_id(rna_enum_region_type_items,
-                                 params.region_type_str,
-                                 &params.region_type,
-                                 error_prefix) == -1) {
+    const eSpace_Type spaceid = rna_Space_refine_reverse(srna);
+    if (spaceid == SPACE_EMPTY) {
+      PyErr_Format(PyExc_TypeError,
+                   "%s: unknown space type '%.200s'",
+                   error_prefix,
+                   RNA_struct_identifier(srna));
       return NULL;
     }
-    else {
-      const eSpace_Type spaceid = rna_Space_refine_reverse(srna);
-      if (spaceid == SPACE_EMPTY) {
-        PyErr_Format(PyExc_TypeError, "unknown space type '%.200s'", RNA_struct_identifier(srna));
-        return NULL;
-      }
-      else {
-        SpaceType *st = BKE_spacetype_from_id(spaceid);
-        ARegionType *art = BKE_regiontype_from_id(st, params.region_type);
-        if (art == NULL) {
-          PyErr_Format(
-              PyExc_TypeError, "region type '%.200s' not in space", params.region_type_str);
-          return NULL;
-        }
-        ED_region_draw_cb_exit(art, handle);
-        capsule_clear = true;
-      }
+
+    SpaceType *st = BKE_spacetype_from_id(spaceid);
+    ARegionType *art = BKE_regiontype_from_id(st, params.region_type_enum.value);
+    if (art == NULL) {
+      PyErr_Format(PyExc_TypeError,
+                   "%s: region type %R not in space",
+                   error_prefix,
+                   params.region_type_enum.value_orig);
+      return NULL;
     }
+    handle_removed = ED_region_draw_cb_exit(art, handle);
+    capsule_clear = true;
   }
   else {
     PyErr_SetString(PyExc_TypeError, "callback_remove(): type does not support callbacks");
     return NULL;
   }
 
+  /* When `handle_removed == false`: Blender has already freed the data
+   * (freeing screen data when loading a new file for example).
+   * This will have already decremented the user, so don't decrement twice. */
+  if (handle_removed == true) {
+    /* The handle has been removed, so decrement its custom-data. */
+    PyObject *handle_args = PyCapsule_GetContext(py_handle);
+    Py_DECREF(handle_args);
+  }
+
   /* don't allow reuse */
   if (capsule_clear) {
-    Py_DECREF(handle_args);
+    PyCapsule_Destructor destructor_fn = PyCapsule_GetDestructor(py_handle);
+    if (destructor_fn) {
+      destructor_fn(py_handle);
+      PyCapsule_SetDestructor(py_handle, NULL);
+    }
     PyCapsule_SetName(py_handle, rna_capsual_id_invalid);
   }
 
   Py_RETURN_NONE;
 }
+
+/* -------------------------------------------------------------------- */
+/** \name Public API
+ * \{ */
+
+static void cb_customdata_free(void *customdata)
+{
+  PyObject *tuple = customdata;
+  bool use_gil = true; /* !PyC_IsInterpreterActive(); */
+
+  PyGILState_STATE gilstate;
+  if (use_gil) {
+    gilstate = PyGILState_Ensure();
+  }
+
+  Py_DECREF(tuple);
+
+  if (use_gil) {
+    PyGILState_Release(gilstate);
+  }
+}
+
+void BPY_callback_screen_free(struct ARegionType *art)
+{
+  ED_region_draw_cb_remove_by_type(art, cb_region_draw, cb_customdata_free);
+}
+
+void BPY_callback_wm_free(struct wmWindowManager *wm)
+{
+  WM_paint_cursor_remove_by_type(wm, cb_wm_cursor_draw, cb_customdata_free);
+}
+
+/** \} */

@@ -7,12 +7,22 @@ struct gpMaterial {
   vec4 fill_uv_rot_scale;
   vec4 fill_uv_offset;
   /* Put float/int at the end to avoid padding error */
-  float stroke_texture_mix;
-  float stroke_u_scale;
-  float fill_texture_mix;
-  int flag;
+  /* Some drivers are completely messing the alignment or the fetches here.
+   * We are forced to pack these into vec4 otherwise we only get 0.0 as value. */
+  vec4 gp_mat_packed_1;
+  // float stroke_texture_mix;
+  // float stroke_u_scale;
+  // float fill_texture_mix;
+  // int gp_flag;
   /* Please ensure 16 byte alignment (multiple of vec4). */
 };
+
+#define MATERIAL(m) materials[m + gpMaterialOffset]
+
+#define stroke_texture_mix gp_mat_packed_1.x
+#define stroke_u_scale gp_mat_packed_1.y
+#define fill_texture_mix gp_mat_packed_1.z
+#define GP_FLAG(m) floatBitsToInt(MATERIAL(m).gp_mat_packed_1.w)
 
 /* flag */
 #define GP_STROKE_ALIGNMENT_STROKE 1
@@ -24,6 +34,8 @@ struct gpMaterial {
 #define GP_STROKE_TEXTURE_STENCIL (1 << 4)
 #define GP_STROKE_TEXTURE_PREMUL (1 << 5)
 #define GP_STROKE_DOTS (1 << 6)
+#define GP_STROKE_HOLDOUT (1 << 7)
+#define GP_FILL_HOLDOUT (1 << 8)
 #define GP_FILL_TEXTURE_USE (1 << 10)
 #define GP_FILL_TEXTURE_PREMUL (1 << 11)
 #define GP_FILL_TEXTURE_CLIP (1 << 12)
@@ -34,7 +46,7 @@ struct gpMaterial {
 
 /* Multiline defines can crash blender with certain GPU drivers. */
 /* clang-format off */
-#define GP_FILL_FLAGS (GP_FILL_TEXTURE_USE | GP_FILL_TEXTURE_PREMUL | GP_FILL_TEXTURE_CLIP | GP_FILL_GRADIENT_USE | GP_FILL_GRADIENT_RADIAL)
+#define GP_FILL_FLAGS (GP_FILL_TEXTURE_USE | GP_FILL_TEXTURE_PREMUL | GP_FILL_TEXTURE_CLIP | GP_FILL_GRADIENT_USE | GP_FILL_GRADIENT_RADIAL | GP_FILL_HOLDOUT)
 /* clang-format on */
 
 #define GP_FLAG_TEST(flag, val) (((flag) & (val)) != 0)
@@ -89,23 +101,23 @@ void blend_mode_output(
 {
   switch (blend_mode) {
     case MODE_REGULAR:
-      /* Reminder: Blending func is premult alpha blend (dst.rgba * (1 - src.a) + src.rgb).*/
+      /* Reminder: Blending func is premult alpha blend (dst.rgba * (1 - src.a) + src.rgb). */
       color *= opacity;
       frag_color = color;
       frag_revealage = vec4(0.0, 0.0, 0.0, color.a);
       break;
     case MODE_MULTIPLY:
-      /* Reminder: Blending func is multiply blend (dst.rgba * src.rgba).*/
+      /* Reminder: Blending func is multiply blend (dst.rgba * src.rgba). */
       color.a *= opacity;
       frag_revealage = frag_color = (1.0 - color.a) + color.a * color;
       break;
     case MODE_DIVIDE:
-      /* Reminder: Blending func is multiply blend (dst.rgba * src.rgba).*/
+      /* Reminder: Blending func is multiply blend (dst.rgba * src.rgba). */
       color.a *= opacity;
       frag_revealage = frag_color = clamp(1.0 / max(vec4(1e-6), 1.0 - color * color.a), 0.0, 1e18);
       break;
-    case MODE_HARDLIGHT:
-      /* Reminder: Blending func is multiply blend (dst.rgba * src.rgba).*/
+    case MODE_HARDLIGHT: {
+      /* Reminder: Blending func is multiply blend (dst.rgba * src.rgba). */
       /**
        * We need to separate the overlay equation into 2 term (one mul and one add).
        * This is the standard overlay equation (per channel):
@@ -116,45 +128,47 @@ void blend_mode_output(
        * rtn = 1 - 2 (1 - dst * (1 - src) - src);
        * rtn = 1 - 2 + dst * (2 - 2 * src) + 2 * src;
        * rtn = (- 1 + 2 * src) + dst * (2 - 2 * src);
-       **/
+       */
       color = mix(vec4(0.5), color, color.a * opacity);
       vec4 s = step(-0.5, -color);
       frag_revealage = frag_color = 2.0 * s + 2.0 * color * (1.0 - s * 2.0);
       frag_revealage = max(vec4(0.0), frag_revealage);
       break;
+    }
     case MODE_HARDLIGHT_SECOND_PASS:
-      /* Reminder: Blending func is additive blend (dst.rgba + src.rgba).*/
+      /* Reminder: Blending func is additive blend (dst.rgba + src.rgba). */
       color = mix(vec4(0.5), color, color.a * opacity);
       frag_revealage = frag_color = (-1.0 + 2.0 * color) * step(-0.5, -color);
       frag_revealage = max(vec4(0.0), frag_revealage);
       break;
     case MODE_SUB:
     case MODE_ADD:
-      /* Reminder: Blending func is additive / subtractive blend (dst.rgba +/- src.rgba).*/
+      /* Reminder: Blending func is additive / subtractive blend (dst.rgba +/- src.rgba). */
       frag_color = color * color.a * opacity;
       frag_revealage = vec4(0.0);
       break;
   }
 }
 
-#ifdef GPU_VERTEX_SHADER
-#  define IN_OUT out
-#else
-#  define IN_OUT in
-#endif
+#ifndef USE_GPU_SHADER_CREATE_INFO
 
-/* Shader interface. */
-IN_OUT vec4 finalColorMul;
-IN_OUT vec4 finalColorAdd;
-IN_OUT vec3 finalPos;
-IN_OUT vec2 finalUvs;
-noperspective IN_OUT float strokeThickness;
-noperspective IN_OUT float strokeHardeness;
-flat IN_OUT vec2 strokeAspect;
-flat IN_OUT vec2 strokePt1;
-flat IN_OUT vec2 strokePt2;
-flat IN_OUT int matFlag;
-flat IN_OUT float depth;
+IN_OUT ShaderStageInterface
+{
+  vec4 finalColorMul;
+  vec4 finalColorAdd;
+  vec3 finalPos;
+  vec2 finalUvs;
+  noperspective float strokeThickness;
+  noperspective float unclampedThickness;
+  noperspective float strokeHardeness;
+  flat vec2 strokeAspect;
+  flat vec2 strokePt1;
+  flat vec2 strokePt2;
+  flat int matFlag;
+  flat float depth;
+};
+
+#endif
 
 #ifdef GPU_FRAGMENT_SHADER
 
@@ -201,7 +215,6 @@ uniform int gpMaterialOffset;
 uniform float thicknessScale;
 uniform float thicknessWorldScale;
 #define thicknessIsScreenSpace (thicknessWorldScale < 0.0)
-#define MATERIAL(m) materials[m + gpMaterialOffset]
 
 #ifdef GPU_VERTEX_SHADER
 
@@ -230,7 +243,7 @@ in vec4 pos;  /* Prev adj vert */
 in vec4 pos1; /* Current edge */
 in vec4 pos2; /* Current edge */
 in vec4 pos3; /* Next adj vert */
-/* xy is UV for fills, z is U of stroke, w is strength.  */
+/* xy is UV for fills, z is U of stroke, w is strength. */
 in vec4 uv1;
 in vec4 uv2;
 in vec4 col1;
@@ -317,9 +330,9 @@ vec2 safe_normalize_len(vec2 v, out float len)
   }
 }
 
-float stroke_thickness_modulate(float thickness, out float opacity)
+float stroke_thickness_modulate(float thickness)
 {
-  /* Modify stroke thickness by object and layer factors.-*/
+  /* Modify stroke thickness by object and layer factors. */
   thickness *= thicknessScale;
   thickness += thicknessOffset;
   thickness = max(1.0, thickness);
@@ -331,11 +344,16 @@ float stroke_thickness_modulate(float thickness, out float opacity)
   }
   else {
     /* World space point size. */
-    thickness *= thicknessWorldScale * ProjectionMatrix[1][1] * sizeViewport.y;
+    thickness *= thicknessWorldScale * drw_view.winmat[1][1] * sizeViewport.y;
   }
-  /* To avoid aliasing artifact, we clamp the line thickness and reduce its opacity. */
+  return thickness;
+}
+
+float clamp_small_stroke_thickness(float thickness)
+{
+  /* To avoid aliasing artifacts, we clamp the line thickness and
+   * reduce its opacity in the fragment shader. */
   float min_thickness = gl_Position.w * 1.3;
-  opacity = smoothstep(0.0, gl_Position.w * 1.0, thickness);
   thickness = max(min_thickness, thickness);
 
   return thickness;
@@ -356,7 +374,7 @@ void color_output(vec4 stroke_col, vec4 vert_col, float vert_strength, float mix
    * finalColorAdd is how much of the mixed color to add.
    * Note that we never add alpha. This is to keep the texture act as a stencil.
    * We do however, modulate the alpha (reduce it).
-   **/
+   */
   /* We add the mixed color. This is 100% mix (no texture visible). */
   finalColorMul = vec4(mixed_col.aaa, mixed_col.a);
   finalColorAdd = vec4(mixed_col.rgb * mixed_col.a, 0.0);
@@ -375,8 +393,8 @@ void stroke_vertex()
 
 #  ifdef GP_MATERIAL_BUFFER_LEN
   if (m != -1) {
-    is_dot = GP_FLAG_TEST(MATERIAL(m).flag, GP_STROKE_ALIGNMENT);
-    is_squares = !GP_FLAG_TEST(MATERIAL(m).flag, GP_STROKE_DOTS);
+    is_dot = GP_FLAG_TEST(GP_FLAG(m), GP_STROKE_ALIGNMENT);
+    is_squares = !GP_FLAG_TEST(GP_FLAG(m), GP_STROKE_DOTS);
   }
 #  endif
 
@@ -386,7 +404,7 @@ void stroke_vertex()
     is_squares = false;
   }
 
-  /* Enpoints, we discard the vertices. */
+  /* Endpoints, we discard the vertices. */
   if (ma1.x == -1 || (!is_dot && ma2.x == -1)) {
     discard_vert();
     return;
@@ -419,16 +437,20 @@ void stroke_vertex()
   vec2 line = safe_normalize_len(ss2 - ss1, line_len);
   vec2 line_adj = safe_normalize((use_curr) ? (ss1 - ss_adj) : (ss_adj - ss2));
 
-  float small_line_opacity;
   float thickness = abs((use_curr) ? thickness1 : thickness2);
-  thickness = stroke_thickness_modulate(thickness, small_line_opacity);
+  thickness = stroke_thickness_modulate(thickness);
+  float clampedThickness = clamp_small_stroke_thickness(thickness);
 
   finalUvs = vec2(x, y) * 0.5 + 0.5;
   strokeHardeness = decode_hardness(use_curr ? hardness1 : hardness2);
 
   if (is_dot) {
 #  ifdef GP_MATERIAL_BUFFER_LEN
-    int alignement = MATERIAL(m).flag & GP_STROKE_ALIGNMENT;
+    int alignement = GP_FLAG(m) & GP_STROKE_ALIGNMENT;
+    /* For one point strokes use object alignment. */
+    if (ma.x == -1 && ma2.x == -1 && alignement == GP_STROKE_ALIGNMENT_STROKE) {
+      alignement = GP_STROKE_ALIGNMENT_OBJECT;
+    }
 #  endif
 
     vec2 x_axis;
@@ -454,6 +476,14 @@ void stroke_vertex()
     float rot_cos = abs(uv_rot);
     x_axis = mat2(rot_cos, -rot_sin, rot_sin, rot_cos) * x_axis;
 
+#  ifdef GP_MATERIAL_BUFFER_LEN
+    if (is_dot) {
+      float alignment_cos = MATERIAL(m).fill_uv_offset.z;
+      float alignment_sin = MATERIAL(m).fill_uv_offset.w;
+      x_axis = mat2(alignment_cos, -alignment_sin, alignment_sin, alignment_cos) * x_axis;
+    }
+#  endif
+
     vec2 y_axis = rotate_90deg(x_axis);
 
     strokeAspect = decode_aspect(aspect1);
@@ -464,11 +494,12 @@ void stroke_vertex()
     /* Invert for vertex shader. */
     strokeAspect = 1.0 / strokeAspect;
 
-    gl_Position.xy += (x * x_axis + y * y_axis) * sizeViewportInv.xy * thickness;
+    gl_Position.xy += (x * x_axis + y * y_axis) * sizeViewportInv.xy * clampedThickness;
 
     strokePt1 = ss1;
     strokePt2 = ss1 + x_axis * 0.5;
-    strokeThickness = (is_squares) ? 1e18 : (thickness / gl_Position.w);
+    strokeThickness = (is_squares) ? 1e18 : (clampedThickness / gl_Position.w);
+    unclampedThickness = (is_squares) ? 1e18 : (thickness / gl_Position.w);
   }
   else {
     bool is_stroke_start = (ma.x == -1 && x == -1);
@@ -486,18 +517,19 @@ void stroke_vertex()
 
     strokePt1.xy = ss1;
     strokePt2.xy = ss2;
-    strokeThickness = thickness / gl_Position.w;
+    strokeThickness = clampedThickness / gl_Position.w;
+    unclampedThickness = thickness / gl_Position.w;
     strokeAspect = vec2(1.0);
 
     vec2 screen_ofs = miter * y;
 
-    /* Reminder: we packed the cap flag into the sign of stength and thickness sign. */
+    /* Reminder: we packed the cap flag into the sign of strength and thickness sign. */
     if ((is_stroke_start && strength1 > 0.0) || (is_stroke_end && thickness1 > 0.0) ||
         (miter_break && !is_stroke_start && !is_stroke_end)) {
       screen_ofs += line * x;
     }
 
-    gl_Position.xy += screen_ofs * sizeViewportInv.xy * thickness;
+    gl_Position.xy += screen_ofs * sizeViewportInv.xy * clampedThickness;
 
     finalUvs.x = (use_curr) ? uv1.z : uv2.z;
 #  ifdef GP_MATERIAL_BUFFER_LEN
@@ -511,9 +543,14 @@ void stroke_vertex()
   vec4 stroke_col = MATERIAL(m).stroke_color;
   float mix_tex = MATERIAL(m).stroke_texture_mix;
 
-  color_output(stroke_col, vert_col, vert_strength * small_line_opacity, mix_tex);
+  /* Special case: We don't use vertex color if material Holdout. */
+  if (GP_FLAG_TEST(GP_FLAG(m), GP_STROKE_HOLDOUT)) {
+    vert_col = vec4(0.0);
+  }
 
-  matFlag = MATERIAL(m).flag & ~GP_FILL_FLAGS;
+  color_output(stroke_col, vert_col, vert_strength, mix_tex);
+
+  matFlag = GP_FLAG(m) & ~GP_FILL_FLAGS;
 #  endif
 
   if (strokeOrder3d) {
@@ -521,7 +558,7 @@ void stroke_vertex()
     depth = -1.0;
   }
 #  ifdef GP_MATERIAL_BUFFER_LEN
-  else if (GP_FLAG_TEST(MATERIAL(m).flag, GP_STROKE_OVERLAP)) {
+  else if (GP_FLAG_TEST(GP_FLAG(m), GP_STROKE_OVERLAP)) {
     /* Use the index of the point as depth.
      * This means the stroke can overlap itself. */
     depth = (point_id1 + strokeIndexOffset + 1.0) * 0.0000002;
@@ -552,7 +589,7 @@ void fill_vertex()
   float mix_tex = MATERIAL(m).fill_texture_mix;
 
   /* Special case: We don't modulate alpha in gradient mode. */
-  if (GP_FLAG_TEST(MATERIAL(m).flag, GP_FILL_GRADIENT_USE)) {
+  if (GP_FLAG_TEST(GP_FLAG(m), GP_FILL_GRADIENT_USE)) {
     fill_col.a = 1.0;
   }
 
@@ -560,6 +597,11 @@ void fill_vertex()
   vec4 fcol_decode = vec4(fcol1.rgb, floor(fcol1.a / 10.0));
   float fill_opacity = fcol1.a - (fcol_decode.a * 10);
   fcol_decode.a /= 10000.0;
+
+  /* Special case: We don't use vertex color if material Holdout. */
+  if (GP_FLAG_TEST(GP_FLAG(m), GP_FILL_HOLDOUT)) {
+    fcol_decode = vec4(0.0);
+  }
 
   /* Apply opacity. */
   fill_col.a *= fill_opacity;
@@ -572,7 +614,7 @@ void fill_vertex()
 
   color_output(fill_col, fcol_decode, 1.0, mix_tex);
 
-  matFlag = MATERIAL(m).flag & GP_FILL_FLAGS;
+  matFlag = GP_FLAG(m) & GP_FILL_FLAGS;
   matFlag |= m << GP_MATID_SHIFT;
 
   vec2 loc = MATERIAL(m).fill_uv_offset.xy;
@@ -582,6 +624,7 @@ void fill_vertex()
 
   strokeHardeness = 1.0;
   strokeThickness = 1e18;
+  unclampedThickness = 1e20;
   strokeAspect = vec2(1.0);
   strokePt1 = strokePt2 = vec2(0.0);
 

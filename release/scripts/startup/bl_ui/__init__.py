@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 # note, properties_animviz is a helper module only.
 
@@ -33,9 +15,9 @@ _modules = [
     "properties_data_bone",
     "properties_data_camera",
     "properties_data_curve",
+    "properties_data_curves",
     "properties_data_empty",
     "properties_data_gpencil",
-    "properties_data_hair",
     "properties_data_light",
     "properties_data_lattice",
     "properties_data_mesh",
@@ -67,6 +49,7 @@ _modules = [
     "properties_scene",
     "properties_texture",
     "properties_world",
+    "properties_collection",
 
     # Generic Space Modules
     #
@@ -86,6 +69,7 @@ _modules = [
     "space_outliner",
     "space_properties",
     "space_sequencer",
+    "space_spreadsheet",
     "space_statusbar",
     "space_text",
     "space_time",
@@ -115,13 +99,17 @@ def register():
         for cls in mod.classes:
             register_class(cls)
 
-    # space_userprefs.py
+    space_filebrowser.register_props()
+
     from bpy.props import (
         EnumProperty,
         StringProperty,
     )
-    from bpy.types import WindowManager
+    from bpy.types import (
+        WindowManager,
+    )
 
+    # space_userprefs.py
     def addon_filter_items(_self, _context):
         import addon_utils
 
@@ -140,8 +128,8 @@ def register():
         return items
 
     WindowManager.addon_search = StringProperty(
-        name="Search",
-        description="Search within the selected filter",
+        name="Filter",
+        description="Filter by add-on name, author & category",
         options={'TEXTEDIT_UPDATE'},
     )
     WindowManager.addon_filter = EnumProperty(
@@ -232,3 +220,42 @@ class UI_UL_list(bpy.types.UIList):
 
 
 bpy.utils.register_class(UI_UL_list)
+
+
+class UI_MT_list_item_context_menu(bpy.types.Menu):
+    """
+    UI List item context menu definition. Scripts can append/prepend this to
+    add own operators to the context menu. They must check context though, so
+    their items only draw in a valid context and for the correct UI list.
+    """
+
+    bl_label = "List Item"
+    bl_idname = "UI_MT_list_item_context_menu"
+
+    def draw(self, context):
+        # Dummy function. This type is just for scripts to append their own
+        # context menu items.
+        pass
+
+
+bpy.utils.register_class(UI_MT_list_item_context_menu)
+
+
+class UI_MT_button_context_menu(bpy.types.Menu):
+    """
+    UI button context menu definition. Scripts can append/prepend this to
+    add own operators to the context menu. They must check context though, so
+    their items only draw in a valid context and for the correct buttons.
+    """
+
+    bl_label = "List Item"
+    bl_idname = "UI_MT_button_context_menu"
+
+    def draw(self, context):
+        # Draw menu entries created with the legacy `WM_MT_button_context` class.
+        # This is deprecated, and support will be removed in a future release.
+        if hasattr(bpy.types, "WM_MT_button_context"):
+            self.layout.menu_contents("WM_MT_button_context")
+
+
+bpy.utils.register_class(UI_MT_button_context_menu)

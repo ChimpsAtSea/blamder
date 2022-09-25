@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_NATURE_H__
-#define __FREESTYLE_NATURE_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -24,48 +9,46 @@
 
 namespace Freestyle {
 
-/*! Namespace gathering the different possible natures of 0D and 1D elements of the ViewMap */
+/** Namespace gathering the different possible natures of 0D and 1D elements of the ViewMap */
 namespace Nature {
 
 /* XXX Why not using enums??? */
 /* In order to optimize for space (enum is int) - T.K. */
 
 typedef unsigned short VertexNature;
-/*! true for any 0D element */
+/** true for any 0D element */
 static const VertexNature POINT = 0;  // 0
-/*! true for SVertex */
+/** true for SVertex */
 static const VertexNature S_VERTEX = (1 << 0);  // 1
-/*! true for ViewVertex */
+/** true for ViewVertex */
 static const VertexNature VIEW_VERTEX = (1 << 1);  // 2
-/*! true for NonTVertex */
+/** true for NonTVertex */
 static const VertexNature NON_T_VERTEX = (1 << 2);  // 4
-/*! true for TVertex */
+/** true for TVertex */
 static const VertexNature T_VERTEX = (1 << 3);  // 8
-/*! true for CUSP */
+/** true for CUSP */
 static const VertexNature CUSP = (1 << 4);  // 16
 
 typedef unsigned short EdgeNature;
-/*! true for non feature edges (always false for 1D elements of the ViewMap) */
+/** true for non feature edges (always false for 1D elements of the ViewMap) */
 static const EdgeNature NO_FEATURE = 0;  // 0
-/*! true for silhouettes */
+/** true for silhouettes */
 static const EdgeNature SILHOUETTE = (1 << 0);  // 1
-/*! true for borders */
+/** true for borders */
 static const EdgeNature BORDER = (1 << 1);  // 2
-/*! true for creases */
+/** true for creases */
 static const EdgeNature CREASE = (1 << 2);  // 4
-/*! true for ridges */
+/** true for ridges */
 static const EdgeNature RIDGE = (1 << 3);  // 8
-/*! true for valleys */
+/** true for valleys */
 static const EdgeNature VALLEY = (1 << 4);  // 16
-/*! true for suggestive contours */
+/** true for suggestive contours */
 static const EdgeNature SUGGESTIVE_CONTOUR = (1 << 5);  // 32
-/*! true for material boundaries */
+/** true for material boundaries */
 static const EdgeNature MATERIAL_BOUNDARY = (1 << 6);  // 64
-/*! true for user-defined edge marks */
+/** true for user-defined edge marks */
 static const EdgeNature EDGE_MARK = (1 << 7);  // 128
 
 }  // end of namespace Nature
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_NATURE_H__

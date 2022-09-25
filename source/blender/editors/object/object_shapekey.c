@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edobj
@@ -36,7 +20,8 @@
 #include "BLI_math.h"
 #include "BLI_utildefines.h"
 
-#include "DNA_curve_types.h"
+#include "BLT_translation.h"
+
 #include "DNA_key_types.h"
 #include "DNA_lattice_types.h"
 #include "DNA_mesh_types.h"
@@ -44,16 +29,18 @@
 #include "DNA_object_types.h"
 
 #include "BKE_context.h"
-#include "BKE_curve.h"
+#include "BKE_crazyspace.h"
 #include "BKE_key.h"
 #include "BKE_lattice.h"
 #include "BKE_main.h"
 #include "BKE_object.h"
+#include "BKE_report.h"
 
 #include "DEG_depsgraph.h"
 #include "DEG_depsgraph_build.h"
+#include "DEG_depsgraph_query.h"
 
-#include "BLI_sys_types.h"  // for intptr_t support
+#include "BLI_sys_types.h" /* for intptr_t support */
 
 #include "ED_mesh.h"
 #include "ED_object.h"
@@ -66,7 +53,9 @@
 
 #include "object_intern.h"
 
-/*********************** add shape key ***********************/
+/* -------------------------------------------------------------------- */
+/** \name Add Shape Key Function
+ * \{ */
 
 static void ED_object_shape_key_add(bContext *C, Object *ob, const bool from_mix)
 {
@@ -81,7 +70,11 @@ static void ED_object_shape_key_add(bContext *C, Object *ob, const bool from_mix
   }
 }
 
-/*********************** remove shape key ***********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Remove Shape Key Function
+ * \{ */
 
 static bool object_shapekey_remove(Main *bmain, Object *ob)
 {
@@ -214,43 +207,51 @@ static bool object_shape_key_mirror(
   return 1;
 }
 
-/********************** shape key operators *********************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Shared Poll Functions
+ * \{ */
+
+static bool shape_key_poll(bContext *C)
+{
+  Object *ob = ED_object_context(C);
+  ID *data = (ob) ? ob->data : NULL;
+
+  return (ob != NULL && !ID_IS_LINKED(ob) && !ID_IS_OVERRIDE_LIBRARY(ob) && data != NULL &&
+          !ID_IS_LINKED(data) && !ID_IS_OVERRIDE_LIBRARY(data));
+}
 
 static bool shape_key_mode_poll(bContext *C)
 {
   Object *ob = ED_object_context(C);
-  ID *data = (ob) ? ob->data : NULL;
-  return (ob && !ID_IS_LINKED(ob) && data && !ID_IS_LINKED(data) && ob->mode != OB_MODE_EDIT);
+
+  return (shape_key_poll(C) && ob->mode != OB_MODE_EDIT);
 }
 
 static bool shape_key_mode_exists_poll(bContext *C)
 {
   Object *ob = ED_object_context(C);
-  ID *data = (ob) ? ob->data : NULL;
 
-  /* same as shape_key_mode_poll */
-  return (ob && !ID_IS_LINKED(ob) && data && !ID_IS_LINKED(data) && ob->mode != OB_MODE_EDIT) &&
-         /* check a keyblock exists */
-         (BKE_keyblock_from_object(ob) != NULL);
+  return (shape_key_mode_poll(C) &&
+          /* check a keyblock exists */
+          (BKE_keyblock_from_object(ob) != NULL));
 }
 
 static bool shape_key_move_poll(bContext *C)
 {
   /* Same as shape_key_mode_exists_poll above, but ensure we have at least two shapes! */
   Object *ob = ED_object_context(C);
-  ID *data = (ob) ? ob->data : NULL;
   Key *key = BKE_key_from_object(ob);
 
-  return (ob && !ID_IS_LINKED(ob) && data && !ID_IS_LINKED(data) && ob->mode != OB_MODE_EDIT &&
-          key && key->totkey > 1);
+  return (shape_key_mode_poll(C) && key != NULL && key->totkey > 1);
 }
 
-static bool shape_key_poll(bContext *C)
-{
-  Object *ob = ED_object_context(C);
-  ID *data = (ob) ? ob->data : NULL;
-  return (ob && !ID_IS_LINKED(ob) && data && !ID_IS_LINKED(data));
-}
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Shape Key Add Operator
+ * \{ */
 
 static int shape_key_add_exec(bContext *C, wmOperator *op)
 {
@@ -287,6 +288,12 @@ void OBJECT_OT_shape_key_add(wmOperatorType *ot)
                   "Create the new shape key from the existing mix of keys");
 }
 
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Shape Key Remove Operator
+ * \{ */
+
 static int shape_key_remove_exec(bContext *C, wmOperator *op)
 {
   Main *bmain = CTX_data_main(C);
@@ -294,6 +301,10 @@ static int shape_key_remove_exec(bContext *C, wmOperator *op)
   bool changed = false;
 
   if (RNA_boolean_get(op->ptr, "all")) {
+    if (RNA_boolean_get(op->ptr, "apply_mix")) {
+      float *arr = BKE_key_evaluate_object_ex(ob, NULL, NULL, 0, ob->data);
+      MEM_freeN(arr);
+    }
     changed = BKE_object_shapekey_free(bmain, ob);
   }
   else {
@@ -307,9 +318,35 @@ static int shape_key_remove_exec(bContext *C, wmOperator *op)
 
     return OPERATOR_FINISHED;
   }
-  else {
-    return OPERATOR_CANCELLED;
+  return OPERATOR_CANCELLED;
+}
+
+static bool shape_key_remove_poll_property(const bContext *UNUSED(C),
+                                           wmOperator *op,
+                                           const PropertyRNA *prop)
+{
+  const char *prop_id = RNA_property_identifier(prop);
+  const bool do_all = RNA_enum_get(op->ptr, "all");
+
+  /* Only show seed for randomize action! */
+  if (STREQ(prop_id, "apply_mix") && !do_all) {
+    return false;
   }
+  return true;
+}
+
+static char *shape_key_remove_get_description(bContext *UNUSED(C),
+                                              wmOperatorType *UNUSED(ot),
+                                              PointerRNA *ptr)
+{
+  const bool do_apply_mix = RNA_boolean_get(ptr, "apply_mix");
+
+  if (do_apply_mix) {
+    return BLI_strdup(
+        TIP_("Apply current visible shape to the object data, and delete all shape keys"));
+  }
+
+  return NULL;
 }
 
 void OBJECT_OT_shape_key_remove(wmOperatorType *ot)
@@ -322,13 +359,26 @@ void OBJECT_OT_shape_key_remove(wmOperatorType *ot)
   /* api callbacks */
   ot->poll = shape_key_mode_exists_poll;
   ot->exec = shape_key_remove_exec;
+  ot->poll_property = shape_key_remove_poll_property;
+  ot->get_description = shape_key_remove_get_description;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 
   /* properties */
-  RNA_def_boolean(ot->srna, "all", 0, "All", "Remove all shape keys");
+  RNA_def_boolean(ot->srna, "all", false, "All", "Remove all shape keys");
+  RNA_def_boolean(ot->srna,
+                  "apply_mix",
+                  false,
+                  "Apply Mix",
+                  "Apply current mix of shape keys to the geometry before removing them");
 }
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Shape Key Clear Operator
+ * \{ */
 
 static int shape_key_clear_exec(bContext *C, wmOperator *UNUSED(op))
 {
@@ -403,6 +453,12 @@ void OBJECT_OT_shape_key_retime(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Shape Key Mirror Operator
+ * \{ */
+
 static int shape_key_mirror_exec(bContext *C, wmOperator *op)
 {
   Object *ob = ED_object_context(C);
@@ -440,6 +496,12 @@ void OBJECT_OT_shape_key_mirror(wmOperatorType *ot)
       "Topology Mirror",
       "Use topology based mirroring (for when both sides of mesh have matching, unique topology)");
 }
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Shape Key Move (Re-Order) Operator
+ * \{ */
 
 enum {
   KB_MOVE_TOP = -2,
@@ -506,3 +568,5 @@ void OBJECT_OT_shape_key_move(wmOperatorType *ot)
 
   RNA_def_enum(ot->srna, "type", slot_move, 0, "Type", "");
 }
+
+/** \} */

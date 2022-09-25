@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2020, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2020 Blender Foundation. */
 
 /** \file
  * \ingroup draw_engine
@@ -64,10 +49,17 @@ static void workbench_taa_jitter_init_order(float (*table)[2], int num)
     }
   }
 
-  /* move jitter table so that closest sample is in center */
+  float closest_sample[2];
+  copy_v2_v2(closest_sample, table[closest_index]);
   for (int index = 0; index < num; index++) {
-    sub_v2_v2(table[index], table[closest_index]);
-    mul_v2_fl(table[index], 2.0f);
+    /* move jitter table so that closest sample is in center */
+    sub_v2_v2(table[index], closest_sample);
+    for (int i = 0; i < 2; i++) {
+      /* Avoid samples outside range (wrap around). */
+      table[index][i] = fmodf(table[index][i] + 0.5f, 1.0f);
+      /* Recenter the distribution[-1..1]. */
+      table[index][i] = table[index][i] * 2.0f - 1.0f;
+    }
   }
 
   /* swap center sample to the start of the table */
@@ -75,7 +67,7 @@ static void workbench_taa_jitter_init_order(float (*table)[2], int num)
     swap_v2_v2(table[0], table[closest_index]);
   }
 
-  /* sort list based on furtest distance with previous */
+  /* Sort list based on farthest distance with previous. */
   for (int i = 0; i < num - 2; i++) {
     float f_squared_dist = 0.0;
     int f_index = i;
@@ -112,17 +104,15 @@ int workbench_antialiasing_sample_count_get(WORKBENCH_PrivateData *wpd)
     /* Only draw using SMAA or no AA when navigating. */
     return min_ii(wpd->preferences->viewport_aa, 1);
   }
-  else if (DRW_state_is_image_render()) {
+  if (DRW_state_is_image_render()) {
     if (draw_ctx->v3d) {
       return scene->display.viewport_aa;
     }
-    else {
-      return scene->display.render_aa;
-    }
+
+    return scene->display.render_aa;
   }
-  else {
-    return wpd->preferences->viewport_aa;
-  }
+
+  return wpd->preferences->viewport_aa;
 }
 
 void workbench_antialiasing_view_updated(WORKBENCH_Data *vedata)
@@ -242,29 +232,15 @@ void workbench_antialiasing_engine_init(WORKBENCH_Data *vedata)
                                       GPU_ATTACHMENT_TEXTURE(wpd->smaa_weight_tx),
                                   });
 
-    /* TODO could be shared for all viewports. */
+    /* TODO: could be shared for all viewports. */
     if (txl->smaa_search_tx == NULL) {
-      txl->smaa_search_tx = GPU_texture_create_nD(SEARCHTEX_WIDTH,
-                                                  SEARCHTEX_HEIGHT,
-                                                  0,
-                                                  2,
-                                                  searchTexBytes,
-                                                  GPU_R8,
-                                                  GPU_DATA_UNSIGNED_BYTE,
-                                                  0,
-                                                  false,
-                                                  NULL);
+      txl->smaa_search_tx = GPU_texture_create_2d(
+          "smaa_search", SEARCHTEX_WIDTH, SEARCHTEX_HEIGHT, 1, GPU_R8, NULL);
+      GPU_texture_update(txl->smaa_search_tx, GPU_DATA_UBYTE, searchTexBytes);
 
-      txl->smaa_area_tx = GPU_texture_create_nD(AREATEX_WIDTH,
-                                                AREATEX_HEIGHT,
-                                                0,
-                                                2,
-                                                areaTexBytes,
-                                                GPU_RG8,
-                                                GPU_DATA_UNSIGNED_BYTE,
-                                                0,
-                                                false,
-                                                NULL);
+      txl->smaa_area_tx = GPU_texture_create_2d(
+          "smaa_area", AREATEX_WIDTH, AREATEX_HEIGHT, 1, GPU_RG8, NULL);
+      GPU_texture_update(txl->smaa_area_tx, GPU_DATA_UBYTE, areaTexBytes);
 
       GPU_texture_filter_mode(txl->smaa_search_tx, true);
       GPU_texture_filter_mode(txl->smaa_area_tx, true);
@@ -277,6 +253,37 @@ void workbench_antialiasing_engine_init(WORKBENCH_Data *vedata)
     DRW_TEXTURE_FREE_SAFE(txl->depth_buffer_in_front_tx);
     DRW_TEXTURE_FREE_SAFE(txl->smaa_search_tx);
     DRW_TEXTURE_FREE_SAFE(txl->smaa_area_tx);
+  }
+}
+
+static float filter_blackman_harris(float x, const float width)
+{
+  if (x > width * 0.5f) {
+    return 0.0f;
+  }
+  x = 2.0f * M_PI * clamp_f((x / width + 0.5f), 0.0f, 1.0f);
+  return 0.35875f - 0.48829f * cosf(x) + 0.14128f * cosf(2.0f * x) - 0.01168f * cosf(3.0f * x);
+}
+
+/* Compute weights for the 3x3 neighborhood using a 1.5px filter. */
+static void workbench_antialiasing_weights_get(const float offset[2],
+                                               float r_weights[9],
+                                               float *r_weight_sum)
+{
+  /* NOTE: If filter width is bigger than 2.0f, then we need to sample more neighborhood. */
+  const float filter_width = 2.0f;
+  *r_weight_sum = 0.0f;
+  int i = 0;
+  for (int x = -1; x <= 1; x++) {
+    for (int y = -1; y <= 1; y++, i++) {
+      float sample_co[2] = {x, y};
+      sub_v2_v2(sample_co, offset);
+      float r = len_v2(sample_co);
+      /* fclem: is radial distance ok here? */
+      float weight = filter_blackman_harris(r, filter_width);
+      *r_weight_sum += weight;
+      r_weights[i] = weight;
+    }
   }
 }
 
@@ -294,16 +301,18 @@ void workbench_antialiasing_cache_init(WORKBENCH_Data *vedata)
 
   {
     DRW_PASS_CREATE(psl->aa_accum_ps, DRW_STATE_WRITE_COLOR | DRW_STATE_BLEND_ADD_FULL);
+    DRW_PASS_INSTANCE_CREATE(psl->aa_accum_replace_ps, psl->aa_accum_ps, DRW_STATE_WRITE_COLOR);
 
     GPUShader *shader = workbench_shader_antialiasing_accumulation_get();
     grp = DRW_shgroup_create(shader, psl->aa_accum_ps);
-    DRW_shgroup_uniform_texture(grp, "colorBuffer", dtxl->color);
+    DRW_shgroup_uniform_texture_ex(grp, "colorBuffer", dtxl->color, GPU_SAMPLER_DEFAULT);
+    DRW_shgroup_uniform_float(grp, "samplesWeights", wpd->taa_weights, 9);
     DRW_shgroup_call_procedural_triangles(grp, NULL, 1);
   }
 
   const float *size = DRW_viewport_size_get();
   const float *sizeinv = DRW_viewport_invert_size_get();
-  float metrics[4] = {sizeinv[0], sizeinv[1], size[0], size[1]};
+  const float metrics[4] = {sizeinv[0], sizeinv[1], size[0], size[1]};
 
   {
     /* Stage 1: Edge detection. */
@@ -341,13 +350,12 @@ void workbench_antialiasing_cache_init(WORKBENCH_Data *vedata)
     DRW_shgroup_uniform_texture(grp, "colorTex", txl->history_buffer_tx);
     DRW_shgroup_uniform_vec4_copy(grp, "viewportMetrics", metrics);
     DRW_shgroup_uniform_float(grp, "mixFactor", &wpd->smaa_mix_factor, 1);
-    DRW_shgroup_uniform_float(grp, "taaSampleCountInv", &wpd->taa_sample_inv, 1);
+    DRW_shgroup_uniform_float(grp, "taaAccumulatedWeight", &wpd->taa_weight_accum, 1);
 
     DRW_shgroup_call_procedural_triangles(grp, NULL, 1);
   }
 }
 
-/* Return true if render is not cached. */
 bool workbench_antialiasing_setup(WORKBENCH_Data *vedata)
 {
   WORKBENCH_PrivateData *wpd = vedata->stl->wpd;
@@ -361,53 +369,54 @@ bool workbench_antialiasing_setup(WORKBENCH_Data *vedata)
     /* TAA accumulation has finish. Just copy the result back */
     return false;
   }
-  else {
-    const float *viewport_size = DRW_viewport_size_get();
-    const DRWView *default_view = DRW_view_default_get();
-    float *transform_offset;
 
-    switch (wpd->taa_sample_len) {
-      default:
-      case 5:
-        transform_offset = e_data.jitter_5[min_ii(wpd->taa_sample, 5)];
-        break;
-      case 8:
-        transform_offset = e_data.jitter_8[min_ii(wpd->taa_sample, 8)];
-        break;
-      case 11:
-        transform_offset = e_data.jitter_11[min_ii(wpd->taa_sample, 11)];
-        break;
-      case 16:
-        transform_offset = e_data.jitter_16[min_ii(wpd->taa_sample, 16)];
-        break;
-      case 32:
-        transform_offset = e_data.jitter_32[min_ii(wpd->taa_sample, 32)];
-        break;
-    }
+  const float *viewport_size = DRW_viewport_size_get();
+  const DRWView *default_view = DRW_view_default_get();
+  float *transform_offset;
 
-    /* construct new matrices from transform delta */
-    float winmat[4][4], viewmat[4][4], persmat[4][4];
-    DRW_view_winmat_get(default_view, winmat, false);
-    DRW_view_viewmat_get(default_view, viewmat, false);
-    DRW_view_persmat_get(default_view, persmat, false);
-
-    window_translate_m4(winmat,
-                        persmat,
-                        transform_offset[0] / viewport_size[0],
-                        transform_offset[1] / viewport_size[1]);
-
-    if (wpd->view) {
-      /* When rendering just update the view. This avoids recomputing the culling. */
-      DRW_view_update_sub(wpd->view, viewmat, winmat);
-    }
-    else {
-      /* TAA is not making a big change to the matrices.
-       * Reuse the main view culling by creating a sub-view. */
-      wpd->view = DRW_view_create_sub(default_view, viewmat, winmat);
-    }
-    DRW_view_set_active(wpd->view);
-    return true;
+  switch (wpd->taa_sample_len) {
+    default:
+    case 5:
+      transform_offset = e_data.jitter_5[min_ii(wpd->taa_sample, 5)];
+      break;
+    case 8:
+      transform_offset = e_data.jitter_8[min_ii(wpd->taa_sample, 8)];
+      break;
+    case 11:
+      transform_offset = e_data.jitter_11[min_ii(wpd->taa_sample, 11)];
+      break;
+    case 16:
+      transform_offset = e_data.jitter_16[min_ii(wpd->taa_sample, 16)];
+      break;
+    case 32:
+      transform_offset = e_data.jitter_32[min_ii(wpd->taa_sample, 32)];
+      break;
   }
+
+  workbench_antialiasing_weights_get(transform_offset, wpd->taa_weights, &wpd->taa_weights_sum);
+
+  /* construct new matrices from transform delta */
+  float winmat[4][4], viewmat[4][4], persmat[4][4];
+  DRW_view_winmat_get(default_view, winmat, false);
+  DRW_view_viewmat_get(default_view, viewmat, false);
+  DRW_view_persmat_get(default_view, persmat, false);
+
+  window_translate_m4(winmat,
+                      persmat,
+                      transform_offset[0] / viewport_size[0],
+                      transform_offset[1] / viewport_size[1]);
+
+  if (wpd->view) {
+    /* When rendering just update the view. This avoids recomputing the culling. */
+    DRW_view_update_sub(wpd->view, viewmat, winmat);
+  }
+  else {
+    /* TAA is not making a big change to the matrices.
+     * Reuse the main view culling by creating a sub-view. */
+    wpd->view = DRW_view_create_sub(default_view, viewmat, winmat);
+  }
+  DRW_view_set_active(wpd->view);
+  return true;
 }
 
 void workbench_antialiasing_draw_pass(WORKBENCH_Data *vedata)
@@ -436,8 +445,11 @@ void workbench_antialiasing_draw_pass(WORKBENCH_Data *vedata)
   const bool last_sample = wpd->taa_sample + 1 == wpd->taa_sample_len;
   const bool taa_finished = wpd->taa_sample >= wpd->taa_sample_len;
   if (wpd->taa_sample == 0) {
+    wpd->taa_weight_accum = wpd->taa_weights_sum;
     wpd->valid_history = true;
-    GPU_texture_copy(txl->history_buffer_tx, dtxl->color);
+
+    GPU_framebuffer_bind(fbl->antialiasing_fb);
+    DRW_draw_pass(psl->aa_accum_replace_ps);
     /* In playback mode, we are sure the next redraw will not use the same viewmatrix.
      * In this case no need to save the depth buffer. */
     if (!wpd->is_playback) {
@@ -452,6 +464,7 @@ void workbench_antialiasing_draw_pass(WORKBENCH_Data *vedata)
       /* Accumulate result to the TAA buffer. */
       GPU_framebuffer_bind(fbl->antialiasing_fb);
       DRW_draw_pass(psl->aa_accum_ps);
+      wpd->taa_weight_accum += wpd->taa_weights_sum;
     }
     /* Copy back the saved depth buffer for correct overlays. */
     GPU_texture_copy(dtxl->depth, txl->depth_buffer_tx);
@@ -463,7 +476,6 @@ void workbench_antialiasing_draw_pass(WORKBENCH_Data *vedata)
   if (!DRW_state_is_image_render() || last_sample) {
     /* After a certain point SMAA is no longer necessary. */
     wpd->smaa_mix_factor = 1.0f - clamp_f(wpd->taa_sample / 4.0f, 0.0f, 1.0f);
-    wpd->taa_sample_inv = 1.0f / min_ii(wpd->taa_sample + 1, wpd->taa_sample_len);
 
     if (wpd->smaa_mix_factor > 0.0f) {
       GPU_framebuffer_bind(fbl->smaa_edge_fb);

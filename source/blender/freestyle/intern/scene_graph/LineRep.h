@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_LINE_REP_H__
-#define __FREESTYLE_LINE_REP_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -33,10 +18,10 @@ using namespace std;
 
 namespace Freestyle {
 
-/*! Base class for all lines objects */
+/** Base class for all lines objects */
 class LineRep : public Rep {
  public:
-  /*! Line description style */
+  /** Line description style */
   enum LINES_STYLE {
     LINES,
     LINE_STRIP,
@@ -48,7 +33,7 @@ class LineRep : public Rep {
     _width = 0.0f;
   }
 
-  /*! Builds a single line from 2 vertices
+  /** Builds a single line from 2 vertices
    *  v1
    *    first vertex
    *  v2
@@ -62,7 +47,7 @@ class LineRep : public Rep {
     _width = 0.0f;
   }
 
-  /*! Builds a line rep from a vertex chain */
+  /** Builds a line rep from a vertex chain */
   inline LineRep(const vector<Vec3r> &vertices) : Rep()
   {
     _vertices = vertices;
@@ -70,7 +55,7 @@ class LineRep : public Rep {
     _width = 0.0f;
   }
 
-  /*! Builds a line rep from a vertex chain */
+  /** Builds a line rep from a vertex chain */
   inline LineRep(const list<Vec3r> &vertices) : Rep()
   {
     for (list<Vec3r>::const_iterator v = vertices.begin(), end = vertices.end(); v != end; ++v) {
@@ -85,7 +70,7 @@ class LineRep : public Rep {
     _vertices.clear();
   }
 
-  /*! accessors */
+  /** accessors */
   inline const LINES_STYLE style() const
   {
     return _Style;
@@ -101,7 +86,7 @@ class LineRep : public Rep {
     return _width;
   }
 
-  /*! modifiers */
+  /** modifiers */
   inline void setStyle(const LINES_STYLE iStyle)
   {
     _Style = iStyle;
@@ -128,14 +113,14 @@ class LineRep : public Rep {
     _width = iWidth;
   }
 
-  /*! Accept the corresponding visitor */
+  /** Accept the corresponding visitor */
   virtual void accept(SceneVisitor &v)
   {
     Rep::accept(v);
     v.visitLineRep(*this);
   }
 
-  /*! Computes the line bounding box.*/
+  /** Computes the line bounding box. */
   virtual void ComputeBBox();
 
  private:
@@ -149,5 +134,3 @@ class LineRep : public Rep {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_LINE_REP_H__

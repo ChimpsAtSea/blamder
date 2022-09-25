@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_STROKE_ITERATORS_H__
-#define __FREESTYLE_STROKE_ITERATORS_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -33,7 +18,7 @@ namespace StrokeInternal {
 //
 /////////////////////////////////////////////////
 
-/*! Class defining an iterator designed to iterate over the StrokeVertex of a Stroke.
+/** Class defining an iterator designed to iterate over the StrokeVertex of a Stroke.
  *  An instance of a StrokeVertexIterator can only be obtained from a Stroke by calling
  * strokeVerticesBegin() or strokeVerticesEnd(). It is iterating over the same vertices as an
  * Interface0DIterator. The difference resides in the object access. Indeed, an Interface0DIterator
@@ -47,12 +32,12 @@ namespace StrokeInternal {
  */
 class StrokeVertexIterator : public Interface0DIteratorNested {
  public:
-  /*! Default constructor. */
+  /** Default constructor. */
   StrokeVertexIterator()
   {
   }
 
-  /*! Copy constructor. */
+  /** Copy constructor. */
   StrokeVertexIterator(const StrokeVertexIterator &vi)
   {
     _it = vi._it;
@@ -73,7 +58,7 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
   {
   }
 
-  /*! Casts this StrokeVertexIterator into an Interface0DIterator.
+  /** Casts this StrokeVertexIterator into an Interface0DIterator.
    *  Useful for any call to a function of the type UnaryFunction0D.
    */
   inline Interface0DIterator castToInterface0DIterator() const
@@ -82,7 +67,7 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
     return ret;
   }
 
-  /*! operator=
+  /** operator=
    *  \attention In the scripting language, you must call \code it2 = StrokeVertexIterator(it1)
    * \endcode instead of \code it2 = it1 \endcode where \a it1 and \a it2 are 2
    * StrokeVertexIterator. Otherwise, incrementing \a it1 will also increment \a it2.
@@ -95,13 +80,13 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
     return *this;
   }
 
-  /*! Returns the string "StrokeVertexIterator". */
+  /** Returns the string "StrokeVertexIterator". */
   virtual string getExactTypeName() const
   {
     return "StrokeVertexIterator";
   }
 
-  /*! Returns a reference to the pointed StrokeVertex.
+  /** Returns a reference to the pointed StrokeVertex.
    *  In the scripting language, you must call "getObject()"instead.
    */
   virtual StrokeVertex &operator*()
@@ -109,7 +94,7 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
     return **_it;
   }
 
-  /*! Returns a pointer to the pointed StrokeVertex.
+  /** Returns a pointer to the pointed StrokeVertex.
    * Can't be called in the scripting language.
    */
   virtual StrokeVertex *operator->()
@@ -117,14 +102,14 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
     return &(operator*());
   }
 
-  /*! Increments. In the scripting language, call "increment()". */
+  /** Increments. In the scripting language, call "increment()". */
   virtual StrokeVertexIterator &operator++()
   {
     increment();
     return *this;
   }
 
-  /*! Increments. In the scripting language, call "increment()". */
+  /** Increments. In the scripting language, call "increment()". */
   virtual StrokeVertexIterator operator++(int)
   {
     StrokeVertexIterator ret(*this);
@@ -132,14 +117,14 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
     return ret;
   }
 
-  /*! Decrements. In the scripting language, call "decrement()". */
+  /** Decrements. In the scripting language, call "decrement()". */
   virtual StrokeVertexIterator &operator--()
   {
     decrement();
     return *this;
   }
 
-  /*! Decrements. In the scripting language, call "decrement()". */
+  /** Decrements. In the scripting language, call "decrement()". */
   virtual StrokeVertexIterator operator--(int)
   {
     StrokeVertexIterator ret(*this);
@@ -147,27 +132,27 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
     return ret;
   }
 
-  /*! Increments. */
+  /** Increments. */
   virtual int increment()
   {
     ++_it;
     return 0;
   }
 
-  /*! Decrements. */
+  /** Decrements. */
   virtual int decrement()
   {
     --_it;
     return 0;
   }
 
-  /*! Returns true if the pointed StrokeVertex is the first of the Stroke. */
+  /** Returns true if the pointed StrokeVertex is the first of the Stroke. */
   bool isBegin() const
   {
     return _it == _begin;
   }
 
-  /*! Returns true if the pointed StrokeVertex is the final valid StrokeVertex of the Stroke. */
+  /** Returns true if the pointed StrokeVertex is the final valid StrokeVertex of the Stroke. */
   bool atLast()
   {
     if (_it == _end) {
@@ -180,13 +165,13 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
     return result;
   }
 
-  /*! Returns true if the pointed StrokeVertex is after the last StrokeVertex of the Stroke. */
+  /** Returns true if the pointed StrokeVertex is after the last StrokeVertex of the Stroke. */
   bool isEnd() const
   {
     return _it == _end;
   }
 
-  /*! operator == */
+  /** operator == */
   virtual bool operator==(const Interface0DIteratorNested &it) const
   {
     const StrokeVertexIterator *it_exact = dynamic_cast<const StrokeVertexIterator *>(&it);
@@ -196,19 +181,19 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
     return (_it == it_exact->_it);
   }
 
-  /*! Returns the curvilinear abscissa of the current point */
+  /** Returns the curvilinear abscissa of the current point */
   virtual float t() const
   {
     return (*_it)->curvilinearAbscissa();
   }
 
-  /*! Returns the point's parameter in the stroke */
+  /** Returns the point's parameter in the stroke */
   virtual float u() const
   {
     return (*_it)->u();
   }
 
-  /*! Cloning method */
+  /** Cloning method */
   virtual StrokeVertexIterator *copy() const
   {
     return new StrokeVertexIterator(*this);
@@ -232,5 +217,3 @@ class StrokeVertexIterator : public Interface0DIteratorNested {
 }  // end of namespace StrokeInternal
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_STROKE_ITERATORS_H__

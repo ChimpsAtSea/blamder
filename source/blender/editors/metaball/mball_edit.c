@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edmeta
@@ -47,6 +31,8 @@
 
 #include "DEG_depsgraph.h"
 
+#include "GPU_select.h"
+
 #include "ED_mball.h"
 #include "ED_object.h"
 #include "ED_screen.h"
@@ -58,7 +44,10 @@
 
 #include "mball_intern.h"
 
-/* This function is used to free all MetaElems from MetaBall */
+/* -------------------------------------------------------------------- */
+/** \name Edit Mode Functions
+ * \{ */
+
 void ED_mball_editmball_free(Object *obedit)
 {
   MetaBall *mb = (MetaBall *)obedit->data;
@@ -67,8 +56,6 @@ void ED_mball_editmball_free(Object *obedit)
   mb->lastelem = NULL;
 }
 
-/* This function is called, when MetaBall Object is
- * switched from object mode to edit mode */
 void ED_mball_editmball_make(Object *obedit)
 {
   MetaBall *mb = (MetaBall *)obedit->data;
@@ -86,16 +73,37 @@ void ED_mball_editmball_make(Object *obedit)
   mb->editelems = &mb->elems;
 }
 
-/* This function is called, when MetaBall Object switched from
- * edit mode to object mode. List of MetaElements is copied
- * from object->data->edit_elems to object->data->elems. */
 void ED_mball_editmball_load(Object *UNUSED(obedit))
 {
 }
 
-/* Add metaelem primitive to metaball object (which is in edit mode) */
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Selection
+ * \{ */
+
+bool ED_mball_deselect_all_multi(bContext *C)
+{
+  Depsgraph *depsgraph = CTX_data_ensure_evaluated_depsgraph(C);
+  ViewContext vc;
+  ED_view3d_viewcontext_init(C, &vc, depsgraph);
+  uint bases_len = 0;
+  Base **bases = BKE_view_layer_array_from_bases_in_edit_mode_unique_data(
+      vc.view_layer, vc.v3d, &bases_len);
+  bool changed_multi = BKE_mball_deselect_all_multi_ex(bases, bases_len);
+  MEM_freeN(bases);
+  return changed_multi;
+}
+
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Add Meta Primitive Utility
+ * \{ */
+
 MetaElem *ED_mball_add_primitive(
-    bContext *UNUSED(C), Object *obedit, float mat[4][4], float dia, int type)
+    bContext *UNUSED(C), Object *obedit, bool obedit_is_new, float mat[4][4], float dia, int type)
 {
   MetaBall *mball = (MetaBall *)obedit->data;
   MetaElem *ml;
@@ -109,16 +117,28 @@ MetaElem *ED_mball_add_primitive(
 
   ml = BKE_mball_element_add(mball, type);
   ml->rad *= dia;
-  mball->wiresize *= dia;
-  mball->rendersize *= dia;
+
+  if (obedit_is_new) {
+    mball->wiresize *= dia;
+    mball->rendersize *= dia;
+  }
   copy_v3_v3(&ml->x, mat[3]);
+  /* MB_ELIPSOID works differently (intentional?). Whatever the case,
+   * on testing this needs to be skipped otherwise it doesn't behave like other types. */
+  if (type != MB_ELIPSOID) {
+    mul_v3_fl(&ml->expx, dia);
+  }
 
   ml->flag |= SELECT;
   mball->lastelem = ml;
   return ml;
 }
 
-/***************************** Select/Deselect operator *****************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Select/Deselect Operator
+ * \{ */
 
 /* Select or deselect all MetaElements */
 static int mball_select_all_exec(bContext *C, wmOperator *op)
@@ -162,7 +182,7 @@ void MBALL_OT_select_all(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "(De)select All";
-  ot->description = "Change selection of all meta elements";
+  ot->description = "Change selection of all metaball elements";
   ot->idname = "MBALL_OT_select_all";
 
   /* callback functions */
@@ -175,8 +195,11 @@ void MBALL_OT_select_all(wmOperatorType *ot)
   WM_operator_properties_select_all(ot);
 }
 
+/** \} */
+
 /* -------------------------------------------------------------------- */
-/* Select Similar */
+/** \name Select Similar Operator
+ * \{ */
 
 enum {
   SIMMBALL_TYPE = 1,
@@ -428,13 +451,16 @@ void MBALL_OT_select_similar(wmOperatorType *ot)
   RNA_def_float(ot->srna, "threshold", 0.1, 0.0, FLT_MAX, "Threshold", "", 0.01, 1.0);
 }
 
-/***************************** Select random operator *****************************/
+/** \} */
 
-/* Random metaball selection */
+/* -------------------------------------------------------------------- */
+/** \name Select Random Operator
+ * \{ */
+
 static int select_random_metaelems_exec(bContext *C, wmOperator *op)
 {
   const bool select = (RNA_enum_get(op->ptr, "action") == SEL_SELECT);
-  const float randfac = RNA_float_get(op->ptr, "percent") / 100.0f;
+  const float randfac = RNA_float_get(op->ptr, "ratio");
   const int seed = WM_operator_properties_select_random_seed_increment_get(op);
 
   ViewLayer *view_layer = CTX_data_view_layer(C);
@@ -480,7 +506,7 @@ void MBALL_OT_select_random_metaelems(struct wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Select Random";
-  ot->description = "Randomly select metaelements";
+  ot->description = "Randomly select metaball elements";
   ot->idname = "MBALL_OT_select_random_metaelems";
 
   /* callback functions */
@@ -494,7 +520,11 @@ void MBALL_OT_select_random_metaelems(struct wmOperatorType *ot)
   WM_operator_properties_select_random(ot);
 }
 
-/***************************** Duplicate operator *****************************/
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Duplicate Meta-Ball Operator
+ * \{ */
 
 /* Duplicate selected MetaElements */
 static int duplicate_metaelems_exec(bContext *C, wmOperator *UNUSED(op))
@@ -534,8 +564,8 @@ static int duplicate_metaelems_exec(bContext *C, wmOperator *UNUSED(op))
 void MBALL_OT_duplicate_metaelems(wmOperatorType *ot)
 {
   /* identifiers */
-  ot->name = "Duplicate Metaelements";
-  ot->description = "Duplicate selected metaelement(s)";
+  ot->name = "Duplicate Metaball Elements";
+  ot->description = "Duplicate selected metaball element(s)";
   ot->idname = "MBALL_OT_duplicate_metaelems";
 
   /* callback functions */
@@ -546,9 +576,14 @@ void MBALL_OT_duplicate_metaelems(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-/***************************** Delete operator *****************************/
+/** \} */
 
-/* Delete all selected MetaElems (not MetaBall) */
+/* -------------------------------------------------------------------- */
+/** \name Delete Meta-Ball Operator
+ *
+ * Delete all selected MetaElems (not MetaBall).
+ * \{ */
+
 static int delete_metaelems_exec(bContext *C, wmOperator *UNUSED(op))
 {
   ViewLayer *view_layer = CTX_data_view_layer(C);
@@ -589,7 +624,7 @@ void MBALL_OT_delete_metaelems(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Delete";
-  ot->description = "Delete selected metaelement(s)";
+  ot->description = "Delete selected metaball element(s)";
   ot->idname = "MBALL_OT_delete_metaelems";
 
   /* callback functions */
@@ -601,9 +636,12 @@ void MBALL_OT_delete_metaelems(wmOperatorType *ot)
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
 }
 
-/***************************** Hide operator *****************************/
+/** \} */
 
-/* Hide selected MetaElems */
+/* -------------------------------------------------------------------- */
+/** \name Hide Meta-Elements Operator
+ * \{ */
+
 static int hide_metaelems_exec(bContext *C, wmOperator *op)
 {
   Object *obedit = CTX_data_edit_object(C);
@@ -631,7 +669,7 @@ void MBALL_OT_hide_metaelems(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Hide Selected";
-  ot->description = "Hide (un)selected metaelement(s)";
+  ot->description = "Hide (un)selected metaball element(s)";
   ot->idname = "MBALL_OT_hide_metaelems";
 
   /* callback functions */
@@ -646,9 +684,12 @@ void MBALL_OT_hide_metaelems(wmOperatorType *ot)
       ot->srna, "unselected", false, "Unselected", "Hide unselected rather than selected");
 }
 
-/***************************** Unhide operator *****************************/
+/** \} */
 
-/* Unhide all edited MetaElems */
+/* -------------------------------------------------------------------- */
+/** \name Un-Hide Meta-Elements Operator
+ * \{ */
+
 static int reveal_metaelems_exec(bContext *C, wmOperator *op)
 {
   Object *obedit = CTX_data_edit_object(C);
@@ -675,7 +716,7 @@ void MBALL_OT_reveal_metaelems(wmOperatorType *ot)
 {
   /* identifiers */
   ot->name = "Reveal Hidden";
-  ot->description = "Reveal all hidden metaelements";
+  ot->description = "Reveal all hidden metaball elements";
   ot->idname = "MBALL_OT_reveal_metaelems";
 
   /* callback functions */
@@ -689,160 +730,192 @@ void MBALL_OT_reveal_metaelems(wmOperatorType *ot)
   RNA_def_boolean(ot->srna, "select", true, "Select", "");
 }
 
-/* Select MetaElement with mouse click (user can select radius circle or
- * stiffness circle) */
-bool ED_mball_select_pick(bContext *C, const int mval[2], bool extend, bool deselect, bool toggle)
+/** \} */
+
+/* -------------------------------------------------------------------- */
+/** \name Select Pick Utility
+ * \{ */
+
+Base *ED_mball_base_and_elem_from_select_buffer(Base **bases,
+                                                uint bases_len,
+                                                const uint select_id,
+                                                MetaElem **r_ml)
+{
+  const uint hit_object = select_id & 0xFFFF;
+  Base *base = NULL;
+  MetaElem *ml = NULL;
+  /* TODO(campbell): optimize, eg: sort & binary search. */
+  for (uint base_index = 0; base_index < bases_len; base_index++) {
+    if (bases[base_index]->object->runtime.select_id == hit_object) {
+      base = bases[base_index];
+      break;
+    }
+  }
+  if (base != NULL) {
+    const uint hit_elem = (select_id & ~MBALLSEL_ANY) >> 16;
+    MetaBall *mb = base->object->data;
+    ml = BLI_findlink(mb->editelems, hit_elem);
+  }
+  *r_ml = ml;
+  return base;
+}
+
+static bool ed_mball_findnearest_metaelem(bContext *C,
+                                          const int mval[2],
+                                          bool use_cycle,
+                                          Base **r_base,
+                                          MetaElem **r_ml,
+                                          uint *r_selmask)
 {
   Depsgraph *depsgraph = CTX_data_ensure_evaluated_depsgraph(C);
-  static MetaElem *startelem = NULL;
   ViewContext vc;
   int a, hits;
-  uint buffer[MAXPICKBUF];
+  GPUSelectResult buffer[MAXPICKELEMS];
   rcti rect;
+  bool found = false;
 
   ED_view3d_viewcontext_init(C, &vc, depsgraph);
 
   BLI_rcti_init_pt_radius(&rect, mval, 12);
 
-  hits = view3d_opengl_select(
-      &vc, buffer, MAXPICKBUF, &rect, VIEW3D_SELECT_PICK_NEAREST, VIEW3D_SELECT_FILTER_NOP);
+  hits = view3d_opengl_select(&vc,
+                              buffer,
+                              ARRAY_SIZE(buffer),
+                              &rect,
+                              use_cycle ? VIEW3D_SELECT_PICK_ALL : VIEW3D_SELECT_PICK_NEAREST,
+                              VIEW3D_SELECT_FILTER_NOP);
 
-  FOREACH_BASE_IN_EDIT_MODE_BEGIN (vc.view_layer, vc.v3d, base) {
-    ED_view3d_viewcontext_init_object(&vc, base->object);
-    MetaBall *mb = (MetaBall *)base->object->data;
-    MetaElem *ml, *ml_act = NULL;
+  if (hits == 0) {
+    return false;
+  }
 
-    /* does startelem exist? */
-    ml = mb->editelems->first;
-    while (ml) {
-      if (ml == startelem) {
-        break;
-      }
-      ml = ml->next;
-    }
+  uint bases_len = 0;
+  Base **bases = BKE_view_layer_array_from_bases_in_edit_mode(vc.view_layer, vc.v3d, &bases_len);
 
-    if (ml == NULL) {
-      startelem = mb->editelems->first;
-    }
+  int hit_cycle_offset = 0;
+  if (use_cycle) {
+    /* When cycling, use the hit directly after the current active meta-element (when set). */
+    const int base_index = vc.obact->runtime.select_id;
+    MetaBall *mb = (MetaBall *)vc.obact->data;
+    MetaElem *ml = mb->lastelem;
+    if (ml && (ml->flag & SELECT)) {
+      const int ml_index = BLI_findindex(mb->editelems, ml);
+      BLI_assert(ml_index != -1);
 
-    if (hits > 0) {
-      int metaelem_id = 0;
-      ml = startelem;
-      while (ml) {
-        for (a = 0; a < hits; a++) {
-          int hitresult = buffer[(4 * a) + 3];
-          if (hitresult == -1) {
-            continue;
-          }
-          else if (hitresult & MBALL_NOSEL) {
-            continue;
-          }
-
-          const uint hit_object = hitresult & 0xFFFF;
-          if (vc.obedit->runtime.select_id != hit_object) {
-            continue;
-          }
-
-          if (metaelem_id != (hitresult & 0xFFFF0000 & ~(MBALLSEL_ANY))) {
-            continue;
-          }
-
-          if (hitresult & MBALLSEL_RADIUS) {
-            ml->flag |= MB_SCALE_RAD;
-            ml_act = ml;
-            break;
-          }
-
-          if (hitresult & MBALLSEL_STIFF) {
-            ml->flag &= ~MB_SCALE_RAD;
-            ml_act = ml;
-            break;
-          }
+      /* Count backwards in case the active meta-element has multiple entries,
+       * ensure this steps onto the next meta-element. */
+      a = hits;
+      while (a--) {
+        const int select_id = buffer[a].id;
+        if (select_id == -1) {
+          continue;
         }
 
-        if (ml_act) {
+        if (((select_id & 0xFFFF) == base_index) &&
+            ((select_id & ~MBALLSEL_ANY) >> 16 == ml_index)) {
+          hit_cycle_offset = a + 1;
           break;
         }
-        ml = ml->next;
-        if (ml == NULL) {
-          ml = mb->editelems->first;
-        }
-        if (ml == startelem) {
-          break;
-        }
-
-        metaelem_id += 0x10000;
-      }
-
-      /* When some metaelem was found, then it is necessary to select or deselect it. */
-      if (ml_act) {
-        if (!extend && !deselect && !toggle) {
-          uint objects_len;
-          Object **objects = BKE_view_layer_array_from_objects_in_edit_mode_unique_data(
-              vc.view_layer, vc.v3d, &objects_len);
-          for (uint ob_index = 0; ob_index < objects_len; ob_index++) {
-            Object *ob_iter = objects[ob_index];
-
-            if (ob_iter == base->object) {
-              continue;
-            }
-
-            BKE_mball_deselect_all((MetaBall *)ob_iter->data);
-            DEG_id_tag_update(ob_iter->data, ID_RECALC_SELECT);
-            WM_event_add_notifier(C, NC_GEOM | ND_SELECT, ob_iter->data);
-          }
-          MEM_freeN(objects);
-        }
-
-        if (extend) {
-          ml_act->flag |= SELECT;
-        }
-        else if (deselect) {
-          ml_act->flag &= ~SELECT;
-        }
-        else if (toggle) {
-          if (ml_act->flag & SELECT) {
-            ml_act->flag &= ~SELECT;
-          }
-          else {
-            ml_act->flag |= SELECT;
-          }
-        }
-        else {
-          /* Deselect all existing metaelems */
-          BKE_mball_deselect_all(mb);
-
-          /* Select only metaelem clicked on */
-          ml_act->flag |= SELECT;
-        }
-
-        mb->lastelem = ml_act;
-
-        DEG_id_tag_update(&mb->id, ID_RECALC_SELECT);
-        WM_event_add_notifier(C, NC_GEOM | ND_SELECT, mb);
-
-        if (vc.view_layer->basact != base) {
-          ED_object_base_activate(C, base);
-        }
-
-        return true;
       }
     }
   }
-  FOREACH_BASE_IN_EDIT_MODE_END;
 
-  return false;
-}
+  for (a = 0; a < hits; a++) {
+    const int index = (hit_cycle_offset == 0) ? a : ((a + hit_cycle_offset) % hits);
+    const uint select_id = buffer[index].id;
+    if (select_id == -1) {
+      continue;
+    }
 
-bool ED_mball_deselect_all_multi(bContext *C)
-{
-  Depsgraph *depsgraph = CTX_data_ensure_evaluated_depsgraph(C);
-  ViewContext vc;
-  ED_view3d_viewcontext_init(C, &vc, depsgraph);
-  uint bases_len = 0;
-  Base **bases = BKE_view_layer_array_from_bases_in_edit_mode_unique_data(
-      vc.view_layer, vc.v3d, &bases_len);
-  bool changed_multi = BKE_mball_deselect_all_multi_ex(bases, bases_len);
+    MetaElem *ml;
+    Base *base = ED_mball_base_and_elem_from_select_buffer(bases, bases_len, select_id, &ml);
+    if (ml == NULL) {
+      continue;
+    }
+    *r_base = base;
+    *r_ml = ml;
+    *r_selmask = select_id & MBALLSEL_ANY;
+    found = true;
+    break;
+  }
+
   MEM_freeN(bases);
-  return changed_multi;
+
+  return found;
 }
+
+bool ED_mball_select_pick(bContext *C, const int mval[2], const struct SelectPick_Params *params)
+{
+  Base *base = NULL;
+  MetaElem *ml = NULL;
+  uint selmask = 0;
+
+  bool changed = false;
+
+  bool found = ed_mball_findnearest_metaelem(C, mval, true, &base, &ml, &selmask);
+
+  if (params->sel_op == SEL_OP_SET) {
+    if ((found && params->select_passthrough) && (ml->flag & SELECT)) {
+      found = false;
+    }
+    else if (found || params->deselect_all) {
+      /* Deselect everything. */
+      changed |= ED_mball_deselect_all_multi(C);
+    }
+  }
+
+  if (found) {
+    if (selmask & MBALLSEL_RADIUS) {
+      ml->flag |= MB_SCALE_RAD;
+    }
+    else if (selmask & MBALLSEL_STIFF) {
+      ml->flag &= ~MB_SCALE_RAD;
+    }
+
+    switch (params->sel_op) {
+      case SEL_OP_ADD: {
+        ml->flag |= SELECT;
+        break;
+      }
+      case SEL_OP_SUB: {
+        ml->flag &= ~SELECT;
+        break;
+      }
+      case SEL_OP_XOR: {
+        if (ml->flag & SELECT) {
+          ml->flag &= ~SELECT;
+        }
+        else {
+          ml->flag |= SELECT;
+        }
+        break;
+      }
+      case SEL_OP_SET: {
+        /* Deselect has already been performed. */
+        ml->flag |= SELECT;
+        break;
+      }
+      case SEL_OP_AND: {
+        BLI_assert_unreachable(); /* Doesn't make sense for picking. */
+        break;
+      }
+    }
+
+    ViewLayer *view_layer = CTX_data_view_layer(C);
+    MetaBall *mb = (MetaBall *)base->object->data;
+    mb->lastelem = ml;
+
+    DEG_id_tag_update(&mb->id, ID_RECALC_SELECT);
+    WM_event_add_notifier(C, NC_GEOM | ND_SELECT, mb);
+
+    if (view_layer->basact != base) {
+      ED_object_base_activate(C, base);
+    }
+
+    changed = true;
+  }
+
+  return changed || found;
+}
+
+/** \} */

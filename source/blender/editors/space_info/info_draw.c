@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2010 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2010 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spinfo
@@ -35,7 +19,6 @@
 #include "UI_resources.h"
 #include "UI_view2d.h"
 
-#include "GPU_framebuffer.h"
 #include "info_intern.h"
 #include "textview.h"
 
@@ -56,47 +39,11 @@ static enum eTextViewContext_LineFlag report_line_data(TextViewContext *tvc,
   int shade = (tvc->iter_tmp % 2) ? 4 : -4;
   UI_GetThemeColorShade4ubv(bg_id, shade, bg);
 
-  /* Icon color and backgound depend of report type. */
+  /* Don't show icon on subsequent rows of multi-row report. */
+  *r_icon = (tvc->iter_char_begin != 0) ? ICON_NONE : UI_icon_from_report_type(report->type);
 
-  int icon_fg_id;
-  int icon_bg_id;
-
-  if (tvc->iter_char_begin != 0) {
-    *r_icon = ICON_NONE;
-  }
-  else if (report->type & RPT_ERROR_ALL) {
-    icon_fg_id = TH_INFO_ERROR_TEXT;
-    icon_bg_id = TH_INFO_ERROR;
-    *r_icon = ICON_CANCEL;
-  }
-  else if (report->type & RPT_WARNING_ALL) {
-    icon_fg_id = TH_INFO_WARNING_TEXT;
-    icon_bg_id = TH_INFO_WARNING;
-    *r_icon = ICON_ERROR;
-  }
-  else if (report->type & RPT_INFO_ALL) {
-    icon_fg_id = TH_INFO_INFO_TEXT;
-    icon_bg_id = TH_INFO_INFO;
-    *r_icon = ICON_INFO;
-  }
-  else if (report->type & RPT_DEBUG_ALL) {
-    icon_fg_id = TH_INFO_DEBUG_TEXT;
-    icon_bg_id = TH_INFO_DEBUG;
-    *r_icon = ICON_SYSTEM;
-  }
-  else if (report->type & RPT_PROPERTY) {
-    icon_fg_id = TH_INFO_PROPERTY_TEXT;
-    icon_bg_id = TH_INFO_PROPERTY;
-    *r_icon = ICON_OPTIONS;
-  }
-  else if (report->type & RPT_OPERATOR) {
-    icon_fg_id = TH_INFO_OPERATOR_TEXT;
-    icon_bg_id = TH_INFO_OPERATOR;
-    *r_icon = ICON_CHECKMARK;
-  }
-  else {
-    *r_icon = ICON_NONE;
-  }
+  int icon_fg_id = UI_text_colorid_from_report_type(report->type);
+  int icon_bg_id = UI_icon_colorid_from_report_type(report->type);
 
   if (report->flag & SELECT) {
     icon_fg_id = TH_INFO_SELECTED;
@@ -105,12 +52,13 @@ static enum eTextViewContext_LineFlag report_line_data(TextViewContext *tvc,
 
   if (*r_icon != ICON_NONE) {
     UI_GetThemeColor4ubv(icon_fg_id, r_icon_fg);
+    /* This theme color is RGB only, so set alpha. */
+    r_icon_fg[3] = 255;
     UI_GetThemeColor4ubv(icon_bg_id, r_icon_bg);
     return TVC_LINE_FG | TVC_LINE_BG | TVC_LINE_ICON | TVC_LINE_ICON_FG | TVC_LINE_ICON_BG;
   }
-  else {
-    return TVC_LINE_FG | TVC_LINE_BG;
-  }
+
+  return TVC_LINE_FG | TVC_LINE_BG;
 }
 
 /* reports! */
@@ -148,7 +96,6 @@ static int report_textview_begin(TextViewContext *tvc)
   tvc->iter = reports->list.last;
 
   UI_ThemeClearColor(TH_BACK);
-  GPU_clear(GPU_COLOR_BIT);
 
   tvc->iter_tmp = 0;
   if (tvc->iter && report_textview_skip__internal(tvc)) {
@@ -159,9 +106,8 @@ static int report_textview_begin(TextViewContext *tvc)
 
     return true;
   }
-  else {
-    return false;
-  }
+
+  return false;
 }
 
 static void report_textview_end(TextViewContext *UNUSED(tvc))
@@ -172,30 +118,25 @@ static void report_textview_end(TextViewContext *UNUSED(tvc))
 static int report_textview_step(TextViewContext *tvc)
 {
   /* simple case, but no newline support */
-  const Report *report = tvc->iter;
-
   if (tvc->iter_char_begin <= 0) {
     tvc->iter = (void *)((Link *)tvc->iter)->prev;
     if (tvc->iter && report_textview_skip__internal(tvc)) {
       tvc->iter_tmp++;
 
-      report = tvc->iter;
+      const Report *report = tvc->iter;
       tvc->iter_char_end = report->len; /* reset start */
       report_textview_init__internal(tvc);
 
       return true;
     }
-    else {
-      return false;
-    }
+    return false;
   }
-  else {
-    /* step to the next newline */
-    tvc->iter_char_end = tvc->iter_char_begin - 1;
-    report_textview_init__internal(tvc);
 
-    return true;
-  }
+  /* step to the next newline */
+  tvc->iter_char_end = tvc->iter_char_begin - 1;
+  report_textview_init__internal(tvc);
+
+  return true;
 }
 
 static void report_textview_line_get(TextViewContext *tvc, const char **r_line, int *r_len)
@@ -264,10 +205,10 @@ static int info_textview_main__internal(const SpaceInfo *sinfo,
 void *info_text_pick(const SpaceInfo *sinfo,
                      const ARegion *region,
                      const ReportList *reports,
-                     int mval_y)
+                     int mouse_y)
 {
   void *mval_pick_item = NULL;
-  const int mval[2] = {0, mval_y};
+  const int mval[2] = {0, mouse_y};
 
   info_textview_main__internal(sinfo, region, reports, false, mval, &mval_pick_item, NULL);
   return (void *)mval_pick_item;
@@ -275,12 +216,12 @@ void *info_text_pick(const SpaceInfo *sinfo,
 
 int info_textview_height(const SpaceInfo *sinfo, const ARegion *region, const ReportList *reports)
 {
-  int mval[2] = {INT_MAX, INT_MAX};
+  const int mval[2] = {INT_MAX, INT_MAX};
   return info_textview_main__internal(sinfo, region, reports, false, mval, NULL, NULL);
 }
 
 void info_textview_main(const SpaceInfo *sinfo, const ARegion *region, const ReportList *reports)
 {
-  int mval[2] = {INT_MAX, INT_MAX};
+  const int mval[2] = {INT_MAX, INT_MAX};
   info_textview_main__internal(sinfo, region, reports, true, mval, NULL, NULL);
 }

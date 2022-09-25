@@ -1,3 +1,5 @@
+# SPDX-License-Identifier: GPL-2.0-or-later
+
 # First generate the manifest for tests since it will not need the dependency on the CRT.
 configure_file(${CMAKE_SOURCE_DIR}/release/windows/manifest/blender.exe.manifest.in ${CMAKE_CURRENT_BINARY_DIR}/tests.exe.manifest @ONLY)
 
@@ -5,12 +7,29 @@ if(WITH_WINDOWS_BUNDLE_CRT)
   set(CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS_SKIP TRUE)
   set(CMAKE_INSTALL_UCRT_LIBRARIES TRUE)
   set(CMAKE_INSTALL_OPENMP_LIBRARIES ${WITH_OPENMP})
+
+  # This sometimes can change when updates are installed and the compiler version
+  # changes, so test if it exists and if not, give InstallRequiredSystemLibraries
+  # another chance to figure out the path.
+  if(MSVC_REDIST_DIR AND NOT EXISTS "${MSVC_REDIST_DIR}")
+    unset(MSVC_REDIST_DIR CACHE)
+  endif()
+
   include(InstallRequiredSystemLibraries)
 
+  # ucrtbase(d).dll cannot be in the manifest, due to the way windows 10 handles
+  # redirects for this dll, for details see T88813.
+  foreach(lib ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS})
+    string(FIND ${lib} "ucrtbase" pos)
+    if(NOT pos EQUAL -1)
+      list(REMOVE_ITEM CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS ${lib})
+      install(FILES ${lib} DESTINATION . COMPONENT Libraries)
+    endif()
+  endforeach()
   # Install the CRT to the blender.crt Sub folder.
   install(FILES ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS} DESTINATION ./blender.crt COMPONENT Libraries)
 
-  # Generating the manifest is a relativly expensive operation since
+  # Generating the manifest is a relatively expensive operation since
   # it is collecting an sha1 hash for every file required. so only do
   # this work when the libs have either changed or the manifest does
   # not exist yet.
@@ -23,7 +42,7 @@ if(WITH_WINDOWS_BUNDLE_CRT)
     foreach(lib ${CMAKE_INSTALL_SYSTEM_RUNTIME_LIBS})
       get_filename_component(filename ${lib} NAME)
       file(SHA1 "${lib}" sha1_file)
-      set(CRTLIBS "${CRTLIBS}    <file name=\"${filename}\" hash=\"${sha1_file}\"  hashalg=\"SHA1\" />\n")
+      string(APPEND CRTLIBS "    <file name=\"${filename}\" hash=\"${sha1_file}\"  hashalg=\"SHA1\" />\n")
     endforeach()
     configure_file(${CMAKE_SOURCE_DIR}/release/windows/manifest/blender.crt.manifest.in ${CMAKE_CURRENT_BINARY_DIR}/blender.crt.manifest @ONLY)
     file(TOUCH ${manifest_trigger_file})

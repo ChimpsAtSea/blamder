@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -45,8 +31,6 @@
 
 #ifdef RNA_RUNTIME
 
-#  include <assert.h>
-
 #  include "BLI_string_utils.h"
 
 #  include "WM_api.h"
@@ -62,6 +46,8 @@
 #  include "BKE_workspace.h"
 
 #  include "MEM_guardedalloc.h"
+
+#  include "GPU_state.h"
 
 #  ifdef WITH_PYTHON
 #    include "BPY_extern.h"
@@ -80,12 +66,14 @@ static void rna_gizmo_draw_cb(const struct bContext *C, struct wmGizmo *gz)
   ParameterList list;
   FunctionRNA *func;
   RNA_pointer_create(NULL, gz->type->rna_ext.srna, gz, &gz_ptr);
-  /* RNA_struct_find_function(&gz_ptr, "draw"); */
+  /* Reference `RNA_struct_find_function(&gz_ptr, "draw")` directly. */
   func = &rna_Gizmo_draw_func;
   RNA_parameter_list_create(&list, &gz_ptr, func);
   RNA_parameter_set_lookup(&list, "context", &C);
   gzgroup->type->rna_ext.call((bContext *)C, &gz_ptr, func, &list);
   RNA_parameter_list_free(&list);
+  /* This callback may have called bgl functions. */
+  GPU_bgl_end();
 }
 
 static void rna_gizmo_draw_select_cb(const struct bContext *C, struct wmGizmo *gz, int select_id)
@@ -96,13 +84,15 @@ static void rna_gizmo_draw_select_cb(const struct bContext *C, struct wmGizmo *g
   ParameterList list;
   FunctionRNA *func;
   RNA_pointer_create(NULL, gz->type->rna_ext.srna, gz, &gz_ptr);
-  /* RNA_struct_find_function(&gz_ptr, "draw_select"); */
+  /* Reference `RNA_struct_find_function(&gz_ptr, "draw_select")` directly. */
   func = &rna_Gizmo_draw_select_func;
   RNA_parameter_list_create(&list, &gz_ptr, func);
   RNA_parameter_set_lookup(&list, "context", &C);
   RNA_parameter_set_lookup(&list, "select_id", &select_id);
   gzgroup->type->rna_ext.call((bContext *)C, &gz_ptr, func, &list);
   RNA_parameter_list_free(&list);
+  /* This callback may have called bgl functions. */
+  GPU_bgl_end();
 }
 
 static int rna_gizmo_test_select_cb(struct bContext *C, struct wmGizmo *gz, const int location[2])
@@ -113,7 +103,7 @@ static int rna_gizmo_test_select_cb(struct bContext *C, struct wmGizmo *gz, cons
   ParameterList list;
   FunctionRNA *func;
   RNA_pointer_create(NULL, gz->type->rna_ext.srna, gz, &gz_ptr);
-  /* RNA_struct_find_function(&gz_ptr, "test_select"); */
+  /* Reference `RNA_struct_find_function(&gz_ptr, "test_select")` directly. */
   func = &rna_Gizmo_test_select_func;
   RNA_parameter_list_create(&list, &gz_ptr, func);
   RNA_parameter_set_lookup(&list, "context", &C);
@@ -140,7 +130,7 @@ static int rna_gizmo_modal_cb(struct bContext *C,
   FunctionRNA *func;
   const int tweak_flag_int = tweak_flag;
   RNA_pointer_create(NULL, gz->type->rna_ext.srna, gz, &gz_ptr);
-  /* RNA_struct_find_function(&gz_ptr, "modal"); */
+  /* Reference `RNA_struct_find_function(&gz_ptr, "modal")` directly. */
   func = &rna_Gizmo_modal_func;
   RNA_parameter_list_create(&list, &gz_ptr, func);
   RNA_parameter_set_lookup(&list, "context", &C);
@@ -164,7 +154,7 @@ static void rna_gizmo_setup_cb(struct wmGizmo *gz)
   ParameterList list;
   FunctionRNA *func;
   RNA_pointer_create(NULL, gz->type->rna_ext.srna, gz, &gz_ptr);
-  /* RNA_struct_find_function(&gz_ptr, "setup"); */
+  /* Reference `RNA_struct_find_function(&gz_ptr, "setup")` directly. */
   func = &rna_Gizmo_setup_func;
   RNA_parameter_list_create(&list, &gz_ptr, func);
   gzgroup->type->rna_ext.call((bContext *)NULL, &gz_ptr, func, &list);
@@ -179,7 +169,7 @@ static int rna_gizmo_invoke_cb(struct bContext *C, struct wmGizmo *gz, const str
   ParameterList list;
   FunctionRNA *func;
   RNA_pointer_create(NULL, gz->type->rna_ext.srna, gz, &gz_ptr);
-  /* RNA_struct_find_function(&gz_ptr, "invoke"); */
+  /* Reference `RNA_struct_find_function(&gz_ptr, "invoke")` directly. */
   func = &rna_Gizmo_invoke_func;
   RNA_parameter_list_create(&list, &gz_ptr, func);
   RNA_parameter_set_lookup(&list, "context", &C);
@@ -202,7 +192,7 @@ static void rna_gizmo_exit_cb(struct bContext *C, struct wmGizmo *gz, bool cance
   ParameterList list;
   FunctionRNA *func;
   RNA_pointer_create(NULL, gz->type->rna_ext.srna, gz, &gz_ptr);
-  /* RNA_struct_find_function(&gz_ptr, "exit"); */
+  /* Reference `RNA_struct_find_function(&gz_ptr, "exit")` directly. */
   func = &rna_Gizmo_exit_func;
   RNA_parameter_list_create(&list, &gz_ptr, func);
   RNA_parameter_set_lookup(&list, "context", &C);
@@ -222,7 +212,7 @@ static void rna_gizmo_select_refresh_cb(struct wmGizmo *gz)
   ParameterList list;
   FunctionRNA *func;
   RNA_pointer_create(NULL, gz->type->rna_ext.srna, gz, &gz_ptr);
-  /* RNA_struct_find_function(&gz_ptr, "select_refresh"); */
+  /* Reference `RNA_struct_find_function(&gz_ptr, "select_refresh")` directly. */
   func = &rna_Gizmo_select_refresh_func;
   RNA_parameter_list_create(&list, &gz_ptr, func);
   gzgroup->type->rna_ext.call((bContext *)NULL, &gz_ptr, func, &list);
@@ -240,7 +230,7 @@ static void rna_Gizmo_bl_idname_set(PointerRNA *ptr, const char *value)
     BLI_strncpy(str, value, MAX_NAME); /* utf8 already ensured */
   }
   else {
-    assert(!"setting the bl_idname on a non-builtin operator");
+    BLI_assert_msg(0, "setting the bl_idname on a non-builtin operator");
   }
 }
 
@@ -256,7 +246,7 @@ static wmGizmo *rna_GizmoProperties_find_operator(PointerRNA *ptr)
   wmWindowManager *wm = (wmWindowManager *)ptr->owner_id;
 #  endif
 
-  /* We could try workaruond this lookup, but not trivial. */
+  /* We could try workaround this lookup, but not trivial. */
   for (bScreen *screen = G_MAIN->screens.first; screen; screen = screen->id.next) {
     IDProperty *properties = ptr->data;
     LISTBASE_FOREACH (ScrArea *, area, &screen->areabase) {
@@ -289,14 +279,9 @@ static StructRNA *rna_GizmoProperties_refine(PointerRNA *ptr)
   }
 }
 
-static IDProperty *rna_GizmoProperties_idprops(PointerRNA *ptr, bool create)
+static IDProperty **rna_GizmoProperties_idprops(PointerRNA *ptr)
 {
-  if (create && !ptr->data) {
-    IDPropertyTemplate val = {0};
-    ptr->data = IDP_New(IDP_GROUP, &val, "RNA_GizmoProperties group");
-  }
-
-  return ptr->data;
+  return (IDProperty **)&ptr->data;
 }
 
 static PointerRNA rna_Gizmo_properties_get(PointerRNA *ptr)
@@ -398,7 +383,7 @@ RNA_GIZMO_GENERIC_FLAG_RW_DEF(flag_use_draw_hover, flag, WM_GIZMO_DRAW_HOVER);
 RNA_GIZMO_GENERIC_FLAG_RW_DEF(flag_use_draw_modal, flag, WM_GIZMO_DRAW_MODAL);
 RNA_GIZMO_GENERIC_FLAG_RW_DEF(flag_use_draw_value, flag, WM_GIZMO_DRAW_VALUE);
 RNA_GIZMO_GENERIC_FLAG_RW_DEF(flag_use_draw_offset_scale, flag, WM_GIZMO_DRAW_OFFSET_SCALE);
-RNA_GIZMO_GENERIC_FLAG_NEG_RW_DEF(flag_use_draw_scale, flag, WM_GIZMO_DRAW_OFFSET_SCALE);
+RNA_GIZMO_GENERIC_FLAG_NEG_RW_DEF(flag_use_draw_scale, flag, WM_GIZMO_DRAW_NO_SCALE);
 RNA_GIZMO_GENERIC_FLAG_RW_DEF(flag_hide, flag, WM_GIZMO_HIDDEN);
 RNA_GIZMO_GENERIC_FLAG_RW_DEF(flag_hide_select, flag, WM_GIZMO_HIDDEN_SELECT);
 RNA_GIZMO_GENERIC_FLAG_RW_DEF(flag_hide_keymap, flag, WM_GIZMO_HIDDEN_KEYMAP);
@@ -530,12 +515,16 @@ static void rna_Gizmo_unregister(struct Main *bmain, StructRNA *type)
     return;
   }
 
+  WM_gizmotype_remove_ptr(NULL, bmain, gzt);
+
+  /* Free extension after removing instances so `__del__` doesn't crash, see: T85567. */
   RNA_struct_free_extension(type, &gzt->rna_ext);
   RNA_struct_free(&BLENDER_RNA, type);
 
-  WM_main_add_notifier(NC_SCREEN | NA_EDITED, NULL);
+  /* Free gizmo group after the extension as it owns the identifier memory. */
+  WM_gizmotype_free_ptr(gzt);
 
-  WM_gizmotype_remove_ptr(NULL, bmain, gzt);
+  WM_main_add_notifier(NC_SCREEN | NA_EDITED, NULL);
 }
 
 static void **rna_Gizmo_instance(PointerRNA *ptr)
@@ -554,6 +543,7 @@ static StructRNA *rna_Gizmo_refine(PointerRNA *mnp_ptr)
 
 /** \} */
 
+/* -------------------------------------------------------------------- */
 /** \name Gizmo Group API
  * \{ */
 
@@ -576,14 +566,9 @@ static StructRNA *rna_GizmoGroupProperties_refine(PointerRNA *ptr)
   }
 }
 
-static IDProperty *rna_GizmoGroupProperties_idprops(PointerRNA *ptr, bool create)
+static IDProperty **rna_GizmoGroupProperties_idprops(PointerRNA *ptr)
 {
-  if (create && !ptr->data) {
-    IDPropertyTemplate val = {0};
-    ptr->data = IDP_New(IDP_GROUP, &val, "RNA_GizmoGroupProperties group");
-  }
-
-  return ptr->data;
+  return (IDProperty **)&ptr->data;
 }
 
 static wmGizmo *rna_GizmoGroup_gizmo_new(wmGizmoGroup *gzgroup,
@@ -594,6 +579,18 @@ static wmGizmo *rna_GizmoGroup_gizmo_new(wmGizmoGroup *gzgroup,
   if (gzt == NULL) {
     BKE_reportf(reports, RPT_ERROR, "GizmoType '%s' not known", idname);
     return NULL;
+  }
+  if ((gzgroup->type->flag & WM_GIZMOGROUPTYPE_3D) == 0) {
+    /* Allow for neither callbacks to be set, while this doesn't seem like a valid use case,
+     * there may be rare situations where a developer wants a gizmo to be draw-only. */
+    if ((gzt->test_select == NULL) && (gzt->draw_select != NULL)) {
+      BKE_reportf(reports,
+                  RPT_ERROR,
+                  "GizmoType '%s' is for a 3D gizmo-group. "
+                  "The 'draw_select' callback is set where only 'test_select' will be used",
+                  idname);
+      return NULL;
+    }
   }
   wmGizmo *gz = WM_gizmo_new_ptr(gzt, gzgroup, NULL);
   return gz;
@@ -632,7 +629,7 @@ static void rna_GizmoGroup_bl_idname_set(PointerRNA *ptr, const char *value)
     BLI_strncpy(str, value, MAX_NAME); /* utf8 already ensured */
   }
   else {
-    assert(!"setting the bl_idname on a non-builtin operator");
+    BLI_assert_msg(0, "setting the bl_idname on a non-builtin operator");
   }
 }
 
@@ -644,7 +641,7 @@ static void rna_GizmoGroup_bl_label_set(PointerRNA *ptr, const char *value)
     BLI_strncpy(str, value, MAX_NAME); /* utf8 already ensured */
   }
   else {
-    assert(!"setting the bl_label on a non-builtin operator");
+    BLI_assert_msg(0, "setting the bl_label on a non-builtin operator");
   }
 }
 
@@ -774,7 +771,7 @@ static void rna_gizmogroup_invoke_prepare_cb(const bContext *C,
   FunctionRNA *func;
 
   RNA_pointer_create(NULL, gzgroup->type->rna_ext.srna, gzgroup, &gzgroup_ptr);
-  /* RNA_struct_find_function(&wgroupr, "invoke_prepare"); */
+  /* Reference `RNA_struct_find_function(&wgroupr, "invoke_prepare")` directly. */
   func = &rna_GizmoGroup_invoke_prepare_func;
 
   RNA_parameter_list_create(&list, &gzgroup_ptr, func);
@@ -917,12 +914,16 @@ static void rna_GizmoGroup_unregister(struct Main *bmain, StructRNA *type)
     return;
   }
 
+  WM_gizmo_group_type_remove_ptr(bmain, gzgt);
+
+  /* Free extension after removing instances so `__del__` doesn't crash, see: T85567. */
   RNA_struct_free_extension(type, &gzgt->rna_ext);
   RNA_struct_free(&BLENDER_RNA, type);
 
-  WM_main_add_notifier(NC_SCREEN | NA_EDITED, NULL);
+  /* Free gizmo group after the extension as it owns the identifier memory. */
+  WM_gizmo_group_type_free_ptr(gzgt);
 
-  WM_gizmo_group_type_remove_ptr(bmain, gzgt);
+  WM_main_add_notifier(NC_SCREEN | NA_EDITED, NULL);
 }
 
 static void **rna_GizmoGroup_instance(PointerRNA *ptr)
@@ -1018,7 +1019,7 @@ static void rna_def_gizmo(BlenderRNA *brna, PropertyRNA *cprop)
   RNA_def_property_string_sdna(prop, NULL, "type->idname");
   RNA_def_property_string_maxlength(prop, MAX_NAME);
   RNA_def_property_string_funcs(prop, NULL, NULL, "rna_Gizmo_bl_idname_set");
-  /* RNA_def_property_clear_flag(prop, PROP_EDITABLE); */
+  // RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_flag(prop, PROP_REGISTER);
 
   RNA_define_verify_sdna(1); /* not in sdna */
@@ -1072,7 +1073,7 @@ static void rna_def_gizmo(BlenderRNA *brna, PropertyRNA *cprop)
   RNA_def_parameter_flags(parm, PROP_NEVER_NULL, PARM_REQUIRED);
   parm = RNA_def_pointer(func, "event", "Event", "", "");
   RNA_def_parameter_flags(parm, PROP_NEVER_NULL, PARM_REQUIRED);
-  /* TODO, shuold be a enum-flag */
+  /* TODO: should be a enum-flag. */
   parm = RNA_def_enum_flag(func, "tweak", tweak_actions, 0, "Tweak", "");
   RNA_def_parameter_flags(parm, 0, PARM_REQUIRED);
   parm = RNA_def_enum_flag(
@@ -1221,20 +1222,20 @@ static void rna_def_gizmo(BlenderRNA *brna, PropertyRNA *cprop)
   prop = RNA_def_property(srna, "use_draw_hover", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_funcs(
       prop, "rna_Gizmo_flag_use_draw_hover_get", "rna_Gizmo_flag_use_draw_hover_set");
-  RNA_def_property_ui_text(prop, "Draw Hover", "");
+  RNA_def_property_ui_text(prop, "Show Hover", "");
   RNA_def_property_update(prop, 0, "rna_Gizmo_update_redraw");
   /* WM_GIZMO_DRAW_MODAL */
   prop = RNA_def_property(srna, "use_draw_modal", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_funcs(
       prop, "rna_Gizmo_flag_use_draw_modal_get", "rna_Gizmo_flag_use_draw_modal_set");
-  RNA_def_property_ui_text(prop, "Draw Active", "Draw while dragging");
+  RNA_def_property_ui_text(prop, "Show Active", "Show while dragging");
   RNA_def_property_update(prop, 0, "rna_Gizmo_update_redraw");
   /* WM_GIZMO_DRAW_VALUE */
   prop = RNA_def_property(srna, "use_draw_value", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_funcs(
       prop, "rna_Gizmo_flag_use_draw_value_get", "rna_Gizmo_flag_use_draw_value_set");
   RNA_def_property_ui_text(
-      prop, "Draw Value", "Show an indicator for the current value while dragging");
+      prop, "Show Value", "Show an indicator for the current value while dragging");
   RNA_def_property_update(prop, 0, "rna_Gizmo_update_redraw");
   /* WM_GIZMO_DRAW_OFFSET_SCALE */
   prop = RNA_def_property(srna, "use_draw_offset_scale", PROP_BOOLEAN, PROP_NONE);
@@ -1283,7 +1284,7 @@ static void rna_def_gizmo(BlenderRNA *brna, PropertyRNA *cprop)
   prop = RNA_def_property(srna, "use_tooltip", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_funcs(
       prop, "rna_Gizmo_flag_use_tooltip_get", "rna_Gizmo_flag_use_tooltip_set");
-  RNA_def_property_ui_text(prop, "Use Tooltip", "Use tool-tips when hovering over this gizmo");
+  RNA_def_property_ui_text(prop, "Use Tooltip", "Use tooltips when hovering over this gizmo");
   /* No update needed. */
 
   /* wmGizmo.state (readonly) */
@@ -1347,14 +1348,14 @@ static void rna_def_gizmogroup(BlenderRNA *brna)
   RNA_def_property_string_sdna(prop, NULL, "type->name");
   RNA_def_property_string_maxlength(prop, MAX_NAME); /* else it uses the pointer size! */
   RNA_def_property_string_funcs(prop, NULL, NULL, "rna_GizmoGroup_bl_label_set");
-  /* RNA_def_property_clear_flag(prop, PROP_EDITABLE); */
+  // RNA_def_property_clear_flag(prop, PROP_EDITABLE);
   RNA_def_property_flag(prop, PROP_REGISTER);
 
   prop = RNA_def_property(srna, "bl_space_type", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_sdna(prop, NULL, "type->gzmap_params.spaceid");
   RNA_def_property_enum_items(prop, rna_enum_space_type_items);
   RNA_def_property_flag(prop, PROP_REGISTER);
-  RNA_def_property_ui_text(prop, "Space type", "The space where the panel is going to be used in");
+  RNA_def_property_ui_text(prop, "Space Type", "The space where the panel is going to be used in");
 
   prop = RNA_def_property(srna, "bl_region_type", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_sdna(prop, NULL, "type->gzmap_params.regionid");
@@ -1374,7 +1375,7 @@ static void rna_def_gizmogroup(BlenderRNA *brna)
        "SCALE",
        0,
        "Scale",
-       "Scale to respect zoom (otherwise zoom independent draw size)"},
+       "Scale to respect zoom (otherwise zoom independent display size)"},
       {WM_GIZMOGROUPTYPE_DEPTH_3D,
        "DEPTH_3D",
        0,
@@ -1386,12 +1387,22 @@ static void rna_def_gizmogroup(BlenderRNA *brna)
        "SHOW_MODAL_ALL",
        0,
        "Show Modal All",
-       "Show all while interacting"},
+       "Show all while interacting, as well as this group when another is being interacted with"},
+      {WM_GIZMOGROUPTYPE_DRAW_MODAL_EXCLUDE,
+       "EXCLUDE_MODAL",
+       0,
+       "Exclude Modal",
+       "Show all except this group while interacting"},
       {WM_GIZMOGROUPTYPE_TOOL_INIT,
        "TOOL_INIT",
        0,
        "Tool Init",
        "Postpone running until tool operator run (when used with a tool)"},
+      {WM_GIZMOGROUPTYPE_TOOL_FALLBACK_KEYMAP,
+       "TOOL_FALLBACK_KEYMAP",
+       0,
+       "Use fallback tools keymap",
+       "Add fallback tools keymap to this gizmo type"},
       {WM_GIZMOGROUPTYPE_VR_REDRAWS,
        "VR_REDRAWS",
        0,

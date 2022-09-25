@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup blf
@@ -66,7 +52,7 @@ static unsigned long ft_ansi_stream_io(FT_Stream stream,
   file = STREAM_FILE(stream);
 
   if (stream->pos != offset) {
-    fseek(file, offset, SEEK_SET);
+    BLI_fseek(file, offset, SEEK_SET);
   }
 
   return fread(buffer, 1, count, file);
@@ -93,7 +79,7 @@ static FT_Error FT_Stream_Open__win32_compat(FT_Stream stream, const char *filep
     return FT_THROW(Cannot_Open_Resource);
   }
 
-  fseek(file, 0, SEEK_END);
+  BLI_fseek(file, 0LL, SEEK_END);
   stream->size = ftell(file);
   if (!stream->size) {
     fprintf(stderr,
@@ -104,7 +90,7 @@ static FT_Error FT_Stream_Open__win32_compat(FT_Stream stream, const char *filep
     return FT_THROW(Cannot_Open_Stream);
   }
 
-  fseek(file, 0, SEEK_SET);
+  BLI_fseek(file, 0LL, SEEK_SET);
 
   stream->descriptor.pointer = file;
   stream->read = ft_ansi_stream_io;

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edobj
@@ -23,9 +7,6 @@
 
 #include <string.h>
 
-#include "MEM_guardedalloc.h"
-
-#include "BLI_fileops.h"
 #include "BLI_listbase.h"
 #include "BLI_math_base.h"
 #include "BLI_path_util.h"
@@ -60,7 +41,7 @@ static Object *object_volume_add(bContext *C, wmOperator *op, const char *name)
   float loc[3], rot[3];
 
   if (!ED_object_add_generic_get_opts(C, op, 'Z', loc, rot, NULL, NULL, &local_view_bits, NULL)) {
-    return false;
+    return NULL;
   }
   return ED_object_add_type(C, OB_VOLUME, name, loc, rot, false, local_view_bits);
 }
@@ -119,7 +100,7 @@ static int volume_import_exec(bContext *C, wmOperator *op)
       BKE_id_delete(bmain, &volume->id);
       continue;
     }
-    else if (BKE_volume_is_points_only(volume)) {
+    if (BKE_volume_is_points_only(volume)) {
       BKE_reportf(op->reports,
                   RPT_WARNING,
                   "Volume \"%s\" contains points, only voxel grids are supported",
@@ -161,7 +142,6 @@ static int volume_import_invoke(bContext *C, wmOperator *op, const wmEvent *UNUS
   return OPERATOR_RUNNING_MODAL;
 }
 
-/* called by other space types too */
 void OBJECT_OT_volume_import(wmOperatorType *ot)
 {
   /* identifiers */
@@ -184,7 +164,7 @@ void OBJECT_OT_volume_import(wmOperatorType *ot)
                                  WM_FILESEL_FILEPATH | WM_FILESEL_DIRECTORY | WM_FILESEL_FILES |
                                      WM_FILESEL_RELPATH,
                                  FILE_DEFAULTDISPLAY,
-                                 FILE_SORT_ALPHA);
+                                 FILE_SORT_DEFAULT);
 
   RNA_def_boolean(
       ot->srna,

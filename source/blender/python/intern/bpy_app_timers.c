@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup pythonintern
@@ -65,7 +51,7 @@ static double py_timer_execute(uintptr_t UNUSED(uuid), void *user_data)
   gilstate = PyGILState_Ensure();
 
   PyObject *py_ret = PyObject_CallObject(function, NULL);
-  double ret = handle_returned_value(function, py_ret);
+  const double ret = handle_returned_value(function, py_ret);
 
   PyGILState_Release(gilstate);
 
@@ -107,7 +93,15 @@ static PyObject *bpy_app_timers_register(PyObject *UNUSED(self), PyObject *args,
   int persistent = false;
 
   static const char *_keywords[] = {"function", "first_interval", "persistent", NULL};
-  static _PyArg_Parser _parser = {"O|$dp:register", _keywords, 0};
+  static _PyArg_Parser _parser = {
+      "O"  /* `function` */
+      "|$" /* Optional keyword only arguments. */
+      "d"  /* `first_interval` */
+      "p"  /* `persistent` */
+      ":register",
+      _keywords,
+      0,
+  };
   if (!_PyArg_ParseTupleAndKeywordsFast(
           args, kw, &_parser, &function, &first_interval, &persistent)) {
     return NULL;
@@ -151,7 +145,7 @@ PyDoc_STRVAR(bpy_app_timers_is_registered_doc,
              "   :rtype: bool\n");
 static PyObject *bpy_app_timers_is_registered(PyObject *UNUSED(self), PyObject *function)
 {
-  bool ret = BLI_timer_is_registered((intptr_t)function);
+  const bool ret = BLI_timer_is_registered((intptr_t)function);
   return PyBool_FromLong(ret);
 }
 

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -99,9 +85,7 @@ static BMEdge *bm_vert_other_edge(BMVert *v, BMEdge *e)
   if (v->e != e) {
     return v->e;
   }
-  else {
-    return BM_DISK_EDGE_NEXT(v->e, v);
-  }
+  return BM_DISK_EDGE_NEXT(v->e, v);
 }
 #endif
 
@@ -381,7 +365,7 @@ static BMVert *bm_isect_edge_tri(struct ISectState *s,
   } \
   (void)0
 
-  /* order tri, then order (1-2, 2-3)*/
+  /* Order tri, then order (1-2, 2-3). */
 #define KEY_EDGE_TRI_ORDER(k) \
   { \
     if (k[2] > k[3]) { \
@@ -562,8 +546,8 @@ static void bm_isect_tri_tri(
   /* vert-vert
    * --------- */
   {
-    /* first check in any verts are touching
-     * (any case where we wont create new verts)
+    /* first check if any verts are touching
+     * (any case where we won't create new verts)
      */
     uint i_a;
     for (i_a = 0; i_a < 3; i_a++) {
@@ -683,7 +667,7 @@ static void bm_isect_tri_tri(
     copy_v3_v3(t_scale[2], fv_b[2]->co);
     tri_v3_scale(UNPACK3(t_scale), 1.0f - s->epsilon.eps2x);
 
-    // second check for verts intersecting the triangle
+    /* second check for verts intersecting the triangle */
     for (i_a = 0; i_a < 3; i_a++) {
       if (BM_ELEM_API_FLAG_TEST(fv_a[i_a], VERT_VISIT_A)) {
         continue;
@@ -900,10 +884,10 @@ static int isect_bvhtree_point_v3(BVHTree *tree, const float **looptris, const f
       &z_buffer,
   };
   BVHTreeRayHit hit = {0};
-  float dir[3] = {1.0f, 0.0f, 0.0f};
+  const float dir[3] = {1.0f, 0.0f, 0.0f};
 
   /* Need to initialize hit even tho it's not used.
-   * This is to make it so kd-tree believes we didn't intersect anything and
+   * This is to make it so KD-tree believes we didn't intersect anything and
    * keeps calling the intersect callback.
    */
   hit.index = -1;
@@ -949,14 +933,6 @@ static int isect_bvhtree_point_v3(BVHTree *tree, const float **looptris, const f
 
 #endif /* USE_BVH */
 
-/**
- * Intersect tessellated faces
- * leaving the resulting edges tagged.
- *
- * \param test_fn: Return value: -1: skip, 0: tree_a, 1: tree_b (use_self == false)
- * \param boolean_mode: -1: no-boolean, 0: intersection... see #BMESH_ISECT_BOOLEAN_ISECT.
- * \return true if the mesh is changed (intersections cut or faces removed from boolean).
- */
 bool BM_mesh_intersect(BMesh *bm,
                        struct BMLoop *(*looptris)[3],
                        const int looptris_tot,
@@ -1038,7 +1014,7 @@ bool BM_mesh_intersect(BMesh *bm,
 #endif
 
   if (boolean_mode != BMESH_ISECT_BOOLEAN_NONE) {
-    /* keep original geometrty for raycast callbacks */
+    /* Keep original geometry for ray-cast callbacks. */
     float **cos;
     int i, j;
 
@@ -1341,10 +1317,8 @@ bool BM_mesh_intersect(BMesh *bm,
             splice_pair[1] = v_next;
             break;
           }
-          else {
-            e_next = bm_vert_other_edge(v_next, e_step);
-          }
 
+          e_next = bm_vert_other_edge(v_next, e_step);
           e_step = e_next;
           v_step = v_next;
           BM_elem_flag_enable(e_step, BM_ELEM_TAG);
@@ -1537,7 +1511,7 @@ bool BM_mesh_intersect(BMesh *bm,
 
     groups_array = MEM_mallocN(sizeof(*groups_array) * (size_t)bm->totface, __func__);
     group_tot = BM_mesh_calc_face_groups(
-        bm, groups_array, &group_index, bm_loop_filter_fn, &user_data_wrap, 0, BM_EDGE);
+        bm, groups_array, &group_index, bm_loop_filter_fn, NULL, &user_data_wrap, 0, BM_EDGE);
 
 #ifdef USE_DUMP
     printf("%s: Total face-groups: %d\n", __func__, group_tot);
@@ -1550,7 +1524,7 @@ bool BM_mesh_intersect(BMesh *bm,
       bool do_remove, do_flip;
 
       {
-        /* for now assyme this is an OK face to test with (not degenerate!) */
+        /* For now assume this is an OK face to test with (not degenerate!) */
         BMFace *f = ftable[groups_array[fg]];
         float co[3];
         int hits;
@@ -1610,7 +1584,7 @@ bool BM_mesh_intersect(BMesh *bm,
       for (node = s.vert_dissolve; node; node = node->next) {
         BMVert *v = node->link;
         if (BM_vert_is_edge_pair(v)) {
-          /* we wont create degenerate faces from this */
+          /* we won't create degenerate faces from this */
           bool ok = true;
 
           /* would we create a 2-sided-face?
@@ -1626,7 +1600,7 @@ bool BM_mesh_intersect(BMesh *bm,
           }
 
           if (ok) {
-            BM_vert_collapse_edge(bm, v->e, v, true, false);
+            BM_vert_collapse_edge(bm, v->e, v, true, false, false);
           }
         }
       }
@@ -1663,6 +1637,10 @@ bool BM_mesh_intersect(BMesh *bm,
   BLI_gset_free(s.wire_edges, NULL);
 
   BLI_memarena_free(s.mem_arena);
+
+  /* It's unlikely the selection history is useful at this point,
+   * if this is not called this array would need to be validated, see: T86799. */
+  BM_select_history_clear(bm);
 
   return (has_edit_isect || has_edit_boolean);
 }

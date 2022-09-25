@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 1999,2000,2001 David Hodson <hodsond@acm.org>
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 1999-2001 David Hodson <hodsond@acm.org>. */
 
 /** \file
  * \ingroup imbcineon
@@ -46,18 +31,28 @@ static int logImageSetData8(LogImageFile *logImage, LogImageElement logElement, 
 static int logImageSetData10(LogImageFile *logImage, LogImageElement logElement, float *data);
 static int logImageSetData12(LogImageFile *logImage, LogImageElement logElement, float *data);
 static int logImageSetData16(LogImageFile *logImage, LogImageElement logElement, float *data);
-static int logImageElementGetData(LogImageFile *dpx, LogImageElement logElement, float *data);
-static int logImageElementGetData1(LogImageFile *dpx, LogImageElement logElement, float *data);
-static int logImageElementGetData8(LogImageFile *dpx, LogImageElement logElement, float *data);
-static int logImageElementGetData10(LogImageFile *dpx, LogImageElement logElement, float *data);
-static int logImageElementGetData10Packed(LogImageFile *dpx,
+static int logImageElementGetData(LogImageFile *logImage, LogImageElement logElement, float *data);
+static int logImageElementGetData1(LogImageFile *logImage,
+                                   LogImageElement logElement,
+                                   float *data);
+static int logImageElementGetData8(LogImageFile *logImage,
+                                   LogImageElement logElement,
+                                   float *data);
+static int logImageElementGetData10(LogImageFile *logImage,
+                                    LogImageElement logElement,
+                                    float *data);
+static int logImageElementGetData10Packed(LogImageFile *logImage,
                                           LogImageElement logElement,
                                           float *data);
-static int logImageElementGetData12(LogImageFile *dpx, LogImageElement logElement, float *data);
-static int logImageElementGetData12Packed(LogImageFile *dpx,
+static int logImageElementGetData12(LogImageFile *logImage,
+                                    LogImageElement logElement,
+                                    float *data);
+static int logImageElementGetData12Packed(LogImageFile *logImage,
                                           LogImageElement logElement,
                                           float *data);
-static int logImageElementGetData16(LogImageFile *dpx, LogImageElement logElement, float *data);
+static int logImageElementGetData16(LogImageFile *logImage,
+                                    LogImageElement logElement,
+                                    float *data);
 static int convertLogElementToRGBA(float *src,
                                    float *dst,
                                    LogImageFile *logImage,
@@ -86,22 +81,30 @@ void logImageSetVerbose(int verbosity)
  * IO stuff
  */
 
-int logImageIsDpx(const void *buffer)
+int logImageIsDpx(const void *buffer, const unsigned int size)
 {
-  unsigned int magicNum = *(unsigned int *)buffer;
+  unsigned int magicNum;
+  if (size < sizeof(magicNum)) {
+    return 0;
+  }
+  magicNum = *(unsigned int *)buffer;
   return (magicNum == DPX_FILE_MAGIC || magicNum == swap_uint(DPX_FILE_MAGIC, 1));
 }
 
-int logImageIsCineon(const void *buffer)
+int logImageIsCineon(const void *buffer, const unsigned int size)
 {
-  unsigned int magicNum = *(unsigned int *)buffer;
+  unsigned int magicNum;
+  if (size < sizeof(magicNum)) {
+    return 0;
+  }
+  magicNum = *(unsigned int *)buffer;
   return (magicNum == CINEON_FILE_MAGIC || magicNum == swap_uint(CINEON_FILE_MAGIC, 1));
 }
 
-LogImageFile *logImageOpenFromFile(const char *filename, int cineon)
+LogImageFile *logImageOpenFromFile(const char *filepath, int cineon)
 {
   unsigned int magicNum;
-  FILE *f = BLI_fopen(filename, "rb");
+  FILE *f = BLI_fopen(filepath, "rb");
 
   (void)cineon;
 
@@ -109,18 +112,18 @@ LogImageFile *logImageOpenFromFile(const char *filename, int cineon)
     return NULL;
   }
 
-  if (fread(&magicNum, sizeof(unsigned int), 1, f) != 1) {
+  if (fread(&magicNum, sizeof(magicNum), 1, f) != 1) {
     fclose(f);
     return NULL;
   }
 
   fclose(f);
 
-  if (logImageIsDpx(&magicNum)) {
-    return dpxOpen((const unsigned char *)filename, 0, 0);
+  if (logImageIsDpx(&magicNum, sizeof(magicNum))) {
+    return dpxOpen((const unsigned char *)filepath, 0, 0);
   }
-  else if (logImageIsCineon(&magicNum)) {
-    return cineonOpen((const unsigned char *)filename, 0, 0);
+  if (logImageIsCineon(&magicNum, sizeof(magicNum))) {
+    return cineonOpen((const unsigned char *)filepath, 0, 0);
   }
 
   return NULL;
@@ -128,17 +131,17 @@ LogImageFile *logImageOpenFromFile(const char *filename, int cineon)
 
 LogImageFile *logImageOpenFromMemory(const unsigned char *buffer, unsigned int size)
 {
-  if (logImageIsDpx(buffer)) {
+  if (logImageIsDpx(buffer, size)) {
     return dpxOpen(buffer, 1, size);
   }
-  else if (logImageIsCineon(buffer)) {
+  if (logImageIsCineon(buffer, size)) {
     return cineonOpen(buffer, 1, size);
   }
 
   return NULL;
 }
 
-LogImageFile *logImageCreate(const char *filename,
+LogImageFile *logImageCreate(const char *filepath,
                              int cineon,
                              int width,
                              int height,
@@ -152,20 +155,19 @@ LogImageFile *logImageCreate(const char *filename,
 {
   /* referenceWhite, referenceBlack and gamma values are only supported for DPX file */
   if (cineon) {
-    return cineonCreate(filename, width, height, bitsPerSample, creator);
+    return cineonCreate(filepath, width, height, bitsPerSample, creator);
   }
-  else {
-    return dpxCreate(filename,
-                     width,
-                     height,
-                     bitsPerSample,
-                     isLogarithmic,
-                     hasAlpha,
-                     referenceWhite,
-                     referenceBlack,
-                     gamma,
-                     creator);
-  }
+
+  return dpxCreate(filepath,
+                   width,
+                   height,
+                   bitsPerSample,
+                   isLogarithmic,
+                   hasAlpha,
+                   referenceWhite,
+                   referenceBlack,
+                   gamma,
+                   creator);
 
   return NULL;
 }
@@ -206,7 +208,7 @@ size_t getRowLength(size_t width, LogImageElement logElement)
       if (logElement.packing == 0) {
         return ((width * logElement.depth * 10 - 1) / 32 + 1) * 4;
       }
-      else if (logElement.packing == 1 || logElement.packing == 2) {
+      else if (ELEM(logElement.packing, 1, 2)) {
         return ((width * logElement.depth - 1) / 3 + 1) * 4;
       }
       break;
@@ -214,7 +216,7 @@ size_t getRowLength(size_t width, LogImageElement logElement)
       if (logElement.packing == 0) {
         return ((width * logElement.depth * 12 - 1) / 32 + 1) * 4;
       }
-      else if (logElement.packing == 1 || logElement.packing == 2) {
+      else if (ELEM(logElement.packing, 1, 2)) {
         return width * logElement.depth * 2;
       }
       break;
@@ -433,8 +435,7 @@ int logImageGetDataRGBA(LogImageFile *logImage, float *data, int dataIsLinearRGB
 
   for (i = 0; i < logImage->numElements; i++) {
     /* descriptor_Depth and descriptor_Composite are not supported */
-    if (logImage->element[i].descriptor != descriptor_Depth &&
-        logImage->element[i].descriptor != descriptor_Composite) {
+    if (!ELEM(logImage->element[i].descriptor, descriptor_Depth, descriptor_Composite)) {
       /* Allocate memory */
       elementData[i] = imb_alloc_pixels(
           logImage->width, logImage->height, logImage->element[i].depth, sizeof(float), __func__);
@@ -470,7 +471,7 @@ int logImageGetDataRGBA(LogImageFile *logImage, float *data, int dataIsLinearRGB
     }
   }
 
-  /* only one element, easy case, no need to do anything  */
+  /* Only one element, easy case, no need to do anything. */
   if (logImage->numElements == 1) {
     returnValue = convertLogElementToRGBA(
         elementData[0], data, logImage, logImage->element[0], dataIsLinearRGB);
@@ -484,7 +485,7 @@ int logImageGetDataRGBA(LogImageFile *logImage, float *data, int dataIsLinearRGB
     memcpy(&mergedElement, &logImage->element[0], sizeof(LogImageElement));
     mergedElement.descriptor = -1;
     mergedElement.depth = logImage->depth;
-    memset(&sortedElementData, -1, 8 * sizeof(int));
+    memset(&sortedElementData, -1, sizeof(int[8]));
 
     /* Try to know how to assemble the elements */
     for (i = 0; i < logImage->numElements; i++) {
@@ -671,7 +672,7 @@ static int logImageElementGetData(LogImageFile *logImage, LogImageElement logEle
       if (logElement.packing == 0) {
         return logImageElementGetData10Packed(logImage, logElement, data);
       }
-      else if (logElement.packing == 1 || logElement.packing == 2) {
+      else if (ELEM(logElement.packing, 1, 2)) {
         return logImageElementGetData10(logImage, logElement, data);
       }
       break;
@@ -680,7 +681,7 @@ static int logImageElementGetData(LogImageFile *logImage, LogImageElement logEle
       if (logElement.packing == 0) {
         return logImageElementGetData12Packed(logImage, logElement, data);
       }
-      else if (logElement.packing == 1 || logElement.packing == 2) {
+      else if (ELEM(logElement.packing, 1, 2)) {
         return logImageElementGetData12(logImage, logElement, data);
       }
       break;
@@ -1677,10 +1678,10 @@ static int convertLogElementToRGBA(
   if (rvalue == 1) {
     return 1;
   }
-  else if (dstIsLinearRGB) {
+  if (dstIsLinearRGB) {
     /* convert data from sRGB to Linear RGB via lut */
     float *lut = getSrgbToLinLut(logElement);
-    src_ptr = dst;  // no error here
+    src_ptr = dst; /* no error here */
     dst_ptr = dst;
     for (i = 0; i < logImage->width * logImage->height; i++) {
       *(dst_ptr++) = lut[float_uint(*(src_ptr++), logElement.maxValue)];

@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 #define DEBUG_NDOF_DRIVER false
 
@@ -195,7 +181,7 @@ static void DeviceEvent(uint32_t unused, uint32_t msg_type, void *msg_arg)
     // device state is broadcast to all clients; only react if sent to us
     if (s->client == clientID) {
       // TODO: is s->time compatible with GHOST timestamps? if so use that instead.
-      GHOST_TUns64 now = ghost_system->getMilliSeconds();
+      uint64_t now = ghost_system->getMilliSeconds();
 
       switch (s->command) {
         case kConnexionCmdHandleAxis: {

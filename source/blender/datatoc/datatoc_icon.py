@@ -1,24 +1,5 @@
 #!/usr/bin/env python3
-
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 _IS_BIG_ENDIAN = (__import__("sys").byteorder != 'little')
 
 
@@ -27,7 +8,10 @@ def write_png(buf, width, height):
     import struct
     # reverse the vertical line order and add null bytes at the start
     width_byte_4 = width * 4
-    raw_data = b"".join(b'\x00' + buf[span:span + width_byte_4] for span in range((height - 1) * width * 4, -1, - width_byte_4))
+    raw_data = b"".join(
+        b'\x00' + buf[span:span + width_byte_4]
+        for span in range((height - 1) * width * 4, -1, - width_byte_4)
+    )
 
     def png_pack(png_tag, data):
         chunk_head = png_tag + data
@@ -136,13 +120,7 @@ def icondir_to_png(path_src, file_dst):
 
     # write pixels
     with open(file_dst, 'wb') as f_dst:
-        import sys
-        # py2/3 compat
-        if sys.version.startswith("2"):
-            pixels_data = pixels_canvas.tostring()
-        else:
-            pixels_data = pixels_canvas.tobytes()
-
+        pixels_data = pixels_canvas.tobytes()
         image_data = write_png(pixels_data, canvas_w, canvas_h)
         f_dst.write(image_data)
 

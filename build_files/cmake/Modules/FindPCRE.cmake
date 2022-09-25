@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2011 Blender Foundation.
+
 # - Find PCRE library
 # Find the native PCRE includes and library
 # This module defines
@@ -10,17 +13,6 @@
 #
 # also defined, but not for general use are
 #  PCRE_LIBRARY, where to find the PCRE library.
-
-#=============================================================================
-# Copyright 2011 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
 
 # If PCRE_ROOT_DIR was defined in the environment, use it.
 IF(NOT PCRE_ROOT_DIR AND NOT $ENV{PCRE_ROOT_DIR} STREQUAL "")
@@ -61,7 +53,7 @@ SET(PCRE_LIBRARIES ${PCRE_LIBRARY})
 
 IF(PCRE_FOUND)
   SET(PCRE_INCLUDE_DIRS ${PCRE_INCLUDE_DIR})
-ENDIF(PCRE_FOUND)
+ENDIF()
 
 MARK_AS_ADVANCED(
   PCRE_INCLUDE_DIR

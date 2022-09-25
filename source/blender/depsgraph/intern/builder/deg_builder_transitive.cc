@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2015 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2015 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -33,7 +17,7 @@
 #include "intern/depsgraph.h"
 #include "intern/depsgraph_relation.h"
 
-namespace DEG {
+namespace blender::deg {
 
 /* -------------------------------------------------- */
 
@@ -95,13 +79,13 @@ void deg_graph_transitive_reduction(Depsgraph *graph)
          * need modifying. */
         continue;
       }
-      else if (rel->from->custom_flags & OP_REACHABLE) {
+      if (rel->from->custom_flags & OP_REACHABLE) {
         relations_to_remove.append(rel);
       }
     }
     for (Relation *rel : relations_to_remove) {
       rel->unlink();
-      OBJECT_GUARDED_DELETE(rel, Relation);
+      delete rel;
     }
     num_removed_relations += relations_to_remove.size();
     relations_to_remove.clear();
@@ -109,4 +93,4 @@ void deg_graph_transitive_reduction(Depsgraph *graph)
   DEG_DEBUG_PRINTF((::Depsgraph *)graph, BUILD, "Removed %d relations\n", num_removed_relations);
 }
 
-}  // namespace DEG
+}  // namespace blender::deg

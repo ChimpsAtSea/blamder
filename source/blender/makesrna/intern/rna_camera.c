@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -36,10 +22,11 @@
 
 #  include "BKE_camera.h"
 #  include "BKE_object.h"
-#  include "BKE_sequencer.h"
 
 #  include "DEG_depsgraph.h"
 #  include "DEG_depsgraph_build.h"
+
+#  include "SEQ_relations.h"
 
 static float rna_Camera_angle_get(PointerRNA *ptr)
 {
@@ -124,13 +111,88 @@ static void rna_Camera_background_images_clear(Camera *cam)
   WM_main_add_notifier(NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, cam);
 }
 
+static char *rna_Camera_background_image_path(const PointerRNA *ptr)
+{
+  const CameraBGImage *bgpic = ptr->data;
+  Camera *camera = (Camera *)ptr->owner_id;
+
+  const int bgpic_index = BLI_findindex(&camera->bg_images, bgpic);
+
+  if (bgpic_index >= 0) {
+    return BLI_sprintfN("background_images[%d]", bgpic_index);
+  }
+
+  return NULL;
+}
+
+char *rna_CameraBackgroundImage_image_or_movieclip_user_path(const PointerRNA *ptr)
+{
+  const char *user = ptr->data;
+  Camera *camera = (Camera *)ptr->owner_id;
+
+  int bgpic_index = BLI_findindex(&camera->bg_images, user - offsetof(CameraBGImage, iuser));
+  if (bgpic_index >= 0) {
+    return BLI_sprintfN("background_images[%d].image_user", bgpic_index);
+  }
+
+  bgpic_index = BLI_findindex(&camera->bg_images, user - offsetof(CameraBGImage, cuser));
+  if (bgpic_index >= 0) {
+    return BLI_sprintfN("background_images[%d].clip_user", bgpic_index);
+  }
+
+  return NULL;
+}
+
+static bool rna_Camera_background_images_override_apply(Main *bmain,
+                                                        PointerRNA *ptr_dst,
+                                                        PointerRNA *ptr_src,
+                                                        PointerRNA *UNUSED(ptr_storage),
+                                                        PropertyRNA *prop_dst,
+                                                        PropertyRNA *UNUSED(prop_src),
+                                                        PropertyRNA *UNUSED(prop_storage),
+                                                        const int UNUSED(len_dst),
+                                                        const int UNUSED(len_src),
+                                                        const int UNUSED(len_storage),
+                                                        PointerRNA *UNUSED(ptr_item_dst),
+                                                        PointerRNA *UNUSED(ptr_item_src),
+                                                        PointerRNA *UNUSED(ptr_item_storage),
+                                                        IDOverrideLibraryPropertyOperation *opop)
+{
+  BLI_assert_msg(opop->operation == IDOVERRIDE_LIBRARY_OP_INSERT_AFTER,
+                 "Unsupported RNA override operation on background images collection");
+
+  Camera *cam_dst = (Camera *)ptr_dst->owner_id;
+  Camera *cam_src = (Camera *)ptr_src->owner_id;
+
+  /* Remember that insertion operations are defined and stored in correct order, which means that
+   * even if we insert several items in a row, we always insert first one, then second one, etc.
+   * So we should always find 'anchor' constraint in both _src *and* _dst. */
+  CameraBGImage *bgpic_anchor = BLI_findlink(&cam_dst->bg_images, opop->subitem_reference_index);
+
+  /* If `bgpic_anchor` is NULL, `bgpic_src` will be inserted in first position. */
+  CameraBGImage *bgpic_src = BLI_findlink(&cam_src->bg_images, opop->subitem_local_index);
+
+  if (bgpic_src == NULL) {
+    BLI_assert(bgpic_src != NULL);
+    return false;
+  }
+
+  CameraBGImage *bgpic_dst = BKE_camera_background_image_copy(bgpic_src, 0);
+
+  /* This handles NULL anchor as expected by adding at head of list. */
+  BLI_insertlinkafter(&cam_dst->bg_images, bgpic_anchor, bgpic_dst);
+
+  RNA_property_update_main(bmain, NULL, ptr_dst, prop_dst);
+  return true;
+}
+
 static void rna_Camera_dof_update(Main *bmain, Scene *scene, PointerRNA *UNUSED(ptr))
 {
-  BKE_sequence_invalidate_scene_strips(bmain, scene);
+  SEQ_relations_invalidate_scene_strips(bmain, scene);
   WM_main_add_notifier(NC_SCENE | ND_SEQUENCER, scene);
 }
 
-char *rna_CameraDOFSettings_path(PointerRNA *ptr)
+char *rna_CameraDOFSettings_path(const PointerRNA *ptr)
 {
   /* if there is ID-data, resolve the path using the index instead of by name,
    * since the name used is the name of the texture assigned, but the texture
@@ -149,7 +211,7 @@ static void rna_CameraDOFSettings_aperture_blades_set(PointerRNA *ptr, const int
 {
   CameraDOFSettings *dofsettings = (CameraDOFSettings *)ptr->data;
 
-  if (value == 1 || value == 2) {
+  if (ELEM(value, 1, 2)) {
     if (dofsettings->aperture_blades == 0) {
       dofsettings->aperture_blades = 3;
     }
@@ -192,6 +254,17 @@ static void rna_def_camera_background_image(BlenderRNA *brna)
   RNA_def_struct_sdna(srna, "CameraBGImage");
   RNA_def_struct_ui_text(
       srna, "Background Image", "Image and settings for display in the 3D View background");
+  RNA_def_struct_path_func(srna, "rna_Camera_background_image_path");
+
+  prop = RNA_def_boolean(srna,
+                         "is_override_data",
+                         false,
+                         "Override Background Image",
+                         "In a local override camera, whether this background image comes from "
+                         "the linked reference camera, or is local to the override");
+  RNA_def_property_clear_flag(prop, PROP_EDITABLE);
+  RNA_def_property_boolean_negative_sdna(
+      prop, NULL, "flag", CAM_BGIMG_FLAG_OVERRIDE_LIBRARY_LOCAL);
 
   RNA_define_lib_overridable(true);
 
@@ -199,30 +272,31 @@ static void rna_def_camera_background_image(BlenderRNA *brna)
   RNA_def_property_enum_sdna(prop, NULL, "source");
   RNA_def_property_enum_items(prop, bgpic_source_items);
   RNA_def_property_ui_text(prop, "Background Source", "Data source used for background");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "image", PROP_POINTER, PROP_NONE);
   RNA_def_property_pointer_sdna(prop, NULL, "ima");
   RNA_def_property_ui_text(prop, "Image", "Image displayed and edited in this space");
   RNA_def_property_flag(prop, PROP_EDITABLE);
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "clip", PROP_POINTER, PROP_NONE);
   RNA_def_property_pointer_sdna(prop, NULL, "clip");
   RNA_def_property_ui_text(prop, "MovieClip", "Movie clip displayed and edited in this space");
   RNA_def_property_flag(prop, PROP_EDITABLE);
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "image_user", PROP_POINTER, PROP_NONE);
   RNA_def_property_flag(prop, PROP_NEVER_NULL);
+  RNA_def_property_struct_type(prop, "ImageUser");
   RNA_def_property_pointer_sdna(prop, NULL, "iuser");
   RNA_def_property_ui_text(
       prop,
       "Image User",
       "Parameters defining which layer, pass and frame of the image is displayed");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "clip_user", PROP_POINTER, PROP_NONE);
   RNA_def_property_flag(prop, PROP_NEVER_NULL);
@@ -230,43 +304,43 @@ static void rna_def_camera_background_image(BlenderRNA *brna)
   RNA_def_property_pointer_sdna(prop, NULL, "cuser");
   RNA_def_property_ui_text(
       prop, "Clip User", "Parameters defining which frame of the movie clip is displayed");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "offset", PROP_FLOAT, PROP_XYZ);
   RNA_def_property_float_sdna(prop, NULL, "offset");
   RNA_def_property_ui_text(prop, "Offset", "");
   RNA_def_property_ui_range(prop, -FLT_MAX, FLT_MAX, 0.1, RNA_TRANSLATION_PREC_DEFAULT);
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "scale", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, NULL, "scale");
   RNA_def_property_ui_text(prop, "Scale", "Scale the background image");
   RNA_def_property_range(prop, 0.0, FLT_MAX);
   RNA_def_property_ui_range(prop, 0.0, 10.0, 0.100, RNA_TRANSLATION_PREC_DEFAULT);
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "rotation", PROP_FLOAT, PROP_ANGLE);
   RNA_def_property_float_sdna(prop, NULL, "rotation");
   RNA_def_property_ui_text(
       prop, "Rotation", "Rotation for the background image (ortho view only)");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "use_flip_x", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flag", CAM_BGIMG_FLAG_FLIP_X);
   RNA_def_property_ui_text(prop, "Flip Horizontally", "Flip the background image horizontally");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "use_flip_y", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flag", CAM_BGIMG_FLAG_FLIP_Y);
   RNA_def_property_ui_text(prop, "Flip Vertically", "Flip the background image vertically");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "alpha", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, NULL, "alpha");
   RNA_def_property_ui_text(
-      prop, "Alpha", "Image opacity to blend the image against the background color");
+      prop, "Opacity", "Image opacity to blend the image against the background color");
   RNA_def_property_range(prop, 0.0, 1.0);
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "show_expanded", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_flag(prop, PROP_NO_DEG_UPDATE);
@@ -277,32 +351,32 @@ static void rna_def_camera_background_image(BlenderRNA *brna)
   prop = RNA_def_property(srna, "use_camera_clip", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flag", CAM_BGIMG_FLAG_CAMERACLIP);
   RNA_def_property_ui_text(prop, "Camera Clip", "Use movie clip from active scene camera");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "show_background_image", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_negative_sdna(prop, NULL, "flag", CAM_BGIMG_FLAG_DISABLED);
   RNA_def_property_ui_text(prop, "Show Background Image", "Show this image as background");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   prop = RNA_def_property(srna, "show_on_foreground", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flag", CAM_BGIMG_FLAG_FOREGROUND);
   RNA_def_property_ui_text(
       prop, "Show On Foreground", "Show this image in front of objects in viewport");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   /* expose 1 flag as a enum of 2 items */
   prop = RNA_def_property(srna, "display_depth", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_bitflag_sdna(prop, NULL, "flag");
   RNA_def_property_enum_items(prop, bgpic_display_depth_items);
   RNA_def_property_ui_text(prop, "Depth", "Display under or over everything");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   /* expose 2 flags as a enum of 3 items */
   prop = RNA_def_property(srna, "frame_method", PROP_ENUM, PROP_NONE);
   RNA_def_property_enum_bitflag_sdna(prop, NULL, "flag");
   RNA_def_property_enum_items(prop, bgpic_camera_frame_items);
   RNA_def_property_ui_text(prop, "Frame Method", "How the image fits in the camera frame");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   RNA_define_lib_overridable(false);
 }
@@ -383,7 +457,7 @@ static void rna_def_camera_stereo_data(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "convergence_distance", PROP_FLOAT, PROP_DISTANCE);
   RNA_def_property_range(prop, 0.00001f, FLT_MAX);
-  RNA_def_property_ui_range(prop, 0.00001f, 15.f, 1, 3);
+  RNA_def_property_ui_range(prop, 0.00001f, 15.0f, 1, 3);
   RNA_def_property_ui_text(prop,
                            "Convergence Plane Distance",
                            "The converge point for the stereo cameras "
@@ -405,13 +479,13 @@ static void rna_def_camera_stereo_data(BlenderRNA *brna)
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, NULL);
 
   prop = RNA_def_property(srna, "pole_merge_angle_from", PROP_FLOAT, PROP_ANGLE);
-  RNA_def_property_range(prop, 0.0f, M_PI / 2.0);
+  RNA_def_property_range(prop, 0.0f, M_PI_2);
   RNA_def_property_ui_text(
       prop, "Pole Merge Start Angle", "Angle at which interocular distance starts to fade to 0");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, NULL);
 
   prop = RNA_def_property(srna, "pole_merge_angle_to", PROP_FLOAT, PROP_ANGLE);
-  RNA_def_property_range(prop, 0.0f, M_PI / 2.0);
+  RNA_def_property_range(prop, 0.0f, M_PI_2);
   RNA_def_property_ui_text(
       prop, "Pole Merge End Angle", "Angle at which interocular distance is 0");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, NULL);
@@ -443,6 +517,12 @@ static void rna_def_camera_dof_settings_data(BlenderRNA *brna)
   RNA_def_property_override_flag(prop, PROPOVERRIDE_OVERRIDABLE_LIBRARY);
   RNA_def_property_ui_text(
       prop, "Focus Object", "Use this object to define the depth of field focal point");
+  RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_dependency_update");
+
+  prop = RNA_def_property(srna, "focus_subtarget", PROP_STRING, PROP_NONE);
+  RNA_def_property_string_sdna(prop, NULL, "focus_subtarget");
+  RNA_def_property_ui_text(
+      prop, "Focus Bone", "Use this armature bone to define the depth of field focal point");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_dependency_update");
 
   prop = RNA_def_property(srna, "focus_distance", PROP_FLOAT, PROP_DISTANCE);
@@ -494,7 +574,7 @@ void RNA_def_camera(BlenderRNA *brna)
       {0, NULL, 0, NULL, NULL},
   };
   static const EnumPropertyItem prop_lens_unit_items[] = {
-      {0, "MILLIMETERS", 0, "Millimeters", "Specify the lens in millimeters"},
+      {0, "MILLIMETERS", 0, "Millimeters", "Specify focal length of the lens in millimeters"},
       {CAM_ANGLETOGGLE,
        "FOV",
        0,
@@ -577,13 +657,14 @@ void RNA_def_camera(BlenderRNA *brna)
   RNA_def_property_float_sdna(prop, NULL, "lens");
   RNA_def_property_range(prop, 1.0f, FLT_MAX);
   RNA_def_property_ui_range(prop, 1.0f, 5000.0f, 100, 4);
-  RNA_def_property_ui_text(prop, "Focal Length", "Perspective Camera lens value in millimeters");
+  RNA_def_property_ui_text(
+      prop, "Focal Length", "Perspective Camera focal length value in millimeters");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
 
   prop = RNA_def_property(srna, "sensor_width", PROP_FLOAT, PROP_DISTANCE_CAMERA);
   RNA_def_property_float_sdna(prop, NULL, "sensor_x");
   RNA_def_property_range(prop, 1.0f, FLT_MAX);
-  RNA_def_property_ui_range(prop, 1.0f, 100.f, 100, 4);
+  RNA_def_property_ui_range(prop, 1.0f, 100.0f, 100, 4);
   RNA_def_property_ui_text(
       prop, "Sensor Width", "Horizontal size of the image sensor area in millimeters");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
@@ -591,7 +672,7 @@ void RNA_def_camera(BlenderRNA *brna)
   prop = RNA_def_property(srna, "sensor_height", PROP_FLOAT, PROP_DISTANCE_CAMERA);
   RNA_def_property_float_sdna(prop, NULL, "sensor_y");
   RNA_def_property_range(prop, 1.0f, FLT_MAX);
-  RNA_def_property_ui_range(prop, 1.0f, 100.f, 100, 4);
+  RNA_def_property_ui_range(prop, 1.0f, 100.0f, 100, 4);
   RNA_def_property_ui_text(
       prop, "Sensor Height", "Vertical size of the image sensor area in millimeters");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
@@ -614,14 +695,12 @@ void RNA_def_camera(BlenderRNA *brna)
 
   prop = RNA_def_property(srna, "shift_x", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, NULL, "shiftx");
-  RNA_def_property_range(prop, -10.0f, 10.0f);
   RNA_def_property_ui_range(prop, -2.0, 2.0, 1, 3);
   RNA_def_property_ui_text(prop, "Shift X", "Camera horizontal shift");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
 
   prop = RNA_def_property(srna, "shift_y", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, NULL, "shifty");
-  RNA_def_property_range(prop, -10.0f, 10.0f);
   RNA_def_property_ui_range(prop, -2.0, 2.0, 1, 3);
   RNA_def_property_ui_text(prop, "Shift Y", "Camera vertical shift");
   RNA_def_property_update(prop, NC_OBJECT | ND_DRAW, "rna_Camera_update");
@@ -661,7 +740,7 @@ void RNA_def_camera(BlenderRNA *brna)
   prop = RNA_def_property(srna, "show_safe_center", PROP_BOOLEAN, PROP_NONE);
   RNA_def_property_boolean_sdna(prop, NULL, "flag", CAM_SHOW_SAFE_CENTER);
   RNA_def_property_ui_text(prop,
-                           "Show Center-cut safe areas",
+                           "Show Center-Cut Safe Areas",
                            "Show safe areas to fit content in a different aspect ratio");
   RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
@@ -748,7 +827,9 @@ void RNA_def_camera(BlenderRNA *brna)
   RNA_def_property_collection_sdna(prop, NULL, "bg_images", NULL);
   RNA_def_property_struct_type(prop, "CameraBackgroundImage");
   RNA_def_property_ui_text(prop, "Background Images", "List of background images");
-  RNA_def_property_update(prop, NC_SPACE | ND_SPACE_VIEW3D, NULL);
+  RNA_def_property_override_flag(prop, PROPOVERRIDE_LIBRARY_INSERTION | PROPOVERRIDE_NO_PROP_NAME);
+  RNA_def_property_override_funcs(prop, NULL, NULL, "rna_Camera_background_images_override_apply");
+  RNA_def_property_update(prop, NC_CAMERA | ND_DRAW_RENDER_VIEWPORT, NULL);
 
   RNA_define_lib_overridable(false);
 
@@ -757,7 +838,7 @@ void RNA_def_camera(BlenderRNA *brna)
   rna_def_camera_background_image(brna);
   rna_def_camera_background_images(brna, prop);
 
-  /* Nested Data  */
+  /* Nested Data. */
   RNA_define_animate_sdna(true);
 
   /* *** Animated *** */

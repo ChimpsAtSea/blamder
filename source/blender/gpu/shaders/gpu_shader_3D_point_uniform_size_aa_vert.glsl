@@ -1,12 +1,4 @@
-
-uniform mat4 ModelViewProjectionMatrix;
-#ifdef USE_WORLD_CLIP_PLANES
-uniform mat4 ModelMatrix;
-#endif
-uniform float size;
-
-in vec3 pos;
-out vec2 radii;
+#pragma BLENDER_REQUIRE(gpu_shader_cfg_world_clip_lib.glsl)
 
 void main()
 {
@@ -14,17 +6,17 @@ void main()
   gl_Position = ModelViewProjectionMatrix * pos_4d;
   gl_PointSize = size;
 
-  // calculate concentric radii in pixels
+  /* Calculate concentric radii in pixels. */
   float radius = 0.5 * size;
 
-  // start at the outside and progress toward the center
+  /* Start at the outside and progress toward the center. */
   radii[0] = radius;
   radii[1] = radius - 1.0;
 
-  // convert to PointCoord units
+  /* Convert to PointCoord units. */
   radii /= size;
 
 #ifdef USE_WORLD_CLIP_PLANES
-  world_clip_planes_calc_clip_distance((ModelMatrix * pos_4d).xyz);
+  world_clip_planes_calc_clip_distance((clipPlanes.ModelMatrix * pos_4d).xyz);
 #endif
 }

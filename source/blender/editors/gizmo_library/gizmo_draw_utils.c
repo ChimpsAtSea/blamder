@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2014 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2014 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edgizmolib
@@ -29,7 +13,6 @@
 #include "ED_view3d.h"
 
 #include "GPU_batch.h"
-#include "GPU_glew.h"
 #include "GPU_immediate.h"
 
 #include "MEM_guardedalloc.h"
@@ -45,14 +28,11 @@
 /* own includes */
 #include "gizmo_library_intern.h"
 
-/**
- * Main draw call for GizmoGeomInfo data
- */
 void wm_gizmo_geometryinfo_draw(const GizmoGeomInfo *info,
                                 const bool UNUSED(select),
                                 const float color[4])
 {
-  /* TODO store the Batches inside the GizmoGeomInfo and updated it when geom changes
+  /* TODO: store the Batches inside the GizmoGeomInfo and updated it when geom changes
    * So we don't need to re-created and discard it every time */
 
   GPUVertBuf *vbo;
@@ -84,15 +64,15 @@ void wm_gizmo_geometryinfo_draw(const GizmoGeomInfo *info,
   /* We may want to re-visit this, for now disable
    * since it causes issues leaving the GL state modified. */
 #if 0
-  glEnable(GL_CULL_FACE);
-  GPU_depth_test(true);
+  GPU_face_culling(GPU_CULL_BACK);
+  GPU_depth_test(GPU_DEPTH_LESS_EQUAL);
 #endif
 
   GPU_batch_draw(batch);
 
 #if 0
-  GPU_depth_test(false);
-  glDisable(GL_CULL_FACE);
+  GPU_depth_test(GPU_DEPTH_NONE);
+  GPU_face_culling(GPU_CULL_NONE);
 #endif
 
   GPU_batch_discard(batch);
@@ -102,9 +82,35 @@ void wm_gizmo_vec_draw(
     const float color[4], const float (*verts)[3], uint vert_count, uint pos, uint primitive_type)
 {
   immUniformColor4fv(color);
-  immBegin(primitive_type, vert_count);
-  for (int i = 0; i < vert_count; i++) {
-    immVertex3fv(pos, verts[i]);
+
+  if (primitive_type == GPU_PRIM_LINE_LOOP) {
+    /* Line loop alternative for Metal/Vulkan. */
+    immBegin(GPU_PRIM_LINES, vert_count * 2);
+    immVertex3fv(pos, verts[0]);
+    for (int i = 1; i < vert_count; i++) {
+      immVertex3fv(pos, verts[i]);
+      immVertex3fv(pos, verts[i]);
+    }
+    immVertex3fv(pos, verts[0]);
+    immEnd();
   }
-  immEnd();
+  else if (primitive_type == GPU_PRIM_TRI_FAN) {
+    /* NOTE(Metal): Tri-fan alternative for Metal. Triangle List is more efficient for small
+     * primitive counts. */
+    int tri_count = vert_count - 2;
+    immBegin(GPU_PRIM_TRIS, tri_count * 3);
+    for (int i = 0; i < tri_count; i++) {
+      immVertex3fv(pos, verts[0]);
+      immVertex3fv(pos, verts[i + 1]);
+      immVertex3fv(pos, verts[i + 2]);
+    }
+    immEnd();
+  }
+  else {
+    immBegin(primitive_type, vert_count);
+    for (int i = 0; i < vert_count; i++) {
+      immVertex3fv(pos, verts[i]);
+    }
+    immEnd();
+  }
 }

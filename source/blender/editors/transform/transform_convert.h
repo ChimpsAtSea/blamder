@@ -1,172 +1,281 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edtransform
  * \brief conversion and adaptation of different datablocks to a common struct.
  */
 
-#ifndef __TRANSFORM_CONVERT_H__
-#define __TRANSFORM_CONVERT_H__
+#pragma once
 
+#include "RE_engine.h"
+
+struct BMEditMesh;
+struct BMesh;
 struct BezTriple;
+struct FCurve;
 struct ListBase;
 struct Object;
 struct TransData;
-struct TransDataContainer;
 struct TransDataCurveHandleFlags;
 struct TransInfo;
 struct bContext;
-struct bKinematicConstraint;
-struct bPoseChannel;
+
+typedef struct TransConvertTypeInfo {
+  int flags; /* eTFlag */
+
+  /**
+   * Allocate and initialize `t->data`.
+   */
+  void (*createTransData)(bContext *C, TransInfo *t);
+
+  /**
+   * Force recalculation of data during transformation.
+   */
+  void (*recalcData)(TransInfo *t);
+
+  /**
+   * Called when the operation is finished.
+   */
+  void (*special_aftertrans_update)(bContext *C, TransInfo *t);
+} TransConvertTypeInfo;
 
 /* transform_convert.c */
-int transform_convert_pose_transflags_update(Object *ob,
-                                             const int mode,
-                                             const short around,
-                                             bool has_translate_rotate[2]);
+
+/**
+ * Change the chain-length of auto-IK.
+ */
 void transform_autoik_update(TransInfo *t, short mode);
-void autokeyframe_object(struct bContext *C,
-                         struct Scene *scene,
-                         struct ViewLayer *view_layer,
-                         struct Object *ob,
-                         int tmode);
-void autokeyframe_pose(
-    struct bContext *C, struct Scene *scene, struct Object *ob, int tmode, short targetless_ik);
-bool motionpath_need_update_object(struct Scene *scene, struct Object *ob);
-bool motionpath_need_update_pose(struct Scene *scene, struct Object *ob);
 int special_transform_moving(TransInfo *t);
-void remake_graph_transdata(TransInfo *t, struct ListBase *anim_data);
+/**
+ * Inserting keys, point-cache, redraw events.
+ */
 void special_aftertrans_update(struct bContext *C, TransInfo *t);
 void sort_trans_data_dist(TransInfo *t);
 void createTransData(struct bContext *C, TransInfo *t);
-bool clipUVTransform(TransInfo *t, float vec[2], const bool resize);
 void clipUVData(TransInfo *t);
-
-/* transform_convert_action.c */
-void flushTransIntFrameActionData(TransInfo *t);
-
-/* transform_convert_armature.c */
-void pose_transform_mirror_update(TransInfo *t, TransDataContainer *tc, Object *ob);
-void restoreMirrorPoseBones(TransDataContainer *tc);
-void restoreBones(TransDataContainer *tc);
-
-/* transform_convert_graph.c */
-void flushTransGraphData(TransInfo *t);
-
-/* transform_convert_mask.c */
-void flushTransMasking(TransInfo *t);
+void transform_convert_flush_handle2D(TransData *td, TransData2D *td2d, float y_fac);
+/**
+ * Called for updating while transform acts, once per redraw.
+ */
+void recalcData(TransInfo *t);
 
 /* transform_convert_mesh.c */
-void flushTransUVs(TransInfo *t);
-void trans_mesh_customdata_correction_init(TransInfo *t);
-void trans_mesh_customdata_correction_apply(struct TransDataContainer *tc, bool is_final);
 
-/* transform_convert_node.c */
-void flushTransNodes(TransInfo *t);
-
-/* transform_convert_object.c */
-void trans_obdata_in_obmode_update_all(struct TransInfo *t);
-void trans_obchild_in_obmode_update_all(struct TransInfo *t);
-
-/* transform_convert_paintcurve.c */
-void flushTransPaintCurve(TransInfo *t);
-
-/* transform_convert_particle.c */
-void flushTransParticles(TransInfo *t);
+void transform_convert_mesh_customdatacorrect_init(TransInfo *t);
 
 /* transform_convert_sequencer.c */
-void flushTransSeq(TransInfo *t);
 
-/* transform_convert_tracking.c */
-void flushTransTracking(TransInfo *t);
+void transform_convert_sequencer_channel_clamp(TransInfo *t, float r_val[2]);
 
 /********************* intern **********************/
 
 /* transform_convert.c */
+
 bool transform_mode_use_local_origins(const TransInfo *t);
+/**
+ * Transforming around ourselves is no use, fallback to individual origins,
+ * useful for curve/armatures.
+ */
+void transform_around_single_fallback_ex(TransInfo *t, int data_len_all);
 void transform_around_single_fallback(TransInfo *t);
+/**
+ * Called during special_aftertrans_update to make sure selected keyframes replace
+ * any other keyframes which may reside on that frame (that is not selected).
+ *
+ * \param sel_flag: The flag (bezt.f1/2/3) value to use to determine selection. Usually `SELECT`,
+ *                  but may want to use a different one at times (if caller does not operate on
+ *                  selection).
+ */
+void posttrans_fcurve_clean(struct FCurve *fcu, int sel_flag, bool use_handle);
+/**
+ * Little helper function for ObjectToTransData used to give certain
+ * constraints (ChildOf, FollowPath, and others that may be added)
+ * inverse corrections for transform, so that they aren't in CrazySpace.
+ * These particular constraints benefit from this, but others don't, hence
+ * this semi-hack ;-)    - Aligorith
+ */
 bool constraints_list_needinv(TransInfo *t, ListBase *list);
-void calc_distanceCurveVerts(TransData *head, TransData *tail);
+void calc_distanceCurveVerts(TransData *head, TransData *tail, bool cyclic);
+/**
+ * Utility function for getting the handle data from bezier's.
+ */
 struct TransDataCurveHandleFlags *initTransDataCurveHandles(TransData *td, struct BezTriple *bezt);
+/**
+ * Used for `TFM_TIME_EXTEND`.
+ */
 char transform_convert_frame_side_dir_get(TransInfo *t, float cframe);
+/**
+ * This function tests if a point is on the "mouse" side of the cursor/frame-marking.
+ */
 bool FrameOnMouseSide(char side, float frame, float cframe);
+void transform_convert_clip_mirror_modifier_apply(TransDataContainer *tc);
+/**
+ * For the realtime animation recording feature, handle overlapping data.
+ */
+void animrecord_check_state(TransInfo *t, struct ID *id);
 
 /* transform_convert_action.c */
-void createTransActionData(bContext *C, TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_Action;
 
 /* transform_convert_armature.c */
-struct bKinematicConstraint *has_targetless_ik(struct bPoseChannel *pchan);
-void createTransPose(TransInfo *t);
-void createTransArmatureVerts(TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_EditArmature;
+extern TransConvertTypeInfo TransConvertType_Pose;
+
+/**
+ * Sets transform flags in the bones.
+ * Returns total number of bones with #BONE_TRANSFORM.
+ */
+void transform_convert_pose_transflags_update(Object *ob, int mode, short around);
 
 /* transform_convert_cursor.c */
-void createTransCursor_image(TransInfo *t);
-void createTransCursor_view3d(TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_CursorImage;
+extern TransConvertTypeInfo TransConvertType_CursorSequencer;
+extern TransConvertTypeInfo TransConvertType_Cursor3D;
 
 /* transform_convert_curve.c */
-void createTransCurveVerts(TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_Curve;
 
 /* transform_convert_graph.c */
-void createTransGraphEditData(bContext *C, TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_Graph;
 
 /* transform_convert_gpencil.c */
-void createTransGPencil(bContext *C, TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_GPencil;
 
 /* transform_convert_lattice.c */
-void createTransLatticeVerts(TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_Lattice;
 
 /* transform_convert_mask.c */
-void createTransMaskingData(bContext *C, TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_Mask;
 
 /* transform_convert_mball.c */
-void createTransMBallVerts(TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_MBall;
 
 /* transform_convert_mesh.c */
-void createTransEditVerts(TransInfo *t);
-void createTransEdge(TransInfo *t);
-void createTransUVs(bContext *C, TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_Mesh;
+
+struct TransIslandData {
+  float (*center)[3];
+  float (*axismtx)[3][3];
+  int island_tot;
+  int *island_vert_map;
+};
+
+struct MirrorDataVert {
+  int index;
+  int flag;
+};
+
+struct TransMirrorData {
+  struct MirrorDataVert *vert_map;
+  int mirror_elem_len;
+};
+
+struct TransMeshDataCrazySpace {
+  float (*quats)[4];
+  float (*defmats)[3][3];
+};
+
+void transform_convert_mesh_islands_calc(struct BMEditMesh *em,
+                                         bool calc_single_islands,
+                                         bool calc_island_center,
+                                         bool calc_island_axismtx,
+                                         struct TransIslandData *r_island_data);
+void transform_convert_mesh_islanddata_free(struct TransIslandData *island_data);
+/**
+ * \param mtx: Measure distance in this space.
+ * \param dists: Store the closest connected distance to selected vertices.
+ * \param index: Optionally store the original index we're measuring the distance to (can be NULL).
+ */
+void transform_convert_mesh_connectivity_distance(struct BMesh *bm,
+                                                  const float mtx[3][3],
+                                                  float *dists,
+                                                  int *index);
+void transform_convert_mesh_mirrordata_calc(struct BMEditMesh *em,
+                                            bool use_select,
+                                            bool use_topology,
+                                            const bool mirror_axis[3],
+                                            struct TransMirrorData *r_mirror_data);
+void transform_convert_mesh_mirrordata_free(struct TransMirrorData *mirror_data);
+/**
+ * Detect CrazySpace [tm].
+ * Vertices with space affected by quats are marked with #BM_ELEM_TAG.
+ */
+void transform_convert_mesh_crazyspace_detect(TransInfo *t,
+                                              struct TransDataContainer *tc,
+                                              struct BMEditMesh *em,
+                                              struct TransMeshDataCrazySpace *r_crazyspace_data);
+void transform_convert_mesh_crazyspace_transdata_set(const float mtx[3][3],
+                                                     const float smtx[3][3],
+                                                     const float defmat[3][3],
+                                                     const float quat[4],
+                                                     struct TransData *r_td);
+void transform_convert_mesh_crazyspace_free(struct TransMeshDataCrazySpace *r_crazyspace_data);
+
+void special_aftertrans_update__mesh(bContext *C, TransInfo *t);
+
+/* transform_convert_mesh_edge.c */
+
+extern TransConvertTypeInfo TransConvertType_MeshEdge;
+
+/* transform_convert_mesh_skin.c */
+
+extern TransConvertTypeInfo TransConvertType_MeshSkin;
+
+/* transform_convert_mesh_uv.c */
+
+extern TransConvertTypeInfo TransConvertType_MeshUV;
+
+/* transform_convert_mesh_vert_cdata.c */
+
+extern TransConvertTypeInfo TransConvertType_MeshVertCData;
 
 /* transform_convert_nla.c */
-void createTransNlaData(bContext *C, TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_NLA;
 
 /* transform_convert_node.c */
-void createTransNodeData(bContext *UNUSED(C), TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_Node;
 
 /* transform_convert_object.c */
-void clear_trans_object_base_flags(TransInfo *t);
-void createTransObject(bContext *C, TransInfo *t);
-void createTransTexspace(TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_Object;
+
+/* transform_convert_object_texspace.c */
+
+extern TransConvertTypeInfo TransConvertType_ObjectTexSpace;
 
 /* transform_convert_paintcurve.c */
-void createTransPaintCurveVerts(bContext *C, TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_PaintCurve;
 
 /* transform_convert_particle.c */
-void createTransParticleVerts(bContext *C, TransInfo *t);
+
+extern TransConvertTypeInfo TransConvertType_Particle;
 
 /* transform_convert_sculpt.c */
-void createTransSculpt(TransInfo *t);
 
-/* transform_convert_sequence.c */
-void createTransSeqData(TransInfo *t);
+extern TransConvertTypeInfo TransConvertType_Sculpt;
+
+/* transform_convert_sequencer.c */
+
+extern TransConvertTypeInfo TransConvertType_Sequencer;
+
+/* transform_convert_sequencer_image.c */
+
+extern TransConvertTypeInfo TransConvertType_SequencerImage;
 
 /* transform_convert_tracking.c */
-void createTransTrackingData(bContext *C, TransInfo *t);
-void cancelTransTracking(TransInfo *t);
-#endif
+
+extern TransConvertTypeInfo TransConvertType_Tracking;

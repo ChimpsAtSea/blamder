@@ -1,25 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __BKE_VOLUME_H__
-#define __BKE_VOLUME_H__
+#pragma once
 
 /** \file
  * \ingroup bke
- * \brief Volume datablock.
+ * \brief Volume data-block.
  */
 #ifdef __cplusplus
 extern "C" {
@@ -29,6 +14,7 @@ struct BoundBox;
 struct Depsgraph;
 struct Main;
 struct Object;
+struct ReportList;
 struct Scene;
 struct Volume;
 struct VolumeGridVector;
@@ -37,11 +23,10 @@ struct VolumeGridVector;
 
 void BKE_volumes_init(void);
 
-/* Datablock Management */
+/* Data-block Management */
 
 void BKE_volume_init_grids(struct Volume *volume);
 void *BKE_volume_add(struct Main *bmain, const char *name);
-struct Volume *BKE_volume_copy(struct Main *bmain, const struct Volume *volume);
 
 struct BoundBox *BKE_volume_boundbox_get(struct Object *ob);
 
@@ -79,16 +64,23 @@ extern void (*BKE_volume_batch_cache_free_cb)(struct Volume *volume);
 
 typedef struct VolumeGrid VolumeGrid;
 
-bool BKE_volume_load(struct Volume *volume, struct Main *bmain);
+bool BKE_volume_load(const struct Volume *volume, const struct Main *bmain);
 void BKE_volume_unload(struct Volume *volume);
 bool BKE_volume_is_loaded(const struct Volume *volume);
 
 int BKE_volume_num_grids(const struct Volume *volume);
 const char *BKE_volume_grids_error_msg(const struct Volume *volume);
 const char *BKE_volume_grids_frame_filepath(const struct Volume *volume);
-VolumeGrid *BKE_volume_grid_get(const struct Volume *volume, int grid_index);
-VolumeGrid *BKE_volume_grid_active_get(const struct Volume *volume);
-VolumeGrid *BKE_volume_grid_find(const struct Volume *volume, const char *name);
+const VolumeGrid *BKE_volume_grid_get_for_read(const struct Volume *volume, int grid_index);
+VolumeGrid *BKE_volume_grid_get_for_write(struct Volume *volume, int grid_index);
+const VolumeGrid *BKE_volume_grid_active_get_for_read(const struct Volume *volume);
+/* Tries to find a grid with the given name. Make sure that the volume has been loaded. */
+const VolumeGrid *BKE_volume_grid_find_for_read(const struct Volume *volume, const char *name);
+
+/* Tries to set the name of the velocity field. If no such grid exists with the given base name,
+ * this will try common post-fixes in order to detect velocity fields split into multiple grids.
+ * Return false if neither finding with the base name nor with the post-fixes succeeded. */
+bool BKE_volume_set_velocity_grid_by_name(struct Volume *volume, const char *base_name);
 
 /* Grid
  *
@@ -103,35 +95,36 @@ typedef enum VolumeGridType {
   VOLUME_GRID_INT,
   VOLUME_GRID_INT64,
   VOLUME_GRID_MASK,
-  VOLUME_GRID_STRING,
   VOLUME_GRID_VECTOR_FLOAT,
   VOLUME_GRID_VECTOR_DOUBLE,
   VOLUME_GRID_VECTOR_INT,
   VOLUME_GRID_POINTS,
 } VolumeGridType;
 
-bool BKE_volume_grid_load(const struct Volume *volume, struct VolumeGrid *grid);
-void BKE_volume_grid_unload(const struct Volume *volume, struct VolumeGrid *grid);
+bool BKE_volume_grid_load(const struct Volume *volume, const struct VolumeGrid *grid);
+void BKE_volume_grid_unload(const struct Volume *volume, const struct VolumeGrid *grid);
 bool BKE_volume_grid_is_loaded(const struct VolumeGrid *grid);
 
 /* Metadata */
+
 const char *BKE_volume_grid_name(const struct VolumeGrid *grid);
 VolumeGridType BKE_volume_grid_type(const struct VolumeGrid *grid);
 int BKE_volume_grid_channels(const struct VolumeGrid *grid);
+/**
+ * Transformation from index space to object space.
+ */
 void BKE_volume_grid_transform_matrix(const struct VolumeGrid *grid, float mat[4][4]);
-
-/* Bounds */
-bool BKE_volume_grid_bounds(const struct VolumeGrid *grid, float min[3], float max[3]);
+void BKE_volume_grid_transform_matrix_set(struct VolumeGrid *volume_grid, const float mat[4][4]);
 
 /* Volume Editing
  *
- * These are intended for modifiers to use on evaluated datablocks.
+ * These are intended for modifiers to use on evaluated data-blocks.
  *
- * new_for_eval creates a volume datablock with no grids or file path, but
+ * new_for_eval creates a volume data-block with no grids or file path, but
  * preserves other settings such as viewport display options.
  *
- * copy_for_eval creates a volume datablock preserving everything except the
- * file path. Grids are shared with the source datablock, not copied. */
+ * copy_for_eval creates a volume data-block preserving everything except the
+ * file path. Grids are shared with the source data-block, not copied. */
 
 struct Volume *BKE_volume_new_for_eval(const struct Volume *volume_src);
 struct Volume *BKE_volume_copy_for_eval(struct Volume *volume_src, bool reference);
@@ -140,6 +133,21 @@ struct VolumeGrid *BKE_volume_grid_add(struct Volume *volume,
                                        const char *name,
                                        VolumeGridType type);
 void BKE_volume_grid_remove(struct Volume *volume, struct VolumeGrid *grid);
+
+/**
+ * Openvdb crashes when the determinant of the transform matrix becomes too small.
+ */
+bool BKE_volume_grid_determinant_valid(double determinant);
+
+/* Simplify */
+int BKE_volume_simplify_level(const struct Depsgraph *depsgraph);
+float BKE_volume_simplify_factor(const struct Depsgraph *depsgraph);
+
+/* File Save */
+bool BKE_volume_save(const struct Volume *volume,
+                     const struct Main *bmain,
+                     struct ReportList *reports,
+                     const char *filepath);
 
 #ifdef __cplusplus
 }
@@ -150,14 +158,80 @@ void BKE_volume_grid_remove(struct Volume *volume, struct VolumeGrid *grid);
  * Access to OpenVDB grid for C++. These will automatically load grids from
  * file or copy shared grids to make them writeable. */
 
-#if defined(__cplusplus) && defined(WITH_OPENVDB)
-#  include <openvdb/openvdb.h>
+#ifdef __cplusplus
+#  include "BLI_float4x4.hh"
+#  include "BLI_math_vec_types.hh"
+#  include "BLI_string_ref.hh"
+
+bool BKE_volume_min_max(const Volume *volume, blender::float3 &r_min, blender::float3 &r_max);
+
+#  ifdef WITH_OPENVDB
+#    include <openvdb/openvdb.h>
+#    include <openvdb/points/PointDataGrid.h>
+
+VolumeGrid *BKE_volume_grid_add_vdb(Volume &volume,
+                                    blender::StringRef name,
+                                    openvdb::GridBase::Ptr vdb_grid);
+
+bool BKE_volume_grid_bounds(openvdb::GridBase::ConstPtr grid,
+                            blender::float3 &r_min,
+                            blender::float3 &r_max);
+
+/**
+ * Return a new grid pointer with only the metadata and transform changed.
+ * This is useful for instances, where there is a separate transform on top of the original
+ * grid transform that must be applied for some operations that only take a grid argument.
+ */
+openvdb::GridBase::ConstPtr BKE_volume_grid_shallow_transform(openvdb::GridBase::ConstPtr grid,
+                                                              const blender::float4x4 &transform);
+
 openvdb::GridBase::ConstPtr BKE_volume_grid_openvdb_for_metadata(const struct VolumeGrid *grid);
 openvdb::GridBase::ConstPtr BKE_volume_grid_openvdb_for_read(const struct Volume *volume,
-                                                             struct VolumeGrid *grid);
+                                                             const struct VolumeGrid *grid);
 openvdb::GridBase::Ptr BKE_volume_grid_openvdb_for_write(const struct Volume *volume,
                                                          struct VolumeGrid *grid,
-                                                         const bool clear);
-#endif
+                                                         bool clear);
 
+void BKE_volume_grid_clear_tree(Volume &volume, VolumeGrid &volume_grid);
+void BKE_volume_grid_clear_tree(openvdb::GridBase &grid);
+
+VolumeGridType BKE_volume_grid_type_openvdb(const openvdb::GridBase &grid);
+
+template<typename OpType>
+auto BKE_volume_grid_type_operation(const VolumeGridType grid_type, OpType &&op)
+{
+  switch (grid_type) {
+    case VOLUME_GRID_FLOAT:
+      return op.template operator()<openvdb::FloatGrid>();
+    case VOLUME_GRID_VECTOR_FLOAT:
+      return op.template operator()<openvdb::Vec3fGrid>();
+    case VOLUME_GRID_BOOLEAN:
+      return op.template operator()<openvdb::BoolGrid>();
+    case VOLUME_GRID_DOUBLE:
+      return op.template operator()<openvdb::DoubleGrid>();
+    case VOLUME_GRID_INT:
+      return op.template operator()<openvdb::Int32Grid>();
+    case VOLUME_GRID_INT64:
+      return op.template operator()<openvdb::Int64Grid>();
+    case VOLUME_GRID_VECTOR_INT:
+      return op.template operator()<openvdb::Vec3IGrid>();
+    case VOLUME_GRID_VECTOR_DOUBLE:
+      return op.template operator()<openvdb::Vec3dGrid>();
+    case VOLUME_GRID_MASK:
+      return op.template operator()<openvdb::MaskGrid>();
+    case VOLUME_GRID_POINTS:
+      return op.template operator()<openvdb::points::PointDataGrid>();
+    case VOLUME_GRID_UNKNOWN:
+      break;
+  }
+
+  /* Should never be called. */
+  BLI_assert_msg(0, "should never be reached");
+  return op.template operator()<openvdb::FloatGrid>();
+}
+
+openvdb::GridBase::Ptr BKE_volume_grid_create_with_changed_resolution(
+    const VolumeGridType grid_type, const openvdb::GridBase &old_grid, float resolution_factor);
+
+#  endif
 #endif

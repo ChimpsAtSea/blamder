@@ -1,39 +1,27 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2007 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2007 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spfile
  */
 
-#ifndef __FILELIST_H__
-#define __FILELIST_H__
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
 #endif
 
+struct AssetLibraryReference;
 struct BlendHandle;
+struct FileIndexerType;
 struct FileList;
 struct FileSelection;
+struct bUUID;
 struct wmWindowManager;
 
 struct FileDirEntry;
+
+typedef uint32_t FileUID;
 
 typedef enum FileSelType {
   FILE_SEL_REMOVE = 0,
@@ -47,53 +35,118 @@ typedef enum FileCheckType {
   CHECK_ALL = 3,
 } FileCheckType;
 
-struct ListBase *folderlist_new(void);
+/* not listbase itself */
 void folderlist_free(struct ListBase *folderlist);
-struct ListBase *folderlist_duplicate(ListBase *folderlist);
 void folderlist_popdir(struct ListBase *folderlist, char *dir);
 void folderlist_pushdir(struct ListBase *folderlist, const char *dir);
-const char *folderlist_peeklastdir(struct ListBase *folderdist);
+const char *folderlist_peeklastdir(struct ListBase *folderlist);
 int folderlist_clear_next(struct SpaceFile *sfile);
 
-void filelist_setsorting(struct FileList *filelist, const short sort, bool invert_sort);
+void folder_history_list_ensure_for_active_browse_mode(struct SpaceFile *sfile);
+void folder_history_list_free(struct SpaceFile *sfile);
+struct ListBase folder_history_list_duplicate(struct ListBase *listbase);
+
+void filelist_setsorting(struct FileList *filelist, short sort, bool invert_sort);
 void filelist_sort(struct FileList *filelist);
 
 void filelist_setfilter_options(struct FileList *filelist,
-                                const bool do_filter,
-                                const bool hide_dot,
-                                const bool hide_parent,
-                                const uint64_t filter,
-                                const uint64_t filter_id,
+                                bool do_filter,
+                                bool hide_dot,
+                                bool hide_parent,
+                                uint64_t filter,
+                                uint64_t filter_id,
+                                bool filter_assets_only,
                                 const char *filter_glob,
                                 const char *filter_search);
+/**
+ * Set the indexer to be used by the filelist.
+ *
+ * The given indexer allocation should be handled by the caller or defined statically.
+ */
+void filelist_setindexer(struct FileList *filelist, const struct FileIndexerType *indexer);
+/**
+ * \param catalog_id: The catalog that should be filtered by if \a catalog_visibility is
+ * #FILE_SHOW_ASSETS_FROM_CATALOG. May be NULL otherwise.
+ */
+void filelist_set_asset_catalog_filter_options(
+    struct FileList *filelist,
+    eFileSel_Params_AssetCatalogVisibility catalog_visibility,
+    const struct bUUID *catalog_id);
+void filelist_tag_needs_filtering(struct FileList *filelist);
 void filelist_filter(struct FileList *filelist);
+/**
+ * \param asset_library_ref: May be NULL to unset the library.
+ */
+void filelist_setlibrary(struct FileList *filelist,
+                         const struct AssetLibraryReference *asset_library_ref);
 
 void filelist_init_icons(void);
 void filelist_free_icons(void);
-void filelist_imgsize(struct FileList *filelist, short w, short h);
-struct ImBuf *filelist_getimage(struct FileList *filelist, const int index);
-struct ImBuf *filelist_geticon_image(struct FileList *filelist, const int index);
-int filelist_geticon(struct FileList *filelist, const int index, const bool is_main);
+struct ImBuf *filelist_getimage(struct FileList *filelist, int index);
+struct ImBuf *filelist_file_getimage(const FileDirEntry *file);
+struct ImBuf *filelist_geticon_image_ex(const FileDirEntry *file);
+struct ImBuf *filelist_geticon_image(struct FileList *filelist, int index);
+int filelist_geticon(struct FileList *filelist, int index, bool is_main);
 
 struct FileList *filelist_new(short type);
+void filelist_settype(struct FileList *filelist, short type);
 void filelist_clear(struct FileList *filelist);
-void filelist_clear_ex(struct FileList *filelist, const bool do_cache, const bool do_selection);
+void filelist_clear_ex(struct FileList *filelist,
+                       bool do_asset_library,
+                       bool do_cache,
+                       bool do_selection);
+/**
+ * A "smarter" version of #filelist_clear() that calls partial clearing based on the filelist
+ * force-reset flags.
+ */
+void filelist_clear_from_reset_tag(struct FileList *filelist);
 void filelist_free(struct FileList *filelist);
 
 const char *filelist_dir(struct FileList *filelist);
 bool filelist_is_dir(struct FileList *filelist, const char *path);
+/**
+ * May modify in place given r_dir, which is expected to be FILE_MAX_LIBEXTRA length.
+ */
 void filelist_setdir(struct FileList *filelist, char *r_dir);
 
+/**
+ * Limited version of full update done by space_file's file_refresh(),
+ * to be used by operators and such.
+ * Ensures given filelist is ready to be used (i.e. it is filtered and sorted),
+ * unless it is tagged for a full refresh.
+ */
 int filelist_files_ensure(struct FileList *filelist);
-int filelist_empty(struct FileList *filelist);
+int filelist_needs_reading(struct FileList *filelist);
 FileDirEntry *filelist_file(struct FileList *filelist, int index);
-int filelist_file_findpath(struct FileList *filelist, const char *file);
-FileDirEntry *filelist_entry_find_uuid(struct FileList *filelist, const int uuid[4]);
-void filelist_file_cache_slidingwindow_set(struct FileList *filelist, size_t window_size);
-bool filelist_file_cache_block(struct FileList *filelist, const int index);
+FileDirEntry *filelist_file_ex(struct FileList *filelist, int index, bool use_request);
 
-bool filelist_force_reset(struct FileList *filelist);
+/**
+ * Find a file from a file name, or more precisely, its file-list relative path, inside the
+ * filtered items. \return The index of the found file or -1.
+ */
+int filelist_file_find_path(struct FileList *filelist, const char *file);
+/**
+ * Find a file representing \a id.
+ * \return The index of the found file or -1.
+ */
+int filelist_file_find_id(const struct FileList *filelist, const struct ID *id);
+/**
+ * Get the ID a file represents (if any). For #FILE_MAIN, #FILE_MAIN_ASSET.
+ */
+struct ID *filelist_file_get_id(const struct FileDirEntry *file);
+bool filelist_uid_is_set(const FileUID uid);
+void filelist_uid_unset(FileUID *r_uid);
+void filelist_file_cache_slidingwindow_set(struct FileList *filelist, size_t window_size);
+/**
+ * Load in cache all entries "around" given index (as much as block cache may hold).
+ */
+bool filelist_file_cache_block(struct FileList *filelist, int index);
+
+bool filelist_needs_force_reset(struct FileList *filelist);
+void filelist_tag_force_reset(struct FileList *filelist);
+void filelist_tag_force_reset_mainfiles(struct FileList *filelist);
 bool filelist_pending(struct FileList *filelist);
+bool filelist_needs_reset_on_main_changes(const struct FileList *filelist);
 bool filelist_is_ready(struct FileList *filelist);
 
 unsigned int filelist_entry_select_set(const struct FileList *filelist,
@@ -102,7 +155,7 @@ unsigned int filelist_entry_select_set(const struct FileList *filelist,
                                        unsigned int flag,
                                        FileCheckType check);
 void filelist_entry_select_index_set(struct FileList *filelist,
-                                     const int index,
+                                     int index,
                                      FileSelType select,
                                      unsigned int flag,
                                      FileCheckType check);
@@ -115,29 +168,39 @@ unsigned int filelist_entry_select_get(struct FileList *filelist,
                                        struct FileDirEntry *entry,
                                        FileCheckType check);
 unsigned int filelist_entry_select_index_get(struct FileList *filelist,
-                                             const int index,
+                                             int index,
                                              FileCheckType check);
+bool filelist_entry_is_selected(struct FileList *filelist, int index);
+/**
+ * Set selection of the '..' parent entry, but only if it's actually visible.
+ */
 void filelist_entry_parent_select_set(struct FileList *filelist,
                                       FileSelType select,
                                       unsigned int flag,
                                       FileCheckType check);
 
-void filelist_setrecursion(struct FileList *filelist, const int recursion_level);
+void filelist_setrecursion(struct FileList *filelist, int recursion_level);
+
+struct AssetLibrary *filelist_asset_library(struct FileList *filelist);
 
 struct BlendHandle *filelist_lib(struct FileList *filelist);
+/**
+ * \param dir: Must be #FILE_MAX_LIBEXTRA long!
+ */
 bool filelist_islibrary(struct FileList *filelist, char *dir, char **r_group);
 void filelist_freelib(struct FileList *filelist);
 
-void filelist_readjob_start(struct FileList *filelist, const struct bContext *C);
-void filelist_readjob_stop(struct wmWindowManager *wm, struct Scene *owner_scene);
-int filelist_readjob_running(struct wmWindowManager *wm, struct Scene *owner_scene);
+void filelist_readjob_start(struct FileList *filelist,
+                            int space_notifier,
+                            const struct bContext *C);
+void filelist_readjob_stop(struct FileList *filelist, struct wmWindowManager *wm);
+int filelist_readjob_running(struct FileList *filelist, struct wmWindowManager *wm);
 
 bool filelist_cache_previews_update(struct FileList *filelist);
-void filelist_cache_previews_set(struct FileList *filelist, const bool use_previews);
+void filelist_cache_previews_set(struct FileList *filelist, bool use_previews);
 bool filelist_cache_previews_running(struct FileList *filelist);
+bool filelist_cache_previews_done(struct FileList *filelist);
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

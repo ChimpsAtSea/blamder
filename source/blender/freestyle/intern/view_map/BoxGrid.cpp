@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup freestyle
@@ -37,14 +23,6 @@ namespace Freestyle {
 
 // Cell
 /////////
-
-BoxGrid::Cell::Cell()
-{
-}
-
-BoxGrid::Cell::~Cell()
-{
-}
 
 void BoxGrid::Cell::setDimensions(real x, real y, real sizeX, real sizeY)
 {
@@ -87,10 +65,6 @@ BoxGrid::Iterator::Iterator(BoxGrid &grid, Vec3r &center, real /*epsilon*/)
   _current = _cell->faces.begin();
 }
 
-BoxGrid::Iterator::~Iterator()
-{
-}
-
 // BoxGrid
 /////////////////
 
@@ -124,9 +98,7 @@ BoxGrid::BoxGrid(OccluderSource &source,
   }
 }
 
-BoxGrid::~BoxGrid()
-{
-}
+BoxGrid::~BoxGrid() = default;
 
 void BoxGrid::assignCells(OccluderSource & /*source*/,
                           GridDensityProvider &density,
@@ -157,7 +129,7 @@ void BoxGrid::assignCells(OccluderSource & /*source*/,
       Vec3r point = transform((*f)->center3d());
       unsigned int i, j;
       getCellCoordinates(point, i, j);
-      if (_cells[i * _cellsY + j] == NULL) {
+      if (_cells[i * _cellsY + j] == nullptr) {
         // This is an uninitialized cell
         real x, y, width, height;
 
@@ -181,7 +153,7 @@ void BoxGrid::distributePolygons(OccluderSource &source)
   unsigned long nKeptFaces = 0;
 
   for (source.begin(); source.isValid(); source.next()) {
-    OccluderData *occluder = NULL;
+    OccluderData *occluder = nullptr;
 
     try {
       if (insertOccluder(source, occluder)) {
@@ -240,10 +212,6 @@ const Vec3r &BoxGrid::viewpoint() const
 bool BoxGrid::enableQI() const
 {
   return _enableQI;
-}
-
-BoxGrid::Transform::Transform() : GridHelpers::Transform()
-{
 }
 
 Vec3r BoxGrid::Transform::operator()(const Vec3r &point) const

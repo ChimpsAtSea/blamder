@@ -1,25 +1,9 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008, Blender Foundation
- * This is a new part of Blender
- * Operator for converting Grease Pencil data to geometry
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. */
 
 /** \file
  * \ingroup edgpencil
+ * Operator for converting Grease Pencil data to geometry.
  */
 
 #include <math.h>
@@ -41,6 +25,7 @@
 #include "DNA_collection_types.h"
 #include "DNA_curve_types.h"
 #include "DNA_gpencil_types.h"
+#include "DNA_material_types.h"
 #include "DNA_node_types.h"
 #include "DNA_object_types.h"
 #include "DNA_scene_types.h"
@@ -48,14 +33,18 @@
 #include "DNA_space_types.h"
 #include "DNA_view3d_types.h"
 
+#include "BKE_animsys.h"
 #include "BKE_collection.h"
 #include "BKE_context.h"
 #include "BKE_curve.h"
 #include "BKE_fcurve.h"
 #include "BKE_global.h"
 #include "BKE_gpencil.h"
+#include "BKE_gpencil_geom.h"
+#include "BKE_image.h"
 #include "BKE_layer.h"
 #include "BKE_main.h"
+#include "BKE_material.h"
 #include "BKE_object.h"
 #include "BKE_report.h"
 #include "BKE_scene.h"
@@ -151,19 +140,19 @@ static const EnumPropertyItem *rna_GPConvert_mode_items(bContext *UNUSED(C),
 /* convert the coordinates from the given stroke point into 3d-coordinates
  * - assumes that the active space is the 3D-View
  */
-static void gp_strokepoint_convertcoords(bContext *C,
-                                         bGPDlayer *gpl,
-                                         bGPDstroke *gps,
-                                         bGPDspoint *source_pt,
-                                         float p3d[3],
-                                         const rctf *subrect)
+static void gpencil_strokepoint_convertcoords(bContext *C,
+                                              bGPDlayer *gpl,
+                                              bGPDstroke *gps,
+                                              bGPDspoint *source_pt,
+                                              float p3d[3],
+                                              const rctf *subrect)
 {
   Scene *scene = CTX_data_scene(C);
   View3D *v3d = CTX_wm_view3d(C);
   ARegion *region = CTX_wm_region(C);
   /* TODO(sergey): This function might be called from a loop, but no tagging is happening in it,
    * so it's not that expensive to ensure evaluated depsgraph here. However, ideally all the
-   * parameters are to wrapped into a context style struct and queried from Context once.*/
+   * parameters are to wrapped into a context style struct and queried from Context once. */
   Depsgraph *depsgraph = CTX_data_ensure_evaluated_depsgraph(C);
   Object *obact = CTX_data_active_object(C);
   bGPDspoint mypt, *pt;
@@ -173,7 +162,7 @@ static void gp_strokepoint_convertcoords(bContext *C,
 
   /* apply parent transform */
   float fpt[3];
-  BKE_gpencil_parent_matrix_get(depsgraph, obact, gpl, diff_mat);
+  BKE_gpencil_layer_transform_matrix_get(depsgraph, obact, gpl, diff_mat);
   mul_v3_m4v3(fpt, diff_mat, &source_pt->x);
   copy_v3_v3(&pt->x, fpt);
 
@@ -214,58 +203,62 @@ typedef struct tGpTimingData {
   int frame_range; /* Number of frames evaluated for path animation */
   int start_frame, end_frame;
   bool realtime; /* Will overwrite end_frame in case of Original or CustomGap timing... */
-  float gap_duration, gap_randomness; /* To be used with CustomGap mode*/
+  float gap_duration, gap_randomness; /* To be used with CustomGap mode. */
   int seed;
 
   /* Data set from points, used to compute final timing FCurve */
-  int num_points, cur_point;
+  int points_num, cur_point;
 
   /* Distances */
   float *dists;
   float tot_dist;
 
   /* Times */
-  float *times; /* Note: Gap times will be negative! */
+  float *times; /* NOTE: Gap times will be negative! */
   float tot_time, gap_tot_time;
   double inittime;
 
   /* Only used during creation of dists & times lists. */
   float offset_time;
+
+  /* Curve bevel. */
+  float bevel_depth;
+  int bevel_resolution;
 } tGpTimingData;
 
 /* Init point buffers for timing data.
  * Note this assumes we only grow those arrays!
  */
-static void gp_timing_data_set_nbr(tGpTimingData *gtd, const int nbr)
+static void gpencil_timing_data_set_num(tGpTimingData *gtd, const int num)
 {
   float *tmp;
 
-  BLI_assert(nbr > gtd->num_points);
+  BLI_assert(num > gtd->points_num);
 
   /* distances */
   tmp = gtd->dists;
-  gtd->dists = MEM_callocN(sizeof(float) * nbr, __func__);
+  gtd->dists = MEM_callocN(sizeof(float) * num, __func__);
   if (tmp) {
-    memcpy(gtd->dists, tmp, sizeof(float) * gtd->num_points);
+    memcpy(gtd->dists, tmp, sizeof(float) * gtd->points_num);
     MEM_freeN(tmp);
   }
 
   /* times */
   tmp = gtd->times;
-  gtd->times = MEM_callocN(sizeof(float) * nbr, __func__);
+  gtd->times = MEM_callocN(sizeof(float) * num, __func__);
   if (tmp) {
-    memcpy(gtd->times, tmp, sizeof(float) * gtd->num_points);
+    memcpy(gtd->times, tmp, sizeof(float) * gtd->points_num);
     MEM_freeN(tmp);
   }
 
-  gtd->num_points = nbr;
+  gtd->points_num = num;
 }
 
 /* add stroke point to timing buffers */
-static void gp_timing_data_add_point(tGpTimingData *gtd,
-                                     const double stroke_inittime,
-                                     const float time,
-                                     const float delta_dist)
+static void gpencil_timing_data_add_point(tGpTimingData *gtd,
+                                          const double stroke_inittime,
+                                          const float time,
+                                          const float delta_dist)
 {
   float delta_time = 0.0f;
   const int cur_point = gtd->cur_point;
@@ -301,18 +294,18 @@ static void gp_timing_data_add_point(tGpTimingData *gtd,
 #define MIN_TIME_DELTA 0.02f
 
 /* Loop over next points to find the end of the stroke, and compute */
-static int gp_find_end_of_stroke_idx(tGpTimingData *gtd,
-                                     RNG *rng,
-                                     const int idx,
-                                     const int nbr_gaps,
-                                     int *nbr_done_gaps,
-                                     const float tot_gaps_time,
-                                     const float delta_time,
-                                     float *next_delta_time)
+static int gpencil_find_end_of_stroke_idx(tGpTimingData *gtd,
+                                          RNG *rng,
+                                          const int idx,
+                                          const int gaps_count,
+                                          int *gaps_done_count,
+                                          const float tot_gaps_time,
+                                          const float delta_time,
+                                          float *next_delta_time)
 {
   int j;
 
-  for (j = idx + 1; j < gtd->num_points; j++) {
+  for (j = idx + 1; j < gtd->points_num; j++) {
     if (gtd->times[j] < 0) {
       gtd->times[j] = -gtd->times[j];
       if (gtd->mode == GP_STROKECONVERT_TIMING_CUSTOMGAP) {
@@ -323,7 +316,7 @@ static int gp_find_end_of_stroke_idx(tGpTimingData *gtd,
           /* We want gaps that are in gtd->gap_duration +/- gtd->gap_randomness range,
            * and which sum to exactly tot_gaps_time...
            */
-          int rem_gaps = nbr_gaps - (*nbr_done_gaps);
+          int rem_gaps = gaps_count - (*gaps_done_count);
           if (rem_gaps < 2) {
             /* Last gap, just give remaining time! */
             *next_delta_time = tot_gaps_time;
@@ -334,7 +327,7 @@ static int gp_find_end_of_stroke_idx(tGpTimingData *gtd,
             /* This code ensures that if the first gaps
              * have been shorter than average gap_duration, next gaps
              * will tend to be longer (i.e. try to recover the lateness), and vice-versa! */
-            delta = delta_time - (gtd->gap_duration * (*nbr_done_gaps));
+            delta = delta_time - (gtd->gap_duration * (*gaps_done_count));
 
             /* Clamp min between [-gap_randomness, 0.0], with lower delta giving higher min */
             min = -gtd->gap_randomness - delta;
@@ -350,7 +343,7 @@ static int gp_find_end_of_stroke_idx(tGpTimingData *gtd,
           *next_delta_time += gtd->gap_duration;
         }
       }
-      (*nbr_done_gaps)++;
+      (*gaps_done_count)++;
       break;
     }
   }
@@ -358,17 +351,16 @@ static int gp_find_end_of_stroke_idx(tGpTimingData *gtd,
   return j - 1;
 }
 
-static void gp_stroke_path_animation_preprocess_gaps(tGpTimingData *gtd,
-                                                     RNG *rng,
-                                                     int *nbr_gaps,
-                                                     float *tot_gaps_time)
+static void gpencil_stroke_path_animation_preprocess_gaps(tGpTimingData *gtd,
+                                                          RNG *rng,
+                                                          int *gaps_count,
+                                                          float *r_tot_gaps_time)
 {
-  int i;
   float delta_time = 0.0f;
 
-  for (i = 0; i < gtd->num_points; i++) {
+  for (int i = 0; i < gtd->points_num; i++) {
     if (gtd->times[i] < 0 && i) {
-      (*nbr_gaps)++;
+      (*gaps_count)++;
       gtd->times[i] = -gtd->times[i] - delta_time;
       delta_time += gtd->times[i] - gtd->times[i - 1];
       gtd->times[i] = -gtd->times[i - 1]; /* Temp marker, values *have* to be different! */
@@ -379,26 +371,24 @@ static void gp_stroke_path_animation_preprocess_gaps(tGpTimingData *gtd,
   }
   gtd->tot_time -= delta_time;
 
-  *tot_gaps_time = (float)(*nbr_gaps) * gtd->gap_duration;
-  gtd->tot_time += *tot_gaps_time;
-  if (G.debug & G_DEBUG) {
-    printf("%f, %f, %f, %d\n", gtd->tot_time, delta_time, *tot_gaps_time, *nbr_gaps);
-  }
+  *r_tot_gaps_time = (float)(*gaps_count) * gtd->gap_duration;
+  gtd->tot_time += *r_tot_gaps_time;
   if (gtd->gap_randomness > 0.0f) {
     BLI_rng_srandom(rng, gtd->seed);
   }
 }
 
-static void gp_stroke_path_animation_add_keyframes(ReportList *reports,
-                                                   PointerRNA ptr,
-                                                   PropertyRNA *prop,
-                                                   FCurve *fcu,
-                                                   Curve *cu,
-                                                   tGpTimingData *gtd,
-                                                   RNG *rng,
-                                                   const float time_range,
-                                                   const int nbr_gaps,
-                                                   const float tot_gaps_time)
+static void gpencil_stroke_path_animation_add_keyframes(ReportList *reports,
+                                                        PointerRNA ptr,
+                                                        PropertyRNA *prop,
+                                                        Depsgraph *depsgraph,
+                                                        FCurve *fcu,
+                                                        Curve *cu,
+                                                        tGpTimingData *gtd,
+                                                        RNG *rng,
+                                                        const float time_range,
+                                                        const int gaps_count,
+                                                        const float tot_gaps_time)
 {
   /* Use actual recorded timing! */
   const float time_start = (float)gtd->start_frame;
@@ -409,23 +399,20 @@ static void gp_stroke_path_animation_add_keyframes(ReportList *reports,
 
   /* CustomGaps specific */
   float delta_time = 0.0f, next_delta_time = 0.0f;
-  int nbr_done_gaps = 0;
-
-  int i;
-  float cfra;
+  int gaps_done_count = 0;
 
   /* This is a bit tricky, as:
    * - We can't add arbitrarily close points on FCurve (in time).
    * - We *must* have all "caps" points of all strokes in FCurve, as much as possible!
    */
-  for (i = 0; i < gtd->num_points; i++) {
+  for (int i = 0; i < gtd->points_num; i++) {
     /* If new stroke... */
     if (i > end_stroke_idx) {
       start_stroke_idx = i;
       delta_time = next_delta_time;
       /* find end of that new stroke */
-      end_stroke_idx = gp_find_end_of_stroke_idx(
-          gtd, rng, i, nbr_gaps, &nbr_done_gaps, tot_gaps_time, delta_time, &next_delta_time);
+      end_stroke_idx = gpencil_find_end_of_stroke_idx(
+          gtd, rng, i, gaps_count, &gaps_done_count, tot_gaps_time, delta_time, &next_delta_time);
       /* This one should *never* be negative! */
       end_stroke_time = time_start +
                         ((gtd->times[end_stroke_idx] + delta_time) / gtd->tot_time * time_range);
@@ -433,7 +420,7 @@ static void gp_stroke_path_animation_add_keyframes(ReportList *reports,
 
     /* Simple proportional stuff... */
     cu->ctime = gtd->dists[i] / gtd->tot_dist * cu->pathlen;
-    cfra = time_start + ((gtd->times[i] + delta_time) / gtd->tot_time * time_range);
+    float cfra = time_start + ((gtd->times[i] + delta_time) / gtd->tot_time * time_range);
 
     /* And now, the checks about timing... */
     if (i == start_stroke_idx) {
@@ -446,12 +433,17 @@ static void gp_stroke_path_animation_add_keyframes(ReportList *reports,
         if ((cfra - last_valid_time) < MIN_TIME_DELTA) {
           cfra = last_valid_time + MIN_TIME_DELTA;
         }
-        insert_keyframe_direct(
-            reports, ptr, prop, fcu, cfra, BEZT_KEYTYPE_KEYFRAME, NULL, INSERTKEY_FAST);
+        const AnimationEvalContext anim_eval_context = BKE_animsys_eval_context_construct(
+            depsgraph, cfra);
+        insert_keyframe_direct(reports,
+                               ptr,
+                               prop,
+                               fcu,
+                               &anim_eval_context,
+                               BEZT_KEYTYPE_KEYFRAME,
+                               NULL,
+                               INSERTKEY_FAST);
         last_valid_time = cfra;
-      }
-      else if (G.debug & G_DEBUG) {
-        printf("\t Skipping start point %d, too close from end point %d\n", i, end_stroke_idx);
       }
     }
     else if (i == end_stroke_idx) {
@@ -459,8 +451,16 @@ static void gp_stroke_path_animation_add_keyframes(ReportList *reports,
       if ((cfra - last_valid_time) < MIN_TIME_DELTA) {
         cfra = last_valid_time + MIN_TIME_DELTA;
       }
-      insert_keyframe_direct(
-          reports, ptr, prop, fcu, cfra, BEZT_KEYTYPE_KEYFRAME, NULL, INSERTKEY_FAST);
+      const AnimationEvalContext anim_eval_context = BKE_animsys_eval_context_construct(depsgraph,
+                                                                                        cfra);
+      insert_keyframe_direct(reports,
+                             ptr,
+                             prop,
+                             fcu,
+                             &anim_eval_context,
+                             BEZT_KEYTYPE_KEYFRAME,
+                             NULL,
+                             INSERTKEY_FAST);
       last_valid_time = cfra;
     }
     else {
@@ -468,8 +468,16 @@ static void gp_stroke_path_animation_add_keyframes(ReportList *reports,
        * and also far enough from (not yet added!) end_stroke keyframe!
        */
       if ((cfra - last_valid_time) > MIN_TIME_DELTA && (end_stroke_time - cfra) > MIN_TIME_DELTA) {
-        insert_keyframe_direct(
-            reports, ptr, prop, fcu, cfra, BEZT_KEYTYPE_BREAKDOWN, NULL, INSERTKEY_FAST);
+        const AnimationEvalContext anim_eval_context = BKE_animsys_eval_context_construct(
+            depsgraph, cfra);
+        insert_keyframe_direct(reports,
+                               ptr,
+                               prop,
+                               fcu,
+                               &anim_eval_context,
+                               BEZT_KEYTYPE_BREAKDOWN,
+                               NULL,
+                               INSERTKEY_FAST);
         last_valid_time = cfra;
       }
       else if (G.debug & G_DEBUG) {
@@ -482,18 +490,19 @@ static void gp_stroke_path_animation_add_keyframes(ReportList *reports,
   }
 }
 
-static void gp_stroke_path_animation(bContext *C,
-                                     ReportList *reports,
-                                     Curve *cu,
-                                     tGpTimingData *gtd)
+static void gpencil_stroke_path_animation(bContext *C,
+                                          ReportList *reports,
+                                          Curve *cu,
+                                          tGpTimingData *gtd)
 {
   Main *bmain = CTX_data_main(C);
   Scene *scene = CTX_data_scene(C);
+  Depsgraph *depsgraph = CTX_data_depsgraph_pointer(C);
   bAction *act;
   FCurve *fcu;
   PointerRNA ptr;
   PropertyRNA *prop = NULL;
-  int nbr_gaps = 0, i;
+  int gaps_count = 0;
 
   if (gtd->mode == GP_STROKECONVERT_TIMING_NONE) {
     return;
@@ -515,13 +524,6 @@ static void gp_stroke_path_animation(bContext *C,
   act = ED_id_action_ensure(bmain, (ID *)cu);
   fcu = ED_action_fcurve_ensure(bmain, act, NULL, &ptr, "eval_time", 0);
 
-  if (G.debug & G_DEBUG) {
-    printf("%s: tot len: %f\t\ttot time: %f\n", __func__, gtd->tot_dist, gtd->tot_time);
-    for (i = 0; i < gtd->num_points; i++) {
-      printf("\tpoint %d:\t\tlen: %f\t\ttime: %f\n", i, gtd->dists[i], gtd->times[i]);
-    }
-  }
-
   if (gtd->mode == GP_STROKECONVERT_TIMING_LINEAR) {
     float cfra;
 
@@ -530,8 +532,16 @@ static void gp_stroke_path_animation(bContext *C,
 
     cu->ctime = 0.0f;
     cfra = (float)gtd->start_frame;
-    insert_keyframe_direct(
-        reports, ptr, prop, fcu, cfra, BEZT_KEYTYPE_KEYFRAME, NULL, INSERTKEY_FAST);
+    AnimationEvalContext anim_eval_context_start = BKE_animsys_eval_context_construct(depsgraph,
+                                                                                      cfra);
+    insert_keyframe_direct(reports,
+                           ptr,
+                           prop,
+                           fcu,
+                           &anim_eval_context_start,
+                           BEZT_KEYTYPE_KEYFRAME,
+                           NULL,
+                           INSERTKEY_FAST);
 
     cu->ctime = cu->pathlen;
     if (gtd->realtime) {
@@ -540,8 +550,16 @@ static void gp_stroke_path_animation(bContext *C,
     else {
       cfra = (float)gtd->end_frame;
     }
-    insert_keyframe_direct(
-        reports, ptr, prop, fcu, cfra, BEZT_KEYTYPE_KEYFRAME, NULL, INSERTKEY_FAST);
+    AnimationEvalContext anim_eval_context_end = BKE_animsys_eval_context_construct(depsgraph,
+                                                                                    cfra);
+    insert_keyframe_direct(reports,
+                           ptr,
+                           prop,
+                           fcu,
+                           &anim_eval_context_end,
+                           BEZT_KEYTYPE_KEYFRAME,
+                           NULL,
+                           INSERTKEY_FAST);
   }
   else {
     /* Use actual recorded timing! */
@@ -553,7 +571,7 @@ static void gp_stroke_path_animation(bContext *C,
 
     /* Pre-process gaps, in case we don't want to keep their original timing */
     if (gtd->mode == GP_STROKECONVERT_TIMING_CUSTOMGAP) {
-      gp_stroke_path_animation_preprocess_gaps(gtd, rng, &nbr_gaps, &tot_gaps_time);
+      gpencil_stroke_path_animation_preprocess_gaps(gtd, rng, &gaps_count, &tot_gaps_time);
     }
 
     if (gtd->realtime) {
@@ -563,26 +581,14 @@ static void gp_stroke_path_animation(bContext *C,
       time_range = (float)(gtd->end_frame - gtd->start_frame);
     }
 
-    if (G.debug & G_DEBUG) {
-      printf("GP Stroke Path Conversion: Starting keying!\n");
-    }
-
-    gp_stroke_path_animation_add_keyframes(
-        reports, ptr, prop, fcu, cu, gtd, rng, time_range, nbr_gaps, tot_gaps_time);
+    gpencil_stroke_path_animation_add_keyframes(
+        reports, ptr, prop, depsgraph, fcu, cu, gtd, rng, time_range, gaps_count, tot_gaps_time);
 
     BLI_rng_free(rng);
   }
 
   /* As we used INSERTKEY_FAST mode, we need to recompute all curve's handles now */
-  calchandles_fcurve(fcu);
-
-  if (G.debug & G_DEBUG) {
-    printf("%s: \ntot len: %f\t\ttot time: %f\n", __func__, gtd->tot_dist, gtd->tot_time);
-    for (i = 0; i < gtd->num_points; i++) {
-      printf("\tpoint %d:\t\tlen: %f\t\ttime: %f\n", i, gtd->dists[i], gtd->times[i]);
-    }
-    printf("\n\n");
-  }
+  BKE_fcurve_handles_recalc(fcu);
 
   WM_event_add_notifier(C, NC_ANIMATION | ND_KEYFRAME | NA_EDITED, NULL);
 
@@ -599,16 +605,16 @@ static void gp_stroke_path_animation(bContext *C,
 /* convert stroke to 3d path */
 
 /* helper */
-static void gp_stroke_to_path_add_point(tGpTimingData *gtd,
-                                        BPoint *bp,
-                                        const float p[3],
-                                        const float prev_p[3],
-                                        const bool do_gtd,
-                                        const double inittime,
-                                        const float time,
-                                        const float width,
-                                        const float rad_fac,
-                                        float minmax_weights[2])
+static void gpencil_stroke_to_path_add_point(tGpTimingData *gtd,
+                                             BPoint *bp,
+                                             const float p[3],
+                                             const float prev_p[3],
+                                             const bool do_gtd,
+                                             const double inittime,
+                                             const float time,
+                                             const float width,
+                                             const float rad_fac,
+                                             float minmax_weights[2])
 {
   copy_v3_v3(bp->vec, p);
   bp->vec[3] = 1.0f;
@@ -627,22 +633,22 @@ static void gp_stroke_to_path_add_point(tGpTimingData *gtd,
 
   /* Update timing data */
   if (do_gtd) {
-    gp_timing_data_add_point(gtd, inittime, time, len_v3v3(prev_p, p));
+    gpencil_timing_data_add_point(gtd, inittime, time, len_v3v3(prev_p, p));
   }
 }
 
-static void gp_stroke_to_path(bContext *C,
-                              bGPDlayer *gpl,
-                              bGPDstroke *gps,
-                              Curve *cu,
-                              rctf *subrect,
-                              Nurb **curnu,
-                              float minmax_weights[2],
-                              const float rad_fac,
-                              bool stitch,
-                              const bool add_start_point,
-                              const bool add_end_point,
-                              tGpTimingData *gtd)
+static void gpencil_stroke_to_path(bContext *C,
+                                   bGPDlayer *gpl,
+                                   bGPDstroke *gps,
+                                   Curve *cu,
+                                   rctf *subrect,
+                                   Nurb **curnu,
+                                   float minmax_weights[2],
+                                   const float rad_fac,
+                                   bool stitch,
+                                   const bool add_start_point,
+                                   const bool add_end_point,
+                                   tGpTimingData *gtd)
 {
   bGPDspoint *pt;
   Nurb *nu = (curnu) ? *curnu : NULL;
@@ -678,7 +684,7 @@ static void gp_stroke_to_path(bContext *C,
   }
 
   if (do_gtd) {
-    gp_timing_data_set_nbr(gtd, nu->pntsu);
+    gpencil_timing_data_set_num(gtd, nu->pntsu);
   }
 
   /* If needed, make the link between both strokes with two zero-radius additional points */
@@ -706,7 +712,7 @@ static void gp_stroke_to_path(bContext *C,
     bp = &nu->bp[old_nbp - 1];
 
     /* First point */
-    gp_strokepoint_convertcoords(C, gpl, gps, gps->points, p, subrect);
+    gpencil_strokepoint_convertcoords(C, gpl, gps, gps->points, p, subrect);
     if (prev_bp) {
       interp_v3_v3v3(p1, bp->vec, prev_bp->vec, -GAP_DFAC);
       if (do_gtd) {
@@ -721,21 +727,21 @@ static void gp_stroke_to_path(bContext *C,
       }
     }
     bp++;
-    gp_stroke_to_path_add_point(gtd,
-                                bp,
-                                p1,
-                                (bp - 1)->vec,
-                                do_gtd,
-                                gps->prev->inittime,
-                                dt1,
-                                0.0f,
-                                rad_fac,
-                                minmax_weights);
+    gpencil_stroke_to_path_add_point(gtd,
+                                     bp,
+                                     p1,
+                                     (bp - 1)->vec,
+                                     do_gtd,
+                                     gps->prev->inittime,
+                                     dt1,
+                                     0.0f,
+                                     rad_fac,
+                                     minmax_weights);
 
     /* Second point */
     /* Note dt2 is always negative, which marks the gap. */
     if (gps->totpoints > 1) {
-      gp_strokepoint_convertcoords(C, gpl, gps, gps->points + 1, next_p, subrect);
+      gpencil_strokepoint_convertcoords(C, gpl, gps, gps->points + 1, next_p, subrect);
       interp_v3_v3v3(p2, p, next_p, -GAP_DFAC);
       if (do_gtd) {
         dt2 = interpf(gps->points[1].time, gps->points[0].time, -GAP_DFAC);
@@ -748,7 +754,7 @@ static void gp_stroke_to_path(bContext *C,
       }
     }
     bp++;
-    gp_stroke_to_path_add_point(
+    gpencil_stroke_to_path_add_point(
         gtd, bp, p2, p1, do_gtd, gps->inittime, dt2, 0.0f, rad_fac, minmax_weights);
 
     old_nbp += 2;
@@ -757,9 +763,9 @@ static void gp_stroke_to_path(bContext *C,
     float p[3], next_p[3];
     float dt = 0.0f;
 
-    gp_strokepoint_convertcoords(C, gpl, gps, gps->points, p, subrect);
+    gpencil_strokepoint_convertcoords(C, gpl, gps, gps->points, p, subrect);
     if (gps->totpoints > 1) {
-      gp_strokepoint_convertcoords(C, gpl, gps, gps->points + 1, next_p, subrect);
+      gpencil_strokepoint_convertcoords(C, gpl, gps, gps->points + 1, next_p, subrect);
       interp_v3_v3v3(p, p, next_p, -GAP_DFAC);
       if (do_gtd) {
         dt = interpf(gps->points[1].time, gps->points[0].time, -GAP_DFAC);
@@ -774,7 +780,7 @@ static void gp_stroke_to_path(bContext *C,
      * (which would be expected value) would not work
      * (it would be *before* gtd->inittime, which is not supported currently).
      */
-    gp_stroke_to_path_add_point(
+    gpencil_stroke_to_path_add_point(
         gtd, bp, p, p, do_gtd, gps->inittime, dt, 0.0f, rad_fac, minmax_weights);
 
     old_nbp++;
@@ -792,18 +798,18 @@ static void gp_stroke_to_path(bContext *C,
     float width = pt->pressure * (gps->thickness + gpl->line_change) * WIDTH_CORR_FAC;
 
     /* get coordinates to add at */
-    gp_strokepoint_convertcoords(C, gpl, gps, pt, p, subrect);
+    gpencil_strokepoint_convertcoords(C, gpl, gps, pt, p, subrect);
 
-    gp_stroke_to_path_add_point(gtd,
-                                bp,
-                                p,
-                                (prev_bp) ? prev_bp->vec : p,
-                                do_gtd,
-                                gps->inittime,
-                                pt->time,
-                                width,
-                                rad_fac,
-                                minmax_weights);
+    gpencil_stroke_to_path_add_point(gtd,
+                                     bp,
+                                     p,
+                                     (prev_bp) ? prev_bp->vec : p,
+                                     do_gtd,
+                                     gps->inittime,
+                                     pt->time,
+                                     width,
+                                     rad_fac,
+                                     minmax_weights);
 
     prev_bp = bp;
   }
@@ -825,7 +831,7 @@ static void gp_stroke_to_path(bContext *C,
       dt = GAP_DFAC;    /* Rather arbitrary too! */
     }
     /* Note bp has already been incremented in main loop above, so it points to the right place. */
-    gp_stroke_to_path_add_point(
+    gpencil_stroke_to_path_add_point(
         gtd, bp, p, prev_bp->vec, do_gtd, gps->inittime, dt, 0.0f, rad_fac, minmax_weights);
   }
 
@@ -843,18 +849,18 @@ static void gp_stroke_to_path(bContext *C,
 /* convert stroke to 3d bezier */
 
 /* helper */
-static void gp_stroke_to_bezier_add_point(tGpTimingData *gtd,
-                                          BezTriple *bezt,
-                                          const float p[3],
-                                          const float h1[3],
-                                          const float h2[3],
-                                          const float prev_p[3],
-                                          const bool do_gtd,
-                                          const double inittime,
-                                          const float time,
-                                          const float width,
-                                          const float rad_fac,
-                                          float minmax_weights[2])
+static void gpencil_stroke_to_bezier_add_point(tGpTimingData *gtd,
+                                               BezTriple *bezt,
+                                               const float p[3],
+                                               const float h1[3],
+                                               const float h2[3],
+                                               const float prev_p[3],
+                                               const bool do_gtd,
+                                               const double inittime,
+                                               const float time,
+                                               const float width,
+                                               const float rad_fac,
+                                               float minmax_weights[2])
 {
   copy_v3_v3(bezt->vec[0], h1);
   copy_v3_v3(bezt->vec[1], p);
@@ -875,22 +881,22 @@ static void gp_stroke_to_bezier_add_point(tGpTimingData *gtd,
 
   /* Update timing data */
   if (do_gtd) {
-    gp_timing_data_add_point(gtd, inittime, time, len_v3v3(prev_p, p));
+    gpencil_timing_data_add_point(gtd, inittime, time, len_v3v3(prev_p, p));
   }
 }
 
-static void gp_stroke_to_bezier(bContext *C,
-                                bGPDlayer *gpl,
-                                bGPDstroke *gps,
-                                Curve *cu,
-                                rctf *subrect,
-                                Nurb **curnu,
-                                float minmax_weights[2],
-                                const float rad_fac,
-                                bool stitch,
-                                const bool add_start_point,
-                                const bool add_end_point,
-                                tGpTimingData *gtd)
+static void gpencil_stroke_to_bezier(bContext *C,
+                                     bGPDlayer *gpl,
+                                     bGPDstroke *gps,
+                                     Curve *cu,
+                                     rctf *subrect,
+                                     Nurb **curnu,
+                                     float minmax_weights[2],
+                                     const float rad_fac,
+                                     bool stitch,
+                                     const bool add_start_point,
+                                     const bool add_end_point,
+                                     tGpTimingData *gtd)
 {
   bGPDspoint *pt;
   Nurb *nu = (curnu) ? *curnu : NULL;
@@ -923,7 +929,7 @@ static void gp_stroke_to_bezier(bContext *C,
   }
 
   if (do_gtd) {
-    gp_timing_data_set_nbr(gtd, nu->pntsu);
+    gpencil_timing_data_set_num(gtd, nu->pntsu);
   }
 
   tot = gps->totpoints;
@@ -931,12 +937,13 @@ static void gp_stroke_to_bezier(bContext *C,
   /* get initial coordinates */
   pt = gps->points;
   if (tot) {
-    gp_strokepoint_convertcoords(C, gpl, gps, pt, (stitch) ? p3d_prev : p3d_cur, subrect);
+    gpencil_strokepoint_convertcoords(C, gpl, gps, pt, (stitch) ? p3d_prev : p3d_cur, subrect);
     if (tot > 1) {
-      gp_strokepoint_convertcoords(C, gpl, gps, pt + 1, (stitch) ? p3d_cur : p3d_next, subrect);
+      gpencil_strokepoint_convertcoords(
+          C, gpl, gps, pt + 1, (stitch) ? p3d_cur : p3d_next, subrect);
     }
     if (stitch && tot > 2) {
-      gp_strokepoint_convertcoords(C, gpl, gps, pt + 2, p3d_next, subrect);
+      gpencil_strokepoint_convertcoords(C, gpl, gps, pt + 2, p3d_next, subrect);
     }
   }
 
@@ -1013,24 +1020,24 @@ static void gp_stroke_to_bezier(bContext *C,
       interp_v3_v3v3(h1, p1, bezt->vec[1], BEZT_HANDLE_FAC);
       interp_v3_v3v3(h2, p1, p2, BEZT_HANDLE_FAC);
       bezt++;
-      gp_stroke_to_bezier_add_point(gtd,
-                                    bezt,
-                                    p1,
-                                    h1,
-                                    h2,
-                                    (bezt - 1)->vec[1],
-                                    do_gtd,
-                                    gps->prev->inittime,
-                                    dt1,
-                                    0.0f,
-                                    rad_fac,
-                                    minmax_weights);
+      gpencil_stroke_to_bezier_add_point(gtd,
+                                         bezt,
+                                         p1,
+                                         h1,
+                                         h2,
+                                         (bezt - 1)->vec[1],
+                                         do_gtd,
+                                         gps->prev->inittime,
+                                         dt1,
+                                         0.0f,
+                                         rad_fac,
+                                         minmax_weights);
 
       /* Second point */
       interp_v3_v3v3(h1, p2, p1, BEZT_HANDLE_FAC);
       interp_v3_v3v3(h2, p2, p3d_cur, BEZT_HANDLE_FAC);
       bezt++;
-      gp_stroke_to_bezier_add_point(
+      gpencil_stroke_to_bezier_add_point(
           gtd, bezt, p2, h1, h2, p1, do_gtd, gps->inittime, dt2, 0.0f, rad_fac, minmax_weights);
 
       old_nbezt += 2;
@@ -1055,7 +1062,7 @@ static void gp_stroke_to_bezier(bContext *C,
     interp_v3_v3v3(h1, p, p3d_cur, -BEZT_HANDLE_FAC);
     interp_v3_v3v3(h2, p, p3d_cur, BEZT_HANDLE_FAC);
     bezt = &nu->bezt[old_nbezt];
-    gp_stroke_to_bezier_add_point(
+    gpencil_stroke_to_bezier_add_point(
         gtd, bezt, p, h1, h2, p, do_gtd, gps->inittime, dt, 0.0f, rad_fac, minmax_weights);
 
     old_nbezt++;
@@ -1084,25 +1091,25 @@ static void gp_stroke_to_bezier(bContext *C,
       interp_v3_v3v3(h2, p3d_cur, p3d_prev, -BEZT_HANDLE_FAC);
     }
 
-    gp_stroke_to_bezier_add_point(gtd,
-                                  bezt,
-                                  p3d_cur,
-                                  h1,
-                                  h2,
-                                  prev_bezt ? prev_bezt->vec[1] : p3d_cur,
-                                  do_gtd,
-                                  gps->inittime,
-                                  pt->time,
-                                  width,
-                                  rad_fac,
-                                  minmax_weights);
+    gpencil_stroke_to_bezier_add_point(gtd,
+                                       bezt,
+                                       p3d_cur,
+                                       h1,
+                                       h2,
+                                       prev_bezt ? prev_bezt->vec[1] : p3d_cur,
+                                       do_gtd,
+                                       gps->inittime,
+                                       pt->time,
+                                       width,
+                                       rad_fac,
+                                       minmax_weights);
 
-    /* shift coord vects */
+    /* Shift coord vectors. */
     copy_v3_v3(p3d_prev, p3d_cur);
     copy_v3_v3(p3d_cur, p3d_next);
 
     if (i + 2 < tot) {
-      gp_strokepoint_convertcoords(C, gpl, gps, pt + 2, p3d_next, subrect);
+      gpencil_strokepoint_convertcoords(C, gpl, gps, pt + 2, p3d_next, subrect);
     }
 
     prev_bezt = bezt;
@@ -1134,18 +1141,18 @@ static void gp_stroke_to_bezier(bContext *C,
     interp_v3_v3v3(h2, p, prev_bezt->vec[1], -BEZT_HANDLE_FAC);
     /* Note bezt has already been incremented in main loop above,
      * so it points to the right place. */
-    gp_stroke_to_bezier_add_point(gtd,
-                                  bezt,
-                                  p,
-                                  h1,
-                                  h2,
-                                  prev_bezt->vec[1],
-                                  do_gtd,
-                                  gps->inittime,
-                                  dt,
-                                  0.0f,
-                                  rad_fac,
-                                  minmax_weights);
+    gpencil_stroke_to_bezier_add_point(gtd,
+                                       bezt,
+                                       p,
+                                       h1,
+                                       h2,
+                                       prev_bezt->vec[1],
+                                       do_gtd,
+                                       gps->inittime,
+                                       dt,
+                                       0.0f,
+                                       rad_fac,
+                                       minmax_weights);
   }
 
   /* must calculate handles or else we crash */
@@ -1163,7 +1170,7 @@ static void gp_stroke_to_bezier(bContext *C,
 #undef WIDTH_CORR_FAC
 #undef BEZT_HANDLE_FAC
 
-static void gp_stroke_finalize_curve_endpoints(Curve *cu)
+static void gpencil_stroke_finalize_curve_endpoints(Curve *cu)
 {
   /* start */
   Nurb *nu = cu->nurb.first;
@@ -1198,14 +1205,12 @@ static void gp_stroke_finalize_curve_endpoints(Curve *cu)
   }
 }
 
-static void gp_stroke_norm_curve_weights(Curve *cu, const float minmax_weights[2])
+static void gpencil_stroke_norm_curve_weights(Curve *cu, const float minmax_weights[2])
 {
-  Nurb *nu;
   const float delta = minmax_weights[0];
-  float fac;
-  int i;
 
-  /* when delta == minmax_weights[0] == minmax_weights[1], we get div by zero [#35686] */
+  /* when delta == minmax_weights[0] == minmax_weights[1], we get div by zero T35686. */
+  float fac;
   if (IS_EQF(delta, minmax_weights[1])) {
     fac = 1.0f;
   }
@@ -1213,23 +1218,23 @@ static void gp_stroke_norm_curve_weights(Curve *cu, const float minmax_weights[2
     fac = 1.0f / (minmax_weights[1] - delta);
   }
 
-  for (nu = cu->nurb.first; nu; nu = nu->next) {
+  LISTBASE_FOREACH (Nurb *, nu, &cu->nurb) {
     if (nu->bezt) {
       BezTriple *bezt = nu->bezt;
-      for (i = 0; i < nu->pntsu; i++, bezt++) {
+      for (int i = 0; i < nu->pntsu; i++, bezt++) {
         bezt->weight = (bezt->weight - delta) * fac;
       }
     }
     else if (nu->bp) {
       BPoint *bp = nu->bp;
-      for (i = 0; i < nu->pntsu; i++, bp++) {
+      for (int i = 0; i < nu->pntsu; i++, bp++) {
         bp->weight = (bp->weight - delta) * fac;
       }
     }
   }
 }
 
-static int gp_camera_view_subrect(bContext *C, rctf *subrect)
+static int gpencil_camera_view_subrect(bContext *C, rctf *subrect)
 {
   View3D *v3d = CTX_wm_view3d(C);
   ARegion *region = CTX_wm_region(C);
@@ -1251,23 +1256,23 @@ static int gp_camera_view_subrect(bContext *C, rctf *subrect)
 
 /* convert a given grease-pencil layer to a 3d-curve representation
  * (using current view if appropriate) */
-static void gp_layer_to_curve(bContext *C,
-                              ReportList *reports,
-                              bGPdata *gpd,
-                              bGPDlayer *gpl,
-                              const int mode,
-                              const bool norm_weights,
-                              const float rad_fac,
-                              const bool link_strokes,
-                              tGpTimingData *gtd)
+static void gpencil_layer_to_curve(bContext *C,
+                                   ReportList *reports,
+                                   bGPdata *gpd,
+                                   bGPDlayer *gpl,
+                                   const int mode,
+                                   const bool norm_weights,
+                                   const float rad_fac,
+                                   const bool link_strokes,
+                                   tGpTimingData *gtd)
 {
   struct Main *bmain = CTX_data_main(C);
   ViewLayer *view_layer = CTX_data_view_layer(C);
   Collection *collection = CTX_data_collection(C);
   Scene *scene = CTX_data_scene(C);
 
-  bGPDframe *gpf = BKE_gpencil_layer_frame_get(gpl, CFRA, GP_GETFRAME_USE_PREV);
-  bGPDstroke *gps, *prev_gps = NULL;
+  bGPDframe *gpf = BKE_gpencil_layer_frame_get(gpl, scene->r.cfra, GP_GETFRAME_USE_PREV);
+  bGPDstroke *prev_gps = NULL;
   Object *ob;
   Curve *cu;
   Nurb *nu = NULL;
@@ -1288,25 +1293,30 @@ static void gp_layer_to_curve(bContext *C,
   }
 
   /* initialize camera framing */
-  if (gp_camera_view_subrect(C, &subrect)) {
+  if (gpencil_camera_view_subrect(C, &subrect)) {
     subrect_ptr = &subrect;
   }
 
   /* init the curve object (remove rotation and get curve data from it)
    * - must clear transforms set on object, as those skew our results
    */
-  ob = BKE_object_add_only_object(bmain, OB_CURVE, gpl->info);
-  cu = ob->data = BKE_curve_add(bmain, gpl->info, OB_CURVE);
+  ob = BKE_object_add_only_object(bmain, OB_CURVES_LEGACY, gpl->info);
+  cu = ob->data = BKE_curve_add(bmain, gpl->info, OB_CURVES_LEGACY);
   BKE_collection_object_add(bmain, collection, ob);
   base_new = BKE_view_layer_base_find(view_layer, ob);
   DEG_relations_tag_update(bmain); /* added object */
 
   cu->flag |= CU_3D;
+  cu->bevresol = gtd->bevel_resolution;
+  cu->bevel_radius = gtd->bevel_depth;
 
   gtd->inittime = ((bGPDstroke *)gpf->strokes.first)->inittime;
 
   /* add points to curve */
-  for (gps = gpf->strokes.first; gps; gps = gps->next) {
+  LISTBASE_FOREACH (bGPDstroke *, gps, &gpf->strokes) {
+    if (gps->totpoints < 1) {
+      continue;
+    }
     const bool add_start_point = (link_strokes && !(prev_gps));
     const bool add_end_point = (link_strokes && !(gps->next));
 
@@ -1329,36 +1339,36 @@ static void gp_layer_to_curve(bContext *C,
 
     switch (mode) {
       case GP_STROKECONVERT_PATH:
-        gp_stroke_to_path(C,
-                          gpl,
-                          gps,
-                          cu,
-                          subrect_ptr,
-                          &nu,
-                          minmax_weights,
-                          rad_fac,
-                          stitch,
-                          add_start_point,
-                          add_end_point,
-                          gtd);
+        gpencil_stroke_to_path(C,
+                               gpl,
+                               gps,
+                               cu,
+                               subrect_ptr,
+                               &nu,
+                               minmax_weights,
+                               rad_fac,
+                               stitch,
+                               add_start_point,
+                               add_end_point,
+                               gtd);
         break;
       case GP_STROKECONVERT_CURVE:
       case GP_STROKECONVERT_POLY: /* convert after */
-        gp_stroke_to_bezier(C,
-                            gpl,
-                            gps,
-                            cu,
-                            subrect_ptr,
-                            &nu,
-                            minmax_weights,
-                            rad_fac,
-                            stitch,
-                            add_start_point,
-                            add_end_point,
-                            gtd);
+        gpencil_stroke_to_bezier(C,
+                                 gpl,
+                                 gps,
+                                 cu,
+                                 subrect_ptr,
+                                 &nu,
+                                 minmax_weights,
+                                 rad_fac,
+                                 stitch,
+                                 add_start_point,
+                                 add_end_point,
+                                 gtd);
         break;
       default:
-        BLI_assert(!"invalid mode");
+        BLI_assert_msg(0, "invalid mode");
         break;
     }
     prev_gps = gps;
@@ -1366,16 +1376,16 @@ static void gp_layer_to_curve(bContext *C,
 
   /* If link_strokes, be sure first and last points have a zero weight/size! */
   if (link_strokes) {
-    gp_stroke_finalize_curve_endpoints(cu);
+    gpencil_stroke_finalize_curve_endpoints(cu);
   }
 
   /* Update curve's weights, if needed */
   if (norm_weights && ((minmax_weights[0] > 0.0f) || (minmax_weights[1] < 1.0f))) {
-    gp_stroke_norm_curve_weights(cu, minmax_weights);
+    gpencil_stroke_norm_curve_weights(cu, minmax_weights);
   }
 
   /* Create the path animation, if needed */
-  gp_stroke_path_animation(C, reports, cu, gtd);
+  gpencil_stroke_path_animation(C, reports, cu, gtd);
 
   if (mode == GP_STROKECONVERT_POLY) {
     for (nu = cu->nurb.first; nu; nu = nu->next) {
@@ -1393,7 +1403,7 @@ static void gp_layer_to_curve(bContext *C,
 /* Check a GP layer has valid timing data! Else, most timing options are hidden in the operator.
  * op may be NULL.
  */
-static bool gp_convert_check_has_valid_timing(bContext *C, bGPDlayer *gpl, wmOperator *op)
+static bool gpencil_convert_check_has_valid_timing(bContext *C, bGPDlayer *gpl, wmOperator *op)
 {
   Scene *scene = CTX_data_scene(C);
 
@@ -1404,7 +1414,7 @@ static bool gp_convert_check_has_valid_timing(bContext *C, bGPDlayer *gpl, wmOpe
   int i;
   bool valid = true;
 
-  if (!gpl || !(gpf = BKE_gpencil_layer_frame_get(gpl, CFRA, GP_GETFRAME_USE_PREV)) ||
+  if (!gpl || !(gpf = BKE_gpencil_layer_frame_get(gpl, scene->r.cfra, GP_GETFRAME_USE_PREV)) ||
       !(gps = gpf->strokes.first)) {
     return false;
   }
@@ -1441,9 +1451,9 @@ static bool gp_convert_check_has_valid_timing(bContext *C, bGPDlayer *gpl, wmOpe
 }
 
 /* Check end_frame is always > start frame! */
-static void gp_convert_set_end_frame(struct Main *UNUSED(main),
-                                     struct Scene *UNUSED(scene),
-                                     struct PointerRNA *ptr)
+static void gpencil_convert_set_end_frame(struct Main *UNUSED(main),
+                                          struct Scene *UNUSED(scene),
+                                          struct PointerRNA *ptr)
 {
   int start_frame = RNA_int_get(ptr, "start_frame");
   int end_frame = RNA_int_get(ptr, "end_frame");
@@ -1453,7 +1463,7 @@ static void gp_convert_set_end_frame(struct Main *UNUSED(main),
   }
 }
 
-static bool gp_convert_poll(bContext *C)
+static bool gpencil_convert_poll(bContext *C)
 {
   Object *ob = CTX_data_active_object(C);
   Scene *scene = CTX_data_scene(C);
@@ -1471,11 +1481,11 @@ static bool gp_convert_poll(bContext *C)
    * and if we are not in edit mode!
    */
   return ((area && area->spacetype == SPACE_VIEW3D) && (gpl = BKE_gpencil_layer_active_get(gpd)) &&
-          (gpf = BKE_gpencil_layer_frame_get(gpl, CFRA, GP_GETFRAME_USE_PREV)) &&
+          (gpf = BKE_gpencil_layer_frame_get(gpl, scene->r.cfra, GP_GETFRAME_USE_PREV)) &&
           (gpf->strokes.first) && (!GPENCIL_ANY_EDIT_MODE(gpd)));
 }
 
-static int gp_convert_layer_exec(bContext *C, wmOperator *op)
+static int gpencil_convert_layer_exec(bContext *C, wmOperator *op)
 {
   PropertyRNA *prop = RNA_struct_find_property(op->ptr, "use_timing_data");
   Object *ob = CTX_data_active_object(C);
@@ -1496,7 +1506,7 @@ static int gp_convert_layer_exec(bContext *C, wmOperator *op)
     return OPERATOR_CANCELLED;
   }
 
-  if (!RNA_property_is_set(op->ptr, prop) && !gp_convert_check_has_valid_timing(C, gpl, op)) {
+  if (!RNA_property_is_set(op->ptr, prop) && !gpencil_convert_check_has_valid_timing(C, gpl, op)) {
     BKE_report(op->reports,
                RPT_WARNING,
                "Current Grease Pencil strokes have no valid timing data, most timing options will "
@@ -1518,30 +1528,27 @@ static int gp_convert_layer_exec(bContext *C, wmOperator *op)
   /* grab all relevant settings */
   gtd.frame_range = RNA_int_get(op->ptr, "frame_range");
   gtd.start_frame = RNA_int_get(op->ptr, "start_frame");
+  gtd.bevel_depth = RNA_float_get(op->ptr, "bevel_depth");
+  gtd.bevel_resolution = RNA_int_get(op->ptr, "bevel_resolution");
   gtd.realtime = valid_timing ? RNA_boolean_get(op->ptr, "use_realtime") : false;
   gtd.end_frame = RNA_int_get(op->ptr, "end_frame");
   gtd.gap_duration = RNA_float_get(op->ptr, "gap_duration");
   gtd.gap_randomness = RNA_float_get(op->ptr, "gap_randomness");
   gtd.gap_randomness = min_ff(gtd.gap_randomness, gtd.gap_duration);
   gtd.seed = RNA_int_get(op->ptr, "seed");
-  gtd.num_points = gtd.cur_point = 0;
+  gtd.points_num = gtd.cur_point = 0;
   gtd.dists = gtd.times = NULL;
   gtd.tot_dist = gtd.tot_time = gtd.gap_tot_time = 0.0f;
   gtd.inittime = 0.0;
   gtd.offset_time = 0.0f;
 
   /* perform conversion */
-  gp_layer_to_curve(C, op->reports, gpd, gpl, mode, norm_weights, rad_fac, link_strokes, &gtd);
+  gpencil_layer_to_curve(
+      C, op->reports, gpd, gpl, mode, norm_weights, rad_fac, link_strokes, &gtd);
 
   /* free temp memory */
-  if (gtd.dists) {
-    MEM_freeN(gtd.dists);
-    gtd.dists = NULL;
-  }
-  if (gtd.times) {
-    MEM_freeN(gtd.times);
-    gtd.times = NULL;
-  }
+  MEM_SAFE_FREE(gtd.dists);
+  MEM_SAFE_FREE(gtd.times);
 
   /* notifiers */
   DEG_id_tag_update(&scene->id, ID_RECALC_SELECT);
@@ -1552,9 +1559,9 @@ static int gp_convert_layer_exec(bContext *C, wmOperator *op)
   return OPERATOR_FINISHED;
 }
 
-static bool gp_convert_poll_property(const bContext *UNUSED(C),
-                                     wmOperator *op,
-                                     const PropertyRNA *prop)
+static bool gpencil_convert_poll_property(const bContext *UNUSED(C),
+                                          wmOperator *op,
+                                          const PropertyRNA *prop)
 {
   PointerRNA *ptr = op->ptr;
   const char *prop_id = RNA_property_identifier(prop);
@@ -1566,8 +1573,13 @@ static bool gp_convert_poll_property(const bContext *UNUSED(C),
   const bool valid_timing = RNA_boolean_get(ptr, "use_timing_data");
 
   /* Always show those props */
-  if (STREQ(prop_id, "type") || STREQ(prop_id, "use_normalize_weights") ||
-      STREQ(prop_id, "radius_multiplier") || STREQ(prop_id, "use_link_strokes")) {
+  if (STR_ELEM(prop_id,
+               "type",
+               "use_normalize_weights",
+               "radius_multiplier",
+               "use_link_strokes",
+               "bevel_depth",
+               "bevel_resolution")) {
     return true;
   }
 
@@ -1584,7 +1596,7 @@ static bool gp_convert_poll_property(const bContext *UNUSED(C),
 
     if (timing_mode != GP_STROKECONVERT_TIMING_NONE) {
       /* Only show when link_stroke is true and stroke timing is enabled */
-      if (STREQ(prop_id, "frame_range") || STREQ(prop_id, "start_frame")) {
+      if (STR_ELEM(prop_id, "frame_range", "start_frame")) {
         return true;
       }
 
@@ -1632,9 +1644,9 @@ void GPENCIL_OT_convert(wmOperatorType *ot)
 
   /* callbacks */
   ot->invoke = WM_menu_invoke;
-  ot->exec = gp_convert_layer_exec;
-  ot->poll = gp_convert_poll;
-  ot->poll_property = gp_convert_poll_property;
+  ot->exec = gpencil_convert_layer_exec;
+  ot->poll = gpencil_convert_poll;
+  ot->poll_property = gpencil_convert_poll_property;
 
   /* flags */
   ot->flag = OPTYPE_REGISTER | OPTYPE_UNDO;
@@ -1642,6 +1654,18 @@ void GPENCIL_OT_convert(wmOperatorType *ot)
   /* properties */
   ot->prop = RNA_def_enum(
       ot->srna, "type", prop_gpencil_convertmodes, 0, "Type", "Which type of curve to convert to");
+
+  RNA_def_float_distance(
+      ot->srna, "bevel_depth", 0.0f, 0.0f, 1000.0f, "Bevel Depth", "", 0.0f, 10.0f);
+  RNA_def_int(ot->srna,
+              "bevel_resolution",
+              0,
+              0,
+              32,
+              "Bevel Resolution",
+              "Bevel resolution when depth is non-zero",
+              0,
+              32);
 
   RNA_def_boolean(ot->srna,
                   "use_normalize_weights",
@@ -1653,7 +1677,7 @@ void GPENCIL_OT_convert(wmOperatorType *ot)
                 1.0f,
                 0.0f,
                 1000.0f,
-                "Radius Fac",
+                "Radius Factor",
                 "Multiplier for the points' radii (set from stroke width)",
                 0.0f,
                 10.0f);
@@ -1704,7 +1728,7 @@ void GPENCIL_OT_convert(wmOperatorType *ot)
                      "The end frame of the path control curve (if Realtime is not set)",
                      1,
                      100000);
-  RNA_def_property_update_runtime(prop, gp_convert_set_end_frame);
+  RNA_def_property_update_runtime(prop, gpencil_convert_set_end_frame);
 
   RNA_def_float(ot->srna,
                 "gap_duration",
@@ -1735,7 +1759,7 @@ void GPENCIL_OT_convert(wmOperatorType *ot)
               0,
               100);
 
-  /* Note: Internal use, this one will always be hidden by UI code... */
+  /* NOTE: Internal use, this one will always be hidden by UI code... */
   prop = RNA_def_boolean(
       ot->srna,
       "use_timing_data",
@@ -1750,7 +1774,10 @@ static bool image_to_gpencil_poll(bContext *C)
 {
   SpaceLink *sl = CTX_wm_space_data(C);
   if ((sl != NULL) && (sl->spacetype == SPACE_IMAGE)) {
-    return true;
+    SpaceImage *sima = CTX_wm_space_image(C);
+    Image *image = sima->image;
+    ImageUser iuser = sima->iuser;
+    return BKE_image_has_ibuf(image, &iuser);
   }
 
   return false;
@@ -1783,14 +1810,15 @@ static int image_to_gpencil_exec(bContext *C, wmOperator *op)
 
   /* Add layer and frame. */
   bGPdata *gpd = (bGPdata *)ob->data;
-  bGPDlayer *gpl = BKE_gpencil_layer_addnew(gpd, "Image Layer", true);
-  bGPDframe *gpf = BKE_gpencil_frame_addnew(gpl, CFRA);
-  done = BKE_gpencil_from_image(sima, gpf, size, is_mask);
+  bGPDlayer *gpl = BKE_gpencil_layer_addnew(gpd, "Image Layer", true, false);
+  bGPDframe *gpf = BKE_gpencil_frame_addnew(gpl, scene->r.cfra);
+  done = BKE_gpencil_from_image(sima, gpd, gpf, size, is_mask);
 
   if (done) {
     /* Delete any selected point. */
     LISTBASE_FOREACH_MUTABLE (bGPDstroke *, gps, &gpf->strokes) {
-      gp_stroke_delete_tagged_points(gpf, gps, gps->next, GP_SPOINT_SELECT, false, 0);
+      BKE_gpencil_stroke_delete_tagged_points(
+          gpd, gpf, gps, gps->next, GP_SPOINT_SELECT, false, false, 0);
     }
 
     BKE_reportf(op->reports, RPT_INFO, "Object created");

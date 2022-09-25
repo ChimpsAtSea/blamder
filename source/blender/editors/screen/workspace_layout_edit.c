@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edscr
@@ -37,9 +23,6 @@
 
 #include "screen_intern.h"
 
-/**
- * Empty screen, with 1 dummy area without spacedata. Uses window size.
- */
 WorkSpaceLayout *ED_workspace_layout_add(Main *bmain,
                                          WorkSpace *workspace,
                                          wmWindow *win,
@@ -61,11 +44,9 @@ WorkSpaceLayout *ED_workspace_layout_duplicate(Main *bmain,
 {
   bScreen *screen_old = BKE_workspace_layout_screen_get(layout_old);
   const char *name = BKE_workspace_layout_name_get(layout_old);
-  bScreen *screen_new;
-  WorkSpaceLayout *layout_new;
 
-  layout_new = ED_workspace_layout_add(bmain, workspace, win, name);
-  screen_new = BKE_workspace_layout_screen_get(layout_new);
+  WorkSpaceLayout *layout_new = ED_workspace_layout_add(bmain, workspace, win, name);
+  bScreen *screen_new = BKE_workspace_layout_screen_get(layout_new);
 
   if (BKE_screen_is_fullscreen_area(screen_old)) {
     LISTBASE_FOREACH (ScrArea *, area_old, &screen_old->areabase) {
@@ -131,10 +112,6 @@ static WorkSpaceLayout *workspace_layout_delete_find_new(const WorkSpaceLayout *
   return NULL;
 }
 
-/**
- * \warning Only call outside of area/region loops!
- * \return true if succeeded.
- */
 bool ED_workspace_layout_delete(WorkSpace *workspace, WorkSpaceLayout *layout_old, bContext *C)
 {
   const bScreen *screen_old = BKE_workspace_layout_screen_get(layout_old);
@@ -142,7 +119,7 @@ bool ED_workspace_layout_delete(WorkSpace *workspace, WorkSpaceLayout *layout_ol
 
   BLI_assert(BLI_findindex(&workspace->layouts, layout_old) != -1);
 
-  /* don't allow deleting temp fullscreens for now */
+  /* Don't allow deleting temp full-screens for now. */
   if (BKE_screen_is_fullscreen_area(screen_old)) {
     return false;
   }
@@ -160,6 +137,59 @@ bool ED_workspace_layout_delete(WorkSpace *workspace, WorkSpaceLayout *layout_ol
   return false;
 }
 
+static bool workspace_change_find_new_layout_cb(const WorkSpaceLayout *layout, void *UNUSED(arg))
+{
+  /* return false to stop the iterator if we've found a layout that can be activated */
+  return workspace_layout_set_poll(layout) ? false : true;
+}
+
+static bScreen *screen_fullscreen_find_associated_normal_screen(const Main *bmain, bScreen *screen)
+{
+  LISTBASE_FOREACH (bScreen *, screen_iter, &bmain->screens) {
+    if ((screen_iter != screen) && ELEM(screen_iter->state, SCREENMAXIMIZED, SCREENFULL)) {
+      ScrArea *area = screen_iter->areabase.first;
+      if (area && area->full == screen) {
+        return screen_iter;
+      }
+    }
+  }
+
+  return screen;
+}
+
+static bool screen_is_used_by_other_window(const wmWindow *win, const bScreen *screen)
+{
+  return BKE_screen_is_used(screen) && (screen->winid != win->winid);
+}
+
+WorkSpaceLayout *ED_workspace_screen_change_ensure_unused_layout(
+    Main *bmain,
+    WorkSpace *workspace,
+    WorkSpaceLayout *layout_new,
+    const WorkSpaceLayout *layout_fallback_base,
+    wmWindow *win)
+{
+  WorkSpaceLayout *layout_temp = layout_new;
+  bScreen *screen_temp = BKE_workspace_layout_screen_get(layout_new);
+
+  screen_temp = screen_fullscreen_find_associated_normal_screen(bmain, screen_temp);
+  layout_temp = BKE_workspace_layout_find(workspace, screen_temp);
+
+  if (screen_is_used_by_other_window(win, screen_temp)) {
+    /* Screen is already used, try to find a free one. */
+    layout_temp = BKE_workspace_layout_iter_circular(
+        workspace, layout_new, workspace_change_find_new_layout_cb, NULL, false);
+    screen_temp = layout_temp ? BKE_workspace_layout_screen_get(layout_temp) : NULL;
+
+    if (!layout_temp || screen_is_used_by_other_window(win, screen_temp)) {
+      /* Fallback solution: duplicate layout. */
+      layout_temp = ED_workspace_layout_duplicate(bmain, workspace, layout_fallback_base, win);
+    }
+  }
+
+  return layout_temp;
+}
+
 static bool workspace_layout_cycle_iter_cb(const WorkSpaceLayout *layout, void *UNUSED(arg))
 {
   /* return false to stop iterator when we have found a layout to activate */
@@ -170,7 +200,6 @@ bool ED_workspace_layout_cycle(WorkSpace *workspace, const short direction, bCon
 {
   wmWindow *win = CTX_wm_window(C);
   WorkSpaceLayout *old_layout = BKE_workspace_active_layout_get(win->workspace_hook);
-  WorkSpaceLayout *new_layout;
   const bScreen *old_screen = BKE_workspace_layout_screen_get(old_layout);
   ScrArea *area = CTX_wm_area(C);
 
@@ -179,11 +208,12 @@ bool ED_workspace_layout_cycle(WorkSpace *workspace, const short direction, bCon
   }
 
   BLI_assert(ELEM(direction, 1, -1));
-  new_layout = BKE_workspace_layout_iter_circular(workspace,
-                                                  old_layout,
-                                                  workspace_layout_cycle_iter_cb,
-                                                  NULL,
-                                                  (direction == -1) ? true : false);
+  WorkSpaceLayout *new_layout = BKE_workspace_layout_iter_circular(workspace,
+                                                                   old_layout,
+                                                                   workspace_layout_cycle_iter_cb,
+                                                                   NULL,
+                                                                   (direction == -1) ? true :
+                                                                                       false);
 
   if (new_layout && (old_layout != new_layout)) {
     bScreen *new_screen = BKE_workspace_layout_screen_get(new_layout);

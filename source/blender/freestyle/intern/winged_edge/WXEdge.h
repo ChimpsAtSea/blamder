@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_WX_EDGE_H__
-#define __FREESTYLE_WX_EDGE_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -53,7 +38,7 @@ class WXVertex : public WVertex {
     _curvatures = NULL;
   }
 
-  /*! Copy constructor */
+  /** Copy constructor */
   WXVertex(WXVertex &iBrother) : WVertex(iBrother)
   {
     _curvatures = new CurvatureInfo(*iBrother._curvatures);
@@ -136,7 +121,7 @@ class WXEdge : public WEdge {
     _order = 0;
   }
 
-  /*! Copy constructor */
+  /** Copy constructor */
   inline WXEdge(WXEdge &iBrother) : WEdge(iBrother)
   {
     _nature = iBrother.nature();
@@ -160,7 +145,7 @@ class WXEdge : public WEdge {
     _nature = _nature & ~Nature::SUGGESTIVE_CONTOUR;
   }
 
-  /*! accessors */
+  /** accessors */
   inline WXNature nature()
   {
     return _nature;
@@ -176,7 +161,7 @@ class WXEdge : public WEdge {
     return _order;
   }
 
-  /*! modifiers */
+  /** modifiers */
   inline void setFront(bool iFront)
   {
     _front = iFront;
@@ -210,7 +195,7 @@ class WXEdge : public WEdge {
  *                                *
  **********************************/
 
-/*! Class to store a smooth edge (i.e Hertzman & Zorin smooth silhouette edges) */
+/** Class to store a smooth edge (i.e Hertzman & Zorin smooth silhouette edges) */
 class WXSmoothEdge {
  public:
   typedef unsigned short Configuration;
@@ -279,7 +264,7 @@ class WXSmoothEdge {
     return _config;
   }
 
-  /*! modifiers */
+  /** modifiers */
   inline void setWOeA(WOEdge *iwoea)
   {
     _woea = iwoea;
@@ -440,15 +425,15 @@ class WXFaceLayer {
     }
   }
 
-  /*! If one of the face layer vertex has a DotP equal to 0, this method returns the vertex where
+  /** If one of the face layer vertex has a DotP equal to 0, this method returns the vertex where
    * it happens */
   unsigned int Get0VertexIndex() const;
 
-  /*! In case one of the edge of the triangle is a smooth edge, this method allows to retrieve the
+  /** In case one of the edge of the triangle is a smooth edge, this method allows to retrieve the
    * concerned edge */
   unsigned int GetSmoothEdgeIndex() const;
 
-  /*! retrieves the edges of the triangle for which the signs are different (a null value is not
+  /** retrieves the edges of the triangle for which the signs are different (a null value is not
    * considered) for the dotp values at each edge extremity
    */
   void RetrieveCuspEdgesIndices(vector<int> &oCuspEdges);
@@ -466,7 +451,7 @@ class WXFaceLayer {
     if (iDotP > 0.0f) {
       ++_nPosDotP;
     }
-    if (iDotP == 0.0f) {  // TODO this comparison is weak, check if it actually works
+    if (iDotP == 0.0f) {  // TODO: this comparison is weak, check if it actually works
       ++_nNullDotP;
     }
   }
@@ -485,7 +470,7 @@ class WXFaceLayer {
       if ((*d) > 0.0f) {
         ++_nPosDotP;
       }
-      if ((*d) == 0.0f) {  // TODO ditto
+      if ((*d) == 0.0f) {  // TODO: ditto
         ++_nNullDotP;
       }
     }
@@ -513,7 +498,7 @@ class WXFace : public WFace {
     _front = false;
   }
 
-  /*! Copy constructor */
+  /** Copy constructor */
   WXFace(WXFace &iBrother) : WFace(iBrother)
   {
     _center = iBrother.center();
@@ -546,13 +531,13 @@ class WXFace : public WFace {
     }
   }
 
-  /*! designed to build a specialized WEdge for use in MakeEdge */
+  /** designed to build a specialized WEdge for use in MakeEdge */
   virtual WEdge *instanciateEdge() const
   {
     return new WXEdge;
   }
 
-  /*! accessors */
+  /** accessors */
   inline Vec3f &center()
   {
     return _center;
@@ -591,7 +576,7 @@ class WXFace : public WFace {
     return _SmoothLayers;
   }
 
-  /*! retrieve the smooth edges that match the Nature given as argument */
+  /** retrieve the smooth edges that match the Nature given as argument */
   void retrieveSmoothEdges(WXNature iNature, vector<WXSmoothEdge *> &oSmoothEdges)
   {
     for (vector<WXFaceLayer *>::iterator wxf = _SmoothLayers.begin(), wxfend = _SmoothLayers.end();
@@ -625,7 +610,7 @@ class WXFace : public WFace {
     }
   }
 
-  /*! modifiers */
+  /** modifiers */
   inline void setCenter(const Vec3f &iCenter)
   {
     _center = iCenter;
@@ -675,7 +660,7 @@ class WXFace : public WFace {
     _SmoothLayers = layersToKeep;
   }
 
-  /*! Clears everything */
+  /** Clears everything */
   inline void Clear()
   {
     for (vector<WXFaceLayer *>::iterator wxf = _SmoothLayers.begin(), wxfend = _SmoothLayers.end();
@@ -725,7 +710,7 @@ class WXShape : public WShape {
     _computeViewIndependent = true;
   }
 
-  /*! copy constructor */
+  /** copy constructor */
   inline WXShape(WXShape &iBrother) : WShape(iBrother)
   {
     _computeViewIndependent = iBrother._computeViewIndependent;
@@ -751,13 +736,13 @@ class WXShape : public WShape {
     _computeViewIndependent = iFlag;
   }
 
-  /*! designed to build a specialized WFace for use in MakeFace */
+  /** designed to build a specialized WFace for use in MakeFace */
   virtual WFace *instanciateFace() const
   {
     return new WXFace;
   }
 
-  /*!
+  /**
    * Adds a new face to the shape returns the built face.
    * - iVertexList
    *   List of face's vertices.
@@ -769,7 +754,7 @@ class WXShape : public WShape {
                           vector<bool> &iFaceEdgeMarksList,
                           unsigned iMaterialIndex);
 
-  /*!
+  /**
    * Adds a new face to the shape.
    * The difference with the previous method is that this one is designed to build a WingedEdge
    * structure for which there are per vertex normals, opposed to per face normals.
@@ -784,7 +769,7 @@ class WXShape : public WShape {
    *   The list of normals, iNormalsList[i]
    *   corresponding to the normal of the vertex iVertexList[i] for that face.
    * - iTexCoordsList:
-   *   The list of tex coords, iTexCoordsList[i]
+   *   The list of texture coords, iTexCoordsList[i]
    *   corresponding to the normal of the vertex iVertexList[i] for that face.
    */
   virtual WFace *MakeFace(vector<WVertex *> &iVertexList,
@@ -793,7 +778,7 @@ class WXShape : public WShape {
                           vector<bool> &iFaceEdgeMarksList,
                           unsigned iMaterialIndex);
 
-  /*! Reset all edges and vertices flags (which might have been set up on a previous pass) */
+  /** Reset all edges and vertices flags (which might have been set up on a previous pass) */
   virtual void Reset()
   {
     // Reset Edges
@@ -808,7 +793,7 @@ class WXShape : public WShape {
       ((WXFace *)(*wf))->Reset();
     }
   }
-  /*! accessors */
+  /** accessors */
 
 #ifdef WITH_CXX_GUARDEDALLOC
   MEM_CXX_CLASS_ALLOC_FUNCS("Freestyle:WXShape")
@@ -845,5 +830,3 @@ bool WXVertex::isFeature()
 }
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_WX_EDGE_H__

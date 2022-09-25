@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 by the Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup modifiers
@@ -32,6 +16,7 @@
 
 #include "BLT_translation.h"
 
+#include "DNA_defaults.h"
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_screen_types.h"
@@ -50,6 +35,7 @@
 #include "UI_resources.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "DEG_depsgraph_build.h"
 #include "DEG_depsgraph_query.h"
@@ -61,17 +47,9 @@ static void initData(ModifierData *md)
 {
   ParticleInstanceModifierData *pimd = (ParticleInstanceModifierData *)md;
 
-  pimd->flag = eParticleInstanceFlag_Parents | eParticleInstanceFlag_Unborn |
-               eParticleInstanceFlag_Alive | eParticleInstanceFlag_Dead;
-  pimd->psys = 1;
-  pimd->position = 1.0f;
-  pimd->axis = 2;
-  pimd->space = eParticleInstanceSpace_World;
-  pimd->particle_amount = 1.0f;
-  pimd->particle_offset = 0.0f;
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(pimd, modifier));
 
-  STRNCPY(pimd->index_layer_name, "");
-  STRNCPY(pimd->value_layer_name, "");
+  MEMCPY_STRUCT_AFTER(pimd, DNA_struct_default_get(ParticleInstanceModifierData), modifier);
 }
 
 static void requiredDataMask(Object *UNUSED(ob),
@@ -81,7 +59,7 @@ static void requiredDataMask(Object *UNUSED(ob),
   ParticleInstanceModifierData *pimd = (ParticleInstanceModifierData *)md;
 
   if (pimd->index_layer_name[0] != '\0' || pimd->value_layer_name[0] != '\0') {
-    r_cddata_masks->lmask |= CD_MASK_MLOOPCOL;
+    r_cddata_masks->lmask |= CD_MASK_PROP_BYTE_COLOR;
   }
 }
 
@@ -144,11 +122,11 @@ static void updateDepsgraph(ModifierData *md, const ModifierUpdateDepsgraphConte
   }
 }
 
-static void foreachObjectLink(ModifierData *md, Object *ob, ObjectWalkFunc walk, void *userData)
+static void foreachIDLink(ModifierData *md, Object *ob, IDWalkFunc walk, void *userData)
 {
   ParticleInstanceModifierData *pimd = (ParticleInstanceModifierData *)md;
 
-  walk(userData, ob, &pimd->ob, IDWALK_CB_NOP);
+  walk(userData, ob, (ID **)&pimd->ob, IDWALK_CB_NOP);
 }
 
 static bool particle_skip(ParticleInstanceModifierData *pimd, ParticleSystem *psys, int p)
@@ -189,7 +167,7 @@ static bool particle_skip(ParticleInstanceModifierData *pimd, ParticleSystem *ps
 
   totpart = psys->totpart + psys->totchild;
 
-  /* TODO make randomization optional? */
+  /* TODO: make randomization optional? */
   randp = (int)(psys_frand(psys, 3578 + p) * totpart) % totpart;
 
   minp = (int)(totpart * pimd->particle_offset) % (totpart + 1);
@@ -198,12 +176,11 @@ static bool particle_skip(ParticleInstanceModifierData *pimd, ParticleSystem *ps
   if (maxp > minp) {
     return randp < minp || randp >= maxp;
   }
-  else if (maxp < minp) {
+  if (maxp < minp) {
     return randp < minp && randp >= maxp;
   }
-  else {
-    return true;
-  }
+
+  return true;
 
   return false;
 }
@@ -351,9 +328,9 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   orig_mloop = mesh->mloop;
 
   MLoopCol *mloopcols_index = CustomData_get_layer_named(
-      &result->ldata, CD_MLOOPCOL, pimd->index_layer_name);
+      &result->ldata, CD_PROP_BYTE_COLOR, pimd->index_layer_name);
   MLoopCol *mloopcols_value = CustomData_get_layer_named(
-      &result->ldata, CD_MLOOPCOL, pimd->value_layer_name);
+      &result->ldata, CD_PROP_BYTE_COLOR, pimd->value_layer_name);
   int *vert_part_index = NULL;
   float *vert_part_value = NULL;
   if (mloopcols_index != NULL) {
@@ -391,7 +368,7 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
         vert_part_value[vindex] = p_random;
       }
 
-      /*change orientation based on object trackflag*/
+      /* Change orientation based on object trackflag. */
       copy_v3_v3(temp_co, mv->co);
       mv->co[axis] = temp_co[track];
       mv->co[(axis + 1) % 3] = temp_co[(track + 1) % 3];
@@ -443,14 +420,14 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
             float angle = 2.0f * M_PI *
                           (pimd->rotation +
                            pimd->random_rotation * (psys_frand(psys, 19957323 + p) - 0.5f));
-            float eul[3] = {0.0f, 0.0f, angle};
+            const float eul[3] = {0.0f, 0.0f, angle};
             float rot[4];
 
             eul_to_quat(rot, eul);
             mul_qt_qtqt(frame, frame, rot);
           }
 
-          /* note: direction is same as normal vector currently,
+          /* NOTE: direction is same as normal vector currently,
            * but best to keep this separate so the frame can be
            * rotated later if necessary
            */
@@ -498,7 +475,7 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
       mul_m4_v3(spacemat, mv->co);
     }
 
-    /* create edges and adjust edge vertex indices*/
+    /* Create edges and adjust edge vertex indices. */
     CustomData_copy_data(&mesh->edata, &result->edata, 0, p_skip * totedge, totedge);
     MEdge *me = &result->medge[p_skip * totedge];
     for (k = 0; k < totedge; k++, me++) {
@@ -542,7 +519,7 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   }
 
   if (psys->lattice_deform_data) {
-    end_latt_deform(psys->lattice_deform_data);
+    BKE_lattice_deform_data_destroy(psys->lattice_deform_data);
     psys->lattice_deform_data = NULL;
   }
 
@@ -553,122 +530,108 @@ static Mesh *modifyMesh(ModifierData *md, const ModifierEvalContext *ctx, Mesh *
   MEM_SAFE_FREE(vert_part_index);
   MEM_SAFE_FREE(vert_part_value);
 
-  result->runtime.cd_dirty_vert |= CD_MASK_NORMAL;
-
   return result;
 }
 
-static void panel_draw(const bContext *C, Panel *panel)
+static void panel_draw(const bContext *UNUSED(C), Panel *panel)
 {
   uiLayout *row;
   uiLayout *layout = panel->layout;
   int toggles_flag = UI_ITEM_R_TOGGLE | UI_ITEM_R_FORCE_BLANK_DECORATE;
 
-  PointerRNA ptr;
   PointerRNA ob_ptr;
-  modifier_panel_get_property_pointers(C, panel, &ob_ptr, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
-  PointerRNA particle_obj_ptr = RNA_pointer_get(&ptr, "object");
+  PointerRNA particle_obj_ptr = RNA_pointer_get(ptr, "object");
 
   uiLayoutSetPropSep(layout, true);
 
-  uiItemR(layout, &ptr, "object", 0, NULL, ICON_NONE);
+  uiItemR(layout, ptr, "object", 0, NULL, ICON_NONE);
   if (!RNA_pointer_is_null(&particle_obj_ptr)) {
     uiItemPointerR(layout,
-                   &ptr,
+                   ptr,
                    "particle_system",
                    &particle_obj_ptr,
                    "particle_systems",
-                   "Particle System",
+                   IFACE_("Particle System"),
                    ICON_NONE);
   }
   else {
-    uiItemR(layout, &ptr, "particle_system_index", 0, IFACE_("Particle System"), ICON_NONE);
+    uiItemR(layout, ptr, "particle_system_index", 0, IFACE_("Particle System"), ICON_NONE);
   }
 
   uiItemS(layout);
 
   row = uiLayoutRowWithHeading(layout, true, IFACE_("Create Instances"));
-  uiItemR(row, &ptr, "use_normal", toggles_flag, NULL, ICON_NONE);
-  uiItemR(row, &ptr, "use_children", toggles_flag, NULL, ICON_NONE);
-  uiItemR(row, &ptr, "use_size", toggles_flag, NULL, ICON_NONE);
+  uiItemR(row, ptr, "use_normal", toggles_flag, NULL, ICON_NONE);
+  uiItemR(row, ptr, "use_children", toggles_flag, NULL, ICON_NONE);
+  uiItemR(row, ptr, "use_size", toggles_flag, NULL, ICON_NONE);
 
   row = uiLayoutRowWithHeading(layout, true, IFACE_("Show"));
-  uiItemR(row, &ptr, "show_alive", toggles_flag, NULL, ICON_NONE);
-  uiItemR(row, &ptr, "show_dead", toggles_flag, NULL, ICON_NONE);
-  uiItemR(row, &ptr, "show_unborn", toggles_flag, NULL, ICON_NONE);
+  uiItemR(row, ptr, "show_alive", toggles_flag, NULL, ICON_NONE);
+  uiItemR(row, ptr, "show_dead", toggles_flag, NULL, ICON_NONE);
+  uiItemR(row, ptr, "show_unborn", toggles_flag, NULL, ICON_NONE);
 
-  uiItemR(layout, &ptr, "particle_amount", 0, IFACE_("Amount"), ICON_NONE);
-  uiItemR(layout, &ptr, "particle_offset", 0, IFACE_("Offset"), ICON_NONE);
+  uiItemR(layout, ptr, "particle_amount", 0, IFACE_("Amount"), ICON_NONE);
+  uiItemR(layout, ptr, "particle_offset", 0, IFACE_("Offset"), ICON_NONE);
 
   uiItemS(layout);
 
-  uiItemR(layout, &ptr, "space", 0, IFACE_("Coordinate Space"), ICON_NONE);
+  uiItemR(layout, ptr, "space", 0, IFACE_("Coordinate Space"), ICON_NONE);
   row = uiLayoutRow(layout, true);
-  uiItemR(row, &ptr, "axis", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
+  uiItemR(row, ptr, "axis", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
 
-  modifier_panel_end(layout, &ptr);
+  modifier_panel_end(layout, ptr);
 }
 
-static void path_panel_draw_header(const bContext *C, Panel *panel)
+static void path_panel_draw_header(const bContext *UNUSED(C), Panel *panel)
 {
   uiLayout *layout = panel->layout;
 
-  PointerRNA ptr;
-  modifier_panel_get_property_pointers(C, panel, NULL, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, NULL);
 
-  uiItemR(layout, &ptr, "use_path", 0, IFACE_("Create Along Paths"), ICON_NONE);
+  uiItemR(layout, ptr, "use_path", 0, IFACE_("Create Along Paths"), ICON_NONE);
 }
 
-static void path_panel_draw(const bContext *C, Panel *panel)
+static void path_panel_draw(const bContext *UNUSED(C), Panel *panel)
 {
   uiLayout *col;
   uiLayout *layout = panel->layout;
 
-  PointerRNA ptr;
   PointerRNA ob_ptr;
-  modifier_panel_get_property_pointers(C, panel, &ob_ptr, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
   uiLayoutSetPropSep(layout, true);
 
-  uiLayoutSetActive(layout, RNA_boolean_get(&ptr, "use_path"));
+  uiLayoutSetActive(layout, RNA_boolean_get(ptr, "use_path"));
 
   col = uiLayoutColumn(layout, true);
-  uiItemR(col, &ptr, "position", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
-  uiItemR(col, &ptr, "random_position", UI_ITEM_R_SLIDER, IFACE_("Random"), ICON_NONE);
+  uiItemR(col, ptr, "position", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
+  uiItemR(col, ptr, "random_position", UI_ITEM_R_SLIDER, IFACE_("Random"), ICON_NONE);
   col = uiLayoutColumn(layout, true);
-  uiItemR(col, &ptr, "rotation", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
-  uiItemR(col, &ptr, "random_rotation", UI_ITEM_R_SLIDER, IFACE_("Random"), ICON_NONE);
+  uiItemR(col, ptr, "rotation", UI_ITEM_R_SLIDER, NULL, ICON_NONE);
+  uiItemR(col, ptr, "random_rotation", UI_ITEM_R_SLIDER, IFACE_("Random"), ICON_NONE);
 
-  uiItemR(layout, &ptr, "use_preserve_shape", 0, NULL, ICON_NONE);
+  uiItemR(layout, ptr, "use_preserve_shape", 0, NULL, ICON_NONE);
 }
 
-static void layers_panel_draw(const bContext *C, Panel *panel)
+static void layers_panel_draw(const bContext *UNUSED(C), Panel *panel)
 {
+  uiLayout *col;
   uiLayout *layout = panel->layout;
 
-  PointerRNA ptr;
   PointerRNA ob_ptr;
-  modifier_panel_get_property_pointers(C, panel, &ob_ptr, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
   PointerRNA obj_data_ptr = RNA_pointer_get(&ob_ptr, "data");
 
   uiLayoutSetPropSep(layout, true);
 
-  uiItemPointerR(layout,
-                 &ptr,
-                 "index_layer_name",
-                 &obj_data_ptr,
-                 "vertex_colors",
-                 IFACE_("Index"),
-                 ICON_NONE);
-  uiItemPointerR(layout,
-                 &ptr,
-                 "value_layer_name",
-                 &obj_data_ptr,
-                 "vertex_colors",
-                 IFACE_("Value"),
-                 ICON_NONE);
+  col = uiLayoutColumn(layout, false);
+  uiItemPointerR(
+      col, ptr, "index_layer_name", &obj_data_ptr, "vertex_colors", IFACE_("Index"), ICON_NONE);
+  uiItemPointerR(
+      col, ptr, "value_layer_name", &obj_data_ptr, "vertex_colors", IFACE_("Value"), ICON_NONE);
 }
 
 static void panelRegister(ARegionType *region_type)
@@ -681,12 +644,14 @@ static void panelRegister(ARegionType *region_type)
 }
 
 ModifierTypeInfo modifierType_ParticleInstance = {
-    /* name */ "ParticleInstance",
+    /* name */ N_("ParticleInstance"),
     /* structName */ "ParticleInstanceModifierData",
     /* structSize */ sizeof(ParticleInstanceModifierData),
+    /* srna */ &RNA_ParticleInstanceModifier,
     /* type */ eModifierTypeType_Constructive,
     /* flags */ eModifierTypeFlag_AcceptsMesh | eModifierTypeFlag_SupportsMapping |
         eModifierTypeFlag_SupportsEditmode | eModifierTypeFlag_EnableInEditmode,
+    /* icon */ ICON_MOD_PARTICLE_INSTANCE,
 
     /* copyData */ BKE_modifier_copydata_generic,
 
@@ -695,9 +660,7 @@ ModifierTypeInfo modifierType_ParticleInstance = {
     /* deformVertsEM */ NULL,
     /* deformMatricesEM */ NULL,
     /* modifyMesh */ modifyMesh,
-    /* modifyHair */ NULL,
-    /* modifyPointCloud */ NULL,
-    /* modifyVolume */ NULL,
+    /* modifyGeometrySet */ NULL,
 
     /* initData */ initData,
     /* requiredDataMask */ requiredDataMask,
@@ -706,9 +669,10 @@ ModifierTypeInfo modifierType_ParticleInstance = {
     /* updateDepsgraph */ updateDepsgraph,
     /* dependsOnTime */ NULL,
     /* dependsOnNormals */ NULL,
-    /* foreachObjectLink */ foreachObjectLink,
-    /* foreachIDLink */ NULL,
+    /* foreachIDLink */ foreachIDLink,
     /* foreachTexLink */ NULL,
     /* freeRuntimeData */ NULL,
     /* panelRegister */ panelRegister,
+    /* blendWrite */ NULL,
+    /* blendRead */ NULL,
 };

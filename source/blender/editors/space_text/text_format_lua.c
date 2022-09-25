@@ -1,17 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup sptext
@@ -165,9 +152,9 @@ static char txtfmt_lua_format_identifier(const char *str)
   /* Keep aligned args for readability. */
   /* clang-format off */
 
-  if        ((txtfmt_lua_find_specialvar(str))  != -1) { fmt = FMT_TYPE_SPECIAL;
-  } else if ((txtfmt_lua_find_keyword(str))     != -1) { fmt = FMT_TYPE_KEYWORD;
-  } else                                               { fmt = FMT_TYPE_DEFAULT;
+  if        (txtfmt_lua_find_specialvar(str)  != -1) { fmt = FMT_TYPE_SPECIAL;
+  } else if (txtfmt_lua_find_keyword(str)     != -1) { fmt = FMT_TYPE_KEYWORD;
+  } else                                             { fmt = FMT_TYPE_DEFAULT;
   }
 
   /* clang-format on */
@@ -226,7 +213,7 @@ static void txtfmt_lua_format_line(SpaceText *st, TextLine *line, const bool do_
       continue;
     }
     /* Handle continuations */
-    else if (cont) {
+    if (cont) {
       /* Multi-line comments */
       if (cont & FMT_CONT_COMMENT_C) {
         if (*str == ']' && *(str + 1) == ']') {
@@ -271,13 +258,13 @@ static void txtfmt_lua_format_line(SpaceText *st, TextLine *line, const bool do_
       else if (*str == '-' && *(str + 1) == '-') {
         text_format_fill(&str, &fmt, FMT_TYPE_COMMENT, len - (int)(fmt - line->format));
       }
-      else if (*str == '"' || *str == '\'') {
+      else if (ELEM(*str, '"', '\'')) {
         /* Strings */
         find = *str;
         cont = (*str == '"') ? FMT_CONT_QUOTEDOUBLE : FMT_CONT_QUOTESINGLE;
         *fmt = FMT_TYPE_STRING;
       }
-      /* Whitespace (all ws. has been converted to spaces) */
+      /* White-space (all white-space has been converted to spaces). */
       else if (*str == ' ') {
         *fmt = FMT_TYPE_WHITESPACE;
       }
@@ -300,18 +287,19 @@ static void txtfmt_lua_format_line(SpaceText *st, TextLine *line, const bool do_
       else if ((*str != '#') && text_check_delim(*str)) {
         *fmt = FMT_TYPE_SYMBOL;
       }
-      /* Identifiers and other text (no previous ws. or delims. so text continues) */
+      /* Identifiers and other text (no previous white-space/delimiters so text continues). */
       else if (prev == FMT_TYPE_DEFAULT) {
         str += BLI_str_utf8_size_safe(str) - 1;
         *fmt = FMT_TYPE_DEFAULT;
       }
-      /* Not ws, a digit, punct, or continuing text. Must be new, check for special words */
+      /* Not white-space, a digit, punctuation, or continuing text.
+       * Must be new, check for special words. */
       else {
-        /* Keep aligned args for readability. */
+        /* Keep aligned arguments for readability. */
         /* clang-format off */
 
-        /* Special vars(v) or built-in keywords(b) */
-        /* keep in sync with 'txtfmt_osl_format_identifier()' */
+        /* Special `vars(v)` or built-in `keywords(b)` */
+        /* keep in sync with `txtfmt_osl_format_identifier()`. */
         if        ((i = txtfmt_lua_find_specialvar(str))   != -1) { prev = FMT_TYPE_SPECIAL;
         } else if ((i = txtfmt_lua_find_keyword(str))      != -1) { prev = FMT_TYPE_KEYWORD;
         }

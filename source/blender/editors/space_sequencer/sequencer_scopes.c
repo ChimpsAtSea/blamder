@@ -1,20 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Author: Peter Schlaile < peter [at] schlaile [dot] de >
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2006-2008 Peter Schlaile < peter [at] schlaile [dot] de >. */
 
 /** \file
  * \ingroup spseq
@@ -30,12 +15,10 @@
 #include "IMB_imbuf.h"
 #include "IMB_imbuf_types.h"
 
-#include "atomic_ops.h"
-
 #include "sequencer_intern.h"
 
-/* XXX, why is this function better then BLI_math version?
- * only difference is it does some normalize after, need to double check on this - campbell */
+/* XXX(campbell): why is this function better than BLI_math version?
+ * only difference is it does some normalize after, need to double check on this. */
 static void rgb_to_yuv_normalized(const float rgb[3], float yuv[3])
 {
   yuv[0] = 0.299f * rgb[0] + 0.587f * rgb[1] + 0.114f * rgb[2];
@@ -50,14 +33,14 @@ static void rgb_to_yuv_normalized(const float rgb[3], float yuv[3])
   yuv[2] += 0.5f;
 }
 
-static void scope_put_pixel(uchar *table, uchar *pos)
+static void scope_put_pixel(const uchar *table, uchar *pos)
 {
   uchar newval = table[*pos];
   pos[0] = pos[1] = pos[2] = newval;
   pos[3] = 255;
 }
 
-static void scope_put_pixel_single(uchar *table, uchar *pos, int col)
+static void scope_put_pixel_single(const uchar *table, uchar *pos, int col)
 {
   char newval = table[pos[col]];
   pos[col] = newval;
@@ -123,11 +106,9 @@ static void wform_put_border(uchar *tgt, int w, int h)
 
 static void wform_put_gridrow(uchar *tgt, float perc, int w, int h)
 {
-  int i;
-
   tgt += (int)(perc / 100.0f * h) * w * 4;
 
-  for (i = 0; i < w * 2; i++) {
+  for (int i = 0; i < w * 2; i++) {
     tgt[0] = 255;
 
     tgt += 4;
@@ -232,9 +213,7 @@ ImBuf *make_waveform_view_from_ibuf(ImBuf *ibuf)
   if (ibuf->rect_float) {
     return make_waveform_view_from_ibuf_float(ibuf);
   }
-  else {
-    return make_waveform_view_from_ibuf_byte(ibuf);
-  }
+  return make_waveform_view_from_ibuf_byte(ibuf);
 }
 
 static ImBuf *make_sep_waveform_view_from_ibuf_byte(ImBuf *ibuf)
@@ -336,9 +315,7 @@ ImBuf *make_sep_waveform_view_from_ibuf(ImBuf *ibuf)
   if (ibuf->rect_float) {
     return make_sep_waveform_view_from_ibuf_float(ibuf);
   }
-  else {
-    return make_sep_waveform_view_from_ibuf_byte(ibuf);
-  }
+  return make_sep_waveform_view_from_ibuf_byte(ibuf);
 }
 
 static void draw_zebra_byte(ImBuf *src, ImBuf *ibuf, float perc)
@@ -402,28 +379,27 @@ static void draw_zebra_float(ImBuf *src, ImBuf *ibuf, float perc)
   }
 }
 
-ImBuf *make_zebra_view_from_ibuf(ImBuf *src, float perc)
+ImBuf *make_zebra_view_from_ibuf(ImBuf *ibuf, float perc)
 {
-  ImBuf *ibuf = IMB_allocImBuf(src->x, src->y, 32, IB_rect);
+  ImBuf *new_ibuf = IMB_allocImBuf(ibuf->x, ibuf->y, 32, IB_rect);
 
-  if (src->rect_float) {
-    draw_zebra_float(src, ibuf, perc);
+  if (ibuf->rect_float) {
+    draw_zebra_float(ibuf, new_ibuf, perc);
   }
   else {
-    draw_zebra_byte(src, ibuf, perc);
+    draw_zebra_byte(ibuf, new_ibuf, perc);
   }
-  return ibuf;
+  return new_ibuf;
 }
 
 static void draw_histogram_marker(ImBuf *ibuf, int x)
 {
   uchar *p = (uchar *)ibuf->rect;
   int barh = ibuf->y * 0.1;
-  int i;
 
   p += 4 * (x + ibuf->x * (ibuf->y - barh + 1));
 
-  for (i = 0; i < barh - 1; i++) {
+  for (int i = 0; i < barh - 1; i++) {
     p[0] = p[1] = p[2] = 255;
     p += ibuf->x * 4;
   }
@@ -433,11 +409,10 @@ static void draw_histogram_bar(ImBuf *ibuf, int x, float val, int col)
 {
   uchar *p = (uchar *)ibuf->rect;
   int barh = ibuf->y * val * 0.9f;
-  int i;
 
   p += 4 * (x + ibuf->x);
 
-  for (i = 0; i < barh; i++) {
+  for (int i = 0; i < barh; i++) {
     p[col] = 255;
     p += ibuf->x * 4;
   }
@@ -541,7 +516,7 @@ BLI_INLINE int get_bin_float(float f)
   if (f < -0.25f) {
     return 0;
   }
-  else if (f >= 1.25f) {
+  if (f >= 1.25f) {
     return 511;
   }
 
@@ -627,17 +602,13 @@ ImBuf *make_histogram_view_from_ibuf(ImBuf *ibuf)
   if (ibuf->rect_float) {
     return make_histogram_view_from_ibuf_float(ibuf);
   }
-  else {
-    return make_histogram_view_from_ibuf_byte(ibuf);
-  }
+  return make_histogram_view_from_ibuf_byte(ibuf);
 }
 
 static void vectorscope_put_cross(uchar r, uchar g, uchar b, char *tgt, int w, int h, int size)
 {
   float rgb[3], yuv[3];
   char *p;
-  int x = 0;
-  int y = 0;
 
   rgb[0] = (float)r / 255.0f;
   rgb[1] = (float)g / 255.0f;
@@ -650,8 +621,8 @@ static void vectorscope_put_cross(uchar r, uchar g, uchar b, char *tgt, int w, i
     r = 255;
   }
 
-  for (y = -size; y <= size; y++) {
-    for (x = -size; x <= size; x++) {
+  for (int y = -size; y <= size; y++) {
+    for (int x = -size; x <= size; x++) {
       char *q = p + 4 * (y * w + x);
       q[0] = r;
       q[1] = g;
@@ -736,7 +707,7 @@ static ImBuf *make_vectorscope_view_from_ibuf_float(ImBuf *ibuf)
       const float *src1 = src + 4 * (ibuf->x * y + x);
       const char *p;
 
-      memcpy(rgb, src1, 3 * sizeof(float));
+      memcpy(rgb, src1, sizeof(float[3]));
 
       clamp_v3(rgb, 0.0f, 1.0f);
 
@@ -757,7 +728,5 @@ ImBuf *make_vectorscope_view_from_ibuf(ImBuf *ibuf)
   if (ibuf->rect_float) {
     return make_vectorscope_view_from_ibuf_float(ibuf);
   }
-  else {
-    return make_vectorscope_view_from_ibuf_byte(ibuf);
-  }
+  return make_vectorscope_view_from_ibuf_byte(ibuf);
 }

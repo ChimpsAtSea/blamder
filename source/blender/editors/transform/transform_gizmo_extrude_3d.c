@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup edmesh
@@ -25,6 +11,7 @@
 
 #include "BKE_context.h"
 #include "BKE_global.h"
+#include "BKE_scene.h"
 
 #include "RNA_access.h"
 #include "RNA_define.h"
@@ -38,7 +25,6 @@
 #include "ED_gizmo_utils.h"
 #include "ED_screen.h"
 #include "ED_transform.h"
-#include "ED_view3d.h"
 
 #include "UI_resources.h"
 
@@ -82,6 +68,7 @@ typedef struct GizmoExtrudeGroup {
     float orient_matrix[3][3];
     bool constraint_axis[3];
     float value[4];
+    int orient_type;
   } redo_xform;
 
   /* Depends on object type. */
@@ -89,7 +76,7 @@ typedef struct GizmoExtrudeGroup {
 
   struct {
     float normal_mat3[3][3]; /* use Z axis for normal. */
-    int orientation_type;
+    int orientation_index;
   } data;
 
   wmOperatorType *ot_extrude;
@@ -152,7 +139,7 @@ static void gizmo_mesh_extrude_setup(const bContext *C, wmGizmoGroup *gzgroup)
 
   {
     const char *op_idname = NULL;
-    /* grease pencil does not use obedit */
+    /* Grease pencil does not use `obedit`. */
     /* GPXX: Remove if OB_MODE_EDIT_GPENCIL is merged with OB_MODE_EDIT */
     const Object *obact = CTX_data_active_object(C);
     if (obact->type == OB_GPENCIL) {
@@ -166,7 +153,7 @@ static void gizmo_mesh_extrude_setup(const bContext *C, wmGizmoGroup *gzgroup)
       op_idname = "ARMATURE_OT_extrude_move";
       ggd->normal_axis = 1;
     }
-    else if (obact->type == OB_CURVE) {
+    else if (obact->type == OB_CURVES_LEGACY) {
       op_idname = "CURVE_OT_extrude_move";
       ggd->normal_axis = 2;
     }
@@ -214,7 +201,7 @@ static void gizmo_mesh_extrude_setup(const bContext *C, wmGizmoGroup *gzgroup)
     PointerRNA macroptr = RNA_pointer_get(ptr, "TRANSFORM_OT_translate");
     RNA_boolean_set(&macroptr, "release_confirm", true);
 
-    bool constraint[3] = {0, 0, 0};
+    const bool constraint[3] = {0, 0, 0};
     RNA_boolean_set_array(&macroptr, "constraint_axis", constraint);
   }
 
@@ -255,8 +242,8 @@ static void gizmo_mesh_extrude_refresh(const bContext *C, wmGizmoGroup *gzgroup)
     axis_type = RNA_property_enum_get(&ptr, ggd->gzgt_axis_type_prop);
   }
 
-  ggd->data.orientation_type = scene->orientation_slots[SCE_ORIENT_DEFAULT].type;
-  const bool use_normal = ((ggd->data.orientation_type != V3D_ORIENT_NORMAL) ||
+  ggd->data.orientation_index = BKE_scene_orientation_get_index(scene, SCE_ORIENT_DEFAULT);
+  const bool use_normal = ((ggd->data.orientation_index != V3D_ORIENT_NORMAL) ||
                            (axis_type == EXTRUDE_AXIS_NORMAL));
   const int axis_len_used = use_normal ? 4 : 3;
 
@@ -266,7 +253,7 @@ static void gizmo_mesh_extrude_refresh(const bContext *C, wmGizmoGroup *gzgroup)
     struct TransformBounds tbounds_normal;
     if (!ED_transform_calc_gizmo_stats(C,
                                        &(struct TransformCalcParams){
-                                           .orientation_type = V3D_ORIENT_NORMAL + 1,
+                                           .orientation_index = V3D_ORIENT_NORMAL + 1,
                                        },
                                        &tbounds_normal)) {
       unit_m3(tbounds_normal.axis);
@@ -277,7 +264,7 @@ static void gizmo_mesh_extrude_refresh(const bContext *C, wmGizmoGroup *gzgroup)
   /* TODO(campbell): run second since this modifies the 3D view, it should not. */
   if (!ED_transform_calc_gizmo_stats(C,
                                      &(struct TransformCalcParams){
-                                         .orientation_type = ggd->data.orientation_type + 1,
+                                         .orientation_index = ggd->data.orientation_index + 1,
                                      },
                                      &tbounds)) {
     return;
@@ -310,6 +297,7 @@ static void gizmo_mesh_extrude_refresh(const bContext *C, wmGizmoGroup *gzgroup)
     RNA_float_get_array(op_xform->ptr, "orient_matrix", &ggd->redo_xform.orient_matrix[0][0]);
     RNA_boolean_get_array(op_xform->ptr, "constraint_axis", ggd->redo_xform.constraint_axis);
     RNA_float_get_array(op_xform->ptr, "value", ggd->redo_xform.value);
+    ggd->redo_xform.orient_type = RNA_enum_get(op_xform->ptr, "orient_type");
 
     /* Set properties for redo. */
     for (int i = 0; i < 3; i++) {
@@ -367,7 +355,7 @@ static void gizmo_mesh_extrude_refresh(const bContext *C, wmGizmoGroup *gzgroup)
     }
   }
 
-  /* TODO: skip calculating axis which wont be used (above). */
+  /* TODO: skip calculating axis which won't be used (above). */
   switch (axis_type) {
     case EXTRUDE_AXIS_NORMAL:
       for (int i = 0; i < 3; i++) {
@@ -381,18 +369,16 @@ static void gizmo_mesh_extrude_refresh(const bContext *C, wmGizmoGroup *gzgroup)
 
   if (scene->toolsettings->workspace_tool_type == SCE_WORKSPACE_TOOL_FALLBACK) {
     WM_gizmo_set_flag(ggd->invoke_view, WM_GIZMO_HIDDEN, false);
-    gzgroup->use_fallback_keymap = true;
   }
   else {
     WM_gizmo_set_flag(ggd->invoke_view, WM_GIZMO_HIDDEN, true);
-    gzgroup->use_fallback_keymap = false;
   }
 }
 
 static void gizmo_mesh_extrude_draw_prepare(const bContext *C, wmGizmoGroup *gzgroup)
 {
   GizmoExtrudeGroup *ggd = gzgroup->customdata;
-  switch (ggd->data.orientation_type) {
+  switch (ggd->data.orientation_index) {
     case V3D_ORIENT_VIEW: {
       RegionView3D *rv3d = CTX_wm_region_view3d(C);
       float mat[3][3];
@@ -437,7 +423,8 @@ static void gizmo_mesh_extrude_invoke_prepare(const bContext *UNUSED(C),
     if (gz == ggd->adjust[0]) {
       RNA_boolean_set_array(&macroptr, "constraint_axis", ggd->redo_xform.constraint_axis);
       RNA_float_set_array(&macroptr, "orient_matrix", &ggd->redo_xform.orient_matrix[0][0]);
-      RNA_enum_set(&macroptr, "orient_type", V3D_ORIENT_NORMAL);
+      RNA_enum_set(&macroptr, "orient_matrix_type", ggd->redo_xform.orient_type);
+      RNA_enum_set(&macroptr, "orient_type", ggd->redo_xform.orient_type);
     }
     RNA_float_set_array(&macroptr, "value", ggd->redo_xform.value);
   }
@@ -452,7 +439,7 @@ static void gizmo_mesh_extrude_invoke_prepare(const bContext *UNUSED(C),
     if (i == 3) {
       use_normal_matrix = true;
     }
-    else if (ggd->data.orientation_type == V3D_ORIENT_NORMAL) {
+    else if (ggd->data.orientation_index == V3D_ORIENT_NORMAL) {
       use_normal_matrix = true;
     }
     if (use_normal_matrix) {
@@ -498,7 +485,6 @@ static void gizmo_mesh_extrude_message_subscribe(const bContext *C,
     Scene *scene = CTX_data_scene(C);
     PointerRNA toolsettings_ptr;
     RNA_pointer_create(&scene->id, &RNA_ToolSettings, scene->toolsettings, &toolsettings_ptr);
-    extern PropertyRNA rna_ToolSettings_workspace_tool_type;
     const PropertyRNA *props[] = {
         &rna_ToolSettings_workspace_tool_type,
     };

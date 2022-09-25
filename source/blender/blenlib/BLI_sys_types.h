@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -31,8 +15,7 @@
  * For these rogue platforms, we make the typedefs ourselves.
  */
 
-#ifndef __BLI_SYS_TYPES_H__
-#define __BLI_SYS_TYPES_H__
+#pragma once
 
 #ifdef __cplusplus
 extern "C" {
@@ -41,7 +24,7 @@ extern "C" {
 #if defined(__linux__) || defined(__GNU__) || defined(__NetBSD__) || defined(__OpenBSD__) || \
     defined(__FreeBSD_kernel__) || defined(__HAIKU__)
 
-/* Linux-i386, Linux-Alpha, Linux-ppc */
+/* Linux-i386, Linux-Alpha, Linux-PPC */
 #  include <stdint.h>
 
 /* XXX */
@@ -73,8 +56,8 @@ typedef uint64_t u_int64_t;
 #include <stddef.h> /* size_t define */
 
 #ifndef __cplusplus
+/* The <uchar.h> standard header is missing on some systems. */
 #  if defined(__APPLE__) || defined(__NetBSD__)
-/* The <uchar.h> standard header is missing on macOS. */
 typedef unsigned int char32_t;
 #  else
 #    include <uchar.h>
@@ -89,5 +72,3 @@ typedef unsigned char uchar;
 #ifdef __cplusplus
 }
 #endif
-
-#endif /* eof */

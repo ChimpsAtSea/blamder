@@ -1,26 +1,10 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup avi
  *
- * This is external code. Converts between avi and mpeg/jpeg.
+ * This is external code. Converts between AVI and MPEG/JPEG.
  */
 
 #include <stdlib.h>
@@ -33,13 +17,15 @@
 #include "BLI_math_base.h"
 #include "IMB_imbuf.h"
 
-#include "jerror.h"
-#include "jpeglib.h"
+#include <jerror.h>
+#include <jpeglib.h>
 
 #include "avi_mjpeg.h"
 
 static void jpegmemdestmgr_build(j_compress_ptr cinfo, unsigned char *buffer, size_t bufsize);
-static void jpegmemsrcmgr_build(j_decompress_ptr dinfo, unsigned char *buffer, size_t bufsize);
+static void jpegmemsrcmgr_build(j_decompress_ptr dinfo,
+                                const unsigned char *buffer,
+                                size_t bufsize);
 
 static size_t numbytes;
 
@@ -381,7 +367,10 @@ static void deinterlace(int odd, unsigned char *to, unsigned char *from, int wid
   }
 }
 
-void *avi_converter_from_mjpeg(AviMovie *movie, int stream, unsigned char *buffer, size_t *size)
+void *avi_converter_from_mjpeg(AviMovie *movie,
+                               int stream,
+                               unsigned char *buffer,
+                               const size_t *size)
 {
   int deint;
   unsigned char *buf;
@@ -536,14 +525,14 @@ static boolean jpegmemsrcmgr_fill_input_buffer(j_decompress_ptr dinfo)
   return true;
 }
 
-static void jpegmemsrcmgr_skip_input_data(j_decompress_ptr dinfo, long skipcnt)
+static void jpegmemsrcmgr_skip_input_data(j_decompress_ptr dinfo, long skip_count)
 {
-  if (dinfo->src->bytes_in_buffer < skipcnt) {
-    skipcnt = dinfo->src->bytes_in_buffer;
+  if (dinfo->src->bytes_in_buffer < skip_count) {
+    skip_count = dinfo->src->bytes_in_buffer;
   }
 
-  dinfo->src->next_input_byte += skipcnt;
-  dinfo->src->bytes_in_buffer -= skipcnt;
+  dinfo->src->next_input_byte += skip_count;
+  dinfo->src->bytes_in_buffer -= skip_count;
 }
 
 static void jpegmemsrcmgr_term_source(j_decompress_ptr dinfo)
@@ -553,7 +542,9 @@ static void jpegmemsrcmgr_term_source(j_decompress_ptr dinfo)
   MEM_freeN(dinfo->src);
 }
 
-static void jpegmemsrcmgr_build(j_decompress_ptr dinfo, unsigned char *buffer, size_t bufsize)
+static void jpegmemsrcmgr_build(j_decompress_ptr dinfo,
+                                const unsigned char *buffer,
+                                size_t bufsize)
 {
   dinfo->src = MEM_mallocN(sizeof(*(dinfo->src)), "avi.jpegmemsrcmgr_build");
 

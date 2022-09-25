@@ -1,22 +1,4 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
 
 import bpy
 from bpy.types import Operator
@@ -32,25 +14,24 @@ class SequencerCrossfadeSounds(Operator):
     """Do cross-fading volume animation of two selected sound strips"""
 
     bl_idname = "sequencer.crossfade_sounds"
-    bl_label = "Crossfade sounds"
+    bl_label = "Crossfade Sounds"
     bl_options = {'REGISTER', 'UNDO'}
 
     @classmethod
     def poll(cls, context):
-        if context.scene and context.scene.sequence_editor and context.scene.sequence_editor.active_strip:
-            return context.scene.sequence_editor.active_strip.type == 'SOUND'
-        else:
-            return False
+        strip = context.active_sequence_strip
+        return strip and (strip.type == 'SOUND')
 
     def execute(self, context):
+        scene = context.scene
         seq1 = None
         seq2 = None
-        for s in context.scene.sequence_editor.sequences:
-            if s.select and s.type == 'SOUND':
+        for strip in scene.sequence_editor.sequences:
+            if strip.select and strip.type == 'SOUND':
                 if seq1 is None:
-                    seq1 = s
+                    seq1 = strip
                 elif seq2 is None:
-                    seq2 = s
+                    seq2 = strip
                 else:
                     seq2 = None
                     break
@@ -58,21 +39,19 @@ class SequencerCrossfadeSounds(Operator):
             self.report({'ERROR'}, "Select 2 sound strips")
             return {'CANCELLED'}
         if seq1.frame_final_start > seq2.frame_final_start:
-            s = seq1
-            seq1 = seq2
-            seq2 = s
+            seq1, seq2 = seq2, seq1
         if seq1.frame_final_end > seq2.frame_final_start:
-            tempcfra = context.scene.frame_current
-            context.scene.frame_current = seq2.frame_final_start
+            tempcfra = scene.frame_current
+            scene.frame_current = seq2.frame_final_start
             seq1.keyframe_insert("volume")
-            context.scene.frame_current = seq1.frame_final_end
+            scene.frame_current = seq1.frame_final_end
             seq1.volume = 0
             seq1.keyframe_insert("volume")
             seq2.keyframe_insert("volume")
-            context.scene.frame_current = seq2.frame_final_start
+            scene.frame_current = seq2.frame_final_start
             seq2.volume = 0
             seq2.keyframe_insert("volume")
-            context.scene.frame_current = tempcfra
+            scene.frame_current = tempcfra
             return {'FINISHED'}
         else:
             self.report({'ERROR'}, "The selected strips don't overlap")
@@ -80,10 +59,10 @@ class SequencerCrossfadeSounds(Operator):
 
 
 class SequencerSplitMulticam(Operator):
-    """Split multi-cam strip and select camera"""
+    """Split multicam strip and select camera"""
 
     bl_idname = "sequencer.split_multicam"
-    bl_label = "Split multicam"
+    bl_label = "Split Multicam"
     bl_options = {'REGISTER', 'UNDO'}
 
     camera: IntProperty(
@@ -95,29 +74,27 @@ class SequencerSplitMulticam(Operator):
 
     @classmethod
     def poll(cls, context):
-        if context.scene and context.scene.sequence_editor and context.scene.sequence_editor.active_strip:
-            return context.scene.sequence_editor.active_strip.type == 'MULTICAM'
-        else:
-            return False
+        strip = context.active_sequence_strip
+        return strip and (strip.type == 'MULTICAM')
 
     def execute(self, context):
+        scene = context.scene
         camera = self.camera
 
-        s = context.scene.sequence_editor.active_strip
+        strip = context.active_sequence_strip
 
-        if s.multicam_source == camera or camera >= s.channel:
+        if strip.multicam_source == camera or camera >= strip.channel:
             return {'FINISHED'}
 
-        if not s.select:
-            s.select = True
+        cfra = scene.frame_current
+        right_strip = strip.split(frame=cfra, split_method='SOFT')
 
-        cfra = context.scene.frame_current
-        bpy.ops.sequencer.split(frame=cfra, type='SOFT', side='RIGHT')
-        for s in context.scene.sequence_editor.sequences_all:
-            if s.select and s.type == 'MULTICAM' and s.frame_final_start <= cfra and cfra < s.frame_final_end:
-                context.scene.sequence_editor.active_strip = s
+        if right_strip:
+            strip.select = False
+            right_strip.select = True
+            scene.sequence_editor.active_strip = right_strip
 
-        context.scene.sequence_editor.active_strip.multicam_source = camera
+        context.active_sequence_strip.multicam_source = camera
         return {'FINISHED'}
 
 
@@ -130,12 +107,13 @@ class SequencerDeinterlaceSelectedMovies(Operator):
 
     @classmethod
     def poll(cls, context):
-        return (context.scene and context.scene.sequence_editor)
+        scene = context.scene
+        return (scene and scene.sequence_editor)
 
     def execute(self, context):
-        for s in context.scene.sequence_editor.sequences_all:
-            if s.select and s.type == 'MOVIE':
-                s.use_deinterlace = True
+        for strip in context.scene.sequence_editor.sequences_all:
+            if strip.select and strip.type == 'MOVIE':
+                strip.use_deinterlace = True
 
         return {'FINISHED'}
 
@@ -148,10 +126,18 @@ class SequencerFadesClear(Operator):
 
     @classmethod
     def poll(cls, context):
-        return context.scene and context.scene.sequence_editor and context.scene.sequence_editor.active_strip
+        strip = context.active_sequence_strip
+        return strip is not None
 
     def execute(self, context):
-        fcurves = context.scene.animation_data.action.fcurves
+        scene = context.scene
+        animation_data = scene.animation_data
+        if animation_data is None:
+            return {'CANCELLED'}
+        action = animation_data.action
+        if action is None:
+            return {'CANCELLED'}
+        fcurves = action.fcurves
         fcurve_map = {
             curve.data_path: curve
             for curve in fcurves
@@ -164,6 +150,7 @@ class SequencerFadesClear(Operator):
             if curve:
                 fcurves.remove(curve)
             setattr(sequence, animated_property, 1.0)
+            sequence.invalidate_cache('COMPOSITE')
 
         return {'FINISHED'}
 
@@ -181,20 +168,23 @@ class SequencerFadesAdd(Operator):
         min=0.01)
     type: EnumProperty(
         items=(
-            ('IN_OUT', 'Fade In And Out', 'Fade selected strips in and out'),
+            ('IN_OUT', 'Fade In and Out', 'Fade selected strips in and out'),
             ('IN', 'Fade In', 'Fade in selected strips'),
             ('OUT', 'Fade Out', 'Fade out selected strips'),
-            ('CURSOR_FROM', 'From Playhead', 'Fade from the time cursor to the end of overlapping sequences'),
-            ('CURSOR_TO', 'To Playhead', 'Fade from the start of sequences under the time cursor to the current frame'),
+            ('CURSOR_FROM', 'From Current Frame',
+             'Fade from the time cursor to the end of overlapping sequences'),
+            ('CURSOR_TO', 'To Current Frame',
+             'Fade from the start of sequences under the time cursor to the current frame'),
         ),
-        name="Fade type",
+        name="Fade Type",
         description="Fade in, out, both in and out, to, or from the current frame. Default is both in and out",
         default='IN_OUT')
 
     @classmethod
     def poll(cls, context):
         # Can't use context.selected_sequences as it can have an impact on performances
-        return context.scene and context.scene.sequence_editor and context.scene.sequence_editor.active_strip
+        strip = context.active_sequence_strip
+        return strip is not None
 
     def execute(self, context):
         from math import floor
@@ -208,13 +198,21 @@ class SequencerFadesAdd(Operator):
             scene.animation_data.action = action
 
         sequences = context.selected_sequences
+
+        if not sequences:
+            self.report({'ERROR'}, "No sequences selected")
+            return {'CANCELLED'}
+
         if self.type in {'CURSOR_TO', 'CURSOR_FROM'}:
             sequences = [
-                s for s in sequences
-                if s.frame_final_start < context.scene.frame_current < s.frame_final_end
+                strip for strip in sequences
+                if strip.frame_final_start < scene.frame_current < strip.frame_final_end
             ]
+            if not sequences:
+                self.report({'ERROR'}, "Current frame not within strip framerange")
+                return {'CANCELLED'}
 
-        max_duration = min(sequences, key=lambda s: s.frame_final_duration).frame_final_duration
+        max_duration = min(sequences, key=lambda strip: strip.frame_final_duration).frame_final_duration
         max_duration = floor(max_duration / 2.0) if self.type == 'IN_OUT' else max_duration
 
         faded_sequences = []
@@ -230,20 +228,22 @@ class SequencerFadesAdd(Operator):
             self.fade_animation_clear(fade_fcurve, fades)
             self.fade_animation_create(fade_fcurve, fades)
             faded_sequences.append(sequence)
+            sequence.invalidate_cache('COMPOSITE')
 
         sequence_string = "sequence" if len(faded_sequences) == 1 else "sequences"
-        self.report({'INFO'}, "Added fade animation to {} {}.".format(len(faded_sequences), sequence_string))
+        self.report({'INFO'}, "Added fade animation to %d %s" % (len(faded_sequences), sequence_string))
         return {'FINISHED'}
 
     def calculate_fade_duration(self, context, sequence):
-        frame_current = context.scene.frame_current
+        scene = context.scene
+        frame_current = scene.frame_current
         duration = 0.0
         if self.type == 'CURSOR_TO':
             duration = abs(frame_current - sequence.frame_final_start)
         elif self.type == 'CURSOR_FROM':
             duration = abs(sequence.frame_final_end - frame_current)
         else:
-            duration = calculate_duration_frames(context, self.duration_seconds)
+            duration = calculate_duration_frames(scene, self.duration_seconds)
         return max(1, duration)
 
     def is_long_enough(self, sequence, duration=0.0):
@@ -269,8 +269,9 @@ class SequencerFadesAdd(Operator):
         that corresponds to the sequence.
         Returns the matching FCurve or creates a new one if the function can't find a match.
         """
+        scene = context.scene
         fade_fcurve = None
-        fcurves = context.scene.animation_data.action.fcurves
+        fcurves = scene.animation_data.action.fcurves
         searched_data_path = sequence.path_from_id(animated_property)
         for fcurve in fcurves:
             if fcurve.data_path == searched_data_path:
@@ -360,11 +361,11 @@ class Fade:
         return max_value if max_value > 0.0 else 1.0
 
     def __repr__(self):
-        return "Fade {}: {} to {}".format(self.type, self.start, self.end)
+        return "Fade %r: %r to %r" % (self.type, self.start, self.end)
 
 
-def calculate_duration_frames(context, duration_seconds):
-    return round(duration_seconds * context.scene.render.fps / context.scene.render.fps_base)
+def calculate_duration_frames(scene, duration_seconds):
+    return round(duration_seconds * scene.render.fps / scene.render.fps_base)
 
 
 classes = (

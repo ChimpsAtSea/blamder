@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2004 by Blender Foundation
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2004 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edobj
@@ -25,6 +9,7 @@
 
 #include "MEM_guardedalloc.h"
 
+#include "DNA_material_types.h"
 #include "DNA_mesh_types.h"
 #include "DNA_meshdata_types.h"
 #include "DNA_object_types.h"
@@ -53,14 +38,12 @@
 
 #include "RE_multires_bake.h"
 #include "RE_pipeline.h"
-#include "RE_shader_ext.h"
+#include "RE_texture.h"
 
 #include "PIL_time.h"
 
 #include "IMB_imbuf.h"
 #include "IMB_imbuf_types.h"
-
-#include "GPU_draw.h" /* GPU_free_image */
 
 #include "WM_api.h"
 #include "WM_types.h"
@@ -99,7 +82,6 @@ typedef struct MultiresBakerJobData {
     int len;
   } ob_image;
   DerivedMesh *lores_dm, *hires_dm;
-  bool simple;
   int lvl, tot_lvl;
   ListBase images;
 } MultiresBakerJobData;
@@ -110,8 +92,10 @@ typedef struct {
   ListBase data;
   /** Clear the images before baking */
   bool bake_clear;
-  /** Bake-filter, aka margin */
-  int bake_filter;
+  /** Margin size in pixels. */
+  int bake_margin;
+  /** margin type */
+  char bake_margin_type;
   /** mode of baking (displacement, normals, AO) */
   short mode;
   /** Use low-resolution mesh when baking displacement maps */
@@ -188,28 +172,35 @@ static bool multiresbake_check(bContext *C, wmOperator *op)
           ok = false;
         }
         else {
-          ImBuf *ibuf = BKE_image_acquire_ibuf(ima, NULL, NULL);
+          LISTBASE_FOREACH (ImageTile *, tile, &ima->tiles) {
+            ImageUser iuser;
+            BKE_imageuser_default(&iuser);
+            iuser.tile = tile->tile_number;
 
-          if (!ibuf) {
-            BKE_report(op->reports, RPT_ERROR, "Baking should happen to image with image buffer");
+            ImBuf *ibuf = BKE_image_acquire_ibuf(ima, &iuser, NULL);
 
-            ok = false;
-          }
-          else {
-            if (ibuf->rect == NULL && ibuf->rect_float == NULL) {
+            if (!ibuf) {
+              BKE_report(
+                  op->reports, RPT_ERROR, "Baking should happen to image with image buffer");
+
               ok = false;
             }
+            else {
+              if (ibuf->rect == NULL && ibuf->rect_float == NULL) {
+                ok = false;
+              }
 
-            if (ibuf->rect_float && !(ibuf->channels == 0 || ibuf->channels == 4)) {
-              ok = false;
+              if (ibuf->rect_float && !(ELEM(ibuf->channels, 0, 4))) {
+                ok = false;
+              }
+
+              if (!ok) {
+                BKE_report(op->reports, RPT_ERROR, "Baking to unsupported image type");
+              }
             }
 
-            if (!ok) {
-              BKE_report(op->reports, RPT_ERROR, "Baking to unsupported image type");
-            }
+            BKE_image_release_ibuf(ima, ibuf, NULL);
           }
-
-          BKE_image_release_ibuf(ima, ibuf, NULL);
         }
       }
     }
@@ -229,27 +220,27 @@ static DerivedMesh *multiresbake_create_loresdm(Scene *scene, Object *ob, int *l
   MultiresModifierData *mmd = get_multires_modifier(scene, ob, 0);
   Mesh *me = (Mesh *)ob->data;
   MultiresModifierData tmp_mmd = *mmd;
-  DerivedMesh *cddm = CDDM_from_mesh(me);
-
-  DM_set_only_copy(cddm, &CD_MASK_BAREMESH);
-
-  if (mmd->lvl == 0) {
-    dm = CDDM_copy(cddm);
-  }
-  else {
-    tmp_mmd.lvl = mmd->lvl;
-    tmp_mmd.sculptlvl = mmd->lvl;
-    dm = multires_make_derived_from_derived(cddm, &tmp_mmd, scene, ob, 0);
-  }
-
-  cddm->release(cddm);
 
   *lvl = mmd->lvl;
+
+  if (mmd->lvl == 0) {
+    DerivedMesh *cddm = CDDM_from_mesh(me);
+    DM_set_only_copy(cddm, &CD_MASK_BAREMESH);
+    return cddm;
+  }
+
+  DerivedMesh *cddm = CDDM_from_mesh(me);
+  DM_set_only_copy(cddm, &CD_MASK_BAREMESH);
+  tmp_mmd.lvl = mmd->lvl;
+  tmp_mmd.sculptlvl = mmd->lvl;
+  dm = multires_make_derived_from_derived(cddm, &tmp_mmd, scene, ob, 0);
+
+  cddm->release(cddm);
 
   return dm;
 }
 
-static DerivedMesh *multiresbake_create_hiresdm(Scene *scene, Object *ob, int *lvl, bool *simple)
+static DerivedMesh *multiresbake_create_hiresdm(Scene *scene, Object *ob, int *lvl)
 {
   Mesh *me = (Mesh *)ob->data;
   MultiresModifierData *mmd = get_multires_modifier(scene, ob, 0);
@@ -266,7 +257,6 @@ static DerivedMesh *multiresbake_create_hiresdm(Scene *scene, Object *ob, int *l
   CustomData_set_only_copy(&cddm->polyData, CD_MASK_BAREMESH.pmask);
 
   *lvl = mmd->totlvl;
-  *simple = mmd->simple != 0;
 
   tmp_mmd.lvl = mmd->totlvl;
   tmp_mmd.sculptlvl = mmd->totlvl;
@@ -291,21 +281,27 @@ static void clear_single_image(Image *image, ClearFlag flag)
   const float disp_solid[4] = {0.5f, 0.5f, 0.5f, 1.0f};
 
   if ((image->id.tag & LIB_TAG_DOIT) == 0) {
-    ImBuf *ibuf = BKE_image_acquire_ibuf(image, NULL, NULL);
+    LISTBASE_FOREACH (ImageTile *, tile, &image->tiles) {
+      ImageUser iuser;
+      BKE_imageuser_default(&iuser);
+      iuser.tile = tile->tile_number;
 
-    if (flag == CLEAR_TANGENT_NORMAL) {
-      IMB_rectfill(ibuf, (ibuf->planes == R_IMF_PLANES_RGBA) ? nor_alpha : nor_solid);
-    }
-    else if (flag == CLEAR_DISPLACEMENT) {
-      IMB_rectfill(ibuf, (ibuf->planes == R_IMF_PLANES_RGBA) ? disp_alpha : disp_solid);
-    }
-    else {
-      IMB_rectfill(ibuf, (ibuf->planes == R_IMF_PLANES_RGBA) ? vec_alpha : vec_solid);
-    }
+      ImBuf *ibuf = BKE_image_acquire_ibuf(image, &iuser, NULL);
 
-    image->id.tag |= LIB_TAG_DOIT;
+      if (flag == CLEAR_TANGENT_NORMAL) {
+        IMB_rectfill(ibuf, (ibuf->planes == R_IMF_PLANES_RGBA) ? nor_alpha : nor_solid);
+      }
+      else if (flag == CLEAR_DISPLACEMENT) {
+        IMB_rectfill(ibuf, (ibuf->planes == R_IMF_PLANES_RGBA) ? disp_alpha : disp_solid);
+      }
+      else {
+        IMB_rectfill(ibuf, (ibuf->planes == R_IMF_PLANES_RGBA) ? vec_alpha : vec_solid);
+      }
 
-    BKE_image_release_ibuf(image, ibuf, NULL);
+      image->id.tag |= LIB_TAG_DOIT;
+
+      BKE_image_release_ibuf(image, ibuf, NULL);
+    }
   }
 }
 
@@ -375,7 +371,13 @@ static int multiresbake_image_exec_locked(bContext *C, wmOperator *op)
 
     /* copy data stored in job descriptor */
     bkr.scene = scene;
-    bkr.bake_filter = scene->r.bake_filter;
+    bkr.bake_margin = scene->r.bake_margin;
+    if (scene->r.bake_mode == RE_BAKE_NORMALS) {
+      bkr.bake_margin_type = R_BAKE_EXTEND;
+    }
+    else {
+      bkr.bake_margin_type = scene->r.bake_margin_type;
+    }
     bkr.mode = scene->r.bake_mode;
     bkr.use_lores_mesh = scene->r.bake_flag & R_BAKE_LORES_MESH;
     bkr.bias = scene->r.bake_biasdist;
@@ -388,7 +390,7 @@ static int multiresbake_image_exec_locked(bContext *C, wmOperator *op)
     bkr.ob_image.array = bake_object_image_get_array(ob);
     bkr.ob_image.len = ob->totcol;
 
-    bkr.hires_dm = multiresbake_create_hiresdm(scene, ob, &bkr.tot_lvl, &bkr.simple);
+    bkr.hires_dm = multiresbake_create_hiresdm(scene, ob, &bkr.tot_lvl);
     bkr.lores_dm = multiresbake_create_loresdm(scene, ob, &bkr.lvl);
 
     RE_multires_bake_images(&bkr);
@@ -419,7 +421,13 @@ static void init_multiresbake_job(bContext *C, MultiresBakeJob *bkj)
 
   /* backup scene settings, so their changing in UI would take no effect on baker */
   bkj->scene = scene;
-  bkj->bake_filter = scene->r.bake_filter;
+  bkj->bake_margin = scene->r.bake_margin;
+  if (scene->r.bake_mode == RE_BAKE_NORMALS) {
+    bkj->bake_margin_type = R_BAKE_EXTEND;
+  }
+  else {
+    bkj->bake_margin_type = scene->r.bake_margin_type;
+  }
   bkj->mode = scene->r.bake_mode;
   bkj->use_lores_mesh = scene->r.bake_flag & R_BAKE_LORES_MESH;
   bkj->bake_clear = scene->r.bake_flag & R_BAKE_CLEAR;
@@ -443,7 +451,7 @@ static void init_multiresbake_job(bContext *C, MultiresBakeJob *bkj)
     data->ob_image.len = ob->totcol;
 
     /* create low-resolution DM (to bake to) and hi-resolution DM (to bake from) */
-    data->hires_dm = multiresbake_create_hiresdm(scene, ob, &data->tot_lvl, &data->simple);
+    data->hires_dm = multiresbake_create_hiresdm(scene, ob, &data->tot_lvl);
     data->lores_dm = multiresbake_create_loresdm(scene, ob, &lvl);
     data->lvl = lvl;
 
@@ -480,7 +488,8 @@ static void multiresbake_startjob(void *bkv, short *stop, short *do_update, floa
 
     /* copy data stored in job descriptor */
     bkr.scene = bkj->scene;
-    bkr.bake_filter = bkj->bake_filter;
+    bkr.bake_margin = bkj->bake_margin;
+    bkr.bake_margin_type = bkj->bake_margin_type;
     bkr.mode = bkj->mode;
     bkr.use_lores_mesh = bkj->use_lores_mesh;
     bkr.user_scale = bkj->user_scale;
@@ -493,7 +502,6 @@ static void multiresbake_startjob(void *bkv, short *stop, short *do_update, floa
     bkr.hires_dm = data->hires_dm;
     bkr.tot_lvl = data->tot_lvl;
     bkr.lvl = data->lvl;
-    bkr.simple = data->simple;
 
     /* needed for proper progress bar */
     bkr.tot_obj = tot_obj;
@@ -530,7 +538,7 @@ static void multiresbake_freejob(void *bkv)
     /* delete here, since this delete will be called from main thread */
     for (link = data->images.first; link; link = link->next) {
       Image *ima = (Image *)link->data;
-      GPU_free_image(ima);
+      BKE_image_partial_update_mark_full_update(ima);
     }
 
     MEM_freeN(data->ob_image.array);
@@ -570,13 +578,13 @@ static int multiresbake_image_exec(bContext *C, wmOperator *op)
                        WM_JOB_EXCL_RENDER | WM_JOB_PRIORITY | WM_JOB_PROGRESS,
                        WM_JOB_TYPE_OBJECT_BAKE_TEXTURE);
   WM_jobs_customdata_set(wm_job, bkr, multiresbake_freejob);
-  WM_jobs_timer(wm_job, 0.5, NC_IMAGE, 0); /* TODO - only draw bake image, can we enforce this */
+  WM_jobs_timer(wm_job, 0.5, NC_IMAGE, 0); /* TODO: only draw bake image, can we enforce this. */
   WM_jobs_callbacks(wm_job, multiresbake_startjob, NULL, NULL, NULL);
 
   G.is_break = false;
 
   WM_jobs_start(CTX_wm_manager(C), wm_job);
-  WM_cursor_wait(0);
+  WM_cursor_wait(false);
 
   /* add modal handler for ESC */
   WM_event_add_modal_handler(C, op);
@@ -586,7 +594,7 @@ static int multiresbake_image_exec(bContext *C, wmOperator *op)
 
 /* ****************** render BAKING ********************** */
 
-/* catch esc */
+/** Catch escape key to cancel. */
 static int objects_bake_render_modal(bContext *C, wmOperator *UNUSED(op), const wmEvent *event)
 {
   /* no running blender, remove handler and pass through */

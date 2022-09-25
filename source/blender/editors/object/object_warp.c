@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 by Blender Foundation
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edobj
@@ -36,7 +20,6 @@
 #include "WM_types.h"
 
 #include "ED_transverts.h"
-#include "ED_view3d.h"
 
 #include "object_intern.h"
 
@@ -71,14 +54,11 @@ static void object_warp_transverts_minmax_x(TransVertStore *tvs,
   const float x_ofs = (mat_view[3][0] - center_view[0]);
   float min = FLT_MAX, max = -FLT_MAX;
 
-  TransVert *tv;
-  int i;
-
-  tv = tvs->transverts;
-  for (i = 0; i < tvs->transverts_tot; i++, tv++) {
+  TransVert *tv = tvs->transverts;
+  for (int i = 0; i < tvs->transverts_tot; i++, tv++) {
     float val;
 
-    /* convert objectspace->viewspace */
+    /* Convert object-space to view-space. */
     val = dot_m4_v3_row_x(mat_view, tv->loc);
 
     min = min_ff(min, val);
@@ -97,7 +77,6 @@ static void object_warp_transverts(TransVertStore *tvs,
                                    const float max)
 {
   TransVert *tv;
-  int i;
   const float angle = -angle_;
   /* cache vars for tiny speedup */
 #if 1
@@ -123,11 +102,11 @@ static void object_warp_transverts(TransVertStore *tvs,
   }
 
   tv = tvs->transverts;
-  for (i = 0; i < tvs->transverts_tot; i++, tv++) {
+  for (int i = 0; i < tvs->transverts_tot; i++, tv++) {
     float co[3], co_add[2];
     float val, phi;
 
-    /* convert objectspace->viewspace */
+    /* Convert object-space to view-space. */
     mul_v3_m4v3(co, mat_view, tv->loc);
     sub_v2_v2(co, center_view);
 
@@ -162,7 +141,7 @@ static void object_warp_transverts(TransVertStore *tvs,
 
     add_v2_v2(co, co_add);
 
-    /* convert viewspace->objectspace */
+    /* Convert view-space to object-space. */
     add_v2_v2(co, center_view);
     mul_v3_m4v3(tv->loc, imat_view, co);
   }
@@ -191,7 +170,7 @@ static int object_warp_verts_exec(bContext *C, wmOperator *op)
     return OPERATOR_CANCELLED;
   }
 
-  /* get viewmatrix */
+  /* Get view-matrix. */
   {
     PropertyRNA *prop_viewmat = RNA_struct_find_property(op->ptr, "viewmat");
     if (RNA_property_is_set(op->ptr, prop_viewmat)) {

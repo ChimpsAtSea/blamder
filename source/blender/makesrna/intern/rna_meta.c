@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup RNA
@@ -95,18 +81,16 @@ static void rna_MetaBall_redraw_data(Main *UNUSED(bmain), Scene *UNUSED(scene), 
   WM_main_add_notifier(NC_GEOM | ND_DATA, id);
 }
 
-static void rna_MetaBall_update_data(Main *bmain, Scene *scene, PointerRNA *ptr)
+static void rna_MetaBall_update_data(Main *bmain, Scene *UNUSED(scene), PointerRNA *ptr)
 {
   MetaBall *mb = (MetaBall *)ptr->owner_id;
-  Object *ob;
 
-  /* cheating way for importers to avoid slow updates */
+  /* NOTE: The check on the number of users allows to avoid many repetitive (slow) updates in some
+   * cases, like e.g. importers. Calling `BKE_mball_properties_copy` on an obdata with no users
+   * would be meaningless anyway, as by definition it would not be used by any object, so not part
+   * of any meta-ball group. */
   if (mb->id.us > 0) {
-    for (ob = bmain->objects.first; ob; ob = ob->id.next) {
-      if (ob->data == mb) {
-        BKE_mball_properties_copy(scene, ob);
-      }
-    }
+    BKE_mball_properties_copy(bmain, mb);
 
     DEG_id_tag_update(&mb->id, 0);
     WM_main_add_notifier(NC_GEOM | ND_DATA, mb);
@@ -170,10 +154,10 @@ static bool rna_Meta_is_editmode_get(PointerRNA *ptr)
   return (mb->editelems != NULL);
 }
 
-static char *rna_MetaElement_path(PointerRNA *ptr)
+static char *rna_MetaElement_path(const PointerRNA *ptr)
 {
-  MetaBall *mb = (MetaBall *)ptr->owner_id;
-  MetaElem *ml = ptr->data;
+  const MetaBall *mb = (MetaBall *)ptr->owner_id;
+  const MetaElem *ml = ptr->data;
   int index = -1;
 
   if (mb->editelems) {
@@ -198,7 +182,7 @@ static void rna_def_metaelement(BlenderRNA *brna)
 
   srna = RNA_def_struct(brna, "MetaElement", NULL);
   RNA_def_struct_sdna(srna, "MetaElem");
-  RNA_def_struct_ui_text(srna, "Meta Element", "Blobby element in a Metaball data-block");
+  RNA_def_struct_ui_text(srna, "Metaball Element", "Blobby element in a metaball data-block");
   RNA_def_struct_path_func(srna, "rna_MetaElement_path");
   RNA_def_struct_ui_icon(srna, ICON_OUTLINER_DATA_META);
 
@@ -290,13 +274,17 @@ static void rna_def_metaball_elements(BlenderRNA *brna, PropertyRNA *cprop)
   RNA_def_property_srna(cprop, "MetaBallElements");
   srna = RNA_def_struct(brna, "MetaBallElements", NULL);
   RNA_def_struct_sdna(srna, "MetaBall");
-  RNA_def_struct_ui_text(srna, "Meta Elements", "Collection of metaball elements");
+  RNA_def_struct_ui_text(srna, "Metaball Elements", "Collection of metaball elements");
 
   func = RNA_def_function(srna, "new", "rna_MetaBall_elements_new");
   RNA_def_function_ui_description(func, "Add a new element to the metaball");
-  RNA_def_enum(
-      func, "type", rna_enum_metaelem_type_items, MB_BALL, "", "type for the new meta-element");
-  parm = RNA_def_pointer(func, "element", "MetaElement", "", "The newly created meta-element");
+  RNA_def_enum(func,
+               "type",
+               rna_enum_metaelem_type_items,
+               MB_BALL,
+               "",
+               "Type for the new metaball element");
+  parm = RNA_def_pointer(func, "element", "MetaElement", "", "The newly created metaball element");
   RNA_def_function_return(func, parm);
 
   func = RNA_def_function(srna, "remove", "rna_MetaBall_elements_remove");
@@ -337,7 +325,7 @@ static void rna_def_metaball(BlenderRNA *brna)
   prop = RNA_def_property(srna, "elements", PROP_COLLECTION, PROP_NONE);
   RNA_def_property_collection_sdna(prop, NULL, "elems", NULL);
   RNA_def_property_struct_type(prop, "MetaElement");
-  RNA_def_property_ui_text(prop, "Elements", "Meta elements");
+  RNA_def_property_ui_text(prop, "Elements", "Metaball elements");
   rna_def_metaball_elements(brna, prop);
 
   /* enums */
@@ -365,7 +353,7 @@ static void rna_def_metaball(BlenderRNA *brna)
   prop = RNA_def_property(srna, "threshold", PROP_FLOAT, PROP_NONE);
   RNA_def_property_float_sdna(prop, NULL, "thresh");
   RNA_def_property_range(prop, 0.0f, 5.0f);
-  RNA_def_property_ui_text(prop, "Threshold", "Influence of meta elements");
+  RNA_def_property_ui_text(prop, "Threshold", "Influence of metaball elements");
   RNA_def_property_update(prop, 0, "rna_MetaBall_update_data");
 
   /* texture space */

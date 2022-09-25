@@ -1,18 +1,3 @@
-uniform mat4 ModelViewProjectionMatrix;
-uniform vec2 Viewport;
-uniform int xraymode;
-uniform int caps_start;
-uniform int caps_end;
-uniform int fill_stroke;
-
-layout(lines_adjacency) in;
-layout(triangle_strip, max_vertices = 13) out;
-
-in vec4 finalColor[4];
-in float finalThickness[4];
-
-out vec4 mColor;
-out vec2 mTexCoord;
 
 #define GP_XRAY_FRONT 0
 #define GP_XRAY_3DSPACE 1
@@ -23,19 +8,19 @@ out vec2 mTexCoord;
 /* project 3d point to 2d on screen space */
 vec2 toScreenSpace(vec4 vertex)
 {
-  return vec2(vertex.xy / vertex.w) * Viewport;
+  return vec2(vertex.xy / vertex.w) * gpencil_stroke_data.viewport;
 }
 
 /* get zdepth value */
 float getZdepth(vec4 point)
 {
-  if (xraymode == GP_XRAY_FRONT) {
+  if (gpencil_stroke_data.xraymode == GP_XRAY_FRONT) {
     return 0.0;
   }
-  if (xraymode == GP_XRAY_3DSPACE) {
+  if (gpencil_stroke_data.xraymode == GP_XRAY_3DSPACE) {
     return (point.z / point.w);
   }
-  if (xraymode == GP_XRAY_BACK) {
+  if (gpencil_stroke_data.xraymode == GP_XRAY_BACK) {
     return 1.0;
   }
 
@@ -69,13 +54,13 @@ void main(void)
   vec4 P3 = gl_in[3].gl_Position;
 
   /* get the four vertices passed to the shader */
-  vec2 sp0 = toScreenSpace(P0);  // start of previous segment
-  vec2 sp1 = toScreenSpace(P1);  // end of previous segment, start of current segment
-  vec2 sp2 = toScreenSpace(P2);  // end of current segment, start of next segment
-  vec2 sp3 = toScreenSpace(P3);  // end of next segment
+  vec2 sp0 = toScreenSpace(P0); /* start of previous segment */
+  vec2 sp1 = toScreenSpace(P1); /* end of previous segment, start of current segment */
+  vec2 sp2 = toScreenSpace(P2); /* end of current segment, start of next segment */
+  vec2 sp3 = toScreenSpace(P3); /* end of next segment */
 
   /* culling outside viewport */
-  vec2 area = Viewport * 4.0;
+  vec2 area = gpencil_stroke_data.viewport * 4.0;
   if (sp1.x < -area.x || sp1.x > area.x) {
     return;
   }
@@ -100,8 +85,8 @@ void main(void)
   vec2 n2 = vec2(-v2.y, v2.x);
 
   /* determine miter lines by averaging the normals of the 2 segments */
-  vec2 miter_a = normalize(n0 + n1);  // miter at start of current segment
-  vec2 miter_b = normalize(n1 + n2);  // miter at end of current segment
+  vec2 miter_a = normalize(n0 + n1); /* miter at start of current segment */
+  vec2 miter_b = normalize(n1 + n2); /* miter at end of current segment */
 
   /* determine the length of the miter by projecting it onto normal and then inverse it */
   float an1 = dot(miter_a, n1);
@@ -112,8 +97,8 @@ void main(void)
   if (bn1 == 0) {
     bn1 = 1;
   }
-  float length_a = finalThickness[1] / an1;
-  float length_b = finalThickness[2] / bn1;
+  float length_a = geometry_in[1].finalThickness / an1;
+  float length_b = geometry_in[2].finalThickness / bn1;
   if (length_a <= 0.0) {
     length_a = 0.01;
   }
@@ -124,41 +109,49 @@ void main(void)
   /* prevent excessively long miters at sharp corners */
   if (dot(v0, v1) < -MiterLimit) {
     miter_a = n1;
-    length_a = finalThickness[1];
+    length_a = geometry_in[1].finalThickness;
 
     /* close the gap */
     if (dot(v0, n1) > 0) {
-      mTexCoord = vec2(0, 0);
-      mColor = finalColor[1];
-      gl_Position = vec4((sp1 + finalThickness[1] * n0) / Viewport, getZdepth(P1), 1.0);
+      geometry_out.mTexCoord = vec2(0, 0);
+      geometry_out.mColor = geometry_in[1].finalColor;
+      gl_Position = vec4((sp1 + geometry_in[1].finalThickness * n0) / gpencil_stroke_data.viewport,
+                         getZdepth(P1),
+                         1.0);
       EmitVertex();
 
-      mTexCoord = vec2(0, 0);
-      mColor = finalColor[1];
-      gl_Position = vec4((sp1 + finalThickness[1] * n1) / Viewport, getZdepth(P1), 1.0);
+      geometry_out.mTexCoord = vec2(0, 0);
+      geometry_out.mColor = geometry_in[1].finalColor;
+      gl_Position = vec4((sp1 + geometry_in[1].finalThickness * n1) / gpencil_stroke_data.viewport,
+                         getZdepth(P1),
+                         1.0);
       EmitVertex();
 
-      mTexCoord = vec2(0, 0.5);
-      mColor = finalColor[1];
-      gl_Position = vec4(sp1 / Viewport, getZdepth(P1), 1.0);
+      geometry_out.mTexCoord = vec2(0, 0.5);
+      geometry_out.mColor = geometry_in[1].finalColor;
+      gl_Position = vec4(sp1 / gpencil_stroke_data.viewport, getZdepth(P1), 1.0);
       EmitVertex();
 
       EndPrimitive();
     }
     else {
-      mTexCoord = vec2(0, 1);
-      mColor = finalColor[1];
-      gl_Position = vec4((sp1 - finalThickness[1] * n1) / Viewport, getZdepth(P1), 1.0);
+      geometry_out.mTexCoord = vec2(0, 1);
+      geometry_out.mColor = geometry_in[1].finalColor;
+      gl_Position = vec4((sp1 - geometry_in[1].finalThickness * n1) / gpencil_stroke_data.viewport,
+                         getZdepth(P1),
+                         1.0);
       EmitVertex();
 
-      mTexCoord = vec2(0, 1);
-      mColor = finalColor[1];
-      gl_Position = vec4((sp1 - finalThickness[1] * n0) / Viewport, getZdepth(P1), 1.0);
+      geometry_out.mTexCoord = vec2(0, 1);
+      geometry_out.mColor = geometry_in[1].finalColor;
+      gl_Position = vec4((sp1 - geometry_in[1].finalThickness * n0) / gpencil_stroke_data.viewport,
+                         getZdepth(P1),
+                         1.0);
       EmitVertex();
 
-      mTexCoord = vec2(0, 0.5);
-      mColor = finalColor[1];
-      gl_Position = vec4(sp1 / Viewport, getZdepth(P1), 1.0);
+      geometry_out.mTexCoord = vec2(0, 0.5);
+      geometry_out.mColor = geometry_in[1].finalColor;
+      gl_Position = vec4(sp1 / gpencil_stroke_data.viewport, getZdepth(P1), 1.0);
       EmitVertex();
 
       EndPrimitive();
@@ -167,66 +160,74 @@ void main(void)
 
   if (dot(v1, v2) < -MiterLimit) {
     miter_b = n1;
-    length_b = finalThickness[2];
+    length_b = geometry_in[2].finalThickness;
   }
 
-  /* generate the start endcap (alpha < 0 used as endcap flag)*/
-  float extend = (fill_stroke > 0) ? 2 : 1;
-  if ((caps_start != GPENCIL_FLATCAP) && is_equal(P0, P2)) {
-    mTexCoord = vec2(1, 0.5);
-    mColor = vec4(finalColor[1].rgb, finalColor[1].a * -1.0);
+  /* Generate the start end-cap (alpha < 0 used as end-cap flag). */
+  float extend = gpencil_stroke_data.fill_stroke ? 2 : 1;
+  if ((gpencil_stroke_data.caps_start != GPENCIL_FLATCAP) && is_equal(P0, P2)) {
+    geometry_out.mTexCoord = vec2(1, 0.5);
+    geometry_out.mColor = vec4(geometry_in[1].finalColor.rgb, geometry_in[1].finalColor.a * -1.0);
     vec2 svn1 = normalize(sp1 - sp2) * length_a * 4.0 * extend;
-    gl_Position = vec4((sp1 + svn1) / Viewport, getZdepth(P1), 1.0);
+    gl_Position = vec4((sp1 + svn1) / gpencil_stroke_data.viewport, getZdepth(P1), 1.0);
     EmitVertex();
 
-    mTexCoord = vec2(0, 0);
-    mColor = vec4(finalColor[1].rgb, finalColor[1].a * -1.0);
-    gl_Position = vec4((sp1 - (length_a * 2.0) * miter_a) / Viewport, getZdepth(P1), 1.0);
+    geometry_out.mTexCoord = vec2(0, 0);
+    geometry_out.mColor = vec4(geometry_in[1].finalColor.rgb, geometry_in[1].finalColor.a * -1.0);
+    gl_Position = vec4(
+        (sp1 - (length_a * 2.0) * miter_a) / gpencil_stroke_data.viewport, getZdepth(P1), 1.0);
     EmitVertex();
 
-    mTexCoord = vec2(0, 1);
-    mColor = vec4(finalColor[1].rgb, finalColor[1].a * -1.0);
-    gl_Position = vec4((sp1 + (length_a * 2.0) * miter_a) / Viewport, getZdepth(P1), 1.0);
+    geometry_out.mTexCoord = vec2(0, 1);
+    geometry_out.mColor = vec4(geometry_in[1].finalColor.rgb, geometry_in[1].finalColor.a * -1.0);
+    gl_Position = vec4(
+        (sp1 + (length_a * 2.0) * miter_a) / gpencil_stroke_data.viewport, getZdepth(P1), 1.0);
     EmitVertex();
   }
 
   /* generate the triangle strip */
-  mTexCoord = vec2(0, 0);
-  mColor = finalColor[1];
-  gl_Position = vec4((sp1 + length_a * miter_a) / Viewport, getZdepth(P1), 1.0);
+  geometry_out.mTexCoord = vec2(0, 0);
+  geometry_out.mColor = geometry_in[1].finalColor;
+  gl_Position = vec4(
+      (sp1 + length_a * miter_a) / gpencil_stroke_data.viewport, getZdepth(P1), 1.0);
   EmitVertex();
 
-  mTexCoord = vec2(0, 1);
-  mColor = finalColor[1];
-  gl_Position = vec4((sp1 - length_a * miter_a) / Viewport, getZdepth(P1), 1.0);
+  geometry_out.mTexCoord = vec2(0, 1);
+  geometry_out.mColor = geometry_in[1].finalColor;
+  gl_Position = vec4(
+      (sp1 - length_a * miter_a) / gpencil_stroke_data.viewport, getZdepth(P1), 1.0);
   EmitVertex();
 
-  mTexCoord = vec2(0, 0);
-  mColor = finalColor[2];
-  gl_Position = vec4((sp2 + length_b * miter_b) / Viewport, getZdepth(P2), 1.0);
+  geometry_out.mTexCoord = vec2(0, 0);
+  geometry_out.mColor = geometry_in[2].finalColor;
+  gl_Position = vec4(
+      (sp2 + length_b * miter_b) / gpencil_stroke_data.viewport, getZdepth(P2), 1.0);
   EmitVertex();
 
-  mTexCoord = vec2(0, 1);
-  mColor = finalColor[2];
-  gl_Position = vec4((sp2 - length_b * miter_b) / Viewport, getZdepth(P2), 1.0);
+  geometry_out.mTexCoord = vec2(0, 1);
+  geometry_out.mColor = geometry_in[2].finalColor;
+  gl_Position = vec4(
+      (sp2 - length_b * miter_b) / gpencil_stroke_data.viewport, getZdepth(P2), 1.0);
   EmitVertex();
 
-  /* generate the end endcap (alpha < 0 used as endcap flag)*/
-  if ((caps_end != GPENCIL_FLATCAP) && is_equal(P1, P3)) {
-    mTexCoord = vec2(0, 1);
-    mColor = vec4(finalColor[2].rgb, finalColor[2].a * -1.0);
-    gl_Position = vec4((sp2 + (length_b * 2.0) * miter_b) / Viewport, getZdepth(P2), 1.0);
+  /* Generate the end end-cap (alpha < 0 used as end-cap flag). */
+  if ((gpencil_stroke_data.caps_end != GPENCIL_FLATCAP) && is_equal(P1, P3)) {
+    geometry_out.mTexCoord = vec2(0, 1);
+    geometry_out.mColor = vec4(geometry_in[2].finalColor.rgb, geometry_in[2].finalColor.a * -1.0);
+    gl_Position = vec4(
+        (sp2 + (length_b * 2.0) * miter_b) / gpencil_stroke_data.viewport, getZdepth(P2), 1.0);
     EmitVertex();
 
-    mTexCoord = vec2(0, 0);
-    mColor = vec4(finalColor[2].rgb, finalColor[2].a * -1.0);
-    gl_Position = vec4((sp2 - (length_b * 2.0) * miter_b) / Viewport, getZdepth(P2), 1.0);
+    geometry_out.mTexCoord = vec2(0, 0);
+    geometry_out.mColor = vec4(geometry_in[2].finalColor.rgb, geometry_in[2].finalColor.a * -1.0);
+    gl_Position = vec4(
+        (sp2 - (length_b * 2.0) * miter_b) / gpencil_stroke_data.viewport, getZdepth(P2), 1.0);
     EmitVertex();
 
-    mTexCoord = vec2(1, 0.5);
-    mColor = vec4(finalColor[2].rgb, finalColor[2].a * -1.0);
+    geometry_out.mTexCoord = vec2(1, 0.5);
+    geometry_out.mColor = vec4(geometry_in[2].finalColor.rgb, geometry_in[2].finalColor.a * -1.0);
     vec2 svn2 = normalize(sp2 - sp1) * length_b * 4.0 * extend;
-    gl_Position = vec4((sp2 + svn2) / Viewport, getZdepth(P2), 1.0);
+    gl_Position = vec4((sp2 + svn2) / gpencil_stroke_data.viewport, getZdepth(P2), 1.0);
     EmitVertex();
   }
 

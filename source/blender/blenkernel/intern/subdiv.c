@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2018 by Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2018 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bke
@@ -29,6 +13,9 @@
 
 #include "BLI_utildefines.h"
 
+#include "BKE_modifier.h"
+#include "BKE_subdiv_modifier.h"
+
 #include "MEM_guardedalloc.h"
 
 #include "subdiv_converter.h"
@@ -38,7 +25,9 @@
 #include "opensubdiv_evaluator_capi.h"
 #include "opensubdiv_topology_refiner_capi.h"
 
-/* =================----====--===== MODULE ==========================------== */
+/* --------------------------------------------------------------------
+ * Module.
+ */
 
 void BKE_subdiv_init()
 {
@@ -50,7 +39,9 @@ void BKE_subdiv_exit()
   openSubdiv_cleanup();
 }
 
-/* ========================== CONVERSION HELPERS ============================ */
+/* --------------------------------------------------------------------
+ * Conversion helpers.
+ */
 
 eSubdivFVarLinearInterpolation BKE_subdiv_fvar_interpolation_from_uv_smooth(int uv_smooth)
 {
@@ -68,32 +59,26 @@ eSubdivFVarLinearInterpolation BKE_subdiv_fvar_interpolation_from_uv_smooth(int 
     case SUBSURF_UV_SMOOTH_ALL:
       return SUBDIV_FVAR_LINEAR_INTERPOLATION_NONE;
   }
-  BLI_assert(!"Unknown uv smooth flag");
+  BLI_assert_msg(0, "Unknown uv smooth flag");
   return SUBDIV_FVAR_LINEAR_INTERPOLATION_ALL;
 }
 
-/* ================================ SETTINGS ================================ */
-
-static bool check_mesh_has_non_quad(const Mesh *mesh)
+eSubdivVtxBoundaryInterpolation BKE_subdiv_vtx_boundary_interpolation_from_subsurf(
+    int boundary_smooth)
 {
-  for (int poly_index = 0; poly_index < mesh->totpoly; poly_index++) {
-    const MPoly *poly = &mesh->mpoly[poly_index];
-    if (poly->totloop != 4) {
-      return true;
-    }
+  switch (boundary_smooth) {
+    case SUBSURF_BOUNDARY_SMOOTH_PRESERVE_CORNERS:
+      return SUBDIV_VTX_BOUNDARY_EDGE_AND_CORNER;
+    case SUBSURF_BOUNDARY_SMOOTH_ALL:
+      return SUBDIV_VTX_BOUNDARY_EDGE_ONLY;
   }
-  return false;
+  BLI_assert_msg(0, "Unknown boundary smooth flag");
+  return SUBDIV_VTX_BOUNDARY_EDGE_ONLY;
 }
 
-void BKE_subdiv_settings_validate_for_mesh(SubdivSettings *settings, const Mesh *mesh)
-{
-  if (settings->level != 1) {
-    return;
-  }
-  if (check_mesh_has_non_quad(mesh)) {
-    settings->level = 2;
-  }
-}
+/* --------------------------------------------------------------------
+ * Settings.
+ */
 
 bool BKE_subdiv_settings_equal(const SubdivSettings *settings_a, const SubdivSettings *settings_b)
 {
@@ -104,7 +89,9 @@ bool BKE_subdiv_settings_equal(const SubdivSettings *settings_a, const SubdivSet
           settings_a->fvar_linear_interpolation == settings_b->fvar_linear_interpolation);
 }
 
-/* ============================== CONSTRUCTION ============================== */
+/* --------------------------------------------------------------------
+ * Construction.
+ */
 
 /* Creation from scratch. */
 
@@ -127,7 +114,7 @@ Subdiv *BKE_subdiv_new_from_converter(const SubdivSettings *settings,
      * The thing here is: OpenSubdiv can only deal with faces, but our
      * side of subdiv also deals with loose vertices and edges. */
   }
-  Subdiv *subdiv = MEM_callocN(sizeof(Subdiv), "subdiv from converetr");
+  Subdiv *subdiv = MEM_callocN(sizeof(Subdiv), "subdiv from converter");
   subdiv->settings = *settings;
   subdiv->topology_refiner = osd_topology_refiner;
   subdiv->evaluator = NULL;
@@ -197,6 +184,12 @@ Subdiv *BKE_subdiv_update_from_mesh(Subdiv *subdiv,
 void BKE_subdiv_free(Subdiv *subdiv)
 {
   if (subdiv->evaluator != NULL) {
+    const eOpenSubdivEvaluator evaluator_type = subdiv->evaluator->type;
+    if (evaluator_type != OPENSUBDIV_EVALUATOR_CPU) {
+      /* Let the draw code do the freeing, to ensure that the OpenGL context is valid. */
+      BKE_subsurf_modifier_free_gpu_cache_cb(subdiv);
+      return;
+    }
     openSubdiv_deleteEvaluator(subdiv->evaluator);
   }
   if (subdiv->topology_refiner != NULL) {
@@ -209,7 +202,9 @@ void BKE_subdiv_free(Subdiv *subdiv)
   MEM_freeN(subdiv);
 }
 
-/* =========================== PTEX FACES AND GRIDS ========================= */
+/* --------------------------------------------------------------------
+ * Topology helpers.
+ */
 
 int *BKE_subdiv_face_ptex_offset_get(Subdiv *subdiv)
 {
@@ -222,12 +217,13 @@ int *BKE_subdiv_face_ptex_offset_get(Subdiv *subdiv)
   }
   const int num_coarse_faces = topology_refiner->getNumFaces(topology_refiner);
   subdiv->cache_.face_ptex_offset = MEM_malloc_arrayN(
-      num_coarse_faces, sizeof(int), "subdiv face_ptex_offset");
+      num_coarse_faces + 1, sizeof(int), "subdiv face_ptex_offset");
   int ptex_offset = 0;
   for (int face_index = 0; face_index < num_coarse_faces; face_index++) {
     const int num_ptex_faces = topology_refiner->getNumFacePtexFaces(topology_refiner, face_index);
     subdiv->cache_.face_ptex_offset[face_index] = ptex_offset;
     ptex_offset += num_ptex_faces;
   }
+  subdiv->cache_.face_ptex_offset[num_coarse_faces] = ptex_offset;
   return subdiv->cache_.face_ptex_offset;
 }

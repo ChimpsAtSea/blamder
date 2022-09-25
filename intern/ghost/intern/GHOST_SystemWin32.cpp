@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup GHOST
@@ -24,14 +8,17 @@
 #include "GHOST_SystemWin32.h"
 #include "GHOST_ContextD3D.h"
 #include "GHOST_EventDragnDrop.h"
+#include "GHOST_EventTrackpad.h"
 
 #ifndef _WIN32_IE
 #  define _WIN32_IE 0x0501 /* shipped before XP, so doesn't impose additional requirements */
 #endif
 
 #include <commctrl.h>
+#include <dwmapi.h>
 #include <psapi.h>
 #include <shellapi.h>
+#include <shellscalingapi.h>
 #include <shlobj.h>
 #include <tlhelp32.h>
 #include <windowsx.h>
@@ -49,11 +36,7 @@
 #include "GHOST_WindowManager.h"
 #include "GHOST_WindowWin32.h"
 
-#if defined(WITH_GL_EGL)
-#  include "GHOST_ContextEGL.h"
-#else
-#  include "GHOST_ContextWGL.h"
-#endif
+#include "GHOST_ContextWGL.h"
 
 #ifdef WITH_INPUT_NDOF
 #  include "GHOST_NDOFManagerWin32.h"
@@ -72,9 +55,6 @@
 #ifndef VK_COMMA
 #  define VK_COMMA 0xBC
 #endif  // VK_COMMA
-#ifndef VK_QUOTE
-#  define VK_QUOTE 0xDE
-#endif  // VK_QUOTE
 #ifndef VK_BACK_QUOTE
 #  define VK_BACK_QUOTE 0xC0
 #endif  // VK_BACK_QUOTE
@@ -97,41 +77,6 @@
 #  define VK_GR_LESS 0xE2
 #endif  // VK_GR_LESS
 
-#ifndef VK_MEDIA_NEXT_TRACK
-#  define VK_MEDIA_NEXT_TRACK 0xB0
-#endif  // VK_MEDIA_NEXT_TRACK
-#ifndef VK_MEDIA_PREV_TRACK
-#  define VK_MEDIA_PREV_TRACK 0xB1
-#endif  // VK_MEDIA_PREV_TRACK
-#ifndef VK_MEDIA_STOP
-#  define VK_MEDIA_STOP 0xB2
-#endif  // VK_MEDIA_STOP
-#ifndef VK_MEDIA_PLAY_PAUSE
-#  define VK_MEDIA_PLAY_PAUSE 0xB3
-#endif  // VK_MEDIA_PLAY_PAUSE
-
-// Window message newer than Windows 7
-#ifndef WM_DPICHANGED
-#  define WM_DPICHANGED 0x02E0
-#endif  // WM_DPICHANGED
-
-// WM_POINTER API messages minimum Windows 7
-#ifndef WM_POINTERENTER
-#  define WM_POINTERENTER 0x0249
-#endif  // WM_POINTERENTER
-#ifndef WM_POINTERDOWN
-#  define WM_POINTERDOWN 0x0246
-#endif  // WM_POINTERDOWN
-#ifndef WM_POINTERUPDATE
-#  define WM_POINTERUPDATE 0x0245
-#endif  // WM_POINTERUPDATE
-#ifndef WM_POINTERUP
-#  define WM_POINTERUP 0x0247
-#endif  // WM_POINTERUP
-#ifndef WM_POINTERLEAVE
-#  define WM_POINTERLEAVE 0x024A
-#endif  // WM_POINTERLEAVE
-
 /* Workaround for some laptop touchpads, some of which seems to
  * have driver issues which makes it so window function receives
  * the message, but PeekMessage doesn't pick those messages for
@@ -142,6 +87,8 @@
  * messages coming in.
  */
 #define BROKEN_PEEK_TOUCHPAD
+
+static bool isStartedFromCommandPrompt();
 
 static void initRawInput()
 {
@@ -173,25 +120,6 @@ static void initRawInput()
 #undef DEVICE_COUNT
 }
 
-#ifndef DPI_ENUMS_DECLARED
-typedef enum PROCESS_DPI_AWARENESS {
-  PROCESS_DPI_UNAWARE = 0,
-  PROCESS_SYSTEM_DPI_AWARE = 1,
-  PROCESS_PER_MONITOR_DPI_AWARE = 2
-} PROCESS_DPI_AWARENESS;
-
-typedef enum MONITOR_DPI_TYPE {
-  MDT_EFFECTIVE_DPI = 0,
-  MDT_ANGULAR_DPI = 1,
-  MDT_RAW_DPI = 2,
-  MDT_DEFAULT = MDT_EFFECTIVE_DPI
-} MONITOR_DPI_TYPE;
-
-#  define USER_DEFAULT_SCREEN_DPI 96
-
-#  define DPI_ENUMS_DECLARED
-#endif
-typedef HRESULT(API *GHOST_WIN32_SetProcessDpiAwareness)(PROCESS_DPI_AWARENESS);
 typedef BOOL(API *GHOST_WIN32_EnableNonClientDpiScaling)(HWND);
 
 GHOST_SystemWin32::GHOST_SystemWin32()
@@ -205,15 +133,7 @@ GHOST_SystemWin32::GHOST_SystemWin32()
 
   // Tell Windows we are per monitor DPI aware. This disables the default
   // blurry scaling and enables WM_DPICHANGED to allow us to draw at proper DPI.
-  HMODULE m_shcore = ::LoadLibrary("Shcore.dll");
-  if (m_shcore) {
-    GHOST_WIN32_SetProcessDpiAwareness fpSetProcessDpiAwareness =
-        (GHOST_WIN32_SetProcessDpiAwareness)::GetProcAddress(m_shcore, "SetProcessDpiAwareness");
-
-    if (fpSetProcessDpiAwareness) {
-      fpSetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
-    }
-  }
+  SetProcessDpiAwareness(PROCESS_PER_MONITOR_DPI_AWARE);
 
   // Check if current keyboard layout uses AltGr and save keylayout ID for
   // specialized handling if keys like VK_OEM_*. I.e. french keylayout
@@ -231,24 +151,27 @@ GHOST_SystemWin32::~GHOST_SystemWin32()
 {
   // Shutdown COM
   OleUninitialize();
-  toggleConsole(1);
+
+  if (isStartedFromCommandPrompt()) {
+    setConsoleWindowState(GHOST_kConsoleWindowStateShow);
+  }
 }
 
-GHOST_TUns64 GHOST_SystemWin32::performanceCounterToMillis(__int64 perf_ticks) const
+uint64_t GHOST_SystemWin32::performanceCounterToMillis(__int64 perf_ticks) const
 {
   // Calculate the time passed since system initialization.
   __int64 delta = (perf_ticks - m_start) * 1000;
 
-  GHOST_TUns64 t = (GHOST_TUns64)(delta / m_freq);
+  uint64_t t = (uint64_t)(delta / m_freq);
   return t;
 }
 
-GHOST_TUns64 GHOST_SystemWin32::tickCountToMillis(__int64 ticks) const
+uint64_t GHOST_SystemWin32::tickCountToMillis(__int64 ticks) const
 {
   return ticks - m_lfstart;
 }
 
-GHOST_TUns64 GHOST_SystemWin32::getMilliSeconds() const
+uint64_t GHOST_SystemWin32::getMilliSeconds() const
 {
   // Hardware does not support high resolution timers. We will use GetTickCount instead then.
   if (!m_hasPerformanceCounter) {
@@ -262,31 +185,31 @@ GHOST_TUns64 GHOST_SystemWin32::getMilliSeconds() const
   return performanceCounterToMillis(count);
 }
 
-GHOST_TUns8 GHOST_SystemWin32::getNumDisplays() const
+uint8_t GHOST_SystemWin32::getNumDisplays() const
 {
   GHOST_ASSERT(m_displayManager, "GHOST_SystemWin32::getNumDisplays(): m_displayManager==0\n");
-  GHOST_TUns8 numDisplays;
+  uint8_t numDisplays;
   m_displayManager->getNumDisplays(numDisplays);
   return numDisplays;
 }
 
-void GHOST_SystemWin32::getMainDisplayDimensions(GHOST_TUns32 &width, GHOST_TUns32 &height) const
+void GHOST_SystemWin32::getMainDisplayDimensions(uint32_t &width, uint32_t &height) const
 {
   width = ::GetSystemMetrics(SM_CXSCREEN);
   height = ::GetSystemMetrics(SM_CYSCREEN);
 }
 
-void GHOST_SystemWin32::getAllDisplayDimensions(GHOST_TUns32 &width, GHOST_TUns32 &height) const
+void GHOST_SystemWin32::getAllDisplayDimensions(uint32_t &width, uint32_t &height) const
 {
   width = ::GetSystemMetrics(SM_CXVIRTUALSCREEN);
   height = ::GetSystemMetrics(SM_CYVIRTUALSCREEN);
 }
 
 GHOST_IWindow *GHOST_SystemWin32::createWindow(const char *title,
-                                               GHOST_TInt32 left,
-                                               GHOST_TInt32 top,
-                                               GHOST_TUns32 width,
-                                               GHOST_TUns32 height,
+                                               int32_t left,
+                                               int32_t top,
+                                               uint32_t width,
+                                               uint32_t height,
                                                GHOST_TWindowState state,
                                                GHOST_TDrawingContextType type,
                                                GHOST_GLSettings glSettings,
@@ -324,13 +247,13 @@ GHOST_IWindow *GHOST_SystemWin32::createWindow(const char *title,
 }
 
 /**
- * Create a new offscreen context.
+ * Create a new off-screen context.
  * Never explicitly delete the window, use #disposeContext() instead.
  * \return The new context (or 0 if creation failed).
  */
-GHOST_IContext *GHOST_SystemWin32::createOffscreenContext()
+GHOST_IContext *GHOST_SystemWin32::createOffscreenContext(GHOST_GLSettings glSettings)
 {
-  bool debug_context = false; /* TODO: inform as a parameter */
+  const bool debug_context = (glSettings.flags & GHOST_glDebugContext) != 0;
 
   GHOST_Context *context;
 
@@ -417,8 +340,8 @@ finished:
 
 /**
  * Dispose of a context.
- * \param   context Pointer to the context to be disposed.
- * \return  Indication of success.
+ * \param context: Pointer to the context to be disposed.
+ * \return Indication of success.
  */
 GHOST_TSuccess GHOST_SystemWin32::disposeContext(GHOST_IContext *context)
 {
@@ -428,7 +351,7 @@ GHOST_TSuccess GHOST_SystemWin32::disposeContext(GHOST_IContext *context)
 }
 
 /**
- * Create a new offscreen DirectX 11 context.
+ * Create a new off-screen DirectX 11 context.
  * Never explicitly delete the window, use #disposeContext() instead.
  * \return The new context (or 0 if creation failed).
  */
@@ -475,8 +398,8 @@ bool GHOST_SystemWin32::processEvents(bool waitForEvent)
 #if 1
       ::Sleep(1);
 #else
-      GHOST_TUns64 next = timerMgr->nextFireTime();
-      GHOST_TInt64 maxSleep = next - getMilliSeconds();
+      uint64_t next = timerMgr->nextFireTime();
+      int64_t maxSleep = next - getMilliSeconds();
 
       if (next == GHOST_kFireTimeNever) {
         ::WaitMessage();
@@ -493,6 +416,8 @@ bool GHOST_SystemWin32::processEvents(bool waitForEvent)
       hasEventHandled = true;
     }
 
+    driveTrackpad();
+
     // Process all the events waiting for us
     while (::PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE) != 0) {
       // TranslateMessage doesn't alter the message, and doesn't change our raw keyboard data.
@@ -501,6 +426,8 @@ bool GHOST_SystemWin32::processEvents(bool waitForEvent)
       ::DispatchMessageW(&msg);
       hasEventHandled = true;
     }
+
+    processTrackpad();
 
     /* PeekMessage above is allowed to dispatch messages to the wndproc without us
      * noticing, so we need to check the event manager here to see if there are
@@ -513,7 +440,7 @@ bool GHOST_SystemWin32::processEvents(bool waitForEvent)
   return hasEventHandled;
 }
 
-GHOST_TSuccess GHOST_SystemWin32::getCursorPosition(GHOST_TInt32 &x, GHOST_TInt32 &y) const
+GHOST_TSuccess GHOST_SystemWin32::getCursorPosition(int32_t &x, int32_t &y) const
 {
   POINT point;
   if (::GetCursorPos(&point)) {
@@ -524,7 +451,7 @@ GHOST_TSuccess GHOST_SystemWin32::getCursorPosition(GHOST_TInt32 &x, GHOST_TInt3
   return GHOST_kFailure;
 }
 
-GHOST_TSuccess GHOST_SystemWin32::setCursorPosition(GHOST_TInt32 x, GHOST_TInt32 y)
+GHOST_TSuccess GHOST_SystemWin32::setCursorPosition(int32_t x, int32_t y)
 {
   if (!::GetActiveWindow())
     return GHOST_kFailure;
@@ -564,13 +491,13 @@ GHOST_TSuccess GHOST_SystemWin32::getButtons(GHOST_Buttons &buttons) const
    */
   bool swapped = ::GetSystemMetrics(SM_SWAPBUTTON) == TRUE;
 
-  bool down = HIBYTE(::GetKeyState(VK_LBUTTON)) != 0;
+  bool down = HIBYTE(::GetAsyncKeyState(VK_LBUTTON)) != 0;
   buttons.set(swapped ? GHOST_kButtonMaskRight : GHOST_kButtonMaskLeft, down);
 
-  down = HIBYTE(::GetKeyState(VK_MBUTTON)) != 0;
+  down = HIBYTE(::GetAsyncKeyState(VK_MBUTTON)) != 0;
   buttons.set(GHOST_kButtonMaskMiddle, down);
 
-  down = HIBYTE(::GetKeyState(VK_RBUTTON)) != 0;
+  down = HIBYTE(::GetAsyncKeyState(VK_RBUTTON)) != 0;
   buttons.set(swapped ? GHOST_kButtonMaskLeft : GHOST_kButtonMaskRight, down);
   return GHOST_kSuccess;
 }
@@ -581,14 +508,7 @@ GHOST_TSuccess GHOST_SystemWin32::init()
   InitCommonControls();
 
   /* Disable scaling on high DPI displays on Vista */
-  HMODULE
-  user32 = ::LoadLibraryA("user32.dll");
-  typedef BOOL(WINAPI * LPFNSETPROCESSDPIAWARE)();
-  LPFNSETPROCESSDPIAWARE SetProcessDPIAware = (LPFNSETPROCESSDPIAWARE)GetProcAddress(
-      user32, "SetProcessDPIAware");
-  if (SetProcessDPIAware)
-    SetProcessDPIAware();
-  FreeLibrary(user32);
+  SetProcessDPIAware();
   initRawInput();
 
   m_lfstart = ::GetTickCount();
@@ -660,7 +580,7 @@ GHOST_TKey GHOST_SystemWin32::hardKey(RAWINPUT const &raw,
   // extra handling of modifier keys: don't send repeats out from GHOST
   if (key >= GHOST_kKeyLeftShift && key <= GHOST_kKeyRightAlt) {
     bool changed = false;
-    GHOST_TModifierKeyMask modifier;
+    GHOST_TModifierKey modifier;
     switch (key) {
       case GHOST_kKeyLeftShift: {
         changed = (modifiers.get(GHOST_kModifierKeyLeftShift) != *r_keyDown);
@@ -709,20 +629,46 @@ GHOST_TKey GHOST_SystemWin32::hardKey(RAWINPUT const &raw,
   return key;
 }
 
-//! note: this function can be extended to include other exotic cases as they arise.
-// This function was added in response to bug [#25715]
-// This is going to be a long list [T42426]
+/**
+ * \note this function can be extended to include other exotic cases as they arise.
+ *
+ * This function was added in response to bug T25715.
+ * This is going to be a long list T42426.
+ */
 GHOST_TKey GHOST_SystemWin32::processSpecialKey(short vKey, short scanCode) const
 {
   GHOST_TKey key = GHOST_kKeyUnknown;
-  switch (PRIMARYLANGID(m_langId)) {
-    case LANG_FRENCH:
-      if (vKey == VK_OEM_8)
-        key = GHOST_kKeyF13;  // oem key; used purely for shortcuts .
+  if (vKey == 0xFF) {
+    /* 0xFF is not a valid virtual key code. */
+    return key;
+  }
+
+  char ch = (char)MapVirtualKeyA(vKey, MAPVK_VK_TO_CHAR);
+  switch (ch) {
+    case u'\"':
+    case u'\'':
+      key = GHOST_kKeyQuote;
       break;
-    case LANG_ENGLISH:
-      if (SUBLANGID(m_langId) == SUBLANG_ENGLISH_UK && vKey == VK_OEM_8)  // "`¬"
-        key = GHOST_kKeyAccentGrave;
+    case u'.':
+      key = GHOST_kKeyNumpadPeriod;
+      break;
+    case u'/':
+      key = GHOST_kKeySlash;
+      break;
+    case u'`':
+    case u'²':
+      key = GHOST_kKeyAccentGrave;
+      break;
+    default:
+      if (vKey == VK_OEM_7) {
+        key = GHOST_kKeyQuote;
+      }
+      else if (vKey == VK_OEM_8) {
+        if (PRIMARYLANGID(m_langId) == LANG_FRENCH) {
+          /* OEM key; used purely for shortcuts. */
+          key = GHOST_kKeyF13;
+        }
+      }
       break;
   }
 
@@ -857,9 +803,6 @@ GHOST_TKey GHOST_SystemWin32::convertKey(short vKey, short scanCode, short exten
       case VK_CLOSE_BRACKET:
         key = GHOST_kKeyRightBracket;
         break;
-      case VK_QUOTE:
-        key = GHOST_kKeyQuote;
-        break;
       case VK_GR_LESS:
         key = GHOST_kKeyGrLess;
         break;
@@ -901,9 +844,6 @@ GHOST_TKey GHOST_SystemWin32::convertKey(short vKey, short scanCode, short exten
       case VK_CAPITAL:
         key = GHOST_kKeyCapsLock;
         break;
-      case VK_OEM_8:
-        key = ((GHOST_SystemWin32 *)getSystem())->processSpecialKey(vKey, scanCode);
-        break;
       case VK_MEDIA_PLAY_PAUSE:
         key = GHOST_kKeyMediaPlay;
         break;
@@ -916,8 +856,10 @@ GHOST_TKey GHOST_SystemWin32::convertKey(short vKey, short scanCode, short exten
       case VK_MEDIA_NEXT_TRACK:
         key = GHOST_kKeyMediaLast;
         break;
+      case VK_OEM_7:
+      case VK_OEM_8:
       default:
-        key = GHOST_kKeyUnknown;
+        key = ((GHOST_SystemWin32 *)getSystem())->processSpecialKey(vKey, scanCode);
         break;
     }
   }
@@ -927,59 +869,212 @@ GHOST_TKey GHOST_SystemWin32::convertKey(short vKey, short scanCode, short exten
 
 GHOST_EventButton *GHOST_SystemWin32::processButtonEvent(GHOST_TEventType type,
                                                          GHOST_WindowWin32 *window,
-                                                         GHOST_TButtonMask mask)
+                                                         GHOST_TButton mask)
 {
   GHOST_SystemWin32 *system = (GHOST_SystemWin32 *)getSystem();
 
-  if (type == GHOST_kEventButtonDown) {
-    window->updateMouseCapture(MousePressed);
-  }
-  else if (type == GHOST_kEventButtonUp) {
-    window->updateMouseCapture(MouseReleased);
-  }
+  GHOST_TabletData td = window->getTabletData();
 
-  if (window->m_tabletInRange) {
-    if (window->useTabletAPI(GHOST_kTabletNative)) {
-      // Win32 Pointer processing handles input while in-range and in-contact events.
-      return NULL;
+  /* Move mouse to button event position. */
+  if (window->getTabletData().Active != GHOST_kTabletModeNone) {
+    /* Tablet should be handling in between mouse moves, only move to event position. */
+    DWORD msgPos = ::GetMessagePos();
+    int msgPosX = GET_X_LPARAM(msgPos);
+    int msgPosY = GET_Y_LPARAM(msgPos);
+    system->pushEvent(new GHOST_EventCursor(
+        ::GetMessageTime(), GHOST_kEventCursorMove, window, msgPosX, msgPosY, td));
+
+    if (type == GHOST_kEventButtonDown) {
+      WINTAB_PRINTF("HWND %p OS button down\n", window->getHWND());
+    }
+    else if (type == GHOST_kEventButtonUp) {
+      WINTAB_PRINTF("HWND %p OS button up\n", window->getHWND());
     }
   }
 
-  return new GHOST_EventButton(
-      system->getMilliSeconds(), type, window, mask, window->getTabletData());
+  window->updateMouseCapture(type == GHOST_kEventButtonDown ? MousePressed : MouseReleased);
+  return new GHOST_EventButton(system->getMilliSeconds(), type, window, mask, td);
 }
 
-void GHOST_SystemWin32::processPointerEvents(
-    UINT type, GHOST_WindowWin32 *window, WPARAM wParam, LPARAM lParam, bool &eventHandled)
+void GHOST_SystemWin32::processWintabEvent(GHOST_WindowWin32 *window)
 {
-  std::vector<GHOST_PointerInfoWin32> pointerInfo;
-  GHOST_SystemWin32 *system = (GHOST_SystemWin32 *)getSystem();
-
-  if (!window->useTabletAPI(GHOST_kTabletNative)) {
+  GHOST_Wintab *wt = window->getWintab();
+  if (!wt) {
     return;
   }
+
+  GHOST_SystemWin32 *system = (GHOST_SystemWin32 *)getSystem();
+
+  std::vector<GHOST_WintabInfoWin32> wintabInfo;
+  wt->getInput(wintabInfo);
+
+  /* Wintab provided coordinates are untrusted until a Wintab and Win32 button down event match.
+   * This is checked on every button down event, and revoked if there is a mismatch. This can
+   * happen when Wintab incorrectly scales cursor position or is in mouse mode.
+   *
+   * If Wintab was never trusted while processing this Win32 event, a fallback Ghost cursor move
+   * event is created at the position of the Win32 WT_PACKET event. */
+  bool mouseMoveHandled;
+  bool useWintabPos;
+  mouseMoveHandled = useWintabPos = wt->trustCoordinates();
+
+  for (GHOST_WintabInfoWin32 &info : wintabInfo) {
+    switch (info.type) {
+      case GHOST_kEventCursorMove: {
+        if (!useWintabPos) {
+          continue;
+        }
+
+        wt->mapWintabToSysCoordinates(info.x, info.y, info.x, info.y);
+        system->pushEvent(new GHOST_EventCursor(
+            info.time, GHOST_kEventCursorMove, window, info.x, info.y, info.tabletData));
+
+        break;
+      }
+      case GHOST_kEventButtonDown: {
+        WINTAB_PRINTF("HWND %p Wintab button down", window->getHWND());
+
+        UINT message;
+        switch (info.button) {
+          case GHOST_kButtonMaskLeft:
+            message = WM_LBUTTONDOWN;
+            break;
+          case GHOST_kButtonMaskRight:
+            message = WM_RBUTTONDOWN;
+            break;
+          case GHOST_kButtonMaskMiddle:
+            message = WM_MBUTTONDOWN;
+            break;
+          default:
+            continue;
+        }
+
+        /* Wintab buttons are modal, but the API does not inform us what mode a pressed button is
+         * in. Only issue button events if we can steal an equivalent Win32 button event from the
+         * event queue. */
+        MSG msg;
+        if (PeekMessage(&msg, window->getHWND(), message, message, PM_NOYIELD) &&
+            msg.message != WM_QUIT) {
+
+          /* Test for Win32/Wintab button down match. */
+          useWintabPos = wt->testCoordinates(msg.pt.x, msg.pt.y, info.x, info.y);
+          if (!useWintabPos) {
+            WINTAB_PRINTF(" ... but associated system button mismatched position\n");
+            continue;
+          }
+
+          WINTAB_PRINTF(" ... associated to system button\n");
+
+          /* Steal the Win32 event which was previously peeked. */
+          PeekMessage(&msg, window->getHWND(), message, message, PM_REMOVE | PM_NOYIELD);
+
+          /* Move cursor to button location, to prevent incorrect cursor position when
+           * transitioning from unsynchronized Win32 to Wintab cursor control. */
+          wt->mapWintabToSysCoordinates(info.x, info.y, info.x, info.y);
+          system->pushEvent(new GHOST_EventCursor(
+              info.time, GHOST_kEventCursorMove, window, info.x, info.y, info.tabletData));
+
+          window->updateMouseCapture(MousePressed);
+          system->pushEvent(
+              new GHOST_EventButton(info.time, info.type, window, info.button, info.tabletData));
+
+          mouseMoveHandled = true;
+          break;
+        }
+        else {
+          WINTAB_PRINTF(" ... but no system button\n");
+        }
+      }
+      case GHOST_kEventButtonUp: {
+        WINTAB_PRINTF("HWND %p Wintab button up", window->getHWND());
+        if (!useWintabPos) {
+          WINTAB_PRINTF(" ... but Wintab position isn't trusted\n");
+          continue;
+        }
+
+        UINT message;
+        switch (info.button) {
+          case GHOST_kButtonMaskLeft:
+            message = WM_LBUTTONUP;
+            break;
+          case GHOST_kButtonMaskRight:
+            message = WM_RBUTTONUP;
+            break;
+          case GHOST_kButtonMaskMiddle:
+            message = WM_MBUTTONUP;
+            break;
+          default:
+            continue;
+        }
+
+        /* Wintab buttons are modal, but the API does not inform us what mode a pressed button is
+         * in. Only issue button events if we can steal an equivalent Win32 button event from the
+         * event queue. */
+        MSG msg;
+        if (PeekMessage(&msg, window->getHWND(), message, message, PM_REMOVE | PM_NOYIELD) &&
+            msg.message != WM_QUIT) {
+
+          WINTAB_PRINTF(" ... associated to system button\n");
+          window->updateMouseCapture(MouseReleased);
+          system->pushEvent(
+              new GHOST_EventButton(info.time, info.type, window, info.button, info.tabletData));
+        }
+        else {
+          WINTAB_PRINTF(" ... but no system button\n");
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  /* Fallback cursor movement if Wintab position were never trusted while processing this event. */
+  if (!mouseMoveHandled) {
+    DWORD pos = GetMessagePos();
+    int x = GET_X_LPARAM(pos);
+    int y = GET_Y_LPARAM(pos);
+    GHOST_TabletData td = wt->getLastTabletData();
+
+    system->pushEvent(new GHOST_EventCursor(
+        system->getMilliSeconds(), GHOST_kEventCursorMove, window, x, y, td));
+  }
+}
+
+void GHOST_SystemWin32::processPointerEvent(
+    UINT type, GHOST_WindowWin32 *window, WPARAM wParam, LPARAM lParam, bool &eventHandled)
+{
+  /* Pointer events might fire when changing windows for a device which is set to use Wintab,
+   * even when Wintab is left enabled but set to the bottom of Wintab overlap order. */
+  if (!window->usingTabletAPI(GHOST_kTabletWinPointer)) {
+    return;
+  }
+
+  GHOST_SystemWin32 *system = (GHOST_SystemWin32 *)getSystem();
+  std::vector<GHOST_PointerInfoWin32> pointerInfo;
 
   if (window->getPointerInfo(pointerInfo, wParam, lParam) != GHOST_kSuccess) {
     return;
   }
 
-  if (!pointerInfo[0].isPrimary) {
-    eventHandled = true;
-    return;  // For multi-touch displays we ignore these events
-  }
-
   switch (type) {
-    case WM_POINTERENTER:
-      window->m_tabletInRange = true;
-      system->pushEvent(new GHOST_EventCursor(pointerInfo[0].time,
-                                              GHOST_kEventCursorMove,
-                                              window,
-                                              pointerInfo[0].pixelLocation.x,
-                                              pointerInfo[0].pixelLocation.y,
-                                              pointerInfo[0].tabletData));
+    case WM_POINTERUPDATE:
+      /* Coalesced pointer events are reverse chronological order, reorder chronologically.
+       * Only contiguous move events are coalesced. */
+      for (uint32_t i = pointerInfo.size(); i-- > 0;) {
+        system->pushEvent(new GHOST_EventCursor(pointerInfo[i].time,
+                                                GHOST_kEventCursorMove,
+                                                window,
+                                                pointerInfo[i].pixelLocation.x,
+                                                pointerInfo[i].pixelLocation.y,
+                                                pointerInfo[i].tabletData));
+      }
+
+      /* Leave event unhandled so that system cursor is moved. */
+
       break;
     case WM_POINTERDOWN:
-      // Move cursor to point of contact because GHOST_EventButton does not include position.
+      /* Move cursor to point of contact because GHOST_EventButton does not include position. */
       system->pushEvent(new GHOST_EventCursor(pointerInfo[0].time,
                                               GHOST_kEventCursorMove,
                                               window,
@@ -992,18 +1087,10 @@ void GHOST_SystemWin32::processPointerEvents(
                                               pointerInfo[0].buttonMask,
                                               pointerInfo[0].tabletData));
       window->updateMouseCapture(MousePressed);
-      break;
-    case WM_POINTERUPDATE:
-      // Coalesced pointer events are reverse chronological order, reorder chronologically.
-      // Only contiguous move events are coalesced.
-      for (GHOST_TUns32 i = pointerInfo.size(); i-- > 0;) {
-        system->pushEvent(new GHOST_EventCursor(pointerInfo[i].time,
-                                                GHOST_kEventCursorMove,
-                                                window,
-                                                pointerInfo[i].pixelLocation.x,
-                                                pointerInfo[i].pixelLocation.y,
-                                                pointerInfo[i].tabletData));
-      }
+
+      /* Mark event handled so that mouse button events are not generated. */
+      eventHandled = true;
+
       break;
     case WM_POINTERUP:
       system->pushEvent(new GHOST_EventButton(pointerInfo[0].time,
@@ -1012,58 +1099,47 @@ void GHOST_SystemWin32::processPointerEvents(
                                               pointerInfo[0].buttonMask,
                                               pointerInfo[0].tabletData));
       window->updateMouseCapture(MouseReleased);
-      break;
-    case WM_POINTERLEAVE:
-      window->m_tabletInRange = false;
-      system->pushEvent(new GHOST_EventButton(pointerInfo[0].time,
-                                              GHOST_kEventCursorMove,
-                                              window,
-                                              pointerInfo[0].buttonMask,
-                                              pointerInfo[0].tabletData));
+
+      /* Mark event handled so that mouse button events are not generated. */
+      eventHandled = true;
+
       break;
     default:
       break;
   }
-
-  eventHandled = true;
-  system->setCursorPosition(pointerInfo[0].pixelLocation.x, pointerInfo[0].pixelLocation.y);
 }
 
 GHOST_EventCursor *GHOST_SystemWin32::processCursorEvent(GHOST_WindowWin32 *window)
 {
-  GHOST_TInt32 x_screen, y_screen;
+  int32_t x_screen, y_screen;
   GHOST_SystemWin32 *system = (GHOST_SystemWin32 *)getSystem();
 
-  if (window->m_tabletInRange) {
-    if (window->useTabletAPI(GHOST_kTabletNative)) {
-      // Tablet input handled in WM_POINTER* events. WM_MOUSEMOVE events in response to tablet
-      // input aren't normally generated when using WM_POINTER events, but manually moving the
-      // system cursor as we do in WM_POINTER handling does.
-      return NULL;
-    }
+  if (window->getTabletData().Active != GHOST_kTabletModeNone) {
+    /* While pen devices are in range, cursor movement is handled by tablet input processing. */
+    return NULL;
   }
 
   system->getCursorPosition(x_screen, y_screen);
 
-  if (window->getCursorGrabModeIsWarp() && !window->m_tabletInRange) {
-    GHOST_TInt32 x_new = x_screen;
-    GHOST_TInt32 y_new = y_screen;
-    GHOST_TInt32 x_accum, y_accum;
+  if (window->getCursorGrabModeIsWarp()) {
+    int32_t x_new = x_screen;
+    int32_t y_new = y_screen;
+    int32_t x_accum, y_accum;
     GHOST_Rect bounds;
 
-    /* fallback to window bounds */
+    /* Fallback to window bounds. */
     if (window->getCursorGrabBounds(bounds) == GHOST_kFailure) {
       window->getClientBounds(bounds);
     }
 
-    /* Could also clamp to screen bounds wrap with a window outside the view will fail atm.
-     * Use offset of 8 in case the window is at screen bounds. */
+    /* Could also clamp to screen bounds wrap with a window outside the view will
+     * fail at the moment. Use inset in case the window is at screen bounds. */
     bounds.wrapPoint(x_new, y_new, 2, window->getCursorGrabAxis());
 
     window->getCursorGrabAccum(x_accum, y_accum);
     if (x_new != x_screen || y_new != y_screen) {
-      /* when wrapping we don't need to add an event because the
-       * setCursorPosition call will cause a new event after */
+      /* When wrapping we don't need to add an event because the setCursorPosition call will cause
+       * a new event after. */
       system->setCursorPosition(x_new, y_new); /* wrap */
       window->setCursorGrabAccum(x_accum + (x_screen - x_new), y_accum + (y_screen - y_new));
     }
@@ -1073,7 +1149,7 @@ GHOST_EventCursor *GHOST_SystemWin32::processCursorEvent(GHOST_WindowWin32 *wind
                                    window,
                                    x_screen + x_accum,
                                    y_screen + y_accum,
-                                   window->getTabletData());
+                                   GHOST_TABLET_DATA_NONE);
     }
   }
   else {
@@ -1082,7 +1158,7 @@ GHOST_EventCursor *GHOST_SystemWin32::processCursorEvent(GHOST_WindowWin32 *wind
                                  window,
                                  x_screen,
                                  y_screen,
-                                 window->getTabletData());
+                                 GHOST_TABLET_DATA_NONE);
   }
   return NULL;
 }
@@ -1143,12 +1219,18 @@ GHOST_EventKey *GHOST_SystemWin32::processKeyEvent(GHOST_WindowWin32 *window, RA
     BYTE state[256] = {0};
     int r;
     GetKeyboardState((PBYTE)state);
+    bool ctrl_pressed = state[VK_CONTROL] & 0x80;
+    bool alt_pressed = state[VK_MENU] & 0x80;
 
+    /* No text with control key pressed (Alt can be used to insert special characters though!). */
+    if (ctrl_pressed && !alt_pressed) {
+      utf8_char[0] = '\0';
+    }
     // Don't call ToUnicodeEx on dead keys as it clears the buffer and so won't allow diacritical
     // composition.
-    if (MapVirtualKeyW(vk, 2) != 0) {
-      // todo: ToUnicodeEx can respond with up to 4 utf16 chars (only 2 here).
-      // Could be up to 24 utf8 bytes.
+    else if (MapVirtualKeyW(vk, 2) != 0) {
+      /* TODO: #ToUnicodeEx can respond with up to 4 utf16 chars (only 2 here).
+       * Could be up to 24 utf8 bytes. */
       if ((r = ToUnicodeEx(
                vk, raw.data.keyboard.MakeCode, state, utf16, 2, 0, system->m_keylayout))) {
         if ((r > 0 && r < 3)) {
@@ -1169,13 +1251,18 @@ GHOST_EventKey *GHOST_SystemWin32::processKeyEvent(GHOST_WindowWin32 *window, RA
       ascii = utf8_char[0] & 0x80 ? '?' : utf8_char[0];
     }
 
+#ifdef WITH_INPUT_IME
+    if (window->getImeInput()->IsImeKeyEvent(ascii, key)) {
+      return NULL;
+    }
+#endif /* WITH_INPUT_IME */
+
     event = new GHOST_EventKey(system->getMilliSeconds(),
                                keyDown ? GHOST_kEventKeyDown : GHOST_kEventKeyUp,
                                window,
                                key,
-                               ascii,
-                               utf8_char,
-                               is_repeat);
+                               is_repeat,
+                               utf8_char);
 
     // GHOST_PRINTF("%c\n", ascii); // we already get this info via EventPrinter
   }
@@ -1186,6 +1273,23 @@ GHOST_EventKey *GHOST_SystemWin32::processKeyEvent(GHOST_WindowWin32 *window, RA
   return event;
 }
 
+GHOST_Event *GHOST_SystemWin32::processWindowSizeEvent(GHOST_WindowWin32 *window)
+{
+  GHOST_SystemWin32 *system = (GHOST_SystemWin32 *)getSystem();
+  GHOST_Event *sizeEvent = new GHOST_Event(
+      system->getMilliSeconds(), GHOST_kEventWindowSize, window);
+
+  /* We get WM_SIZE before we fully init. Do not dispatch before we are continuously resizing. */
+  if (window->m_inLiveResize) {
+    system->pushEvent(sizeEvent);
+    system->dispatchEvents();
+    return NULL;
+  }
+  else {
+    return sizeEvent;
+  }
+}
+
 GHOST_Event *GHOST_SystemWin32::processWindowEvent(GHOST_TEventType type,
                                                    GHOST_WindowWin32 *window)
 {
@@ -1193,7 +1297,6 @@ GHOST_Event *GHOST_SystemWin32::processWindowEvent(GHOST_TEventType type,
 
   if (type == GHOST_kEventWindowActivate) {
     system->getWindowManager()->setActiveWindow(window);
-    window->bringTabletContextToFront();
   }
 
   return new GHOST_Event(system->getMilliSeconds(), type, window);
@@ -1221,6 +1324,37 @@ GHOST_TSuccess GHOST_SystemWin32::pushDragDropEvent(GHOST_TEventType eventType,
       system->getMilliSeconds(), eventType, draggedObjectType, window, mouseX, mouseY, data));
 }
 
+void GHOST_SystemWin32::setTabletAPI(GHOST_TTabletAPI api)
+{
+  GHOST_System::setTabletAPI(api);
+
+  /* If API is set to WinPointer (Windows Ink), unload Wintab so that trouble drivers don't disable
+   * Windows Ink. Load Wintab when API is Automatic because decision logic relies on knowing
+   * whether a Wintab device is present. */
+  const bool loadWintab = GHOST_kTabletWinPointer != api;
+  GHOST_WindowManager *wm = getWindowManager();
+
+  for (GHOST_IWindow *win : wm->getWindows()) {
+    GHOST_WindowWin32 *windowWin32 = (GHOST_WindowWin32 *)win;
+    if (loadWintab) {
+      windowWin32->loadWintab(GHOST_kWindowStateMinimized != windowWin32->getState());
+
+      if (windowWin32->usingTabletAPI(GHOST_kTabletWintab)) {
+        windowWin32->resetPointerPenInfo();
+      }
+    }
+    else {
+      windowWin32->closeWintab();
+    }
+  }
+}
+
+void GHOST_SystemWin32::initDebug(GHOST_Debug debug)
+{
+  GHOST_System::initDebug(debug);
+  GHOST_Wintab::setDebug(debug.flags & GHOST_kDebugWintab);
+}
+
 void GHOST_SystemWin32::processMinMaxInfo(MINMAXINFO *minmax)
 {
   minmax->ptMinTrackSize.x = 320;
@@ -1231,7 +1365,7 @@ void GHOST_SystemWin32::processMinMaxInfo(MINMAXINFO *minmax)
 bool GHOST_SystemWin32::processNDOF(RAWINPUT const &raw)
 {
   bool eventSent = false;
-  GHOST_TUns64 now = getMilliSeconds();
+  uint64_t now = getMilliSeconds();
 
   static bool firstEvent = true;
   if (firstEvent) {  // determine exactly which device is plugged in
@@ -1292,6 +1426,52 @@ bool GHOST_SystemWin32::processNDOF(RAWINPUT const &raw)
 }
 #endif  // WITH_INPUT_NDOF
 
+void GHOST_SystemWin32::driveTrackpad()
+{
+  GHOST_WindowWin32 *active_window = static_cast<GHOST_WindowWin32 *>(
+      getWindowManager()->getActiveWindow());
+  if (active_window) {
+    active_window->updateDirectManipulation();
+  }
+}
+
+void GHOST_SystemWin32::processTrackpad()
+{
+  GHOST_WindowWin32 *active_window = static_cast<GHOST_WindowWin32 *>(
+      getWindowManager()->getActiveWindow());
+
+  if (!active_window) {
+    return;
+  }
+
+  GHOST_TTrackpadInfo trackpad_info = active_window->getTrackpadInfo();
+  GHOST_SystemWin32 *system = (GHOST_SystemWin32 *)getSystem();
+
+  int32_t cursor_x, cursor_y;
+  system->getCursorPosition(cursor_x, cursor_y);
+
+  if (trackpad_info.x != 0 || trackpad_info.y != 0) {
+    system->pushEvent(new GHOST_EventTrackpad(system->getMilliSeconds(),
+                                              active_window,
+                                              GHOST_kTrackpadEventScroll,
+                                              cursor_x,
+                                              cursor_y,
+                                              trackpad_info.x,
+                                              trackpad_info.y,
+                                              trackpad_info.isScrollDirectionInverted));
+  }
+  if (trackpad_info.scale != 0) {
+    system->pushEvent(new GHOST_EventTrackpad(system->getMilliSeconds(),
+                                              active_window,
+                                              GHOST_kTrackpadEventMagnify,
+                                              cursor_x,
+                                              cursor_y,
+                                              trackpad_info.scale,
+                                              0,
+                                              false));
+  }
+}
+
 LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
   GHOST_Event *event = NULL;
@@ -1299,7 +1479,9 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
 
   LRESULT lResult = 0;
   GHOST_SystemWin32 *system = (GHOST_SystemWin32 *)getSystem();
+#ifdef WITH_INPUT_IME
   GHOST_EventManager *eventManager = system->getEventManager();
+#endif
   GHOST_ASSERT(system, "GHOST_SystemWin32::s_wndProc(): system not initialized");
 
   if (hwnd) {
@@ -1325,7 +1507,8 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
         case WM_INPUTLANGCHANGE: {
           system->handleKeyboardChange();
 #ifdef WITH_INPUT_IME
-          window->getImeInput()->SetInputLanguage();
+          window->getImeInput()->UpdateInputLanguage();
+          window->getImeInput()->UpdateConversionStatus(hwnd);
 #endif
           break;
         }
@@ -1333,12 +1516,6 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
         // Keyboard events, processed
         ////////////////////////////////////////////////////////////////////////
         case WM_INPUT: {
-          // check WM_INPUT from input sink when ghost window is not in the foreground
-          if (wParam == RIM_INPUTSINK) {
-            if (GetFocus() != hwnd)  // WM_INPUT message not for this window
-              return 0;
-          }  // else wParam == RIM_INPUT
-
           RAWINPUT raw;
           RAWINPUT *raw_ptr = &raw;
           UINT rawSize = sizeof(RAWINPUT);
@@ -1368,9 +1545,17 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
         ////////////////////////////////////////////////////////////////////////
         // IME events, processed, read more in GHOST_IME.h
         ////////////////////////////////////////////////////////////////////////
+        case WM_IME_NOTIFY: {
+          /* Update conversion status when IME is changed or input mode is changed. */
+          if (wParam == IMN_SETOPENSTATUS || wParam == IMN_SETCONVERSIONMODE) {
+            window->getImeInput()->UpdateConversionStatus(hwnd);
+          }
+          break;
+        }
         case WM_IME_SETCONTEXT: {
           GHOST_ImeWin32 *ime = window->getImeInput();
-          ime->SetInputLanguage();
+          ime->UpdateInputLanguage();
+          ime->UpdateConversionStatus(hwnd);
           ime->CreateImeWindow(hwnd);
           ime->CleanupComposition(hwnd);
           ime->CheckFirst(hwnd);
@@ -1379,8 +1564,6 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
         case WM_IME_STARTCOMPOSITION: {
           GHOST_ImeWin32 *ime = window->getImeInput();
           eventHandled = true;
-          /* remove input event before start comp event, avoid redundant input */
-          eventManager->removeTypeEvents(GHOST_kEventKeyDown, window);
           ime->CreateImeWindow(hwnd);
           ime->ResetComposition(hwnd);
           event = processImeEvent(GHOST_kEventImeCompositionStart, window, &ime->eventImeData);
@@ -1416,7 +1599,7 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
         case WM_SYSKEYDOWN:
         case WM_KEYUP:
         case WM_SYSKEYUP:
-        /* These functions were replaced by WM_INPUT*/
+        /* These functions were replaced by #WM_INPUT. */
         case WM_CHAR:
         /* The WM_CHAR message is posted to the window with the keyboard focus when
          * a WM_KEYDOWN message is translated by the TranslateMessage function. WM_CHAR
@@ -1447,34 +1630,154 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
            */
           break;
         case WM_SYSCOMMAND:
-          /* The WM_SYSCHAR message is sent to the window when system commands such as
+          /* The WM_SYSCOMMAND message is sent to the window when system commands such as
            * maximize, minimize  or close the window are triggered. Also it is sent when ALT
            * button is press for menu. To prevent this we must return preventing DefWindowProc.
+           *
+           * Note that the four low-order bits of the wParam parameter are used internally by the
+           * OS. To obtain the correct result when testing the value of wParam, an application must
+           * combine the value 0xFFF0 with the wParam value by using the bit-wise AND operator.
            */
-          if (wParam == SC_KEYMENU) {
-            eventHandled = true;
+          switch (wParam & 0xFFF0) {
+            case SC_KEYMENU:
+              eventHandled = true;
+              break;
+            case SC_RESTORE: {
+              ::ShowWindow(hwnd, SW_RESTORE);
+              window->setState(window->getState());
+
+              GHOST_Wintab *wt = window->getWintab();
+              if (wt) {
+                wt->enable();
+              }
+
+              eventHandled = true;
+              break;
+            }
+            case SC_MAXIMIZE: {
+              GHOST_Wintab *wt = window->getWintab();
+              if (wt) {
+                wt->enable();
+              }
+              /* Don't report event as handled so that default handling occurs. */
+              break;
+            }
+            case SC_MINIMIZE: {
+              GHOST_Wintab *wt = window->getWintab();
+              if (wt) {
+                wt->disable();
+              }
+              /* Don't report event as handled so that default handling occurs. */
+              break;
+            }
           }
           break;
         ////////////////////////////////////////////////////////////////////////
-        // Tablet events, processed
+        // Wintab events, processed
         ////////////////////////////////////////////////////////////////////////
-        case WT_PACKET:
-          window->processWin32TabletEvent(wParam, lParam);
+        case WT_CSRCHANGE: {
+          WINTAB_PRINTF("HWND %p HCTX %p WT_CSRCHANGE\n", window->getHWND(), (void *)lParam);
+          GHOST_Wintab *wt = window->getWintab();
+          if (wt) {
+            wt->updateCursorInfo();
+          }
+          eventHandled = true;
           break;
-        case WT_CSRCHANGE:
-        case WT_PROXIMITY:
-          window->processWin32TabletInitEvent();
+        }
+        case WT_PROXIMITY: {
+          WINTAB_PRINTF("HWND %p HCTX %p WT_PROXIMITY\n", window->getHWND(), (void *)wParam);
+          if (LOWORD(lParam)) {
+            WINTAB_PRINTF(" Cursor entering context.\n");
+          }
+          else {
+            WINTAB_PRINTF(" Cursor leaving context.\n");
+          }
+          if (HIWORD(lParam)) {
+            WINTAB_PRINTF(" Cursor entering or leaving hardware proximity.\n");
+          }
+          else {
+            WINTAB_PRINTF(" Cursor neither entering nor leaving hardware proximity.\n");
+          }
+
+          GHOST_Wintab *wt = window->getWintab();
+          if (wt) {
+            bool inRange = LOWORD(lParam);
+            if (inRange) {
+              /* Some devices don't emit WT_CSRCHANGE events, so update cursor info here. */
+              wt->updateCursorInfo();
+            }
+            else {
+              wt->leaveRange();
+            }
+          }
+          eventHandled = true;
+          break;
+        }
+        case WT_INFOCHANGE: {
+          WINTAB_PRINTF("HWND %p HCTX %p WT_INFOCHANGE\n", window->getHWND(), (void *)wParam);
+          GHOST_Wintab *wt = window->getWintab();
+          if (wt) {
+            wt->processInfoChange(lParam);
+
+            if (window->usingTabletAPI(GHOST_kTabletWintab)) {
+              window->resetPointerPenInfo();
+            }
+          }
+          eventHandled = true;
+          break;
+        }
+        case WT_PACKET:
+          processWintabEvent(window);
+          eventHandled = true;
+          break;
+        ////////////////////////////////////////////////////////////////////////
+        // Wintab events, debug
+        ////////////////////////////////////////////////////////////////////////
+        case WT_CTXOPEN:
+          WINTAB_PRINTF("HWND %p HCTX %p WT_CTXOPEN\n", window->getHWND(), (void *)wParam);
+          break;
+        case WT_CTXCLOSE:
+          WINTAB_PRINTF("HWND %p HCTX %p WT_CTXCLOSE\n", window->getHWND(), (void *)wParam);
+          break;
+        case WT_CTXUPDATE:
+          WINTAB_PRINTF("HWND %p HCTX %p WT_CTXUPDATE\n", window->getHWND(), (void *)wParam);
+          break;
+        case WT_CTXOVERLAP:
+          WINTAB_PRINTF("HWND %p HCTX %p WT_CTXOVERLAP", window->getHWND(), (void *)wParam);
+          switch (lParam) {
+            case CXS_DISABLED:
+              WINTAB_PRINTF(" CXS_DISABLED\n");
+              break;
+            case CXS_OBSCURED:
+              WINTAB_PRINTF(" CXS_OBSCURED\n");
+              break;
+            case CXS_ONTOP:
+              WINTAB_PRINTF(" CXS_ONTOP\n");
+              break;
+          }
           break;
         ////////////////////////////////////////////////////////////////////////
         // Pointer events, processed
         ////////////////////////////////////////////////////////////////////////
-        case WM_POINTERENTER:
-        case WM_POINTERDOWN:
         case WM_POINTERUPDATE:
+        case WM_POINTERDOWN:
         case WM_POINTERUP:
-        case WM_POINTERLEAVE:
-          processPointerEvents(msg, window, wParam, lParam, eventHandled);
+          processPointerEvent(msg, window, wParam, lParam, eventHandled);
           break;
+        case WM_POINTERLEAVE: {
+          uint32_t pointerId = GET_POINTERID_WPARAM(wParam);
+          POINTER_INFO pointerInfo;
+          if (!GetPointerInfo(pointerId, &pointerInfo)) {
+            break;
+          }
+
+          /* Reset pointer pen info if pen device has left tracking range. */
+          if (pointerInfo.pointerType == PT_PEN) {
+            window->resetPointerPenInfo();
+            eventHandled = true;
+          }
+          break;
+        }
         ////////////////////////////////////////////////////////////////////////
         // Mouse events, processed
         ////////////////////////////////////////////////////////////////////////
@@ -1513,7 +1816,21 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
           }
           break;
         case WM_MOUSEMOVE:
+          if (!window->m_mousePresent) {
+            WINTAB_PRINTF("HWND %p mouse enter\n", window->getHWND());
+            TRACKMOUSEEVENT tme = {sizeof(tme)};
+            tme.dwFlags = TME_LEAVE;
+            tme.hwndTrack = hwnd;
+            TrackMouseEvent(&tme);
+            window->m_mousePresent = true;
+            GHOST_Wintab *wt = window->getWintab();
+            if (wt) {
+              wt->gainFocus();
+            }
+          }
+
           event = processCursorEvent(window);
+
           break;
         case WM_MOUSEWHEEL: {
           /* The WM_MOUSEWHEEL message is sent to the focus window
@@ -1523,14 +1840,7 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
            * since DefWindowProc propagates it up the parent chain
            * until it finds a window that processes it.
            */
-
-          /* Get the window under the mouse and send event to its queue. */
-          POINT mouse_pos = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
-          HWND mouse_hwnd = ChildWindowFromPoint(HWND_DESKTOP, mouse_pos);
-          GHOST_WindowWin32 *mouse_window = (GHOST_WindowWin32 *)::GetWindowLongPtr(mouse_hwnd,
-                                                                                    GWLP_USERDATA);
-
-          processWheelEvent(mouse_window ? mouse_window : window, wParam, lParam);
+          processWheelEvent(window, wParam, lParam);
           eventHandled = true;
 #ifdef BROKEN_PEEK_TOUCHPAD
           PostMessage(hwnd, WM_USER, 0, 0);
@@ -1555,7 +1865,18 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
             window->loadCursor(true, GHOST_kStandardCursorDefault);
           }
           break;
-
+        case WM_MOUSELEAVE: {
+          WINTAB_PRINTF("HWND %p mouse leave\n", window->getHWND());
+          window->m_mousePresent = false;
+          if (window->getTabletData().Active == GHOST_kTabletModeNone) {
+            event = processCursorEvent(window);
+          }
+          GHOST_Wintab *wt = window->getWintab();
+          if (wt) {
+            wt->loseFocus();
+          }
+          break;
+        }
         ////////////////////////////////////////////////////////////////////////
         // Mouse events, ignored
         ////////////////////////////////////////////////////////////////////////
@@ -1603,7 +1924,7 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
              * will not be dispatched to OUR active window if we minimize one of OUR windows. */
             if (LOWORD(wParam) == WA_INACTIVE)
               window->lostMouseCapture();
-            window->processWin32TabletActivateEvent(GET_WM_ACTIVATE_STATE(wParam, lParam));
+
             lResult = ::DefWindowProc(hwnd, msg, wParam, lParam);
             break;
           }
@@ -1645,6 +1966,8 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
           /* Let DefWindowProc handle it. */
           break;
         case WM_SIZING:
+          event = processWindowSizeEvent(window);
+          break;
         case WM_SIZE:
           /* The WM_SIZE message is sent to a window after its size has changed.
            * The WM_SIZE and WM_MOVE messages are not sent if an application handles the
@@ -1652,15 +1975,7 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
            * to perform any move or size change processing during the WM_WINDOWPOSCHANGED
            * message without calling DefWindowProc.
            */
-          /* we get first WM_SIZE before we fully init.
-           * So, do not dispatch before we continuously resizing. */
-          if (window->m_inLiveResize) {
-            system->pushEvent(processWindowEvent(GHOST_kEventWindowSize, window));
-            system->dispatchEvents();
-          }
-          else {
-            event = processWindowEvent(GHOST_kEventWindowSize, window);
-          }
+          event = processWindowSizeEvent(window);
           break;
         case WM_CAPTURECHANGED:
           window->lostMouseCapture();
@@ -1676,7 +1991,7 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
            * to perform any move or size change processing during the WM_WINDOWPOSCHANGED
            * message without calling DefWindowProc.
            */
-          /* see WM_SIZE comment*/
+          /* See #WM_SIZE comment. */
           if (window->m_inLiveResize) {
             system->pushEvent(processWindowEvent(GHOST_kEventWindowMove, window));
             system->dispatchEvents();
@@ -1709,6 +2024,29 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
                          suggestedWindowRect->right - suggestedWindowRect->left,
                          suggestedWindowRect->bottom - suggestedWindowRect->top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
+
+            window->updateDPI();
+          }
+          break;
+        case WM_DISPLAYCHANGE: {
+          GHOST_Wintab *wt = window->getWintab();
+          if (wt) {
+            wt->remapCoordinates();
+          }
+          break;
+        }
+        case WM_KILLFOCUS:
+          /* The WM_KILLFOCUS message is sent to a window immediately before it loses the keyboard
+           * focus. We want to prevent this if a window is still active and it loses focus to
+           * nowhere. */
+          if (!wParam && hwnd == ::GetActiveWindow()) {
+            ::SetFocus(hwnd);
+          }
+          break;
+        case WM_SETTINGCHANGE:
+          /* Microsoft: "Note that some applications send this message with lParam set to NULL" */
+          if ((lParam != NULL) && (wcscmp(LPCWSTR(lParam), L"ImmersiveColorSet") == 0)) {
+            window->ThemeRefresh();
           }
           break;
         ////////////////////////////////////////////////////////////////////////
@@ -1747,12 +2085,6 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
            * object associated with the window.
            */
           break;
-        case WM_KILLFOCUS:
-          /* The WM_KILLFOCUS message is sent to a window immediately before it loses the
-           * keyboard focus. We want to prevent this if a window is still active and it loses
-           * focus to nowhere. */
-          if (!wParam && hwnd == ::GetActiveWindow())
-            ::SetFocus(hwnd);
         case WM_SHOWWINDOW:
         /* The WM_SHOWWINDOW message is sent to a window when the window is
          * about to be hidden or shown. */
@@ -1788,6 +2120,12 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
            * In GHOST, we let DefWindowProc call the timer callback.
            */
           break;
+        case DM_POINTERHITTEST:
+          /* The DM_POINTERHITTEST message is sent to a window, when pointer input is first
+           * detected, in order to determine the most probable input target for Direct
+           * Manipulation. */
+          window->onPointerHitTest(wParam);
+          break;
       }
     }
     else {
@@ -1818,7 +2156,7 @@ LRESULT WINAPI GHOST_SystemWin32::s_wndProc(HWND hwnd, UINT msg, WPARAM wParam, 
   return lResult;
 }
 
-GHOST_TUns8 *GHOST_SystemWin32::getClipboard(bool selection) const
+char *GHOST_SystemWin32::getClipboard(bool selection) const
 {
   char *temp_buff;
 
@@ -1842,7 +2180,7 @@ GHOST_TUns8 *GHOST_SystemWin32::getClipboard(bool selection) const
     GlobalUnlock(hData);
     CloseClipboard();
 
-    return (GHOST_TUns8 *)temp_buff;
+    return temp_buff;
   }
   else if (IsClipboardFormatAvailable(CF_TEXT) && OpenClipboard(NULL)) {
     char *buffer;
@@ -1868,44 +2206,43 @@ GHOST_TUns8 *GHOST_SystemWin32::getClipboard(bool selection) const
     GlobalUnlock(hData);
     CloseClipboard();
 
-    return (GHOST_TUns8 *)temp_buff;
+    return temp_buff;
   }
   else {
     return NULL;
   }
 }
 
-void GHOST_SystemWin32::putClipboard(GHOST_TInt8 *buffer, bool selection) const
+void GHOST_SystemWin32::putClipboard(const char *buffer, bool selection) const
 {
-  if (selection) {
+  if (selection || !buffer) {
     return;
   }  // for copying the selection, used on X11
 
   if (OpenClipboard(NULL)) {
-    HLOCAL clipbuffer;
-    wchar_t *data;
+    EmptyClipboard();
 
-    if (buffer) {
-      size_t len = count_utf_16_from_8(buffer);
-      EmptyClipboard();
+    // Get length of buffer including the terminating null
+    size_t len = count_utf_16_from_8(buffer);
 
-      clipbuffer = LocalAlloc(LMEM_FIXED, sizeof(wchar_t) * len);
-      data = (wchar_t *)GlobalLock(clipbuffer);
+    HGLOBAL clipbuffer = GlobalAlloc(GMEM_MOVEABLE, sizeof(wchar_t) * len);
+    if (clipbuffer) {
+      wchar_t *data = (wchar_t *)GlobalLock(clipbuffer);
 
       conv_utf_8_to_16(buffer, data, len);
 
-      LocalUnlock(clipbuffer);
+      GlobalUnlock(clipbuffer);
       SetClipboardData(CF_UNICODETEXT, clipbuffer);
     }
+
     CloseClipboard();
-  }
-  else {
-    return;
   }
 }
 
+/* -------------------------------------------------------------------- */
 /** \name Message Box
  * \{ */
+
 GHOST_TSuccess GHOST_SystemWin32::showMessageBox(const char *title,
                                                  const char *message,
                                                  const char *help_label,
@@ -1925,10 +2262,9 @@ GHOST_TSuccess GHOST_SystemWin32::showMessageBox(const char *title,
   config.cbSize = sizeof(config);
   config.hInstance = 0;
   config.dwCommonButtons = 0;
-  config.pszMainIcon = (dialog_options & GHOST_DialogError ?
-                            TD_ERROR_ICON :
-                            dialog_options & GHOST_DialogWarning ? TD_WARNING_ICON :
-                                                                   TD_INFORMATION_ICON);
+  config.pszMainIcon = (dialog_options & GHOST_DialogError   ? TD_ERROR_ICON :
+                        dialog_options & GHOST_DialogWarning ? TD_WARNING_ICON :
+                                                               TD_INFORMATION_ICON);
   config.pszWindowTitle = L"Blender";
   config.pszMainInstruction = title_16;
   config.pszContent = message_16;
@@ -1953,7 +2289,8 @@ GHOST_TSuccess GHOST_SystemWin32::showMessageBox(const char *title,
 
   return GHOST_kSuccess;
 }
-/* \} */
+
+/** \} */
 
 static DWORD GetParentProcessID(void)
 {
@@ -2017,31 +2354,30 @@ static bool isStartedFromCommandPrompt()
   return false;
 }
 
-int GHOST_SystemWin32::toggleConsole(int action)
+int GHOST_SystemWin32::setConsoleWindowState(GHOST_TConsoleWindowState action)
 {
   HWND wnd = GetConsoleWindow();
 
   switch (action) {
-    case 3:  // startup: hide if not started from command prompt
-    {
+    case GHOST_kConsoleWindowStateHideForNonConsoleLaunch: {
       if (!isStartedFromCommandPrompt()) {
         ShowWindow(wnd, SW_HIDE);
         m_consoleStatus = 0;
       }
       break;
     }
-    case 0:  // hide
+    case GHOST_kConsoleWindowStateHide:
       ShowWindow(wnd, SW_HIDE);
       m_consoleStatus = 0;
       break;
-    case 1:  // show
+    case GHOST_kConsoleWindowStateShow:
       ShowWindow(wnd, SW_SHOW);
       if (!isStartedFromCommandPrompt()) {
         DeleteMenu(GetSystemMenu(wnd, FALSE), SC_CLOSE, MF_BYCOMMAND);
       }
       m_consoleStatus = 1;
       break;
-    case 2:  // toggle
+    case GHOST_kConsoleWindowStateToggle:
       ShowWindow(wnd, m_consoleStatus ? SW_HIDE : SW_SHOW);
       m_consoleStatus = !m_consoleStatus;
       if (m_consoleStatus && !isStartedFromCommandPrompt()) {

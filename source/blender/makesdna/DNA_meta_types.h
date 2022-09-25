@@ -1,32 +1,19 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_META_TYPES_H__
-#define __DNA_META_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
 #include "DNA_defs.h"
 #include "DNA_listBase.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 struct AnimData;
 struct BoundBox;
@@ -80,8 +67,8 @@ typedef struct MetaBall {
   char flag, flag2;
   short totcol;
   /** Used to store MB_AUTOSPACE. */
-  short texflag;
-  char _pad[1];
+  char texflag;
+  char _pad[2];
 
   /**
    * ID data is older than edit-mode data (TODO: move to edit-mode struct).
@@ -103,7 +90,7 @@ typedef struct MetaBall {
   float thresh;
 
   /* used in editmode */
-  /*ListBase edit_elems;*/
+  // ListBase edit_elems;
   MetaElem *lastelem;
 
   void *batch_cache;
@@ -125,9 +112,9 @@ typedef struct MetaBall {
 
 /* ml->type */
 #define MB_BALL 0
-#define MB_TUBEX 1 /* depercated */
-#define MB_TUBEY 2 /* depercated */
-#define MB_TUBEZ 3 /* depercated */
+#define MB_TUBEX 1 /* deprecated. */
+#define MB_TUBEY 2 /* deprecated. */
+#define MB_TUBEZ 3 /* deprecated. */
 #define MB_TUBE 4
 #define MB_PLANE 5
 #define MB_ELIPSOID 6
@@ -140,4 +127,6 @@ typedef struct MetaBall {
 #define MB_HIDE 8
 #define MB_SCALE_RAD 16
 
+#ifdef __cplusplus
+}
 #endif

@@ -1,24 +1,8 @@
+/* SPDX-License-Identifier: Zlib
+ * Copyright 2011 by Morten S. Mikkelsen. */
+
 /** \file
  * \ingroup mikktspace
- */
-/**
- *  Copyright (C) 2011 by Morten S. Mikkelsen
- *
- *  This software is provided 'as-is', without any express or implied
- *  warranty.  In no event will the authors be held liable for any damages
- *  arising from the use of this software.
- *
- *  Permission is granted to anyone to use this software for any purpose,
- *  including commercial applications, and to alter it and redistribute it
- *  freely, subject to the following restrictions:
- *
- *  1. The origin of this software must not be misrepresented; you must not
- *     claim that you wrote the original software. If you use this software
- *     in a product, an acknowledgment in the product documentation would be
- *     appreciated but is not required.
- *  2. Altered source versions must be plainly marked as such, and must not be
- *     misrepresented as being the original software.
- *  3. This notice may not be removed or altered from any source distribution.
  */
 
 #include <assert.h>
@@ -138,7 +122,7 @@ MIKK_INLINE tbool VNotZero(const SVec3 v)
 
 // Shift operations in C are only defined for shift values which are
 // not negative and smaller than sizeof(value) * CHAR_BIT.
-// The mask, used with bitwise-and (&), prevents undefined behaviour
+// The mask, used with bitwise-and (&), prevents undefined behavior
 // when the shift count is 0 or >= the width of unsigned int.
 MIKK_INLINE unsigned int rotl(unsigned int value, unsigned int count)
 {
@@ -425,14 +409,15 @@ tbool genTangSpace(const SMikkTSpaceContext *pContext, const float fAngularThres
   index = 0;
   for (f = 0; f < iNrFaces; f++) {
     const int verts = pContext->m_pInterface->m_getNumVerticesOfFace(pContext, f);
-    if (verts != 3 && verts != 4)
+    if (verts != 3 && verts != 4) {
       continue;
+    }
 
     // I've decided to let degenerate triangles and group-with-anythings
     // vary between left/right hand coordinate systems at the vertices.
     // All healthy triangles on the other hand are built to always be either or.
-
-    /*// force the coordinate system orientation to be uniform for every face.
+#if 0
+    // force the coordinate system orientation to be uniform for every face.
     // (this is already the case for good triangles but not for
     // degenerate ones and those with bGroupWithAnything==true)
     bool bOrient = psTspace[index].bOrient;
@@ -447,7 +432,8 @@ tbool genTangSpace(const SMikkTSpaceContext *pContext, const float fAngularThres
         else ++i;
       }
       if (!bNotFound) bOrient = psTspace[index+i].bOrient;
-    }*/
+    }
+#endif
 
     // set data
     for (i = 0; i < verts; i++) {
@@ -579,23 +565,26 @@ static void GenerateSharedVerticesIndexList(int piTriList_in_and_out[],
         break;
     }
 
-    for (int i = blockstart; i < blockend; i++) {
-      int index1 = piTriList_in_and_out[indices[i]];
-      const SVec3 vP = GetPosition(pContext, index1);
-      const SVec3 vN = GetNormal(pContext, index1);
-      const SVec3 vT = GetTexCoord(pContext, index1);
-      for (int i2 = i + 1; i2 < blockend; i2++) {
-        int index2 = piTriList_in_and_out[indices[i2]];
-        if (index1 == index2)
-          continue;
+    /* If there's only one vertex with this hash, we don't have anything to compare. */
+    if (blockend > blockstart + 1) {
+      for (int i = blockstart; i < blockend; i++) {
+        int index1 = piTriList_in_and_out[indices[i]];
+        const SVec3 vP = GetPosition(pContext, index1);
+        const SVec3 vN = GetNormal(pContext, index1);
+        const SVec3 vT = GetTexCoord(pContext, index1);
+        for (int i2 = i + 1; i2 < blockend; i2++) {
+          int index2 = piTriList_in_and_out[indices[i2]];
+          if (index1 == index2)
+            continue;
 
-        if (veq(vP, GetPosition(pContext, index2)) && veq(vN, GetNormal(pContext, index2)) &&
-            veq(vT, GetTexCoord(pContext, index2))) {
-          piTriList_in_and_out[indices[i2]] = index1;
-          /* Once i2>i has been identified as a duplicate, we can stop since any
-           * i3>i2>i that is a duplicate of i (and therefore also i2) will also be
-           * compared to i2 and therefore be identified there anyways. */
-          break;
+          if (veq(vP, GetPosition(pContext, index2)) && veq(vN, GetNormal(pContext, index2)) &&
+              veq(vT, GetTexCoord(pContext, index2))) {
+            piTriList_in_and_out[indices[i2]] = index1;
+            /* Once i2>i has been identified as a duplicate, we can stop since any
+             * i3>i2>i that is a duplicate of i (and therefore also i2) will also be
+             * compared to i2 and therefore be identified there anyways. */
+            break;
+          }
         }
       }
     }
@@ -659,7 +648,8 @@ static int GenerateInitialVerticesIndexList(STriInfo pTriInfos[],
 {
   int iTSpacesOffs = 0, f = 0, t = 0;
   int iDstTriIndex = 0;
-  for (f = 0; f < pContext->m_pInterface->m_getNumFaces(pContext); f++) {
+  const int iNrFaces = pContext->m_pInterface->m_getNumFaces(pContext);
+  for (f = 0; f < iNrFaces; f++) {
     const int verts = pContext->m_pInterface->m_getNumVerticesOfFace(pContext, f);
     if (verts != 3 && verts != 4)
       continue;
@@ -1076,7 +1066,7 @@ static tbool AssignRecur(const int piTriListIn[],
     return TFALSE;
   if ((pMyTriInfo->iFlag & GROUP_WITH_ANY) != 0) {
     // first to group with a group-with-anything triangle
-    // determines it's orientation.
+    // determines its orientation.
     // This is the only existing order dependency in the code!!
     if (pMyTriInfo->AssignedGroup[0] == NULL && pMyTriInfo->AssignedGroup[1] == NULL &&
         pMyTriInfo->AssignedGroup[2] == NULL) {
@@ -1110,7 +1100,7 @@ static tbool AssignRecur(const int piTriListIn[],
 
 static tbool CompareSubGroups(const SSubGroup *pg1, const SSubGroup *pg2);
 static void QuickSort(int *pSortBuffer, int iLeft, int iRight, unsigned int uSeed);
-static STSpace EvalTspace(int face_indices[],
+static STSpace EvalTspace(const int face_indices[],
                           const int iFaces,
                           const int piTriListIn[],
                           const STriInfo pTriInfos[],
@@ -1128,7 +1118,7 @@ static tbool GenerateTSpaces(STSpace psTspace[],
   STSpace *pSubGroupTspace = NULL;
   SSubGroup *pUniSubGroups = NULL;
   int *pTmpMembers = NULL;
-  int iMaxNrFaces = 0, iUniqueTspaces = 0, g = 0, i = 0;
+  int iMaxNrFaces = 0, g = 0, i = 0;
   for (g = 0; g < iNrActiveGroups; g++)
     if (iMaxNrFaces < pGroups[g].iNrFaces)
       iMaxNrFaces = pGroups[g].iNrFaces;
@@ -1150,7 +1140,6 @@ static tbool GenerateTSpaces(STSpace psTspace[],
     return TFALSE;
   }
 
-  iUniqueTspaces = 0;
   for (g = 0; g < iNrActiveGroups; g++) {
     const SGroup *pGroup = &pGroups[g];
     int iUniqueSubGroups = 0, s = 0;
@@ -1225,9 +1214,7 @@ static tbool GenerateTSpaces(STSpace psTspace[],
           ++l;
       }
 
-      // assign tangent space index
       assert(bFound || l == iUniqueSubGroups);
-      // piTempTangIndices[f*3+index] = iUniqueTspaces+l;
 
       // if no match was found we allocate a new subgroup
       if (!bFound) {
@@ -1276,10 +1263,9 @@ static tbool GenerateTSpaces(STSpace psTspace[],
       }
     }
 
-    // clean up and offset iUniqueTspaces
+    // clean up
     for (s = 0; s < iUniqueSubGroups; s++)
       free(pUniSubGroups[s].pTriMembers);
-    iUniqueTspaces += iUniqueSubGroups;
   }
 
   // clean up
@@ -1290,7 +1276,7 @@ static tbool GenerateTSpaces(STSpace psTspace[],
   return TTRUE;
 }
 
-static STSpace EvalTspace(int face_indices[],
+static STSpace EvalTspace(const int face_indices[],
                           const int iFaces,
                           const int piTriListIn[],
                           const STriInfo pTriInfos[],
@@ -1454,12 +1440,12 @@ static void BuildNeighborsFast(STriInfo pTriInfos[],
       pEdges[f * 3 + i].f = f;                      // record face number
     }
 
-  // sort over all edges by i0, this is the pricy one.
+  // sort over all edges by i0, this is the pricey one.
   QuickSortEdges(pEdges, 0, iNrTrianglesIn * 3 - 1, 0, uSeed);  // sort channel 0 which is i0
 
   // sub sort over i1, should be fast.
   // could replace this with a 64 bit int sort over (i0,i1)
-  // with i0 as msb in the quicksort call above.
+  // with i0 as msb in the quick-sort call above.
   iEntries = iNrTrianglesIn * 3;
   iCurStartIndex = 0;
   for (i = 1; i < iEntries; i++) {

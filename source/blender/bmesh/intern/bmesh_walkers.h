@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __BMESH_WALKERS_H__
-#define __BMESH_WALKERS_H__
+#pragma once
 
 /** \file
  * \ingroup bmesh
@@ -68,6 +53,12 @@ typedef struct BMWalker {
 /* define to make BMW_init more clear */
 #define BMW_MASK_NOP 0
 
+/**
+ * \brief Init Walker
+ *
+ * Allocates and returns a new mesh walker of a given type.
+ * The elements visited are filtered by the bitmask 'searchmask'.
+ */
 void BMW_init(struct BMWalker *walker,
               BMesh *bm,
               int type,
@@ -77,15 +68,61 @@ void BMW_init(struct BMWalker *walker,
               BMWFlag flag,
               int layer);
 void *BMW_begin(BMWalker *walker, void *start);
+/**
+ * \brief Step Walker
+ */
 void *BMW_step(struct BMWalker *walker);
+/**
+ * \brief End Walker
+ *
+ * Frees a walker's worklist.
+ */
 void BMW_end(struct BMWalker *walker);
+/**
+ * \brief Walker Current Depth
+ *
+ * Returns the current depth of the walker.
+ */
 int BMW_current_depth(BMWalker *walker);
 
-/*these are used by custom walkers*/
+/* These are used by custom walkers. */
+/**
+ * \brief Current Walker State
+ *
+ * Returns the first state from the walker state
+ * worklist. This state is the next in the
+ * worklist for processing.
+ */
 void *BMW_current_state(BMWalker *walker);
+/**
+ * \brief Add a new Walker State
+ *
+ * Allocate a new empty state and put it on the worklist.
+ * A pointer to the new state is returned so that the caller
+ * can fill in the state data. The new state will be inserted
+ * at the front for depth-first walks, and at the end for
+ * breadth-first walks.
+ */
 void *BMW_state_add(BMWalker *walker);
+/**
+ * \brief Remove Current Walker State
+ *
+ * Remove and free an item from the end of the walker state
+ * worklist.
+ */
 void BMW_state_remove(BMWalker *walker);
+/**
+ * \brief Main Walking Function
+ *
+ * Steps a mesh walker forward by one element
+ */
 void *BMW_walk(BMWalker *walker);
+/**
+ * \brief Reset Walker
+ *
+ * Frees all states from the worklist, resetting the walker
+ * for reuse in a new walk.
+ */
 void BMW_reset(BMWalker *walker);
 
 #define BMW_ITER(ele, walker, data) \
@@ -115,6 +152,7 @@ enum {
   BMW_FACELOOP,
   BMW_EDGERING,
   BMW_EDGEBOUNDARY,
+  BMW_EDGELOOP_NONMANIFOLD,
   /* BMW_RING, */
   BMW_LOOPDATA_ISLAND,
   BMW_ISLANDBOUND,
@@ -123,12 +161,10 @@ enum {
   BMW_CONNECTED_VERTEX,
   /* end of array index enum vals */
 
-  /* do not intitialze function pointers and struct size in BMW_init */
+  /* Do not initialize function pointers and struct size in #BMW_init. */
   BMW_CUSTOM,
   BMW_MAXWALKERS,
 };
 
 /* use with BMW_init, so as not to confuse with restrict flags */
 #define BMW_NIL_LAY 0
-
-#endif /* __BMESH_WALKERS_H__ */

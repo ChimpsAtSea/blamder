@@ -1,32 +1,21 @@
-/*
- * Copyright 2011-2016 Blender Foundation
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- * http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
+/* SPDX-License-Identifier: Apache-2.0
+ * Copyright 2011-2022 Blender Foundation */
 
 #pragma once
 
 #include "graph/node_enum.h"
-#include "util/util_array.h"
-#include "util/util_map.h"
-#include "util/util_param.h"
-#include "util/util_string.h"
-#include "util/util_vector.h"
+#include "util/array.h"
+#include "util/map.h"
+#include "util/param.h"
+#include "util/string.h"
+#include "util/vector.h"
 
 CCL_NAMESPACE_BEGIN
 
 struct Node;
 struct NodeType;
+
+typedef uint64_t SocketModifiedFlags;
 
 /* Socket Type */
 
@@ -85,9 +74,10 @@ struct SocketType {
   int struct_offset;
   const void *default_value;
   const NodeEnum *enum_values;
-  const NodeType **node_type;
+  const NodeType *node_type;
   int flags;
   ustring ui_name;
+  SocketModifiedFlags modified_flag_bit;
 
   size_t size() const;
   bool is_array() const;
@@ -112,7 +102,7 @@ struct NodeType {
                       int struct_offset,
                       const void *default_value,
                       const NodeEnum *enum_values = NULL,
-                      const NodeType **node_type = NULL,
+                      const NodeType *node_type = NULL,
                       int flags = 0,
                       int extra_flags = 0);
   void register_output(ustring name, ustring ui_name, SocketType::Type type);
@@ -137,9 +127,13 @@ struct NodeType {
   static unordered_map<ustring, NodeType, ustringHash> &types();
 };
 
-/* Node Definition Macros */
+/* Node Definition Macros
+ *
+ * Node we use accessor to get node types to ensure correct static
+ * initialization order. */
 
 #define NODE_DECLARE \
+  static const NodeType *get_node_type(); \
   template<typename T> static const NodeType *register_type(); \
   static Node *create(const NodeType *type); \
   static const NodeType *node_type;
@@ -150,24 +144,34 @@ struct NodeType {
   { \
     return new structname(); \
   } \
+  const NodeType *structname::get_node_type() \
+  { \
+    return node_type; \
+  } \
   template<typename T> const NodeType *structname::register_type()
 
 #define NODE_ABSTRACT_DECLARE \
   template<typename T> static const NodeType *register_base_type(); \
-  static const NodeType *node_base_type;
+  static const NodeType *get_node_base_type();
 
 #define NODE_ABSTRACT_DEFINE(structname) \
-  const NodeType *structname::node_base_type = structname::register_base_type<structname>(); \
+  const NodeType *structname::get_node_base_type() \
+  { \
+    /* Base types constructed in this getter to ensure correct initialization \
+     * order. Regular types are not so they are auto-registered for XML parsing. */ \
+    static const NodeType *node_base_type = register_base_type<structname>(); \
+    return node_base_type; \
+  } \
   template<typename T> const NodeType *structname::register_base_type()
 
 /* Sock Definition Macros */
 
-#define SOCKET_OFFSETOF(T, name) (((char *)&(((T *)1)->name)) - (char *)1)
-#define SOCKET_SIZEOF(T, name) (sizeof(((T *)1)->name))
+#define SOCKET_OFFSETOF(T, name) offsetof(T, name)
+#define SOCKET_SIZEOF(T, name) (sizeof(T::name))
 #define SOCKET_DEFINE(name, ui_name, default_value, datatype, TYPE, flags, ...) \
   { \
     static datatype defval = default_value; \
-    CHECK_TYPE(((T *)1)->name, datatype); \
+    static_assert(std::is_same_v<decltype(T::name), datatype>); \
     type->register_input(ustring(#name), \
                          ustring(ui_name), \
                          TYPE, \
@@ -264,8 +268,8 @@ struct NodeType {
                 ##__VA_ARGS__)
 #define SOCKET_NODE_ARRAY(name, ui_name, node_type, ...) \
   { \
-    static Node *defval = NULL; \
-    assert(SOCKET_SIZEOF(T, name) == sizeof(Node *)); \
+    static array<Node *> defval = {}; \
+    assert(SOCKET_SIZEOF(T, name) == sizeof(array<Node *>)); \
     type->register_input(ustring(#name), \
                          ustring(ui_name), \
                          SocketType::NODE_ARRAY, \

@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup edinterface
@@ -25,6 +9,7 @@
 #include <string.h>
 
 #include "DNA_color_types.h"
+#include "DNA_curve_types.h"
 #include "DNA_curveprofile_types.h"
 #include "DNA_movieclip_types.h"
 #include "DNA_screen_types.h"
@@ -53,9 +38,11 @@
 
 #include "GPU_batch.h"
 #include "GPU_batch_presets.h"
+#include "GPU_context.h"
 #include "GPU_immediate.h"
 #include "GPU_immediate_util.h"
 #include "GPU_matrix.h"
+#include "GPU_shader_shared.h"
 #include "GPU_state.h"
 
 #include "UI_interface.h"
@@ -68,8 +55,7 @@ static int roundboxtype = UI_CNR_ALL;
 void UI_draw_roundbox_corner_set(int type)
 {
   /* Not sure the roundbox function is the best place to change this
-   * if this is undone, it's not that big a deal, only makes curves edges
-   * square for the  */
+   * if this is undone, it's not that big a deal, only makes curves edges square. */
   roundboxtype = type;
 }
 
@@ -80,518 +66,110 @@ int UI_draw_roundbox_corner_get(void)
 }
 #endif
 
-void UI_draw_roundbox_3ub_alpha(bool filled,
-                                float minx,
-                                float miny,
-                                float maxx,
-                                float maxy,
-                                float rad,
-                                const uchar col[3],
-                                uchar alpha)
+void UI_draw_roundbox_4fv_ex(const rctf *rect,
+                             const float inner1[4],
+                             const float inner2[4],
+                             float shade_dir,
+                             const float outline[4],
+                             float outline_width,
+                             float rad)
 {
-  float colv[4];
-  colv[0] = ((float)col[0]) / 255;
-  colv[1] = ((float)col[1]) / 255;
-  colv[2] = ((float)col[2]) / 255;
-  colv[3] = ((float)alpha) / 255;
-  UI_draw_roundbox_4fv(filled, minx, miny, maxx, maxy, rad, colv);
-}
-
-void UI_draw_roundbox_3fv_alpha(bool filled,
-                                float minx,
-                                float miny,
-                                float maxx,
-                                float maxy,
-                                float rad,
-                                const float col[3],
-                                float alpha)
-{
-  float colv[4];
-  colv[0] = col[0];
-  colv[1] = col[1];
-  colv[2] = col[2];
-  colv[3] = alpha;
-  UI_draw_roundbox_4fv(filled, minx, miny, maxx, maxy, rad, colv);
-}
-
-void UI_draw_roundbox_aa(
-    bool filled, float minx, float miny, float maxx, float maxy, float rad, const float color[4])
-{
+  /* WATCH: This is assuming the ModelViewProjectionMatrix is area pixel space.
+   * If it has been scaled, then it's no longer valid. */
   uiWidgetBaseParameters widget_params = {
-      .recti.xmin = minx,
-      .recti.ymin = miny,
-      .recti.xmax = maxx,
-      .recti.ymax = maxy,
+      .recti.xmin = rect->xmin + outline_width,
+      .recti.ymin = rect->ymin + outline_width,
+      .recti.xmax = rect->xmax - outline_width,
+      .recti.ymax = rect->ymax - outline_width,
+      .rect = *rect,
       .radi = rad,
+      .rad = rad,
       .round_corners[0] = (roundboxtype & UI_CNR_BOTTOM_LEFT) ? 1.0f : 0.0f,
       .round_corners[1] = (roundboxtype & UI_CNR_BOTTOM_RIGHT) ? 1.0f : 0.0f,
       .round_corners[2] = (roundboxtype & UI_CNR_TOP_RIGHT) ? 1.0f : 0.0f,
       .round_corners[3] = (roundboxtype & UI_CNR_TOP_LEFT) ? 1.0f : 0.0f,
-      .color_inner1[0] = color[0],
-      .color_inner2[0] = color[0],
-      .color_inner1[1] = color[1],
-      .color_inner2[1] = color[1],
-      .color_inner1[2] = color[2],
-      .color_inner2[2] = color[2],
-      .color_inner1[3] = color[3],
-      .color_inner2[3] = color[3],
+      .color_inner1[0] = inner1 ? inner1[0] : 0.0f,
+      .color_inner1[1] = inner1 ? inner1[1] : 0.0f,
+      .color_inner1[2] = inner1 ? inner1[2] : 0.0f,
+      .color_inner1[3] = inner1 ? inner1[3] : 0.0f,
+      .color_inner2[0] = inner2 ? inner2[0] :
+                         inner1 ? inner1[0] :
+                                  0.0f,
+      .color_inner2[1] = inner2 ? inner2[1] :
+                         inner1 ? inner1[1] :
+                                  0.0f,
+      .color_inner2[2] = inner2 ? inner2[2] :
+                         inner1 ? inner1[2] :
+                                  0.0f,
+      .color_inner2[3] = inner2 ? inner2[3] :
+                         inner1 ? inner1[3] :
+                                  0.0f,
+      .color_outline[0] = outline ? outline[0] :
+                          inner1  ? inner1[0] :
+                                    0.0f,
+      .color_outline[1] = outline ? outline[1] :
+                          inner1  ? inner1[1] :
+                                    0.0f,
+      .color_outline[2] = outline ? outline[2] :
+                          inner1  ? inner1[2] :
+                                    0.0f,
+      .color_outline[3] = outline ? outline[3] :
+                          inner1  ? inner1[3] :
+                                    0.0f,
+      .shade_dir = shade_dir,
       .alpha_discard = 1.0f,
   };
+  GPUBatch *batch = ui_batch_roundbox_widget_get();
+  GPU_batch_program_set_builtin(batch, GPU_SHADER_2D_WIDGET_BASE);
+  GPU_batch_uniform_4fv_array(batch, "parameters", 11, (const float(*)[4]) & widget_params);
+  GPU_blend(GPU_BLEND_ALPHA);
+  GPU_batch_draw(batch);
+  GPU_blend(GPU_BLEND_NONE);
+}
 
-  GPU_blend(true);
+void UI_draw_roundbox_3ub_alpha(
+    const rctf *rect, bool filled, float rad, const uchar col[3], uchar alpha)
+{
+  const float colv[4] = {
+      ((float)col[0]) / 255,
+      ((float)col[1]) / 255,
+      ((float)col[2]) / 255,
+      ((float)alpha) / 255,
+  };
+  UI_draw_roundbox_4fv_ex(rect, (filled) ? colv : NULL, NULL, 1.0f, colv, U.pixelsize, rad);
+}
 
+void UI_draw_roundbox_3fv_alpha(
+    const rctf *rect, bool filled, float rad, const float col[3], float alpha)
+{
+  const float colv[4] = {col[0], col[1], col[2], alpha};
+  UI_draw_roundbox_4fv_ex(rect, (filled) ? colv : NULL, NULL, 1.0f, colv, U.pixelsize, rad);
+}
+
+void UI_draw_roundbox_aa(const rctf *rect, bool filled, float rad, const float color[4])
+{
+  /* XXX this is to emulate previous behavior of semitransparent fills but that's was a side effect
+   * of the previous AA method. Better fix the callers. */
+  float colv[4] = {color[0], color[1], color[2], color[3]};
   if (filled) {
-    /* plain antialiased filled box */
-    widget_params.color_inner1[3] *= 0.125f;
-    widget_params.color_inner2[3] *= 0.125f;
-
-    /* WATCH: This is assuming the ModelViewProjectionMatrix is area pixel space.
-     * If it has been scaled, then it's no longer valid. */
-    GPUBatch *batch = ui_batch_roundbox_get(filled, true);
-    GPU_batch_program_set_builtin(batch, GPU_SHADER_2D_WIDGET_BASE);
-    GPU_batch_uniform_4fv_array(batch, "parameters", 11, (float *)&widget_params);
-    GPU_batch_draw(batch);
-  }
-  else {
-    /* plain antialiased unfilled box */
-    GPU_line_smooth(true);
-
-    GPUBatch *batch = ui_batch_roundbox_get(filled, false);
-    GPU_batch_program_set_builtin(batch, GPU_SHADER_2D_WIDGET_BASE);
-    GPU_batch_uniform_4fv_array(batch, "parameters", 11, (float *)&widget_params);
-    GPU_batch_draw(batch);
-
-    GPU_line_smooth(false);
+    colv[3] *= 0.65f;
   }
 
-  GPU_blend(false);
+  UI_draw_roundbox_4fv_ex(rect, (filled) ? colv : NULL, NULL, 1.0f, colv, U.pixelsize, rad);
 }
 
-void UI_draw_roundbox_4fv(
-    bool filled, float minx, float miny, float maxx, float maxy, float rad, const float col[4])
+void UI_draw_roundbox_4fv(const rctf *rect, bool filled, float rad, const float col[4])
 {
-#if 0
-  float vec[7][2] = {
-      {0.195, 0.02},
-      {0.383, 0.067},
-      {0.55, 0.169},
-      {0.707, 0.293},
-      {0.831, 0.45},
-      {0.924, 0.617},
-      {0.98, 0.805},
-  };
-  int a;
-
-  GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-
-  /* mult */
-  for (a = 0; a < 7; a++) {
-    mul_v2_fl(vec[a], rad);
-  }
-
-  uint vert_len = 0;
-  vert_len += (roundboxtype & UI_CNR_BOTTOM_RIGHT) ? 9 : 1;
-  vert_len += (roundboxtype & UI_CNR_TOP_RIGHT) ? 9 : 1;
-  vert_len += (roundboxtype & UI_CNR_TOP_LEFT) ? 9 : 1;
-  vert_len += (roundboxtype & UI_CNR_BOTTOM_LEFT) ? 9 : 1;
-
-  immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
-  immUniformColor4fv(col);
-
-  immBegin(filled ? GPU_PRIM_TRI_FAN : GPU_PRIM_LINE_LOOP, vert_len);
-  /* start with corner right-bottom */
-  if (roundboxtype & UI_CNR_BOTTOM_RIGHT) {
-    immVertex2f(pos, maxx - rad, miny);
-    for (a = 0; a < 7; a++) {
-      immVertex2f(pos, maxx - rad + vec[a][0], miny + vec[a][1]);
-    }
-    immVertex2f(pos, maxx, miny + rad);
-  }
-  else {
-    immVertex2f(pos, maxx, miny);
-  }
-
-  /* corner right-top */
-  if (roundboxtype & UI_CNR_TOP_RIGHT) {
-    immVertex2f(pos, maxx, maxy - rad);
-    for (a = 0; a < 7; a++) {
-      immVertex2f(pos, maxx - vec[a][1], maxy - rad + vec[a][0]);
-    }
-    immVertex2f(pos, maxx - rad, maxy);
-  }
-  else {
-    immVertex2f(pos, maxx, maxy);
-  }
-
-  /* corner left-top */
-  if (roundboxtype & UI_CNR_TOP_LEFT) {
-    immVertex2f(pos, minx + rad, maxy);
-    for (a = 0; a < 7; a++) {
-      immVertex2f(pos, minx + rad - vec[a][0], maxy - vec[a][1]);
-    }
-    immVertex2f(pos, minx, maxy - rad);
-  }
-  else {
-    immVertex2f(pos, minx, maxy);
-  }
-
-  /* corner left-bottom */
-  if (roundboxtype & UI_CNR_BOTTOM_LEFT) {
-    immVertex2f(pos, minx, miny + rad);
-    for (a = 0; a < 7; a++) {
-      immVertex2f(pos, minx + vec[a][1], miny + rad - vec[a][0]);
-    }
-    immVertex2f(pos, minx + rad, miny);
-  }
-  else {
-    immVertex2f(pos, minx, miny);
-  }
-
-  immEnd();
-  immUnbindProgram();
-#endif
-
-  uiWidgetBaseParameters widget_params = {
-      .recti.xmin = minx,
-      .recti.ymin = miny,
-      .recti.xmax = maxx,
-      .recti.ymax = maxy,
-      .radi = rad,
-      .round_corners[0] = (roundboxtype & UI_CNR_BOTTOM_LEFT) ? 1.0f : 0.0f,
-      .round_corners[1] = (roundboxtype & UI_CNR_BOTTOM_RIGHT) ? 1.0f : 0.0f,
-      .round_corners[2] = (roundboxtype & UI_CNR_TOP_RIGHT) ? 1.0f : 0.0f,
-      .round_corners[3] = (roundboxtype & UI_CNR_TOP_LEFT) ? 1.0f : 0.0f,
-      .color_inner1[0] = col[0],
-      .color_inner2[0] = col[0],
-      .color_inner1[1] = col[1],
-      .color_inner2[1] = col[1],
-      .color_inner1[2] = col[2],
-      .color_inner2[2] = col[2],
-      .color_inner1[3] = col[3],
-      .color_inner2[3] = col[3],
-      .alpha_discard = 1.0f,
-  };
-
-  GPUBatch *batch = ui_batch_roundbox_get(filled, false);
-  GPU_batch_program_set_builtin(batch, GPU_SHADER_2D_WIDGET_BASE);
-  GPU_batch_uniform_4fv_array(batch, "parameters", 11, (float *)&widget_params);
-  GPU_batch_draw(batch);
+  /* Exactly the same as UI_draw_roundbox_aa but does not do the legacy transparency. */
+  UI_draw_roundbox_4fv_ex(rect, (filled) ? col : NULL, NULL, 1.0f, col, U.pixelsize, rad);
 }
-
-#if 0
-static void round_box_shade_col(uint attr,
-                                const float col1[3],
-                                float const col2[3],
-                                const float fac)
-{
-  float col[4] = {
-      fac * col1[0] + (1.0f - fac) * col2[0],
-      fac * col1[1] + (1.0f - fac) * col2[1],
-      fac * col1[2] + (1.0f - fac) * col2[2],
-      1.0f,
-  };
-  immAttr4fv(attr, col);
-}
-#endif
-
-/* linear horizontal shade within button or in outline */
-/* view2d scrollers use it */
-void UI_draw_roundbox_shade_x(bool filled,
-                              float minx,
-                              float miny,
-                              float maxx,
-                              float maxy,
-                              float rad,
-                              float shadetop,
-                              float shadedown,
-                              const float col[4])
-{
-#if 0
-  float vec[7][2] = {
-      {0.195, 0.02},
-      {0.383, 0.067},
-      {0.55, 0.169},
-      {0.707, 0.293},
-      {0.831, 0.45},
-      {0.924, 0.617},
-      {0.98, 0.805},
-  };
-  const float div = maxy - miny;
-  const float idiv = 1.0f / div;
-  float coltop[3], coldown[3];
-  int vert_count = 0;
-  int a;
-
-  GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-  uint color = GPU_vertformat_attr_add(format, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
-
-  immBindBuiltinProgram(GPU_SHADER_2D_SMOOTH_COLOR);
-
-  /* mult */
-  for (a = 0; a < 7; a++) {
-    mul_v2_fl(vec[a], rad);
-  }
-
-  /* 'shade' defines strength of shading */
-  coltop[0] = min_ff(1.0f, col[0] + shadetop);
-  coltop[1] = min_ff(1.0f, col[1] + shadetop);
-  coltop[2] = min_ff(1.0f, col[2] + shadetop);
-  coldown[0] = max_ff(0.0f, col[0] + shadedown);
-  coldown[1] = max_ff(0.0f, col[1] + shadedown);
-  coldown[2] = max_ff(0.0f, col[2] + shadedown);
-
-  vert_count += (roundboxtype & UI_CNR_BOTTOM_RIGHT) ? 9 : 1;
-  vert_count += (roundboxtype & UI_CNR_TOP_RIGHT) ? 9 : 1;
-  vert_count += (roundboxtype & UI_CNR_TOP_LEFT) ? 9 : 1;
-  vert_count += (roundboxtype & UI_CNR_BOTTOM_LEFT) ? 9 : 1;
-
-  immBegin(filled ? GPU_PRIM_TRI_FAN : GPU_PRIM_LINE_LOOP, vert_count);
-
-  /* start with corner right-bottom */
-  if (roundboxtype & UI_CNR_BOTTOM_RIGHT) {
-
-    round_box_shade_col(color, coltop, coldown, 0.0);
-    immVertex2f(pos, maxx - rad, miny);
-
-    for (a = 0; a < 7; a++) {
-      round_box_shade_col(color, coltop, coldown, vec[a][1] * idiv);
-      immVertex2f(pos, maxx - rad + vec[a][0], miny + vec[a][1]);
-    }
-
-    round_box_shade_col(color, coltop, coldown, rad * idiv);
-    immVertex2f(pos, maxx, miny + rad);
-  }
-  else {
-    round_box_shade_col(color, coltop, coldown, 0.0);
-    immVertex2f(pos, maxx, miny);
-  }
-
-  /* corner right-top */
-  if (roundboxtype & UI_CNR_TOP_RIGHT) {
-
-    round_box_shade_col(color, coltop, coldown, (div - rad) * idiv);
-    immVertex2f(pos, maxx, maxy - rad);
-
-    for (a = 0; a < 7; a++) {
-      round_box_shade_col(color, coltop, coldown, (div - rad + vec[a][1]) * idiv);
-      immVertex2f(pos, maxx - vec[a][1], maxy - rad + vec[a][0]);
-    }
-    round_box_shade_col(color, coltop, coldown, 1.0);
-    immVertex2f(pos, maxx - rad, maxy);
-  }
-  else {
-    round_box_shade_col(color, coltop, coldown, 1.0);
-    immVertex2f(pos, maxx, maxy);
-  }
-
-  /* corner left-top */
-  if (roundboxtype & UI_CNR_TOP_LEFT) {
-
-    round_box_shade_col(color, coltop, coldown, 1.0);
-    immVertex2f(pos, minx + rad, maxy);
-
-    for (a = 0; a < 7; a++) {
-      round_box_shade_col(color, coltop, coldown, (div - vec[a][1]) * idiv);
-      immVertex2f(pos, minx + rad - vec[a][0], maxy - vec[a][1]);
-    }
-
-    round_box_shade_col(color, coltop, coldown, (div - rad) * idiv);
-    immVertex2f(pos, minx, maxy - rad);
-  }
-  else {
-    round_box_shade_col(color, coltop, coldown, 1.0);
-    immVertex2f(pos, minx, maxy);
-  }
-
-  /* corner left-bottom */
-  if (roundboxtype & UI_CNR_BOTTOM_LEFT) {
-
-    round_box_shade_col(color, coltop, coldown, rad * idiv);
-    immVertex2f(pos, minx, miny + rad);
-
-    for (a = 0; a < 7; a++) {
-      round_box_shade_col(color, coltop, coldown, (rad - vec[a][1]) * idiv);
-      immVertex2f(pos, minx + vec[a][1], miny + rad - vec[a][0]);
-    }
-
-    round_box_shade_col(color, coltop, coldown, 0.0);
-    immVertex2f(pos, minx + rad, miny);
-  }
-  else {
-    round_box_shade_col(color, coltop, coldown, 0.0);
-    immVertex2f(pos, minx, miny);
-  }
-
-  immEnd();
-  immUnbindProgram();
-#endif
-
-  uiWidgetBaseParameters widget_params = {
-      .recti.xmin = minx,
-      .recti.ymin = miny,
-      .recti.xmax = maxx,
-      .recti.ymax = maxy,
-      .radi = rad,
-      .round_corners[0] = (roundboxtype & UI_CNR_BOTTOM_LEFT) ? 1.0f : 0.0f,
-      .round_corners[1] = (roundboxtype & UI_CNR_BOTTOM_RIGHT) ? 1.0f : 0.0f,
-      .round_corners[2] = (roundboxtype & UI_CNR_TOP_RIGHT) ? 1.0f : 0.0f,
-      .round_corners[3] = (roundboxtype & UI_CNR_TOP_LEFT) ? 1.0f : 0.0f,
-      .color_inner1[0] = min_ff(1.0f, col[0] + shadetop),
-      .color_inner2[0] = max_ff(0.0f, col[0] + shadedown),
-      .color_inner1[1] = min_ff(1.0f, col[1] + shadetop),
-      .color_inner2[1] = max_ff(0.0f, col[1] + shadedown),
-      .color_inner1[2] = min_ff(1.0f, col[2] + shadetop),
-      .color_inner2[2] = max_ff(0.0f, col[2] + shadedown),
-      .color_inner1[3] = 1.0f,
-      .color_inner2[3] = 1.0f,
-      .alpha_discard = 1.0f,
-  };
-
-  GPUBatch *batch = ui_batch_roundbox_get(filled, false);
-  GPU_batch_program_set_builtin(batch, GPU_SHADER_2D_WIDGET_BASE);
-  GPU_batch_uniform_4fv_array(batch, "parameters", 11, (float *)&widget_params);
-  GPU_batch_draw(batch);
-}
-
-#if 0  /* unused */
-/* linear vertical shade within button or in outline */
-/* view2d scrollers use it */
-void UI_draw_roundbox_shade_y(bool filled,
-                              float minx,
-                              float miny,
-                              float maxx,
-                              float maxy,
-                              float rad,
-                              float shadeleft,
-                              float shaderight,
-                              const float col[4])
-{
-  float vec[7][2] = {
-      {0.195, 0.02},
-      {0.383, 0.067},
-      {0.55, 0.169},
-      {0.707, 0.293},
-      {0.831, 0.45},
-      {0.924, 0.617},
-      {0.98, 0.805},
-  };
-  const float div = maxx - minx;
-  const float idiv = 1.0f / div;
-  float colLeft[3], colRight[3];
-  int vert_count = 0;
-  int a;
-
-  /* mult */
-  for (a = 0; a < 7; a++) {
-    mul_v2_fl(vec[a], rad);
-  }
-
-  GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-  uint color = GPU_vertformat_attr_add(format, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
-
-  immBindBuiltinProgram(GPU_SHADER_2D_SMOOTH_COLOR);
-
-  /* 'shade' defines strength of shading */
-  colLeft[0] = min_ff(1.0f, col[0] + shadeleft);
-  colLeft[1] = min_ff(1.0f, col[1] + shadeleft);
-  colLeft[2] = min_ff(1.0f, col[2] + shadeleft);
-  colRight[0] = max_ff(0.0f, col[0] + shaderight);
-  colRight[1] = max_ff(0.0f, col[1] + shaderight);
-  colRight[2] = max_ff(0.0f, col[2] + shaderight);
-
-  vert_count += (roundboxtype & UI_CNR_BOTTOM_RIGHT) ? 9 : 1;
-  vert_count += (roundboxtype & UI_CNR_TOP_RIGHT) ? 9 : 1;
-  vert_count += (roundboxtype & UI_CNR_TOP_LEFT) ? 9 : 1;
-  vert_count += (roundboxtype & UI_CNR_BOTTOM_LEFT) ? 9 : 1;
-
-  immBegin(filled ? GPU_PRIM_TRI_FAN : GPU_PRIM_LINE_LOOP, vert_count);
-
-  /* start with corner right-bottom */
-  if (roundboxtype & UI_CNR_BOTTOM_RIGHT) {
-    round_box_shade_col(color, colLeft, colRight, 0.0);
-    immVertex2f(pos, maxx - rad, miny);
-
-    for (a = 0; a < 7; a++) {
-      round_box_shade_col(color, colLeft, colRight, vec[a][0] * idiv);
-      immVertex2f(pos, maxx - rad + vec[a][0], miny + vec[a][1]);
-    }
-
-    round_box_shade_col(color, colLeft, colRight, rad * idiv);
-    immVertex2f(pos, maxx, miny + rad);
-  }
-  else {
-    round_box_shade_col(color, colLeft, colRight, 0.0);
-    immVertex2f(pos, maxx, miny);
-  }
-
-  /* corner right-top */
-  if (roundboxtype & UI_CNR_TOP_RIGHT) {
-    round_box_shade_col(color, colLeft, colRight, 0.0);
-    immVertex2f(pos, maxx, maxy - rad);
-
-    for (a = 0; a < 7; a++) {
-
-      round_box_shade_col(color, colLeft, colRight, (div - rad - vec[a][0]) * idiv);
-      immVertex2f(pos, maxx - vec[a][1], maxy - rad + vec[a][0]);
-    }
-    round_box_shade_col(color, colLeft, colRight, (div - rad) * idiv);
-    immVertex2f(pos, maxx - rad, maxy);
-  }
-  else {
-    round_box_shade_col(color, colLeft, colRight, 0.0);
-    immVertex2f(pos, maxx, maxy);
-  }
-
-  /* corner left-top */
-  if (roundboxtype & UI_CNR_TOP_LEFT) {
-    round_box_shade_col(color, colLeft, colRight, (div - rad) * idiv);
-    immVertex2f(pos, minx + rad, maxy);
-
-    for (a = 0; a < 7; a++) {
-      round_box_shade_col(color, colLeft, colRight, (div - rad + vec[a][0]) * idiv);
-      immVertex2f(pos, minx + rad - vec[a][0], maxy - vec[a][1]);
-    }
-
-    round_box_shade_col(color, colLeft, colRight, 1.0);
-    immVertex2f(pos, minx, maxy - rad);
-  }
-  else {
-    round_box_shade_col(color, colLeft, colRight, 1.0);
-    immVertex2f(pos, minx, maxy);
-  }
-
-  /* corner left-bottom */
-  if (roundboxtype & UI_CNR_BOTTOM_LEFT) {
-    round_box_shade_col(color, colLeft, colRight, 1.0);
-    immVertex2f(pos, minx, miny + rad);
-
-    for (a = 0; a < 7; a++) {
-      round_box_shade_col(color, colLeft, colRight, (vec[a][0]) * idiv);
-      immVertex2f(pos, minx + vec[a][1], miny + rad - vec[a][0]);
-    }
-
-    round_box_shade_col(color, colLeft, colRight, 1.0);
-    immVertex2f(pos, minx + rad, miny);
-  }
-  else {
-    round_box_shade_col(color, colLeft, colRight, 1.0);
-    immVertex2f(pos, minx, miny);
-  }
-
-  immEnd();
-  immUnbindProgram();
-}
-#endif /* unused */
 
 void UI_draw_text_underline(int pos_x, int pos_y, int len, int height, const float color[4])
 {
-  int ofs_y = 4 * U.pixelsize;
+  const int ofs_y = 4 * U.pixelsize;
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
+  const uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_I32, 2, GPU_FETCH_INT_TO_FLOAT);
 
   immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
   immUniformColor4fv(color);
@@ -602,16 +180,15 @@ void UI_draw_text_underline(int pos_x, int pos_y, int len, int height, const flo
 
 /* ************** SPECIAL BUTTON DRAWING FUNCTIONS ************* */
 
-/* based on UI_draw_roundbox_gl_mode,
- * check on making a version which allows us to skip some sides */
 void ui_draw_but_TAB_outline(const rcti *rect,
                              float rad,
                              uchar highlight[3],
                              uchar highlight_fade[3])
 {
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-  uint col = GPU_vertformat_attr_add(format, "color", GPU_COMP_U8, 3, GPU_FETCH_INT_TO_FLOAT_UNIT);
+  const uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  const uint col = GPU_vertformat_attr_add(
+      format, "color", GPU_COMP_U8, 3, GPU_FETCH_INT_TO_FLOAT_UNIT);
   /* add a 1px offset, looks nicer */
   const int minx = rect->xmin + U.pixelsize, maxx = rect->xmax - U.pixelsize;
   const int miny = rect->ymin + U.pixelsize, maxy = rect->ymax - U.pixelsize;
@@ -623,7 +200,7 @@ void ui_draw_but_TAB_outline(const rcti *rect,
       {0.98, 0.805},
   };
 
-  /* mult */
+  /* Multiply. */
   for (a = 0; a < 4; a++) {
     mul_v2_fl(vec[a], rad);
   }
@@ -707,20 +284,19 @@ void ui_draw_but_IMAGE(ARegion *UNUSED(region),
     return;
   }
 
-  int w = BLI_rcti_size_x(rect);
-  int h = BLI_rcti_size_y(rect);
+  const int w = BLI_rcti_size_x(rect);
+  const int h = BLI_rcti_size_y(rect);
 
   /* scissor doesn't seem to be doing the right thing...? */
 #  if 0
   /* prevent drawing outside widget area */
   int scissor[4];
-  GPU_scissor_get_i(scissor);
+  GPU_scissor_get(scissor);
   GPU_scissor(rect->xmin, rect->ymin, w, h);
 #  endif
 
-  GPU_blend(true);
   /* Combine with premultiplied alpha. */
-  GPU_blend_set_func_separate(GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_ALPHA_PREMULT);
 
   if (w != ibuf->x || h != ibuf->y) {
     /* We scale the bitmap, rather than have OGL do a worse job. */
@@ -734,84 +310,71 @@ void ui_draw_but_IMAGE(ARegion *UNUSED(region),
   }
 
   IMMDrawPixelsTexState state = immDrawPixelsTexSetup(GPU_SHADER_2D_IMAGE_COLOR);
-  immDrawPixelsTex(&state,
-                   (float)rect->xmin,
-                   (float)rect->ymin,
-                   ibuf->x,
-                   ibuf->y,
-                   GL_RGBA,
-                   GL_UNSIGNED_BYTE,
-                   GL_NEAREST,
-                   ibuf->rect,
-                   1.0f,
-                   1.0f,
-                   col);
+  immDrawPixelsTexTiled(&state,
+                        (float)rect->xmin,
+                        (float)rect->ymin,
+                        ibuf->x,
+                        ibuf->y,
+                        GPU_RGBA8,
+                        false,
+                        ibuf->rect,
+                        1.0f,
+                        1.0f,
+                        col);
 
-  GPU_blend(false);
-  /* Reset default. */
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_NONE);
 
 #  if 0
-  // restore scissortest
+  /* Restore scissor-test. */
   GPU_scissor(scissor[0], scissor[1], scissor[2], scissor[3]);
 #  endif
 
 #endif
 }
 
-/**
- * Draw title and text safe areas.
- *
- * \note This function is to be used with the 2D dashed shader enabled.
- *
- * \param pos: is a PRIM_FLOAT, 2, GPU_FETCH_FLOAT vertex attribute.
- * \param line_origin: is a PRIM_FLOAT, 2, GPU_FETCH_FLOAT vertex attribute.
- *
- * The next 4 parameters are the offsets for the view, not the zones.
- */
 void UI_draw_safe_areas(uint pos,
-                        float x1,
-                        float x2,
-                        float y1,
-                        float y2,
+                        const rctf *rect,
                         const float title_aspect[2],
                         const float action_aspect[2])
 {
-  const float size_x_half = (x2 - x1) * 0.5f;
-  const float size_y_half = (y2 - y1) * 0.5f;
+  const float size_x_half = (rect->xmax - rect->xmin) * 0.5f;
+  const float size_y_half = (rect->ymax - rect->ymin) * 0.5f;
 
   const float *safe_areas[] = {title_aspect, action_aspect};
   const int safe_len = ARRAY_SIZE(safe_areas);
 
   for (int i = 0; i < safe_len; i++) {
     if (safe_areas[i][0] || safe_areas[i][1]) {
-      float margin_x = safe_areas[i][0] * size_x_half;
-      float margin_y = safe_areas[i][1] * size_y_half;
+      const float margin_x = safe_areas[i][0] * size_x_half;
+      const float margin_y = safe_areas[i][1] * size_y_half;
 
-      float minx = x1 + margin_x;
-      float miny = y1 + margin_y;
-      float maxx = x2 - margin_x;
-      float maxy = y2 - margin_y;
+      const float minx = rect->xmin + margin_x;
+      const float miny = rect->ymin + margin_y;
+      const float maxx = rect->xmax - margin_x;
+      const float maxy = rect->ymax - margin_y;
 
       imm_draw_box_wire_2d(pos, minx, miny, maxx, maxy);
     }
   }
 }
 
-static void draw_scope_end(const rctf *rect, GLint *scissor)
+static void draw_scope_end(const rctf *rect)
 {
-  /* restore scissortest */
-  GPU_scissor(scissor[0], scissor[1], scissor[2], scissor[3]);
-
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   /* outline */
   UI_draw_roundbox_corner_set(UI_CNR_ALL);
-  float color[4] = {0.0f, 0.0f, 0.0f, 0.5f};
+  const float color[4] = {0.0f, 0.0f, 0.0f, 0.5f};
   UI_draw_roundbox_4fv(
-      false, rect->xmin - 1, rect->ymin, rect->xmax + 1, rect->ymax + 1, 3.0f, color);
+      &(const rctf){
+          .xmin = rect->xmin - 1,
+          .xmax = rect->xmax + 1,
+          .ymin = rect->ymin,
+          .ymax = rect->ymax + 1,
+      },
+      false,
+      3.0f,
+      color);
 }
 
 static void histogram_draw_one(float r,
@@ -827,7 +390,7 @@ static void histogram_draw_one(float r,
                                const bool is_line,
                                uint pos_attr)
 {
-  float color[4] = {r, g, b, alpha};
+  const float color[4] = {r, g, b, alpha};
 
   /* that can happen */
   if (res == 0) {
@@ -835,7 +398,7 @@ static void histogram_draw_one(float r,
   }
 
   GPU_line_smooth(true);
-  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE, GL_ONE, GL_ONE);
+  GPU_blend(GPU_BLEND_ADDITIVE);
 
   immUniformColor4fv(color);
 
@@ -845,10 +408,12 @@ static void histogram_draw_one(float r,
 
     immBegin(GPU_PRIM_LINE_STRIP, res);
     for (int i = 0; i < res; i++) {
-      float x2 = x + i * (w / (float)res);
+      const float x2 = x + i * (w / (float)res);
       immVertex2f(pos_attr, x2, y + (data[i] * h));
     }
     immEnd();
+
+    GPU_line_width(1.0f);
   }
   else {
     /* under the curve */
@@ -856,7 +421,7 @@ static void histogram_draw_one(float r,
     immVertex2f(pos_attr, x, y);
     immVertex2f(pos_attr, x, y + (data[0] * h));
     for (int i = 1; i < res; i++) {
-      float x2 = x + i * (w / (float)res);
+      const float x2 = x + i * (w / (float)res);
       immVertex2f(pos_attr, x2, y + (data[i] * h));
       immVertex2f(pos_attr, x2, y);
     }
@@ -865,11 +430,10 @@ static void histogram_draw_one(float r,
     /* curve outline */
     immUniformColor4f(0.0f, 0.0f, 0.0f, 0.25f);
 
-    GPU_blend_set_func_separate(
-        GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+    GPU_blend(GPU_BLEND_ALPHA);
     immBegin(GPU_PRIM_LINE_STRIP, res);
     for (int i = 0; i < res; i++) {
-      float x2 = x + i * (w / (float)res);
+      const float x2 = x + i * (w / (float)res);
       immVertex2f(pos_attr, x2, y + (data[i] * h));
     }
     immEnd();
@@ -886,7 +450,7 @@ void ui_draw_but_HISTOGRAM(ARegion *UNUSED(region),
                            const rcti *recti)
 {
   Histogram *hist = (Histogram *)but->poin;
-  int res = hist->x_resolution;
+  const int res = hist->x_resolution;
   const bool is_line = (hist->flag & HISTO_FLAG_LINE) != 0;
 
   rctf rect = {
@@ -896,29 +460,35 @@ void ui_draw_but_HISTOGRAM(ARegion *UNUSED(region),
       .ymax = (float)recti->ymax - 1,
   };
 
-  float w = BLI_rctf_size_x(&rect);
-  float h = BLI_rctf_size_y(&rect) * hist->ymax;
+  const float w = BLI_rctf_size_x(&rect);
+  const float h = BLI_rctf_size_y(&rect) * hist->ymax;
 
-  GPU_blend(true);
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   float color[4];
   UI_GetThemeColor4fv(TH_PREVIEW_BACK, color);
   UI_draw_roundbox_corner_set(UI_CNR_ALL);
   UI_draw_roundbox_4fv(
-      true, rect.xmin - 1, rect.ymin - 1, rect.xmax + 1, rect.ymax + 1, 3.0f, color);
+      &(const rctf){
+          .xmin = rect.xmin - 1,
+          .xmax = rect.xmax + 1,
+          .ymin = rect.ymin - 1,
+          .ymax = rect.ymax + 1,
+      },
+      true,
+      3.0f,
+      color);
 
   /* need scissor test, histogram can draw outside of boundary */
   int scissor[4];
-  GPU_scissor_get_i(scissor);
+  GPU_scissor_get(scissor);
   GPU_scissor((rect.xmin - 1),
               (rect.ymin - 1),
               (rect.xmax + 1) - (rect.xmin - 1),
               (rect.ymax + 1) - (rect.ymin - 1));
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  const uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
 
   immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
 
@@ -952,15 +522,15 @@ void ui_draw_but_HISTOGRAM(ARegion *UNUSED(region),
         1.0, 1.0, 1.0, 0.75, rect.xmin, rect.ymin, w, h, hist->data_a, res, is_line, pos);
   }
   else {
-    if (hist->mode == HISTO_MODE_RGB || hist->mode == HISTO_MODE_R) {
+    if (ELEM(hist->mode, HISTO_MODE_RGB, HISTO_MODE_R)) {
       histogram_draw_one(
           1.0, 0.0, 0.0, 0.75, rect.xmin, rect.ymin, w, h, hist->data_r, res, is_line, pos);
     }
-    if (hist->mode == HISTO_MODE_RGB || hist->mode == HISTO_MODE_G) {
+    if (ELEM(hist->mode, HISTO_MODE_RGB, HISTO_MODE_G)) {
       histogram_draw_one(
           0.0, 1.0, 0.0, 0.75, rect.xmin, rect.ymin, w, h, hist->data_g, res, is_line, pos);
     }
-    if (hist->mode == HISTO_MODE_RGB || hist->mode == HISTO_MODE_B) {
+    if (ELEM(hist->mode, HISTO_MODE_RGB, HISTO_MODE_B)) {
       histogram_draw_one(
           0.0, 0.0, 1.0, 0.75, rect.xmin, rect.ymin, w, h, hist->data_b, res, is_line, pos);
     }
@@ -968,23 +538,26 @@ void ui_draw_but_HISTOGRAM(ARegion *UNUSED(region),
 
   immUnbindProgram();
 
+  /* Restore scissor test. */
+  GPU_scissor(UNPACK4(scissor));
+
   /* outline */
-  draw_scope_end(&rect, scissor);
+  draw_scope_end(&rect);
 }
 
 #undef HISTOGRAM_TOT_GRID_LINES
 
-static void waveform_draw_one(float *waveform, int nbr, const float col[3])
+static void waveform_draw_one(float *waveform, int waveform_num, const float col[3])
 {
   GPUVertFormat format = {0};
-  uint pos_id = GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  const uint pos_id = GPU_vertformat_attr_add(&format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
 
   GPUVertBuf *vbo = GPU_vertbuf_create_with_format(&format);
-  GPU_vertbuf_data_alloc(vbo, nbr);
+  GPU_vertbuf_data_alloc(vbo, waveform_num);
 
   GPU_vertbuf_attr_fill(vbo, pos_id, waveform);
 
-  /* TODO store the GPUBatch inside the scope */
+  /* TODO: store the #GPUBatch inside the scope. */
   GPUBatch *batch = GPU_batch_create_ex(GPU_PRIM_POINTS, vbo, NULL, GPU_BATCH_OWNS_VBO);
   GPU_batch_program_set_builtin(batch, GPU_SHADER_2D_UNIFORM_COLOR);
   GPU_batch_uniform_4f(batch, "color", col[0], col[1], col[2], 1.0f);
@@ -1001,7 +574,7 @@ void ui_draw_but_WAVEFORM(ARegion *UNUSED(region),
   Scopes *scopes = (Scopes *)but->poin;
   int scissor[4];
   float colors[3][3];
-  float colorsycc[3][3] = {{1, 0, 1}, {1, 1, 0}, {0, 1, 1}};
+  const float colorsycc[3][3] = {{1, 0, 1}, {1, 1, 0}, {0, 1, 1}};
   /* colors  pre multiplied by alpha for speed up */
   float colors_alpha[3][3], colorsycc_alpha[3][3];
   float min, max;
@@ -1020,13 +593,13 @@ void ui_draw_but_WAVEFORM(ARegion *UNUSED(region),
   if (scopes->wavefrm_yfac < 0.5f) {
     scopes->wavefrm_yfac = 0.98f;
   }
-  float w = BLI_rctf_size_x(&rect) - 7;
-  float h = BLI_rctf_size_y(&rect) * scopes->wavefrm_yfac;
-  float yofs = rect.ymin + (BLI_rctf_size_y(&rect) - h) * 0.5f;
-  float w3 = w / 3.0f;
+  const float w = BLI_rctf_size_x(&rect) - 7;
+  const float h = BLI_rctf_size_y(&rect) * scopes->wavefrm_yfac;
+  const float yofs = rect.ymin + (BLI_rctf_size_y(&rect) - h) * 0.5f;
+  const float w3 = w / 3.0f;
 
   /* log scale for alpha */
-  float alpha = scopes->wavefrm_alpha * scopes->wavefrm_alpha;
+  const float alpha = scopes->wavefrm_alpha * scopes->wavefrm_alpha;
 
   unit_m3(colors);
 
@@ -1040,18 +613,24 @@ void ui_draw_but_WAVEFORM(ARegion *UNUSED(region),
   /* Flush text cache before changing scissors. */
   BLF_batch_draw_flush();
 
-  GPU_blend(true);
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   float color[4];
   UI_GetThemeColor4fv(TH_PREVIEW_BACK, color);
   UI_draw_roundbox_corner_set(UI_CNR_ALL);
   UI_draw_roundbox_4fv(
-      true, rect.xmin - 1, rect.ymin - 1, rect.xmax + 1, rect.ymax + 1, 3.0f, color);
+      &(const rctf){
+          .xmin = rect.xmin - 1,
+          .xmax = rect.xmax + 1,
+          .ymin = rect.ymin - 1,
+          .ymax = rect.ymax + 1,
+      },
+      true,
+      3.0f,
+      color);
 
   /* need scissor test, waveform can draw outside of boundary */
-  GPU_scissor_get_i(scissor);
+  GPU_scissor_get(scissor);
   GPU_scissor((rect.xmin - 1),
               (rect.ymin - 1),
               (rect.xmax + 1) - (rect.xmin - 1),
@@ -1069,12 +648,10 @@ void ui_draw_but_WAVEFORM(ARegion *UNUSED(region),
   /* Flush text cache before drawing things on top. */
   BLF_batch_draw_flush();
 
-  GPU_blend(true);
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  const uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
 
   immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
 
@@ -1136,12 +713,12 @@ void ui_draw_but_WAVEFORM(ARegion *UNUSED(region),
   }
 
   if (scopes->ok && scopes->waveform_1 != NULL) {
-    glBlendFunc(GL_ONE, GL_ONE);
+    GPU_blend(GPU_BLEND_ADDITIVE);
     GPU_point_size(1.0);
 
     /* LUMA (1 channel) */
     if (scopes->wavefrm_mode == SCOPES_WAVEFRM_LUMA) {
-      float col[3] = {alpha, alpha, alpha};
+      const float col[3] = {alpha, alpha, alpha};
 
       GPU_matrix_push();
       GPU_matrix_translate_2f(rect.xmin, yofs);
@@ -1181,7 +758,7 @@ void ui_draw_but_WAVEFORM(ARegion *UNUSED(region),
                   SCOPES_WAVEFRM_YCC_601,
                   SCOPES_WAVEFRM_YCC_709,
                   SCOPES_WAVEFRM_YCC_JPEG)) {
-      int rgb = (scopes->wavefrm_mode == SCOPES_WAVEFRM_RGB_PARADE);
+      const int rgb = (scopes->wavefrm_mode == SCOPES_WAVEFRM_RGB_PARADE);
 
       GPU_matrix_push();
       GPU_matrix_translate_2f(rect.xmin, yofs);
@@ -1226,10 +803,13 @@ void ui_draw_but_WAVEFORM(ARegion *UNUSED(region),
 
   immUnbindProgram();
 
-  /* outline */
-  draw_scope_end(&rect, scissor);
+  /* Restore scissor test. */
+  GPU_scissor(UNPACK4(scissor));
 
-  GPU_blend(false);
+  /* outline */
+  draw_scope_end(&rect);
+
+  GPU_blend(GPU_BLEND_NONE);
 }
 
 static float polar_to_x(float center, float diam, float ampli, float angle)
@@ -1362,34 +942,40 @@ void ui_draw_but_VECTORSCOPE(ARegion *UNUSED(region),
       .ymax = (float)recti->ymax - 1,
   };
 
-  float w = BLI_rctf_size_x(&rect);
-  float h = BLI_rctf_size_y(&rect);
-  float centerx = rect.xmin + w * 0.5f;
-  float centery = rect.ymin + h * 0.5f;
-  float diam = (w < h) ? w : h;
+  const float w = BLI_rctf_size_x(&rect);
+  const float h = BLI_rctf_size_y(&rect);
+  const float centerx = rect.xmin + w * 0.5f;
+  const float centery = rect.ymin + h * 0.5f;
+  const float diam = (w < h) ? w : h;
 
-  float alpha = scopes->vecscope_alpha * scopes->vecscope_alpha * scopes->vecscope_alpha;
+  const float alpha = scopes->vecscope_alpha * scopes->vecscope_alpha * scopes->vecscope_alpha;
 
-  GPU_blend(true);
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   float color[4];
   UI_GetThemeColor4fv(TH_PREVIEW_BACK, color);
   UI_draw_roundbox_corner_set(UI_CNR_ALL);
   UI_draw_roundbox_4fv(
-      true, rect.xmin - 1, rect.ymin - 1, rect.xmax + 1, rect.ymax + 1, 3.0f, color);
+      &(const rctf){
+          .xmin = rect.xmin - 1,
+          .xmax = rect.xmax + 1,
+          .ymin = rect.ymin - 1,
+          .ymax = rect.ymax + 1,
+      },
+      true,
+      3.0f,
+      color);
 
   /* need scissor test, hvectorscope can draw outside of boundary */
   int scissor[4];
-  GPU_scissor_get_i(scissor);
+  GPU_scissor_get(scissor);
   GPU_scissor((rect.xmin - 1),
               (rect.ymin - 1),
               (rect.xmax + 1) - (rect.xmin - 1),
               (rect.ymax + 1) - (rect.ymin - 1));
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  const uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
 
   immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
 
@@ -1434,9 +1020,9 @@ void ui_draw_but_VECTORSCOPE(ARegion *UNUSED(region),
 
   if (scopes->ok && scopes->vecscope != NULL) {
     /* pixel point cloud */
-    float col[3] = {alpha, alpha, alpha};
+    const float col[3] = {alpha, alpha, alpha};
 
-    glBlendFunc(GL_ONE, GL_ONE);
+    GPU_blend(GPU_BLEND_ADDITIVE);
     GPU_point_size(1.0);
 
     GPU_matrix_push();
@@ -1450,10 +1036,12 @@ void ui_draw_but_VECTORSCOPE(ARegion *UNUSED(region),
 
   immUnbindProgram();
 
+  /* Restore scissor test. */
+  GPU_scissor(UNPACK4(scissor));
   /* outline */
-  draw_scope_end(&rect, scissor);
+  draw_scope_end(&rect);
 
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 }
 
 static void ui_draw_colorband_handle_tri_hlight(
@@ -1497,12 +1085,23 @@ static void ui_draw_colorband_handle_tri(
 static void ui_draw_colorband_handle_box(
     uint pos, float x1, float y1, float x2, float y2, bool fill)
 {
-  immBegin(fill ? GPU_PRIM_TRI_FAN : GPU_PRIM_LINE_LOOP, 4);
-  immVertex2f(pos, x1, y1);
-  immVertex2f(pos, x1, y2);
-  immVertex2f(pos, x2, y2);
-  immVertex2f(pos, x2, y1);
-  immEnd();
+  if (fill) {
+    immBegin(GPU_PRIM_TRI_STRIP, 4);
+    immVertex2f(pos, x2, y1);
+    immVertex2f(pos, x1, y1);
+    immVertex2f(pos, x2, y2);
+    immVertex2f(pos, x1, y2);
+    immEnd();
+  }
+  else {
+    immBegin(GPU_PRIM_LINE_STRIP, 5);
+    immVertex2f(pos, x1, y1);
+    immVertex2f(pos, x1, y2);
+    immVertex2f(pos, x2, y2);
+    immVertex2f(pos, x2, y1);
+    immVertex2f(pos, x1, y1);
+    immEnd();
+  }
 }
 
 static void ui_draw_colorband_handle(uint shdr_pos,
@@ -1516,11 +1115,11 @@ static void ui_draw_colorband_handle(uint shdr_pos,
   const float min_width = 3.0f;
   float colf[3] = {UNPACK3(rgb)};
 
-  float half_width = floorf(sizey / 3.5f);
-  float height = half_width * 1.4f;
+  const float half_width = floorf(sizey / 3.5f);
+  const float height = half_width * 1.4f;
 
   float y1 = rect->ymin + (sizey * 0.16f);
-  float y2 = rect->ymax;
+  const float y2 = rect->ymax;
 
   /* align to pixels */
   x = floorf(x + 0.5f);
@@ -1536,8 +1135,8 @@ static void ui_draw_colorband_handle(uint shdr_pos,
     immUniform2f("viewport_size", viewport_size[2] / UI_DPI_FAC, viewport_size[3] / UI_DPI_FAC);
 
     immUniform1i("colors_len", 2); /* "advanced" mode */
-    immUniformArray4fv(
-        "colors", (float *)(float[][4]){{0.8f, 0.8f, 0.8f, 1.0f}, {0.0f, 0.0f, 0.0f, 1.0f}}, 2);
+    immUniform4f("color", 0.8f, 0.8f, 0.8f, 1.0f);
+    immUniform4f("color2", 0.0f, 0.0f, 0.0f, 1.0f);
     immUniform1f("dash_width", active ? 4.0f : 2.0f);
     immUniform1f("dash_factor", 0.5f);
 
@@ -1564,7 +1163,7 @@ static void ui_draw_colorband_handle(uint shdr_pos,
       shdr_pos, x - half_width, y1 - 1, x + half_width, y1 + height, false);
 
   /* draw all triangles blended */
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   ui_draw_colorband_handle_tri(shdr_pos, x, y1 + height, half_width, half_width, true);
 
@@ -1588,7 +1187,7 @@ static void ui_draw_colorband_handle(uint shdr_pos,
   immUniformColor3ub(0, 0, 0);
   ui_draw_colorband_handle_tri_hlight(shdr_pos, x, y1 + height, half_width, half_width);
 
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 
   immUniformColor3ub(128, 128, 128);
   ui_draw_colorband_handle_box(
@@ -1608,16 +1207,18 @@ void ui_draw_but_COLORBAND(uiBut *but, const uiWidgetColors *UNUSED(wcol), const
   struct ColorManagedDisplay *display = ui_block_cm_display_get(but->block);
   uint pos_id, col_id;
 
-  ColorBand *coba = (ColorBand *)(but->editcoba ? but->editcoba : but->poin);
+  uiButColorBand *but_coba = (uiButColorBand *)but;
+  ColorBand *coba = (but_coba->edit_coba == NULL) ? (ColorBand *)but->poin : but_coba->edit_coba;
+
   if (coba == NULL) {
     return;
   }
 
-  float x1 = rect->xmin;
-  float sizex = rect->xmax - x1;
-  float sizey = BLI_rcti_size_y(rect);
-  float sizey_solid = sizey * 0.25f;
-  float y1 = rect->ymin;
+  const float x1 = rect->xmin;
+  const float sizex = rect->xmax - x1;
+  const float sizey = BLI_rcti_size_y(rect);
+  const float sizey_solid = sizey * 0.25f;
+  const float y1 = rect->ymin;
 
   /* exit early if too narrow */
   if (sizex <= 0) {
@@ -1644,7 +1245,7 @@ void ui_draw_but_COLORBAND(uiBut *but, const uiWidgetColors *UNUSED(wcol), const
   immBindBuiltinProgram(GPU_SHADER_2D_SMOOTH_COLOR);
 
   /* layer: color ramp */
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   CBData *cbd = coba->data;
 
@@ -1656,7 +1257,7 @@ void ui_draw_but_COLORBAND(uiBut *but, const uiWidgetColors *UNUSED(wcol), const
 
   immBegin(GPU_PRIM_TRI_STRIP, (sizex + 1) * 2);
   for (int a = 0; a <= sizex; a++) {
-    float pos = ((float)a) / sizex;
+    const float pos = ((float)a) / sizex;
     BKE_colorband_evaluate(coba, pos, colf);
     if (display) {
       IMB_colormanagement_scene_linear_to_display_v3(colf, display);
@@ -1676,7 +1277,7 @@ void ui_draw_but_COLORBAND(uiBut *but, const uiWidgetColors *UNUSED(wcol), const
 
   immBegin(GPU_PRIM_TRI_STRIP, (sizex + 1) * 2);
   for (int a = 0; a <= sizex; a++) {
-    float pos = ((float)a) / sizex;
+    const float pos = ((float)a) / sizex;
     BKE_colorband_evaluate(coba, pos, colf);
     if (display) {
       IMB_colormanagement_scene_linear_to_display_v3(colf, display);
@@ -1692,7 +1293,7 @@ void ui_draw_but_COLORBAND(uiBut *but, const uiWidgetColors *UNUSED(wcol), const
 
   immUnbindProgram();
 
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 
   /* New format */
   format = immVertexFormat();
@@ -1704,7 +1305,7 @@ void ui_draw_but_COLORBAND(uiBut *but, const uiWidgetColors *UNUSED(wcol), const
   imm_draw_box_wire_2d(pos_id, x1, y1, x1 + sizex, rect->ymax);
 
   /* layer: box outline */
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
   immUniformColor4f(0.0f, 0.0f, 0.0f, 0.5f);
 
   immBegin(GPU_PRIM_LINES, 2);
@@ -1719,12 +1320,12 @@ void ui_draw_but_COLORBAND(uiBut *but, const uiWidgetColors *UNUSED(wcol), const
   immVertex2f(pos_id, x1 + sizex, y1 - 1);
   immEnd();
 
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 
   /* layer: draw handles */
   for (int a = 0; a < coba->tot; a++, cbd++) {
     if (a != coba->cur) {
-      float pos = x1 + cbd->pos * (sizex - 1) + 1;
+      const float pos = x1 + cbd->pos * (sizex - 1) + 1;
       ui_draw_colorband_handle(pos_id, rect, pos, &cbd->r, display, false);
     }
   }
@@ -1732,27 +1333,38 @@ void ui_draw_but_COLORBAND(uiBut *but, const uiWidgetColors *UNUSED(wcol), const
   /* layer: active handle */
   if (coba->tot != 0) {
     cbd = &coba->data[coba->cur];
-    float pos = x1 + cbd->pos * (sizex - 1) + 1;
+    const float pos = x1 + cbd->pos * (sizex - 1) + 1;
     ui_draw_colorband_handle(pos_id, rect, pos, &cbd->r, display, true);
   }
 
   immUnbindProgram();
 }
 
-void ui_draw_but_UNITVEC(uiBut *but, const uiWidgetColors *wcol, const rcti *rect)
+void ui_draw_but_UNITVEC(uiBut *but,
+                         const uiWidgetColors *wcol,
+                         const rcti *rect,
+                         const float radius)
 {
   /* sphere color */
-  float diffuse[3] = {1.0f, 1.0f, 1.0f};
+  const float diffuse[3] = {1.0f, 1.0f, 1.0f};
   float light[3];
   const float size = 0.5f * min_ff(BLI_rcti_size_x(rect), BLI_rcti_size_y(rect));
 
   /* backdrop */
   UI_draw_roundbox_corner_set(UI_CNR_ALL);
   UI_draw_roundbox_3ub_alpha(
-      true, rect->xmin, rect->ymin, rect->xmax, rect->ymax, 5.0f, wcol->inner, 255);
+      &(const rctf){
+          .xmin = rect->xmin,
+          .xmax = rect->xmax,
+          .ymin = rect->ymin,
+          .ymax = rect->ymax,
+      },
+      true,
+      radius,
+      wcol->inner,
+      255);
 
-  glCullFace(GL_BACK);
-  glEnable(GL_CULL_FACE);
+  GPU_face_culling(GPU_CULL_BACK);
 
   /* setup lights */
   ui_but_v3_get(but, light);
@@ -1760,7 +1372,7 @@ void ui_draw_but_UNITVEC(uiBut *but, const uiWidgetColors *wcol, const rcti *rec
   /* transform to button */
   GPU_matrix_push();
 
-  bool use_project_matrix = (size >= -GPU_MATRIX_ORTHO_CLIP_NEAR_DEFAULT);
+  const bool use_project_matrix = (size >= -GPU_MATRIX_ORTHO_CLIP_NEAR_DEFAULT);
   if (use_project_matrix) {
     GPU_matrix_push_projection();
     GPU_matrix_ortho_set_z(-size, size);
@@ -1771,24 +1383,30 @@ void ui_draw_but_UNITVEC(uiBut *but, const uiWidgetColors *wcol, const rcti *rec
   GPU_matrix_scale_1f(size);
 
   GPUBatch *sphere = GPU_batch_preset_sphere(2);
-  GPU_batch_program_set_builtin(sphere, GPU_SHADER_SIMPLE_LIGHTING);
-  GPU_batch_uniform_4f(sphere, "color", diffuse[0], diffuse[1], diffuse[2], 1.0f);
-  GPU_batch_uniform_3fv(sphere, "light", light);
-  GPU_batch_draw(sphere);
+  struct SimpleLightingData simple_lighting_data;
+  copy_v4_fl4(simple_lighting_data.color, diffuse[0], diffuse[1], diffuse[2], 1.0f);
+  copy_v3_v3(simple_lighting_data.light, light);
+  GPUUniformBuf *ubo = GPU_uniformbuf_create_ex(
+      sizeof(struct SimpleLightingData), &simple_lighting_data, __func__);
 
-  /* restore */
-  glDisable(GL_CULL_FACE);
+  GPU_batch_program_set_builtin(sphere, GPU_SHADER_SIMPLE_LIGHTING);
+  GPU_batch_uniformbuf_bind(sphere, "simple_lighting_data", ubo);
+  GPU_batch_draw(sphere);
+  GPU_uniformbuf_free(ubo);
+
+  /* Restore. */
+  GPU_face_culling(GPU_CULL_NONE);
 
   /* AA circle */
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  const uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
   immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
   immUniformColor3ubv(wcol->inner);
 
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
   GPU_line_smooth(true);
   imm_draw_circle_wire_2d(pos, 0.0f, 0.0f, 1.0f, 32);
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
   GPU_line_smooth(false);
 
   if (use_project_matrix) {
@@ -1801,37 +1419,35 @@ void ui_draw_but_UNITVEC(uiBut *but, const uiWidgetColors *wcol, const rcti *rec
   immUnbindProgram();
 }
 
-static void ui_draw_but_curve_grid(
-    uint pos, const rcti *rect, float zoomx, float zoomy, float offsx, float offsy, float step)
+static void ui_draw_but_curve_grid(const uint pos,
+                                   const rcti *rect,
+                                   const float zoom_x,
+                                   const float zoom_y,
+                                   const float offset_x,
+                                   const float offset_y,
+                                   const float step)
 {
-  float dx = step * zoomx;
-  float fx = rect->xmin + zoomx * (-offsx);
-  if (fx > rect->xmin) {
-    fx -= dx * (floorf(fx - rect->xmin));
+  const float start_x = (ceilf(offset_x / step) * step - offset_x) * zoom_x + rect->xmin;
+  const float start_y = (ceilf(offset_y / step) * step - offset_y) * zoom_y + rect->ymin;
+
+  const int line_count_x = ceilf((rect->xmax - start_x) / (step * zoom_x));
+  const int line_count_y = ceilf((rect->ymax - start_y) / (step * zoom_y));
+
+  if (line_count_x + line_count_y == 0) {
+    return;
   }
 
-  float dy = step * zoomy;
-  float fy = rect->ymin + zoomy * (-offsy);
-  if (fy > rect->ymin) {
-    fy -= dy * (floorf(fy - rect->ymin));
+  immBegin(GPU_PRIM_LINES, (line_count_x + line_count_y) * 2);
+  for (int i = 0; i < line_count_x; i++) {
+    const float x = start_x + i * step * zoom_x;
+    immVertex2f(pos, x, rect->ymin);
+    immVertex2f(pos, x, rect->ymax);
   }
-
-  float line_count = (floorf((rect->xmax - fx) / dx) + 1.0f + floorf((rect->ymax - fy) / dy) +
-                      1.0f);
-
-  immBegin(GPU_PRIM_LINES, (int)line_count * 2);
-  while (fx <= rect->xmax) {
-    immVertex2f(pos, fx, rect->ymin);
-    immVertex2f(pos, fx, rect->ymax);
-    fx += dx;
+  for (int i = 0; i < line_count_y; i++) {
+    const float y = start_y + i * step * zoom_y;
+    immVertex2f(pos, rect->xmin, y);
+    immVertex2f(pos, rect->xmax, y);
   }
-  while (fy <= rect->ymax) {
-    immVertex2f(pos, rect->xmin, fy);
-    immVertex2f(pos, rect->xmax, fy);
-    fy += dy;
-  }
-  /* Note: Assertion fails with here when the view is moved farther below the center.
-   * Missing two points from the number given with immBegin. */
   immEnd();
 }
 
@@ -1858,17 +1474,12 @@ static void gl_shaded_color(const uchar *color, int shade)
 
 void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, const rcti *rect)
 {
-  CurveMapping *cumap;
+  uiButCurveMapping *but_cumap = (uiButCurveMapping *)but;
+  CurveMapping *cumap = (but_cumap->edit_cumap == NULL) ? (CurveMapping *)but->poin :
+                                                          but_cumap->edit_cumap;
 
-  if (but->editcumap) {
-    cumap = but->editcumap;
-  }
-  else {
-    cumap = (CurveMapping *)but->poin;
-  }
-
-  float clip_size_x = BLI_rctf_size_x(&cumap->curr);
-  float clip_size_y = BLI_rctf_size_y(&cumap->curr);
+  const float clip_size_x = BLI_rctf_size_x(&cumap->curr);
+  const float clip_size_y = BLI_rctf_size_y(&cumap->curr);
 
   /* zero-sized curve */
   if (clip_size_x == 0.0f || clip_size_y == 0.0f) {
@@ -1876,10 +1487,10 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
   }
 
   /* calculate offset and zoom */
-  float zoomx = (BLI_rcti_size_x(rect) - 2.0f) / clip_size_x;
-  float zoomy = (BLI_rcti_size_y(rect) - 2.0f) / clip_size_y;
-  float offsx = cumap->curr.xmin - (1.0f / zoomx);
-  float offsy = cumap->curr.ymin - (1.0f / zoomy);
+  const float zoomx = (BLI_rcti_size_x(rect) - 2.0f) / clip_size_x;
+  const float zoomy = (BLI_rcti_size_y(rect) - 2.0f) / clip_size_y;
+  const float offsx = cumap->curr.xmin - (1.0f / zoomx);
+  const float offsy = cumap->curr.ymin - (1.0f / zoomy);
 
   /* exit early if too narrow */
   if (zoomx == 0.0f) {
@@ -1890,14 +1501,14 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
 
   /* need scissor test, curve can draw outside of boundary */
   int scissor[4];
-  GPU_scissor_get_i(scissor);
+  GPU_scissor_get(scissor);
   rcti scissor_new = {
       .xmin = rect->xmin,
       .ymin = rect->ymin,
       .xmax = rect->xmax,
       .ymax = rect->ymax,
   };
-  rcti scissor_region = {0, region->winx, 0, region->winy};
+  const rcti scissor_region = {0, region->winx, 0, region->winy};
   BLI_rcti_isect(&scissor_new, &scissor_region, &scissor_new);
   GPU_scissor(scissor_new.xmin,
               scissor_new.ymin,
@@ -1905,9 +1516,9 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
               BLI_rcti_size_y(&scissor_new));
 
   /* Do this first to not mess imm context */
-  if (but->a1 == UI_GRAD_H) {
+  if (but_cumap->gradient_type == UI_GRAD_H) {
     /* magic trigger for curve backgrounds */
-    float col[3] = {0.0f, 0.0f, 0.0f}; /* dummy arg */
+    const float col[3] = {0.0f, 0.0f, 0.0f}; /* dummy arg */
 
     rcti grid = {
         .xmin = rect->xmin + zoomx * (-offsx),
@@ -1928,15 +1539,13 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
   /* backdrop */
   float color_backdrop[4] = {0, 0, 0, 1};
 
-  if (but->a1 == UI_GRAD_H) {
+  if (but_cumap->gradient_type == UI_GRAD_H) {
     /* grid, hsv uses different grid */
-    GPU_blend(true);
-    GPU_blend_set_func_separate(
-        GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+    GPU_blend(GPU_BLEND_ALPHA);
     ARRAY_SET_ITEMS(color_backdrop, 0, 0, 0, 48.0 / 255.0);
     immUniformColor4fv(color_backdrop);
     ui_draw_but_curve_grid(pos, rect, zoomx, zoomy, offsx, offsy, 0.1666666f);
-    GPU_blend(false);
+    GPU_blend(GPU_BLEND_NONE);
   }
   else {
     if (cumap->flag & CUMA_DO_CLIP) {
@@ -1987,7 +1596,7 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
 
   if (cumap->flag & CUMA_DRAW_SAMPLE) {
     immBegin(GPU_PRIM_LINES, 2); /* will draw one of the following 3 lines */
-    if (but->a1 == UI_GRAD_H) {
+    if (but_cumap->gradient_type == UI_GRAD_H) {
       float tsample[3];
       float hsv[3];
       linearrgb_to_srgb_v3_v3(tsample, cumap->sample);
@@ -1998,7 +1607,7 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
       immVertex2f(pos, rect->xmin + zoomx * (hsv[0] - offsx), rect->ymax);
     }
     else if (cumap->cur == 3) {
-      float lum = IMB_colormanagement_get_luminance(cumap->sample);
+      const float lum = IMB_colormanagement_get_luminance(cumap->sample);
       immUniformColor3ub(240, 240, 240);
 
       immVertex2f(pos, rect->xmin + zoomx * (lum - offsx), rect->ymin);
@@ -2049,24 +1658,22 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
   }
 
   immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   /* Curve filled. */
   immUniformColor3ubvAlpha(wcol->item, 128);
-  GPU_polygon_smooth(true);
   immBegin(GPU_PRIM_TRI_STRIP, (CM_TABLE * 2 + 2) + 4);
   immVertex2f(pos, line_range.xmin, rect->ymin);
   immVertex2f(pos, line_range.xmin, line_range.ymin);
   for (int a = 0; a <= CM_TABLE; a++) {
-    float fx = rect->xmin + zoomx * (cmp[a].x - offsx);
-    float fy = rect->ymin + zoomy * (cmp[a].y - offsy);
+    const float fx = rect->xmin + zoomx * (cmp[a].x - offsx);
+    const float fy = rect->ymin + zoomy * (cmp[a].y - offsy);
     immVertex2f(pos, fx, rect->ymin);
     immVertex2f(pos, fx, fy);
   }
   immVertex2f(pos, line_range.xmax, rect->ymin);
   immVertex2f(pos, line_range.xmax, line_range.ymax);
   immEnd();
-  GPU_polygon_smooth(false);
 
   /* Curve line. */
   GPU_line_width(1.0f);
@@ -2075,8 +1682,8 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
   immBegin(GPU_PRIM_LINE_STRIP, (CM_TABLE + 1) + 2);
   immVertex2f(pos, line_range.xmin, line_range.ymin);
   for (int a = 0; a <= CM_TABLE; a++) {
-    float fx = rect->xmin + zoomx * (cmp[a].x - offsx);
-    float fy = rect->ymin + zoomy * (cmp[a].y - offsy);
+    const float fx = rect->xmin + zoomx * (cmp[a].x - offsx);
+    const float fy = rect->ymin + zoomy * (cmp[a].y - offsy);
     immVertex2f(pos, fx, fy);
   }
   immVertex2f(pos, line_range.xmax, line_range.ymax);
@@ -2084,13 +1691,13 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
 
   /* Reset state for fill & line. */
   GPU_line_smooth(false);
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
   immUnbindProgram();
 
   /* The points, use aspect to make them visible on edges. */
   format = immVertexFormat();
   pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-  uint col = GPU_vertformat_attr_add(format, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
+  const uint col = GPU_vertformat_attr_add(format, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
   immBindBuiltinProgram(GPU_SHADER_2D_FLAT_COLOR);
 
   /* Calculate vertex colors based on text theme. */
@@ -2109,15 +1716,15 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
   GPU_point_size(max_ff(1.0f, min_ff(UI_DPI_FAC / but->block->aspect * 4.0f, 4.0f)));
   immBegin(GPU_PRIM_POINTS, cuma->totpoint);
   for (int a = 0; a < cuma->totpoint; a++) {
-    float fx = rect->xmin + zoomx * (cmp[a].x - offsx);
-    float fy = rect->ymin + zoomy * (cmp[a].y - offsy);
+    const float fx = rect->xmin + zoomx * (cmp[a].x - offsx);
+    const float fy = rect->ymin + zoomy * (cmp[a].y - offsy);
     immAttr4fv(col, (cmp[a].flag & CUMA_SELECT) ? color_vert_select : color_vert);
     immVertex2f(pos, fx, fy);
   }
   immEnd();
   immUnbindProgram();
 
-  /* restore scissortest */
+  /* Restore scissor-test. */
   GPU_scissor(scissor[0], scissor[1], scissor[2], scissor[3]);
 
   /* outline */
@@ -2131,43 +1738,48 @@ void ui_draw_but_CURVE(ARegion *region, uiBut *but, const uiWidgetColors *wcol, 
   immUnbindProgram();
 }
 
-/** Used to draw a curve profile widget. Somewhat similar to ui_draw_but_CURVE */
+/**
+ * Helper for #ui_draw_but_CURVEPROFILE. Used to tell whether to draw a control point's handles.
+ */
+static bool point_draw_handles(CurveProfilePoint *point)
+{
+  return (point->flag & PROF_SELECT &&
+          (ELEM(point->h1, HD_FREE, HD_ALIGN) || ELEM(point->h2, HD_FREE, HD_ALIGN))) ||
+         ELEM(point->flag, PROF_H1_SELECT, PROF_H2_SELECT);
+}
+
 void ui_draw_but_CURVEPROFILE(ARegion *region,
                               uiBut *but,
                               const uiWidgetColors *wcol,
                               const rcti *rect)
 {
-  uint i;
   float fx, fy;
-  CurveProfile *profile;
-  if (but->editprofile) {
-    profile = but->editprofile;
-  }
-  else {
-    profile = (CurveProfile *)but->poin;
-  }
 
-  /* Calculate offset and zoom */
-  float zoomx = (BLI_rcti_size_x(rect) - 2.0f) / BLI_rctf_size_x(&profile->view_rect);
-  float zoomy = (BLI_rcti_size_y(rect) - 2.0f) / BLI_rctf_size_y(&profile->view_rect);
-  float offsx = profile->view_rect.xmin - (1.0f / zoomx);
-  float offsy = profile->view_rect.ymin - (1.0f / zoomy);
+  uiButCurveProfile *but_profile = (uiButCurveProfile *)but;
+  CurveProfile *profile = (but_profile->edit_profile == NULL) ? (CurveProfile *)but->poin :
+                                                                but_profile->edit_profile;
 
-  /* Exit early if too narrow */
+  /* Calculate offset and zoom. */
+  const float zoomx = (BLI_rcti_size_x(rect) - 2.0f) / BLI_rctf_size_x(&profile->view_rect);
+  const float zoomy = (BLI_rcti_size_y(rect) - 2.0f) / BLI_rctf_size_y(&profile->view_rect);
+  const float offsx = profile->view_rect.xmin - (1.0f / zoomx);
+  const float offsy = profile->view_rect.ymin - (1.0f / zoomy);
+
+  /* Exit early if too narrow. */
   if (zoomx == 0.0f) {
     return;
   }
 
-  /* Test needed because path can draw outside of boundary */
+  /* Test needed because path can draw outside of boundary. */
   int scissor[4];
-  GPU_scissor_get_i(scissor);
+  GPU_scissor_get(scissor);
   rcti scissor_new = {
       .xmin = rect->xmin,
       .ymin = rect->ymin,
       .xmax = rect->xmax,
       .ymax = rect->ymax,
   };
-  rcti scissor_region = {0, region->winx, 0, region->winy};
+  const rcti scissor_region = {0, region->winx, 0, region->winy};
   BLI_rcti_isect(&scissor_new, &scissor_region, &scissor_new);
   GPU_scissor(scissor_new.xmin,
               scissor_new.ymin,
@@ -2180,7 +1792,7 @@ void ui_draw_but_CURVEPROFILE(ARegion *region,
   uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
   immBindBuiltinProgram(GPU_SHADER_2D_UNIFORM_COLOR);
 
-  /* Backdrop */
+  /* Draw the backdrop. */
   float color_backdrop[4] = {0, 0, 0, 1};
   if (profile->flag & PROF_USE_CLIP) {
     gl_shaded_color_get_fl((uchar *)wcol->inner, -20, color_backdrop);
@@ -2199,99 +1811,143 @@ void ui_draw_but_CURVEPROFILE(ARegion *region,
     immRectf(pos, rect->xmin, rect->ymin, rect->xmax, rect->ymax);
   }
 
-  /* 0.25 step grid */
+  /* 0.25 step grid. */
   gl_shaded_color((uchar *)wcol->inner, -16);
   ui_draw_but_curve_grid(pos, rect, zoomx, zoomy, offsx, offsy, 0.25f);
-  /* 1.0 step grid */
+  /* 1.0 step grid. */
   gl_shaded_color((uchar *)wcol->inner, -24);
   ui_draw_but_curve_grid(pos, rect, zoomx, zoomy, offsx, offsy, 1.0f);
 
-  /* Draw the path's fill */
+  /* Draw the path's fill. */
   if (profile->table == NULL) {
-    BKE_curveprofile_update(profile, false);
+    BKE_curveprofile_update(profile, PROF_UPDATE_NONE);
   }
   CurveProfilePoint *pts = profile->table;
-  /* Also add the last points on the right and bottom edges to close off the fill polygon */
-  bool add_left_tri = profile->view_rect.xmin < 0.0f;
-  bool add_bottom_tri = profile->view_rect.ymin < 0.0f;
-  uint tot_points = (uint)PROF_N_TABLE(profile->path_len) + 1 + add_left_tri + add_bottom_tri;
-  uint tot_triangles = tot_points - 2;
+  /* Also add the last points on the right and bottom edges to close off the fill polygon. */
+  const bool add_left_tri = profile->view_rect.xmin < 0.0f;
+  const bool add_bottom_tri = profile->view_rect.ymin < 0.0f;
+  int tot_points = BKE_curveprofile_table_size(profile) + 1 + add_left_tri + add_bottom_tri;
+  const uint tot_triangles = tot_points - 2;
 
-  /* Create array of the positions of the table's points */
+  /* Create array of the positions of the table's points. */
   float(*table_coords)[2] = MEM_mallocN(sizeof(*table_coords) * tot_points, "table x coords");
-  for (i = 0; i < (uint)PROF_N_TABLE(profile->path_len);
-       i++) { /* Only add the points from the table here */
+  for (uint i = 0; i < (uint)BKE_curveprofile_table_size(profile); i++) {
+    /* Only add the points from the table here. */
     table_coords[i][0] = pts[i].x;
     table_coords[i][1] = pts[i].y;
   }
+  /* Using some extra margin (-1.0f) for the coordinates used to complete the polygon
+   * avoids the profile line crossing itself in some common situations, which can lead to
+   * incorrect triangulation. See T841183. */
   if (add_left_tri && add_bottom_tri) {
-    /* Add left side, bottom left corner, and bottom side points */
-    table_coords[tot_points - 3][0] = profile->view_rect.xmin;
+    /* Add left side, bottom left corner, and bottom side points. */
+    table_coords[tot_points - 3][0] = profile->view_rect.xmin - 1.0f;
     table_coords[tot_points - 3][1] = 1.0f;
-    table_coords[tot_points - 2][0] = profile->view_rect.xmin;
-    table_coords[tot_points - 2][1] = profile->view_rect.ymin;
+    table_coords[tot_points - 2][0] = profile->view_rect.xmin - 1.0f;
+    table_coords[tot_points - 2][1] = profile->view_rect.ymin - 1.0f;
     table_coords[tot_points - 1][0] = 1.0f;
-    table_coords[tot_points - 1][1] = profile->view_rect.ymin;
+    table_coords[tot_points - 1][1] = profile->view_rect.ymin - 1.0f;
   }
   else if (add_left_tri) {
-    /* Add the left side and bottom left corner points */
-    table_coords[tot_points - 2][0] = profile->view_rect.xmin;
+    /* Add the left side and bottom left corner points. */
+    table_coords[tot_points - 2][0] = profile->view_rect.xmin - 1.0f;
     table_coords[tot_points - 2][1] = 1.0f;
-    table_coords[tot_points - 1][0] = profile->view_rect.xmin;
-    table_coords[tot_points - 1][1] = 0.0f;
+    table_coords[tot_points - 1][0] = profile->view_rect.xmin - 1.0f;
+    table_coords[tot_points - 1][1] = -1.0f;
   }
   else if (add_bottom_tri) {
-    /* Add the bottom side and bottom left corner points */
-    table_coords[tot_points - 2][0] = 0.0f;
-    table_coords[tot_points - 2][1] = profile->view_rect.ymin;
+    /* Add the bottom side and bottom left corner points. */
+    table_coords[tot_points - 2][0] = -1.0f;
+    table_coords[tot_points - 2][1] = profile->view_rect.ymin - 1.0f;
     table_coords[tot_points - 1][0] = 1.0f;
-    table_coords[tot_points - 1][1] = profile->view_rect.ymin;
+    table_coords[tot_points - 1][1] = profile->view_rect.ymin - 1.0f;
   }
   else {
-    /* Just add the bottom corner point. Side points would be redundant anyway */
-    table_coords[tot_points - 1][0] = 0.0f;
-    table_coords[tot_points - 1][1] = 0.0f;
+    /* Just add the bottom corner point. Side points would be redundant anyway. */
+    table_coords[tot_points - 1][0] = -1.0f;
+    table_coords[tot_points - 1][1] = -1.0f;
   }
 
-  /* Calculate the table point indices of the triangles for the profile's fill */
-  uint(*tri_indices)[3] = MEM_mallocN(sizeof(*tri_indices) * tot_triangles, "return tri indices");
-  BLI_polyfill_calc(table_coords, tot_points, -1, tri_indices);
+  /* Calculate the table point indices of the triangles for the profile's fill. */
+  if (tot_triangles > 0) {
+    uint(*tri_indices)[3] = MEM_mallocN(sizeof(*tri_indices) * tot_triangles, __func__);
+    BLI_polyfill_calc(table_coords, tot_points, -1, tri_indices);
 
-  /* Draw the triangles for the profile fill */
-  immUniformColor3ubvAlpha((const uchar *)wcol->item, 128);
-  GPU_blend(true);
-  GPU_polygon_smooth(false);
-  immBegin(GPU_PRIM_TRIS, 3 * tot_triangles);
-  for (i = 0; i < tot_triangles; i++) {
-    for (uint j = 0; j < 3; j++) {
-      uint *tri = tri_indices[i];
-      fx = rect->xmin + zoomx * (table_coords[tri[j]][0] - offsx);
-      fy = rect->ymin + zoomy * (table_coords[tri[j]][1] - offsy);
+    /* Draw the triangles for the profile fill. */
+    immUniformColor3ubvAlpha((const uchar *)wcol->item, 128);
+    GPU_blend(GPU_BLEND_ALPHA);
+    GPU_polygon_smooth(false);
+    immBegin(GPU_PRIM_TRIS, 3 * tot_triangles);
+    for (uint i = 0; i < tot_triangles; i++) {
+      for (uint j = 0; j < 3; j++) {
+        uint *tri = tri_indices[i];
+        fx = rect->xmin + zoomx * (table_coords[tri[j]][0] - offsx);
+        fy = rect->ymin + zoomy * (table_coords[tri[j]][1] - offsy);
+        immVertex2f(pos, fx, fy);
+      }
+    }
+    immEnd();
+    MEM_freeN(tri_indices);
+  }
+
+  /* Draw the profile's path so the edge stands out a bit. */
+  tot_points -= (add_left_tri + add_left_tri);
+  const int edges_len = tot_points - 1;
+  if (edges_len > 0) {
+    GPU_line_width(1.0f);
+    immUniformColor3ubvAlpha((const uchar *)wcol->item, 255);
+    GPU_line_smooth(true);
+    immBegin(GPU_PRIM_LINE_STRIP, tot_points);
+    for (int i = 0; i < tot_points; i++) {
+      fx = rect->xmin + zoomx * (table_coords[i][0] - offsx);
+      fy = rect->ymin + zoomy * (table_coords[i][1] - offsy);
       immVertex2f(pos, fx, fy);
     }
+    immEnd();
   }
-  immEnd();
-  MEM_freeN(tri_indices);
 
-  /* Draw the profile's path so the edge stands out a bit */
-  tot_points -= (add_left_tri + add_left_tri);
-  GPU_line_width(1.0f);
-  immUniformColor3ubvAlpha((const uchar *)wcol->item, 255);
-  GPU_line_smooth(true);
-  immBegin(GPU_PRIM_LINE_STRIP, tot_points - 1);
-  for (i = 0; i < tot_points - 1; i++) {
-    fx = rect->xmin + zoomx * (table_coords[i][0] - offsx);
-    fy = rect->ymin + zoomy * (table_coords[i][1] - offsy);
-    immVertex2f(pos, fx, fy);
+  MEM_SAFE_FREE(table_coords);
+
+  /* Draw the handles for the selected control points. */
+  pts = profile->path;
+  const int path_len = tot_points = (uint)profile->path_len;
+  int selected_free_points = 0;
+  for (int i = 0; i < path_len; i++) {
+    if (point_draw_handles(&pts[i])) {
+      selected_free_points++;
+    }
   }
-  immEnd();
+  /* Draw the lines to the handles from the points. */
+  if (selected_free_points > 0) {
+    GPU_line_width(1.0f);
+    gl_shaded_color((uchar *)wcol->inner, -24);
+    GPU_line_smooth(true);
+    immBegin(GPU_PRIM_LINES, selected_free_points * 4);
+    float ptx, pty;
+    for (int i = 0; i < path_len; i++) {
+      if (point_draw_handles(&pts[i])) {
+        ptx = rect->xmin + zoomx * (pts[i].x - offsx);
+        pty = rect->ymin + zoomy * (pts[i].y - offsy);
+
+        fx = rect->xmin + zoomx * (pts[i].h1_loc[0] - offsx);
+        fy = rect->ymin + zoomy * (pts[i].h1_loc[1] - offsy);
+        immVertex2f(pos, ptx, pty);
+        immVertex2f(pos, fx, fy);
+
+        fx = rect->xmin + zoomx * (pts[i].h2_loc[0] - offsx);
+        fy = rect->ymin + zoomy * (pts[i].h2_loc[1] - offsy);
+        immVertex2f(pos, ptx, pty);
+        immVertex2f(pos, fx, fy);
+      }
+    }
+    immEnd();
+  }
   immUnbindProgram();
-  MEM_freeN(table_coords);
 
   /* New GPU instructions for control points and sampled points. */
   format = immVertexFormat();
   pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-  uint col = GPU_vertformat_attr_add(format, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
+  const uint col = GPU_vertformat_attr_add(format, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
   immBindBuiltinProgram(GPU_SHADER_2D_FLAT_COLOR);
 
   /* Calculate vertex colors based on text theme. */
@@ -2311,27 +1967,49 @@ void ui_draw_but_CURVEPROFILE(ARegion *region,
   }
 
   /* Draw the control points. */
-  pts = profile->path;
-  tot_points = (uint)profile->path_len;
   GPU_line_smooth(false);
-  GPU_blend(false);
-  GPU_point_size(max_ff(3.0f, min_ff(UI_DPI_FAC / but->block->aspect * 5.0f, 5.0f)));
-  immBegin(GPU_PRIM_POINTS, tot_points);
-  for (i = 0; i < tot_points; i++) {
-    fx = rect->xmin + zoomx * (pts[i].x - offsx);
-    fy = rect->ymin + zoomy * (pts[i].y - offsy);
-    immAttr4fv(col, (pts[i].flag & PROF_SELECT) ? color_vert_select : color_vert);
-    immVertex2f(pos, fx, fy);
+  if (path_len > 0) {
+    GPU_blend(GPU_BLEND_NONE);
+    GPU_point_size(max_ff(3.0f, min_ff(UI_DPI_FAC / but->block->aspect * 5.0f, 5.0f)));
+    immBegin(GPU_PRIM_POINTS, path_len);
+    for (int i = 0; i < path_len; i++) {
+      fx = rect->xmin + zoomx * (pts[i].x - offsx);
+      fy = rect->ymin + zoomy * (pts[i].y - offsy);
+      immAttr4fv(col, (pts[i].flag & PROF_SELECT) ? color_vert_select : color_vert);
+      immVertex2f(pos, fx, fy);
+    }
+    immEnd();
   }
-  immEnd();
+
+  /* Draw the handle points. */
+  if (selected_free_points > 0) {
+    GPU_line_smooth(false);
+    GPU_blend(GPU_BLEND_NONE);
+    GPU_point_size(max_ff(2.0f, min_ff(UI_DPI_FAC / but->block->aspect * 4.0f, 4.0f)));
+    immBegin(GPU_PRIM_POINTS, selected_free_points * 2);
+    for (int i = 0; i < path_len; i++) {
+      if (point_draw_handles(&pts[i])) {
+        fx = rect->xmin + zoomx * (pts[i].h1_loc[0] - offsx);
+        fy = rect->ymin + zoomy * (pts[i].h1_loc[1] - offsy);
+        immAttr4fv(col, (pts[i].flag & PROF_H1_SELECT) ? color_vert_select : color_vert);
+        immVertex2f(pos, fx, fy);
+
+        fx = rect->xmin + zoomx * (pts[i].h2_loc[0] - offsx);
+        fy = rect->ymin + zoomy * (pts[i].h2_loc[1] - offsy);
+        immAttr4fv(col, (pts[i].flag & PROF_H2_SELECT) ? color_vert_select : color_vert);
+        immVertex2f(pos, fx, fy);
+      }
+    }
+    immEnd();
+  }
 
   /* Draw the sampled points in addition to the control points if they have been created */
   pts = profile->segments;
-  tot_points = (uint)profile->segments_len;
-  if (tot_points > 0 && pts) {
+  const int segments_len = (uint)profile->segments_len;
+  if (segments_len > 0 && pts) {
     GPU_point_size(max_ff(2.0f, min_ff(UI_DPI_FAC / but->block->aspect * 3.0f, 3.0f)));
-    immBegin(GPU_PRIM_POINTS, tot_points);
-    for (i = 0; i < tot_points; i++) {
+    immBegin(GPU_PRIM_POINTS, segments_len);
+    for (int i = 0; i < segments_len; i++) {
       fx = rect->xmin + zoomx * (pts[i].x - offsx);
       fy = rect->ymin + zoomy * (pts[i].y - offsy);
       immAttr4fv(col, color_sample);
@@ -2339,10 +2017,9 @@ void ui_draw_but_CURVEPROFILE(ARegion *region,
     }
     immEnd();
   }
-
   immUnbindProgram();
 
-  /* restore scissortest */
+  /* Restore scissor-test. */
   GPU_scissor(scissor[0], scissor[1], scissor[2], scissor[3]);
 
   /* Outline */
@@ -2352,7 +2029,6 @@ void ui_draw_but_CURVEPROFILE(ARegion *region,
 
   immUniformColor3ubv((const uchar *)wcol->outline);
   imm_draw_box_wire_2d(pos, rect->xmin, rect->ymin, rect->xmax, rect->ymax);
-
   immUnbindProgram();
 }
 
@@ -2371,26 +2047,32 @@ void ui_draw_but_TRACKPREVIEW(ARegion *UNUSED(region),
       .ymax = (float)recti->ymax - 1,
   };
 
-  int width = BLI_rctf_size_x(&rect) + 1;
-  int height = BLI_rctf_size_y(&rect);
+  const int width = BLI_rctf_size_x(&rect) + 1;
+  const int height = BLI_rctf_size_y(&rect);
 
-  GPU_blend(true);
-  GPU_blend_set_func_separate(
-      GPU_SRC_ALPHA, GPU_ONE_MINUS_SRC_ALPHA, GPU_ONE, GPU_ONE_MINUS_SRC_ALPHA);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   /* need scissor test, preview image can draw outside of boundary */
   int scissor[4];
-  GPU_scissor_get_i(scissor);
+  GPU_scissor_get(scissor);
   GPU_scissor((rect.xmin - 1),
               (rect.ymin - 1),
               (rect.xmax + 1) - (rect.xmin - 1),
               (rect.ymax + 1) - (rect.ymin - 1));
 
   if (scopes->track_disabled) {
-    float color[4] = {0.7f, 0.3f, 0.3f, 0.3f};
+    const float color[4] = {0.7f, 0.3f, 0.3f, 0.3f};
     UI_draw_roundbox_corner_set(UI_CNR_ALL);
     UI_draw_roundbox_4fv(
-        true, rect.xmin - 1, rect.ymin, rect.xmax + 1, rect.ymax + 1, 3.0f, color);
+        &(const rctf){
+            .xmin = rect.xmin - 1,
+            .xmax = rect.xmax + 1,
+            .ymin = rect.ymin,
+            .ymax = rect.ymax + 1,
+        },
+        true,
+        3.0f,
+        color);
 
     ok = true;
   }
@@ -2436,33 +2118,40 @@ void ui_draw_but_TRACKPREVIEW(ARegion *UNUSED(region),
       float col_sel[4], col_outline[4];
 
       if (scopes->use_track_mask) {
-        float color[4] = {0.0f, 0.0f, 0.0f, 0.3f};
+        const float color[4] = {0.0f, 0.0f, 0.0f, 0.3f};
         UI_draw_roundbox_corner_set(UI_CNR_ALL);
         UI_draw_roundbox_4fv(
-            true, rect.xmin - 1, rect.ymin, rect.xmax + 1, rect.ymax + 1, 3.0f, color);
+            &(const rctf){
+                .xmin = rect.xmin - 1,
+                .xmax = rect.xmax + 1,
+                .ymin = rect.ymin,
+                .ymax = rect.ymax + 1,
+            },
+            true,
+            3.0f,
+            color);
       }
 
       IMMDrawPixelsTexState state = immDrawPixelsTexSetup(GPU_SHADER_2D_IMAGE_COLOR);
-      immDrawPixelsTex(&state,
-                       rect.xmin,
-                       rect.ymin + 1,
-                       drawibuf->x,
-                       drawibuf->y,
-                       GL_RGBA,
-                       GL_UNSIGNED_BYTE,
-                       GL_LINEAR,
-                       drawibuf->rect,
-                       1.0f,
-                       1.0f,
-                       NULL);
+      immDrawPixelsTexTiled(&state,
+                            rect.xmin,
+                            rect.ymin + 1,
+                            drawibuf->x,
+                            drawibuf->y,
+                            GPU_RGBA8,
+                            true,
+                            drawibuf->rect,
+                            1.0f,
+                            1.0f,
+                            NULL);
 
       /* draw cross for pixel position */
       GPU_matrix_translate_2f(rect.xmin + scopes->track_pos[0], rect.ymin + scopes->track_pos[1]);
       GPU_scissor(rect.xmin, rect.ymin, BLI_rctf_size_x(&rect), BLI_rctf_size_y(&rect));
 
       GPUVertFormat *format = immVertexFormat();
-      uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
-      uint col = GPU_vertformat_attr_add(format, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
+      const uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+      const uint col = GPU_vertformat_attr_add(format, "color", GPU_COMP_F32, 4, GPU_FETCH_FLOAT);
       immBindBuiltinProgram(GPU_SHADER_2D_FLAT_COLOR);
 
       UI_GetThemeColor4fv(TH_SEL_MARKER, col_sel);
@@ -2470,13 +2159,13 @@ void ui_draw_but_TRACKPREVIEW(ARegion *UNUSED(region),
 
       /* Do stipple cross with geometry */
       immBegin(GPU_PRIM_LINES, 7 * 2 * 2);
-      float pos_sel[8] = {-10.0f, -7.0f, -4.0f, -1.0f, 2.0f, 5.0f, 8.0f, 11.0f};
+      const float pos_sel[8] = {-10.0f, -7.0f, -4.0f, -1.0f, 2.0f, 5.0f, 8.0f, 11.0f};
       for (int axe = 0; axe < 2; axe++) {
         for (int i = 0; i < 7; i++) {
-          float x1 = pos_sel[i] * (1 - axe);
-          float y1 = pos_sel[i] * axe;
-          float x2 = pos_sel[i + 1] * (1 - axe);
-          float y2 = pos_sel[i + 1] * axe;
+          const float x1 = pos_sel[i] * (1 - axe);
+          const float y1 = pos_sel[i] * axe;
+          const float x2 = pos_sel[i + 1] * (1 - axe);
+          const float y2 = pos_sel[i + 1] * axe;
 
           if (i % 2 == 1) {
             immAttr4fv(col, col_sel);
@@ -2500,32 +2189,34 @@ void ui_draw_but_TRACKPREVIEW(ARegion *UNUSED(region),
   }
 
   if (!ok) {
-    float color[4] = {0.0f, 0.0f, 0.0f, 0.3f};
+    const float color[4] = {0.0f, 0.0f, 0.0f, 0.3f};
     UI_draw_roundbox_corner_set(UI_CNR_ALL);
     UI_draw_roundbox_4fv(
-        true, rect.xmin - 1, rect.ymin, rect.xmax + 1, rect.ymax + 1, 3.0f, color);
+        &(const rctf){
+            .xmin = rect.xmin - 1,
+            .xmax = rect.xmax + 1,
+            .ymin = rect.ymin,
+            .ymax = rect.ymax + 1,
+        },
+        true,
+        3.0f,
+        color);
   }
 
+  /* Restore scissor test. */
+  GPU_scissor(UNPACK4(scissor));
   /* outline */
-  draw_scope_end(&rect, scissor);
+  draw_scope_end(&rect);
 
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 }
 
 /* ****************************************************** */
 
-/* TODO: high quality UI drop shadows using GLSL shader and single draw call
- * would replace / modify the following 3 functions  - merwin
- */
+/* TODO(merwin): high quality UI drop shadows using GLSL shader and single draw call
+ * would replace / modify the following 3 functions. */
 
-static void ui_shadowbox(uint pos,
-                         uint color,
-                         float minx,
-                         float miny,
-                         float maxx,
-                         float maxy,
-                         float shadsize,
-                         uchar alpha)
+static void ui_shadowbox(const rctf *rect, uint pos, uint color, float shadsize, uchar alpha)
 {
   /**
    * <pre>
@@ -2540,16 +2231,16 @@ static void ui_shadowbox(uint pos,
    *  v8______v6_-
    * </pre>
    */
-  const float v1[2] = {maxx, maxy - 0.3f * shadsize};
-  const float v2[2] = {maxx + shadsize, maxy - 0.75f * shadsize};
-  const float v3[2] = {maxx, miny};
-  const float v4[2] = {maxx + shadsize, miny};
+  const float v1[2] = {rect->xmax, rect->ymax - 0.3f * shadsize};
+  const float v2[2] = {rect->xmax + shadsize, rect->ymax - 0.75f * shadsize};
+  const float v3[2] = {rect->xmax, rect->ymin};
+  const float v4[2] = {rect->xmax + shadsize, rect->ymin};
 
-  const float v5[2] = {maxx + 0.7f * shadsize, miny - 0.7f * shadsize};
+  const float v5[2] = {rect->xmax + 0.7f * shadsize, rect->ymin - 0.7f * shadsize};
 
-  const float v6[2] = {maxx, miny - shadsize};
-  const float v7[2] = {minx + 0.3f * shadsize, miny};
-  const float v8[2] = {minx + 0.5f * shadsize, miny - shadsize};
+  const float v6[2] = {rect->xmax, rect->ymin - shadsize};
+  const float v7[2] = {rect->xmin + 0.3f * shadsize, rect->ymin};
+  const float v8[2] = {rect->xmin + 0.5f * shadsize, rect->ymin - shadsize};
 
   /* right quad */
   immAttr4ub(color, 0, 0, 0, alpha);
@@ -2564,7 +2255,7 @@ static void ui_shadowbox(uint pos,
   immVertex2fv(pos, v3);
 
   /* corner shape */
-  /* immAttr4ub(color, 0, 0, 0, alpha); */ /* Not needed, done above in previous tri */
+  // immAttr4ub(color, 0, 0, 0, alpha); /* Not needed, done above in previous tri. */
   immVertex2fv(pos, v3);
   immAttr4ub(color, 0, 0, 0, 0);
   immVertex2fv(pos, v4);
@@ -2576,7 +2267,7 @@ static void ui_shadowbox(uint pos,
   immVertex2fv(pos, v3);
 
   /* bottom quad */
-  /* immAttr4ub(color, 0, 0, 0, alpha); */ /* Not needed, done above in previous tri */
+  // immAttr4ub(color, 0, 0, 0, alpha); /* Not needed, done above in previous tri. */
   immVertex2fv(pos, v3);
   immAttr4ub(color, 0, 0, 0, 0);
   immVertex2fv(pos, v6);
@@ -2588,12 +2279,12 @@ static void ui_shadowbox(uint pos,
   immVertex2fv(pos, v3);
 }
 
-void UI_draw_box_shadow(uchar alpha, float minx, float miny, float maxx, float maxy)
+void UI_draw_box_shadow(const rctf *rect, uchar alpha)
 {
-  GPU_blend(true);
+  GPU_blend(GPU_BLEND_ALPHA);
 
   GPUVertFormat *format = immVertexFormat();
-  uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
+  const uint pos = GPU_vertformat_attr_add(format, "pos", GPU_COMP_F32, 2, GPU_FETCH_FLOAT);
   uint color = GPU_vertformat_attr_add(
       format, "color", GPU_COMP_U8, 4, GPU_FETCH_INT_TO_FLOAT_UNIT);
 
@@ -2602,68 +2293,43 @@ void UI_draw_box_shadow(uchar alpha, float minx, float miny, float maxx, float m
   immBegin(GPU_PRIM_TRIS, 54);
 
   /* accumulated outline boxes to make shade not linear, is more pleasant */
-  ui_shadowbox(pos, color, minx, miny, maxx, maxy, 11.0, (20 * alpha) >> 8);
-  ui_shadowbox(pos, color, minx, miny, maxx, maxy, 7.0, (40 * alpha) >> 8);
-  ui_shadowbox(pos, color, minx, miny, maxx, maxy, 5.0, (80 * alpha) >> 8);
+  ui_shadowbox(rect, pos, color, 11.0, (20 * alpha) >> 8);
+  ui_shadowbox(rect, pos, color, 7.0, (40 * alpha) >> 8);
+  ui_shadowbox(rect, pos, color, 5.0, (80 * alpha) >> 8);
 
   immEnd();
 
   immUnbindProgram();
 
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 }
 
 void ui_draw_dropshadow(
     const rctf *rct, float radius, float aspect, float alpha, int UNUSED(select))
 {
-  float rad;
+  const float max_radius = (BLI_rctf_size_y(rct) - 10.0f) * 0.5f;
+  const float rad = min_ff(radius, max_radius);
 
-  if (radius > (BLI_rctf_size_y(rct) - 10.0f) * 0.5f) {
-    rad = (BLI_rctf_size_y(rct) - 10.0f) * 0.5f;
-  }
-  else {
-    rad = radius;
-  }
+  /* This undoes the scale of the view for higher zoom factors to clamp the shadow size. */
+  const float clamped_aspect = smoothminf(aspect, 1.0f, 0.5f);
 
-  int a, i = 12;
-#if 0
-  if (select) {
-    a = i * aspect; /* same as below */
-  }
-  else
-#endif
-  {
-    a = i * aspect;
-  }
+  const float shadow_softness = 0.6f * U.widget_unit * clamped_aspect;
+  const float shadow_offset = 0.5f * U.widget_unit * clamped_aspect;
+  const float shadow_alpha = 0.5f * alpha;
 
-  GPU_blend(true);
-  const float dalpha = alpha * 2.0f / 255.0f;
-  float calpha = dalpha;
-  float visibility = 1.0f;
-  for (; i--;) {
-    /* alpha ranges from 2 to 20 or so */
-#if 0 /* Old Method (pre 2.8) */
-    float color[4] = {0.0f, 0.0f, 0.0f, calpha};
-    UI_draw_roundbox_4fv(
-        true, rct->xmin - a, rct->ymin - a, rct->xmax + a, rct->ymax - 10.0f + a, rad + a, color);
-#endif
-    /* Compute final visibility to match old method result. */
-    /* TODO we could just find a better fit function inside the shader instead of this. */
-    visibility = visibility * (1.0f - calpha);
-    calpha += dalpha;
-  }
+  GPU_blend(GPU_BLEND_ALPHA);
 
   uiWidgetBaseParameters widget_params = {
       .recti.xmin = rct->xmin,
       .recti.ymin = rct->ymin,
       .recti.xmax = rct->xmax,
-      .recti.ymax = rct->ymax - 10.0f,
-      .rect.xmin = rct->xmin - a,
-      .rect.ymin = rct->ymin - a,
-      .rect.xmax = rct->xmax + a,
-      .rect.ymax = rct->ymax - 10.0f + a,
+      .recti.ymax = rct->ymax - shadow_offset,
+      .rect.xmin = rct->xmin - shadow_softness,
+      .rect.ymin = rct->ymin - shadow_softness,
+      .rect.xmax = rct->xmax + shadow_softness,
+      .rect.ymax = rct->ymax - shadow_offset + shadow_softness,
       .radi = rad,
-      .rad = rad + a,
+      .rad = rad + shadow_softness,
       .round_corners[0] = (roundboxtype & UI_CNR_BOTTOM_LEFT) ? 1.0f : 0.0f,
       .round_corners[1] = (roundboxtype & UI_CNR_BOTTOM_RIGHT) ? 1.0f : 0.0f,
       .round_corners[2] = (roundboxtype & UI_CNR_TOP_RIGHT) ? 1.0f : 0.0f,
@@ -2673,21 +2339,22 @@ void ui_draw_dropshadow(
 
   GPUBatch *batch = ui_batch_roundbox_shadow_get();
   GPU_batch_program_set_builtin(batch, GPU_SHADER_2D_WIDGET_SHADOW);
-  GPU_batch_uniform_4fv_array(batch, "parameters", 4, (float *)&widget_params);
-  GPU_batch_uniform_1f(batch, "alpha", 1.0f - visibility);
+  GPU_batch_uniform_4fv_array(batch, "parameters", 4, (const float(*)[4]) & widget_params);
+  GPU_batch_uniform_1f(batch, "alpha", shadow_alpha);
   GPU_batch_draw(batch);
 
   /* outline emphasis */
-  GPU_line_smooth(true);
-  float color[4] = {0.0f, 0.0f, 0.0f, 0.4f};
-  UI_draw_roundbox_4fv(false,
-                       rct->xmin - 0.5f,
-                       rct->ymin - 0.5f,
-                       rct->xmax + 0.5f,
-                       rct->ymax + 0.5f,
-                       radius + 0.5f,
-                       color);
-  GPU_line_smooth(false);
+  const float color[4] = {0.0f, 0.0f, 0.0f, 0.4f};
+  UI_draw_roundbox_4fv(
+      &(const rctf){
+          .xmin = rct->xmin - 0.5f,
+          .xmax = rct->xmax + 0.5f,
+          .ymin = rct->ymin - 0.5f,
+          .ymax = rct->ymax + 0.5f,
+      },
+      false,
+      radius + 0.5f,
+      color);
 
-  GPU_blend(false);
+  GPU_blend(GPU_BLEND_NONE);
 }

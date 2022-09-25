@@ -1,18 +1,4 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
@@ -51,13 +37,13 @@ typedef struct SubDParams {
   BMOpSlot *slot_custom_patterns; /* BMO_slot_get(params->op->slots_in, "custom_patterns"); */
   float fractal_ofs[3];
 
-  /* rumtime storage for shape key */
+  /* Runtime storage for shape key. */
   struct {
     int cd_vert_shape_offset;
     int cd_vert_shape_offset_tmp;
     int totlayer;
 
-    /* shapekey holding displaced vertex coordinates for current geometry */
+    /* Shape-key holding displaced vertex coordinates for current geometry. */
     int tmpkey;
   } shape_info;
 
@@ -79,7 +65,7 @@ typedef void (*subd_pattern_fill_fp)(BMesh *bm,
                                      const SubDParams *params);
 
 /*
- * note: this is a pattern-based edge subdivider.
+ * NOTE: this is a pattern-based edge subdivider.
  * it tries to match a pattern to edge selections on faces,
  * then executes functions to cut them.
  */
@@ -111,7 +97,7 @@ typedef struct SubDPattern {
 #define ELE_INNER 8
 #define ELE_SPLIT 16
 
-/* see bug [#32665], 0.00005 means a we get face splits at a little under 1.0 degrees */
+/* see bug T32665, 0.00005 means a we get face splits at a little under 1.0 degrees */
 #define FLT_FACE_SPLIT_EPSILON 0.00005f
 
 /*
@@ -138,7 +124,7 @@ static BMEdge *connect_smallest_face(BMesh *bm, BMVert *v_a, BMVert *v_b, BMFace
    * multiple faces yet.  that might require a convexity test to figure out which
    * face is "best" and who knows what for non-manifold conditions.
    *
-   * note: we allow adjacent here, since there's no chance this happens.
+   * NOTE: we allow adjacent here, since there's no chance this happens.
    */
   f = BM_vert_pair_share_face_by_len(v_a, v_b, &l_a, &l_b, true);
 
@@ -240,7 +226,7 @@ static void interp_slerp_co_no_v3(
   }
 }
 
-/* calculates offset for co, based on fractal, sphere or smooth settings  */
+/* Calculates offset for co, based on fractal, sphere or smooth settings. */
 static void alter_co(BMVert *v,
                      BMEdge *UNUSED(e_orig),
                      const SubDParams *params,
@@ -338,9 +324,9 @@ static void alter_co(BMVert *v,
     add_v3_v3v3(co2, v->co, params->fractal_ofs);
     mul_v3_fl(co2, 10.0f);
 
-    tvec[0] = fac * (BLI_gTurbulence(1.0, co2[0], co2[1], co2[2], 15, 0, 2) - 0.5f);
-    tvec[1] = fac * (BLI_gTurbulence(1.0, co2[1], co2[0], co2[2], 15, 0, 2) - 0.5f);
-    tvec[2] = fac * (BLI_gTurbulence(1.0, co2[1], co2[2], co2[0], 15, 0, 2) - 0.5f);
+    tvec[0] = fac * (BLI_noise_generic_turbulence(1.0, co2[0], co2[1], co2[2], 15, 0, 2) - 0.5f);
+    tvec[1] = fac * (BLI_noise_generic_turbulence(1.0, co2[1], co2[0], co2[2], 15, 0, 2) - 0.5f);
+    tvec[2] = fac * (BLI_noise_generic_turbulence(1.0, co2[1], co2[2], co2[0], 15, 0, 2) - 0.5f);
 
     /* add displacement */
     madd_v3_v3fl(co, normal, tvec[0]);
@@ -469,7 +455,7 @@ static void bm_subdivide_multicut(
   alter_co(v2, &e_tmp, params, 1.0, &v1_tmp, &v2_tmp);
 }
 
-/* note: the patterns are rotated as necessary to
+/* NOTE: the patterns are rotated as necessary to
  * match the input geometry.  they're based on the
  * pre-split state of the  face */
 
@@ -1094,7 +1080,7 @@ void bmo_subdivide_edges_exec(BMesh *bm, BMOperator *op)
         }
       }
 
-      /* obvously don't test for other patterns matching */
+      /* Obviously don't test for other patterns matching. */
       continue;
     }
 
@@ -1187,12 +1173,14 @@ void bmo_subdivide_edges_exec(BMesh *bm, BMOperator *op)
       vlen = BLI_array_len(loops);
 
       /* find the boundary of one of the split edges */
-      for (a = 1; a < vlen; a++) {
-        if (!BMO_vert_flag_test(bm, loops[a - 1]->v, ELE_INNER) &&
+      for (a = 0; a < vlen; a++) {
+        if (!BMO_vert_flag_test(bm, loops[a ? (a - 1) : (vlen - 1)]->v, ELE_INNER) &&
             BMO_vert_flag_test(bm, loops[a]->v, ELE_INNER)) {
           break;
         }
       }
+      /* Failure to break means there is an internal error. */
+      BLI_assert(a < vlen);
 
       if (BMO_vert_flag_test(bm, loops[(a + numcuts + 1) % vlen]->v, ELE_INNER)) {
         b = (a + numcuts + 1) % vlen;
@@ -1214,7 +1202,7 @@ void bmo_subdivide_edges_exec(BMesh *bm, BMOperator *op)
       for (j = 0; j < numcuts; j++) {
         bool ok = true;
 
-        /* Check for special case: [#32500]
+        /* Check for special case, see: T32500.
          * This edge pair could be used by more than one face,
          * in this case it used to (2.63), split both faces along the same verts
          * while it could be calculated which face should do the split,
@@ -1276,7 +1264,7 @@ void bmo_subdivide_edges_exec(BMesh *bm, BMOperator *op)
 
       continue;
     }
-    else if (!pat) {
+    if (!pat) {
       continue;
     }
 
@@ -1344,7 +1332,7 @@ void BM_mesh_esubdivide(BMesh *bm,
 {
   BMOperator op;
 
-  /* use_sphere isnt exposed here since its only used for new primitives */
+  /* `use_sphere` isn't exposed here since its only used for new primitives. */
   BMO_op_initf(bm,
                &op,
                BMO_FLAG_DEFAULTS,

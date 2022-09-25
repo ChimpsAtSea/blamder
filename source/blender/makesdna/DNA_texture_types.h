@@ -1,28 +1,11 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_TEXTURE_TYPES_H__
-#define __DNA_TEXTURE_TYPES_H__
+#pragma once
 
 #include "DNA_ID.h"
 #include "DNA_defs.h"
@@ -42,6 +25,7 @@ struct PreviewImage;
 struct Tex;
 
 typedef struct MTex {
+  DNA_DEFINE_CXX_METHODS(MTex)
 
   short texco, mapto, maptoneg, blendtype;
   struct Object *object;
@@ -55,10 +39,10 @@ typedef struct MTex {
   float ofs[3], size[3], rot, random_angle;
 
   char _pad0[2];
-  short colormodel, pmapto, pmaptoneg;
+  short colormodel;
   short normapspace, which_output;
   float r, g, b, k;
-  float def_var, rt;
+  float def_var;
 
   /* common */
   float colfac, varfac;
@@ -99,8 +83,10 @@ typedef struct CBData {
   int cur;
 } CBData;
 
-/* 32 = MAXCOLORBAND */
-/* note that this has to remain a single struct, for UserDef */
+/**
+ * 32 = #MAXCOLORBAND
+ * \note that this has to remain a single struct, for UserDef.
+ */
 typedef struct ColorBand {
   short tot, cur;
   char ipotype, ipotype_hue;
@@ -111,6 +97,8 @@ typedef struct ColorBand {
 } ColorBand;
 
 typedef struct PointDensity {
+  DNA_DEFINE_CXX_METHODS(PointDensity)
+
   short flag;
 
   short falloff_type;
@@ -129,9 +117,9 @@ typedef struct PointDensity {
   struct Object *object;
   /** `index + 1` in ob.particlesystem, non-ID pointer not allowed */
   int psys;
-  /** cache points in worldspace, object space, ... ? */
+  /** cache points in world-space, object space, ... ? */
   short psys_cache_space;
-  /** cache points in worldspace, object space, ... ? */
+  /** cache points in world-space, object space, ... ? */
   short ob_cache_space;
   /** vertex attribute layer for color source, MAX_CUSTOMDATA_LAYER_NAME */
   char vertex_attribute_name[64];
@@ -158,6 +146,8 @@ typedef struct PointDensity {
 } PointDensity;
 
 typedef struct Tex {
+  DNA_DEFINE_CXX_METHODS(Tex)
+
   ID id;
   /** Animation data (must be immediately after id for utilities to use it). */
   struct AnimData *adt;
@@ -193,7 +183,7 @@ typedef struct Tex {
 
   float cropxmin, cropymin, cropxmax, cropymax;
   int texfilter;
-  int afmax;  // anisotropic filter maximum value, ewa -> max eccentricity, feline -> max probes
+  int afmax; /* anisotropic filter maximum value, ewa -> max eccentricity, feline -> max probes */
   short xrepeat, yrepeat;
   short extend;
 
@@ -219,10 +209,12 @@ typedef struct Tex {
 
 } Tex;
 
-/* used for mapping and texture nodes. note: rot is now in radians */
-
+/** Used for mapping and texture nodes. */
 typedef struct TexMapping {
-  float loc[3], rot[3], size[3];
+  float loc[3];
+  /** Rotation in radians. */
+  float rot[3];
+  float size[3];
   int flag;
   char projx, projy, projz, mapping;
   int type;
@@ -319,8 +311,7 @@ typedef struct ColorMapping {
 #define TEX_DERIVATIVEMAP (1 << 14)
 
 /* texfilter */
-// TXF_BOX -> blender's old texture filtering method
-#define TXF_BOX 0
+#define TXF_BOX 0 /* Blender's old texture filtering method. */
 #define TXF_EWA 1
 #define TXF_FELINE 2
 #define TXF_AREA 3
@@ -406,8 +397,7 @@ typedef struct ColorMapping {
 
 /* return value */
 #define TEX_INT 0
-#define TEX_RGB (1 << 0)
-#define TEX_NOR (1 << 1)
+#define TEX_RGB 1
 
 /* pr_texture in material, world, light. */
 #define TEX_PR_TEXTURE 0
@@ -454,14 +444,14 @@ typedef struct ColorMapping {
 
 /* **************** ColorBand ********************* */
 
-/* colormode */
+/** color-mode. */
 enum {
   COLBAND_BLEND_RGB = 0,
   COLBAND_BLEND_HSV = 1,
   COLBAND_BLEND_HSL = 2,
 };
 
-/* interpolation */
+/** Interpolation. */
 enum {
   COLBAND_INTERP_LINEAR = 0,
   COLBAND_INTERP_EASE = 1,
@@ -470,7 +460,7 @@ enum {
   COLBAND_INTERP_CONSTANT = 4,
 };
 
-/* color interpolation */
+/** Color interpolation. */
 enum {
   COLBAND_HUE_NEAR = 0,
   COLBAND_HUE_FAR = 1,
@@ -509,7 +499,7 @@ enum {
 /* #define TEX_PD_NOISE_AGE     2 */ /* Deprecated */
 /* #define TEX_PD_NOISE_TIME    3 */ /* Deprecated */
 
-/* color_source */
+/** color_source. */
 enum {
   TEX_PD_COLOR_CONSTANT = 0,
   /* color_source: particles */
@@ -528,6 +518,4 @@ enum {
 
 #ifdef __cplusplus
 }
-#endif
-
 #endif

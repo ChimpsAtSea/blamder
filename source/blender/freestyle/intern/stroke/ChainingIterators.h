@@ -1,21 +1,6 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
-#ifndef __FREESTYLE_CHAINING_ITERATORS_H__
-#define __FREESTYLE_CHAINING_ITERATORS_H__
+#pragma once
 
 /** \file
  * \ingroup freestyle
@@ -99,11 +84,11 @@ class AdjacencyIterator : public Iterator {
     return _internalIterator.isBegin();
   }
 
-  /*! Returns true if the current ViewEdge is coming towards the iteration vertex.
+  /** Returns true if the current ViewEdge is coming towards the iteration vertex.
    * False otherwise. */
   bool isIncoming() const;
 
-  /*! Returns a *pointer* to the pointed ViewEdge. */
+  /** Returns a *pointer* to the pointed ViewEdge. */
   virtual ViewEdge *operator*();
 
   virtual ViewEdge *operator->()
@@ -141,7 +126,7 @@ class AdjacencyIterator : public Iterator {
 //
 ///////////////////////////////////////////////////////////
 
-/*! Base class for chaining iterators.
+/** Base class for chaining iterators.
  *  This class is designed to be overloaded in order to describe chaining rules.
  *  It makes the works of chaining rules description easier.
  *  The two main methods that need to overloaded are traverse() and init().
@@ -160,12 +145,12 @@ class ChainingIterator : public ViewEdgeInternal::ViewEdgeIterator {
   ViewEdge *result;
   void *py_c_it;
 
-  /*! Builds a Chaining Iterator from the first ViewEdge used for iteration and its orientation.
+  /** Builds a Chaining Iterator from the first ViewEdge used for iteration and its orientation.
    *  \param iRestrictToSelection:
    *    Indicates whether to force the chaining to stay within
    *    the set of selected ViewEdges or not.
    *  \param iRestrictToUnvisited:
-   *    Indicates whether a ViewEdge that has already been chained must be ignored ot not.
+   *    Indicates whether a ViewEdge that has already been chained must be ignored or not.
    *  \param begin:
    *    The ViewEdge from which to start the chain.
    *  \param orientation:
@@ -184,7 +169,7 @@ class ChainingIterator : public ViewEdgeInternal::ViewEdgeIterator {
     py_c_it = NULL;
   }
 
-  /*! Copy constructor */
+  /** Copy constructor */
   ChainingIterator(const ChainingIterator &brother) : ViewEdgeIterator(brother)
   {
     _restrictToSelection = brother._restrictToSelection;
@@ -193,19 +178,19 @@ class ChainingIterator : public ViewEdgeInternal::ViewEdgeIterator {
     py_c_it = brother.py_c_it;
   }
 
-  /*! Returns the string "ChainingIterator" */
+  /** Returns the string "ChainingIterator" */
   virtual string getExactTypeName() const
   {
     return "ChainingIterator";
   }
 
-  /*! Inits the iterator context.
+  /** Initializes the iterator context.
    *  This method is called each time a new chain is started.
    *  It can be used to reset some history information that you might want to keep.
    */
   virtual int init();
 
-  /*! This method iterates over the potential next ViewEdges and returns the one that will be
+  /** This method iterates over the potential next ViewEdges and returns the one that will be
    *  followed next. returns the next ViewEdge to follow or 0 when the end of the chain is reached.
    *  \param it:
    *    The iterator over the ViewEdges adjacent to the end vertex of the current ViewEdge.
@@ -215,11 +200,11 @@ class ChainingIterator : public ViewEdgeInternal::ViewEdgeIterator {
   virtual int traverse(const AdjacencyIterator &it);
 
   /* accessors */
-  /*! Returns true if the orientation of the current ViewEdge corresponds to its natural
+  /** Returns true if the orientation of the current ViewEdge corresponds to its natural
    * orientation */
   // inline bool getOrientation() const {}
 
-  /*! Returns the vertex which is the next crossing */
+  /** Returns the vertex which is the next crossing */
   inline ViewVertex *getVertex()
   {
     if (_increment) {
@@ -240,13 +225,13 @@ class ChainingIterator : public ViewEdgeInternal::ViewEdgeIterator {
     }
   }
 
-  /*! Returns true if the current iteration is an incrementation */
+  /** Returns true if the current iteration is an incrementation */
   inline bool isIncrementing() const
   {
     return _increment;
   }
 
-  /* increments.*/
+  /* Increments. */
   virtual int increment();
   virtual int decrement();
 };
@@ -256,7 +241,7 @@ class ChainingIterator : public ViewEdgeInternal::ViewEdgeIterator {
 //
 ///////////////////////////////////////////////////////////
 
-/*! A ViewEdge Iterator used to follow ViewEdges the most naturally.
+/** A ViewEdge Iterator used to follow ViewEdges the most naturally.
  *  For example, it will follow visible ViewEdges of same nature.
  *  As soon, as the nature or the visibility changes, the iteration stops (by setting the pointed
  *  ViewEdge to 0). In the case of an iteration over a set of ViewEdge that are both Silhouette
@@ -264,7 +249,7 @@ class ChainingIterator : public ViewEdgeInternal::ViewEdgeIterator {
  */
 class ChainSilhouetteIterator : public ChainingIterator {
  public:
-  /*! Builds a ChainSilhouetteIterator from the first ViewEdge used for iteration and its
+  /** Builds a ChainSilhouetteIterator from the first ViewEdge used for iteration and its
    *  orientation.
    *  \param iRestrictToSelection:
    *    Indicates whether to force the chaining to stay within the set of selected ViewEdges or
@@ -283,24 +268,24 @@ class ChainSilhouetteIterator : public ChainingIterator {
   {
   }
 
-  /*! Copy constructor */
+  /** Copy constructor */
   ChainSilhouetteIterator(const ChainSilhouetteIterator &brother) : ChainingIterator(brother)
   {
   }
 
-  /*! Returns the string "ChainSilhouetteIterator" */
+  /** Returns the string "ChainSilhouetteIterator" */
   virtual string getExactTypeName() const
   {
     return "ChainSilhouetteIterator";
   }
 
-  /*! This method iterates over the potential next ViewEdges and returns the one that will be
+  /** This method iterates over the potential next ViewEdges and returns the one that will be
    *  followed next.
    *  When reaching the end of a chain, 0 is returned.
    */
   virtual int traverse(const AdjacencyIterator &it);
 
-  /*! Inits the iterator context */
+  /** Initializes the iterator context */
   virtual int init()
   {
     return 0;
@@ -312,7 +297,7 @@ class ChainSilhouetteIterator : public ChainingIterator {
 //
 ///////////////////////////////////////////////////////////
 
-/*! A "generic" user-controlled ViewEdge iterator. This iterator is in particular built from a
+/** A "generic" user-controlled ViewEdge iterator. This iterator is in particular built from a
  *  unary predicate and a binary predicate.
  *  First, the unary predicate is evaluated for all potential next ViewEdges in order to only
  *  keep the ones respecting a certain constraint.
@@ -328,7 +313,7 @@ class ChainPredicateIterator : public ChainingIterator {
   UnaryPredicate1D *_unary_predicate;  // the caller is responsible for the deletion of this object
 
  public:
-  /*! Builds a ChainPredicateIterator from a starting ViewEdge and its orientation.
+  /** Builds a ChainPredicateIterator from a starting ViewEdge and its orientation.
    *  \param iRestrictToSelection:
    *    Indicates whether to force the chaining to stay
    *    within the set of selected ViewEdges or not.
@@ -351,7 +336,7 @@ class ChainPredicateIterator : public ChainingIterator {
     _unary_predicate = 0;
   }
 
-  /*! Builds a ChainPredicateIterator from a unary predicate, a binary predicate, a starting
+  /** Builds a ChainPredicateIterator from a unary predicate, a binary predicate, a starting
    *  ViewEdge and its orientation.
    *  \param iRestrictToSelection:
    *    Indicates whether to force the chaining to stay
@@ -382,32 +367,32 @@ class ChainPredicateIterator : public ChainingIterator {
     _binary_predicate = &bpred;
   }
 
-  /*! Copy constructor */
+  /** Copy constructor */
   ChainPredicateIterator(const ChainPredicateIterator &brother) : ChainingIterator(brother)
   {
     _unary_predicate = brother._unary_predicate;
     _binary_predicate = brother._binary_predicate;
   }
 
-  /*! Destructor. */
+  /** Destructor. */
   virtual ~ChainPredicateIterator()
   {
     _unary_predicate = 0;
     _binary_predicate = 0;
   }
 
-  /*! Returns the string "ChainPredicateIterator" */
+  /** Returns the string "ChainPredicateIterator" */
   virtual string getExactTypeName() const
   {
     return "ChainPredicateIterator";
   }
 
-  /*! This method iterates over the potential next ViewEdges and returns the one that will be
+  /** This method iterates over the potential next ViewEdges and returns the one that will be
    *  followed next. When reaching the end of a chain, 0 is returned.
    */
   virtual int traverse(const AdjacencyIterator &it);
 
-  /*! Inits the iterator context */
+  /** Initializes the iterator context. */
   virtual int init()
   {
     return 0;
@@ -415,5 +400,3 @@ class ChainPredicateIterator : public ChainingIterator {
 };
 
 } /* namespace Freestyle */
-
-#endif  // __FREESTYLE_CHAINING_ITERATORS_H__

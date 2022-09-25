@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: BSD-3-Clause
+# Copyright 2011 Blender Foundation.
+
 # - Find SndFile library
 # Find the native SndFile includes and library
 # This module defines
@@ -10,17 +13,6 @@
 #
 # also defined, but not for general use are
 #  LIBSNDFILE_LIBRARY, where to find the SndFile library.
-
-#=============================================================================
-# Copyright 2011 Blender Foundation.
-#
-# Distributed under the OSI-approved BSD License (the "License");
-# see accompanying file Copyright.txt for details.
-#
-# This software is distributed WITHOUT ANY WARRANTY; without even the
-# implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
-# See the License for more information.
-#=============================================================================
 
 # If LIBSNDFILE_ROOT_DIR was defined in the environment, use it.
 IF(NOT LIBSNDFILE_ROOT_DIR AND NOT $ENV{LIBSNDFILE_ROOT_DIR} STREQUAL "")
@@ -56,7 +48,7 @@ FIND_PACKAGE_HANDLE_STANDARD_ARGS(SndFile DEFAULT_MSG
 IF(SNDFILE_FOUND)
   SET(LIBSNDFILE_LIBRARIES ${LIBSNDFILE_LIBRARY})
   SET(LIBSNDFILE_INCLUDE_DIRS ${LIBSNDFILE_INCLUDE_DIR})
-ENDIF(SNDFILE_FOUND)
+ENDIF()
 
 MARK_AS_ADVANCED(
   LIBSNDFILE_INCLUDE_DIR

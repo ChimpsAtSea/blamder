@@ -1,36 +1,19 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup collada
  */
 
 #include "BLI_string.h"
-#include <stddef.h>
+#include <cstddef>
 
 #include "ExtraHandler.h"
 
-ExtraHandler::ExtraHandler(DocumentImporter *dimp, AnimationImporter *aimp) : currentExtraTags(0)
+ExtraHandler::ExtraHandler(DocumentImporter *dimp, AnimationImporter *aimp)
+    : currentExtraTags(nullptr)
 {
   this->dimp = dimp;
   this->aimp = aimp;
-}
-
-ExtraHandler::~ExtraHandler()
-{
 }
 
 bool ExtraHandler::elementBegin(const char *elementName, const char **attributes)
@@ -50,7 +33,7 @@ bool ExtraHandler::textData(const char *text, size_t textLength)
 {
   char buf[1024];
 
-  if (currentElement.length() == 0 || currentExtraTags == 0) {
+  if (currentElement.length() == 0 || currentExtraTags == nullptr) {
     return false;
   }
 
@@ -64,7 +47,7 @@ bool ExtraHandler::parseElement(const char *profileName,
                                 const COLLADAFW::UniqueId &uniqueId)
 {
   /* implement for backwards compatibility, new version added object parameter */
-  return parseElement(profileName, elementHash, uniqueId, NULL);
+  return parseElement(profileName, elementHash, uniqueId, nullptr);
 }
 
 bool ExtraHandler::parseElement(const char *profileName,

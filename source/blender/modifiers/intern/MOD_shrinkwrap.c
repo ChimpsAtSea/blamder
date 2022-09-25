@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2005 by the Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2005 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup modifiers
@@ -27,6 +11,7 @@
 
 #include "BLT_translation.h"
 
+#include "DNA_defaults.h"
 #include "DNA_mesh_types.h"
 #include "DNA_object_types.h"
 #include "DNA_screen_types.h"
@@ -36,6 +21,7 @@
 #include "BKE_lib_id.h"
 #include "BKE_lib_query.h"
 #include "BKE_mesh.h"
+#include "BKE_mesh_wrapper.h"
 #include "BKE_modifier.h"
 #include "BKE_screen.h"
 #include "BKE_shrinkwrap.h"
@@ -44,6 +30,7 @@
 #include "UI_resources.h"
 
 #include "RNA_access.h"
+#include "RNA_prototypes.h"
 
 #include "DEG_depsgraph_query.h"
 
@@ -55,12 +42,10 @@ static bool dependsOnNormals(ModifierData *md);
 static void initData(ModifierData *md)
 {
   ShrinkwrapModifierData *smd = (ShrinkwrapModifierData *)md;
-  smd->shrinkType = MOD_SHRINKWRAP_NEAREST_SURFACE;
-  smd->shrinkOpts = MOD_SHRINKWRAP_PROJECT_ALLOW_POS_DIR;
-  smd->keepDist = 0.0f;
 
-  smd->target = NULL;
-  smd->auxTarget = NULL;
+  BLI_assert(MEMCMP_STRUCT_AFTER_IS_ZERO(smd, modifier));
+
+  MEMCPY_STRUCT_AFTER(smd, DNA_struct_default_get(ShrinkwrapModifierData), modifier);
 }
 
 static void requiredDataMask(Object *UNUSED(ob),
@@ -95,25 +80,25 @@ static bool isDisabled(const struct Scene *UNUSED(scene),
   if (!smd->target || smd->target->type != OB_MESH) {
     return true;
   }
-  else if (smd->auxTarget && smd->auxTarget->type != OB_MESH) {
+  if (smd->auxTarget && smd->auxTarget->type != OB_MESH) {
     return true;
   }
   return false;
 }
 
-static void foreachObjectLink(ModifierData *md, Object *ob, ObjectWalkFunc walk, void *userData)
+static void foreachIDLink(ModifierData *md, Object *ob, IDWalkFunc walk, void *userData)
 {
   ShrinkwrapModifierData *smd = (ShrinkwrapModifierData *)md;
 
-  walk(userData, ob, &smd->target, IDWALK_CB_NOP);
-  walk(userData, ob, &smd->auxTarget, IDWALK_CB_NOP);
+  walk(userData, ob, (ID **)&smd->target, IDWALK_CB_NOP);
+  walk(userData, ob, (ID **)&smd->auxTarget, IDWALK_CB_NOP);
 }
 
 static void deformVerts(ModifierData *md,
                         const ModifierEvalContext *ctx,
                         Mesh *mesh,
                         float (*vertexCos)[3],
-                        int numVerts)
+                        int verts_num)
 {
   ShrinkwrapModifierData *swmd = (ShrinkwrapModifierData *)md;
   struct Scene *scene = DEG_get_evaluated_scene(ctx->depsgraph);
@@ -123,7 +108,7 @@ static void deformVerts(ModifierData *md,
       (swmd->shrinkType == MOD_SHRINKWRAP_PROJECT)) {
     /* mesh_src is needed for vgroups, but also used as ShrinkwrapCalcData.vert when projecting.
      * Avoid time-consuming mesh conversion for curves when not projecting. */
-    mesh_src = MOD_deform_mesh_eval_get(ctx->object, NULL, mesh, NULL, numVerts, false, false);
+    mesh_src = MOD_deform_mesh_eval_get(ctx->object, NULL, mesh, NULL, verts_num, false, false);
   }
 
   struct MDeformVert *dvert = NULL;
@@ -131,7 +116,7 @@ static void deformVerts(ModifierData *md,
   MOD_get_vgroup(ctx->object, mesh_src, swmd->vgroup_name, &dvert, &defgrp_index);
 
   shrinkwrapModifier_deform(
-      swmd, ctx, scene, ctx->object, mesh_src, dvert, defgrp_index, vertexCos, numVerts);
+      swmd, ctx, scene, ctx->object, mesh_src, dvert, defgrp_index, vertexCos, verts_num);
 
   if (!ELEM(mesh_src, NULL, mesh)) {
     BKE_id_free(NULL, mesh_src);
@@ -143,14 +128,15 @@ static void deformVertsEM(ModifierData *md,
                           struct BMEditMesh *editData,
                           Mesh *mesh,
                           float (*vertexCos)[3],
-                          int numVerts)
+                          int verts_num)
 {
   ShrinkwrapModifierData *swmd = (ShrinkwrapModifierData *)md;
   struct Scene *scene = DEG_get_evaluated_scene(ctx->depsgraph);
   Mesh *mesh_src = NULL;
 
   if ((swmd->vgroup_name[0] != '\0') || (swmd->shrinkType == MOD_SHRINKWRAP_PROJECT)) {
-    mesh_src = MOD_deform_mesh_eval_get(ctx->object, editData, mesh, NULL, numVerts, false, false);
+    mesh_src = MOD_deform_mesh_eval_get(
+        ctx->object, editData, mesh, NULL, verts_num, false, false);
   }
 
   /* TODO(Campbell): use edit-mode data only (remove this line). */
@@ -165,7 +151,7 @@ static void deformVertsEM(ModifierData *md,
   }
 
   shrinkwrapModifier_deform(
-      swmd, ctx, scene, ctx->object, mesh_src, dvert, defgrp_index, vertexCos, numVerts);
+      swmd, ctx, scene, ctx->object, mesh_src, dvert, defgrp_index, vertexCos, verts_num);
 
   if (!ELEM(mesh_src, NULL, mesh)) {
     BKE_id_free(NULL, mesh_src);
@@ -214,58 +200,58 @@ static bool dependsOnNormals(ModifierData *md)
   return false;
 }
 
-static void panel_draw(const bContext *C, Panel *panel)
+static void panel_draw(const bContext *UNUSED(C), Panel *panel)
 {
   uiLayout *row, *col;
   uiLayout *layout = panel->layout;
   int toggles_flag = UI_ITEM_R_TOGGLE | UI_ITEM_R_FORCE_BLANK_DECORATE;
 
-  PointerRNA ptr;
   PointerRNA ob_ptr;
-  modifier_panel_get_property_pointers(C, panel, &ob_ptr, &ptr);
+  PointerRNA *ptr = modifier_panel_get_property_pointers(panel, &ob_ptr);
 
   uiLayoutSetPropSep(layout, true);
 
-  int wrap_method = RNA_enum_get(&ptr, "wrap_method");
+  int wrap_method = RNA_enum_get(ptr, "wrap_method");
 
-  uiItemR(layout, &ptr, "wrap_method", 0, NULL, ICON_NONE);
+  uiItemR(layout, ptr, "wrap_method", 0, NULL, ICON_NONE);
 
   if (ELEM(wrap_method,
            MOD_SHRINKWRAP_PROJECT,
            MOD_SHRINKWRAP_NEAREST_SURFACE,
            MOD_SHRINKWRAP_TARGET_PROJECT)) {
-    uiItemR(layout, &ptr, "wrap_mode", 0, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "wrap_mode", 0, NULL, ICON_NONE);
   }
 
   if (wrap_method == MOD_SHRINKWRAP_PROJECT) {
-    uiItemR(layout, &ptr, "project_limit", 0, IFACE_("Limit"), ICON_NONE);
-    uiItemR(layout, &ptr, "subsurf_levels", 0, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "project_limit", 0, IFACE_("Limit"), ICON_NONE);
+    uiItemR(layout, ptr, "subsurf_levels", 0, NULL, ICON_NONE);
 
-    row = uiLayoutRowWithHeading(layout, true, IFACE_("Axis"));
-    uiItemR(row, &ptr, "use_project_x", toggles_flag, NULL, ICON_NONE);
-    uiItemR(row, &ptr, "use_project_y", toggles_flag, NULL, ICON_NONE);
-    uiItemR(row, &ptr, "use_project_z", toggles_flag, NULL, ICON_NONE);
+    col = uiLayoutColumn(layout, false);
+    row = uiLayoutRowWithHeading(col, true, IFACE_("Axis"));
+    uiItemR(row, ptr, "use_project_x", toggles_flag, NULL, ICON_NONE);
+    uiItemR(row, ptr, "use_project_y", toggles_flag, NULL, ICON_NONE);
+    uiItemR(row, ptr, "use_project_z", toggles_flag, NULL, ICON_NONE);
 
-    uiItemR(layout, &ptr, "use_negative_direction", 0, NULL, ICON_NONE);
-    uiItemR(layout, &ptr, "use_positive_direction", 0, NULL, ICON_NONE);
+    uiItemR(col, ptr, "use_negative_direction", 0, NULL, ICON_NONE);
+    uiItemR(col, ptr, "use_positive_direction", 0, NULL, ICON_NONE);
 
-    uiItemR(layout, &ptr, "cull_face", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "cull_face", UI_ITEM_R_EXPAND, NULL, ICON_NONE);
     col = uiLayoutColumn(layout, false);
     uiLayoutSetActive(col,
-                      RNA_boolean_get(&ptr, "use_negative_direction") &&
-                          RNA_enum_get(&ptr, "cull_face") != 0);
-    uiItemR(col, &ptr, "use_invert_cull", 0, NULL, ICON_NONE);
+                      RNA_boolean_get(ptr, "use_negative_direction") &&
+                          RNA_enum_get(ptr, "cull_face") != 0);
+    uiItemR(col, ptr, "use_invert_cull", 0, NULL, ICON_NONE);
   }
 
-  uiItemR(layout, &ptr, "target", 0, NULL, ICON_NONE);
+  uiItemR(layout, ptr, "target", 0, NULL, ICON_NONE);
   if (wrap_method == MOD_SHRINKWRAP_PROJECT) {
-    uiItemR(layout, &ptr, "auxiliary_target", 0, NULL, ICON_NONE);
+    uiItemR(layout, ptr, "auxiliary_target", 0, NULL, ICON_NONE);
   }
-  uiItemR(layout, &ptr, "offset", 0, NULL, ICON_NONE);
+  uiItemR(layout, ptr, "offset", 0, NULL, ICON_NONE);
 
-  modifier_vgroup_ui(layout, &ptr, &ob_ptr, "vertex_group", "invert_vertex_group", NULL);
+  modifier_vgroup_ui(layout, ptr, &ob_ptr, "vertex_group", "invert_vertex_group", NULL);
 
-  modifier_panel_end(layout, &ptr);
+  modifier_panel_end(layout, ptr);
 }
 
 static void panelRegister(ARegionType *region_type)
@@ -274,13 +260,15 @@ static void panelRegister(ARegionType *region_type)
 }
 
 ModifierTypeInfo modifierType_Shrinkwrap = {
-    /* name */ "Shrinkwrap",
+    /* name */ N_("Shrinkwrap"),
     /* structName */ "ShrinkwrapModifierData",
     /* structSize */ sizeof(ShrinkwrapModifierData),
+    /* srna */ &RNA_ShrinkwrapModifier,
     /* type */ eModifierTypeType_OnlyDeform,
     /* flags */ eModifierTypeFlag_AcceptsMesh | eModifierTypeFlag_AcceptsCVs |
         eModifierTypeFlag_AcceptsVertexCosOnly | eModifierTypeFlag_SupportsEditmode |
         eModifierTypeFlag_EnableInEditmode,
+    /* icon */ ICON_MOD_SHRINKWRAP,
 
     /* copyData */ BKE_modifier_copydata_generic,
 
@@ -289,9 +277,7 @@ ModifierTypeInfo modifierType_Shrinkwrap = {
     /* deformVertsEM */ deformVertsEM,
     /* deformMatricesEM */ NULL,
     /* modifyMesh */ NULL,
-    /* modifyHair */ NULL,
-    /* modifyPointCloud */ NULL,
-    /* modifyVolume */ NULL,
+    /* modifyGeometrySet */ NULL,
 
     /* initData */ initData,
     /* requiredDataMask */ requiredDataMask,
@@ -300,9 +286,10 @@ ModifierTypeInfo modifierType_Shrinkwrap = {
     /* updateDepsgraph */ updateDepsgraph,
     /* dependsOnTime */ NULL,
     /* dependsOnNormals */ dependsOnNormals,
-    /* foreachObjectLink */ foreachObjectLink,
-    /* foreachIDLink */ NULL,
+    /* foreachIDLink */ foreachIDLink,
     /* foreachTexLink */ NULL,
     /* freeRuntimeData */ NULL,
     /* panelRegister */ panelRegister,
+    /* blendWrite */ NULL,
+    /* blendRead */ NULL,
 };

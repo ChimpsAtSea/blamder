@@ -1,36 +1,17 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2020 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2020 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup bke
  */
 
-#ifndef __BKE_INTERN_MULTIRES_UNSUBDIVIDE_H__
-#define __BKE_INTERN_MULTIRES_UNSUBDIVIDE_H__
+#pragma once
 
 #include "BLI_sys_types.h"
 
 struct BMesh;
-struct Depsgraph;
 struct Mesh;
 struct MultiresModifierData;
-struct Object;
 
 typedef struct MultiresUnsubdivideGrid {
   /* For sanity checks. */
@@ -90,5 +71,3 @@ void multires_unsubdivide_context_free(MultiresUnsubdivideContext *context);
 
 /* Rebuilds all subdivision to the level 0 base mesh. */
 bool multires_unsubdivide_to_basemesh(MultiresUnsubdivideContext *context);
-
-#endif /* __BKE_INTERN_MULTIRES_UNSUBDIVIDE_H__ */

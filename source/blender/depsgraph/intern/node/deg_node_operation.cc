@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2013 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2013 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup depsgraph
@@ -32,7 +16,7 @@
 #include "intern/node/deg_node_factory.h"
 #include "intern/node/deg_node_id.h"
 
-namespace DEG {
+namespace blender::deg {
 
 const char *operationCodeAsString(OperationCode opcode)
 {
@@ -48,6 +32,8 @@ const char *operationCodeAsString(OperationCode opcode)
       return "PARAMETERS_EVAL";
     case OperationCode::PARAMETERS_EXIT:
       return "PARAMETERS_EXIT";
+    case OperationCode::VISIBILITY:
+      return "VISIBILITY";
     /* Animation, Drivers, etc. */
     case OperationCode::ANIMATION_ENTRY:
       return "ANIMATION_ENTRY";
@@ -60,11 +46,17 @@ const char *operationCodeAsString(OperationCode opcode)
     /* Scene related. */
     case OperationCode::SCENE_EVAL:
       return "SCENE_EVAL";
+    case OperationCode::AUDIO_ENTRY:
+      return "AUDIO_ENTRY";
     case OperationCode::AUDIO_VOLUME:
       return "AUDIO_VOLUME";
     /* Object related. */
+    case OperationCode::OBJECT_FROM_LAYER_ENTRY:
+      return "OBJECT_FROM_LAYER_ENTRY";
     case OperationCode::OBJECT_BASE_FLAGS:
       return "OBJECT_BASE_FLAGS";
+    case OperationCode::OBJECT_FROM_LAYER_EXIT:
+      return "OBJECT_FROM_LAYER_EXIT";
     case OperationCode::DIMENSIONS:
       return "DIMENSIONS";
     /* Transform. */
@@ -176,6 +168,9 @@ const char *operationCodeAsString(OperationCode opcode)
       return "LIGHT_UPDATE";
     case OperationCode::WORLD_UPDATE:
       return "WORLD_UPDATE";
+    /* Node Tree. */
+    case OperationCode::NTREE_OUTPUT:
+      return "NTREE_OUTPUT";
     /* Movie clip. */
     case OperationCode::MOVIECLIP_EVAL:
       return "MOVIECLIP_EVAL";
@@ -199,15 +194,11 @@ const char *operationCodeAsString(OperationCode opcode)
     case OperationCode::SIMULATION_EVAL:
       return "SIMULATION_EVAL";
   }
-  BLI_assert(!"Unhandled operation code, should never happen.");
+  BLI_assert_msg(0, "Unhandled operation code, should never happen.");
   return "UNKNOWN";
 }
 
 OperationNode::OperationNode() : name_tag(-1), flag(0)
-{
-}
-
-OperationNode::~OperationNode()
 {
 }
 
@@ -216,8 +207,6 @@ string OperationNode::identifier() const
   return string(operationCodeAsString(opcode)) + "(" + name + ")";
 }
 
-/* Full node identifier, including owner name.
- * used for logging and debug prints. */
 string OperationNode::full_identifier() const
 {
   string owner_str = owner->owner->name;
@@ -229,9 +218,13 @@ string OperationNode::full_identifier() const
 
 void OperationNode::tag_update(Depsgraph *graph, eUpdateSource source)
 {
-  if ((flag & DEPSOP_FLAG_NEEDS_UPDATE) == 0) {
-    graph->add_entry_tag(this);
-  }
+  /* Ensure that there is an entry tag for this update.
+   *
+   * Note that the node might already be tagged for an update due invisible state of the node
+   * during previous dependency evaluation. Here the node gets re-tagged, so we need to give
+   * the evaluated clues that evaluation needs to happen again. */
+  graph->add_entry_tag(this);
+
   /* Tag for update, but also note that this was the source of an update. */
   flag |= (DEPSOP_FLAG_NEEDS_UPDATE | DEPSOP_FLAG_DIRECTLY_MODIFIED);
   switch (source) {
@@ -266,4 +259,4 @@ void deg_register_operation_depsnodes()
   register_node_typeinfo(&DNTI_OPERATION);
 }
 
-}  // namespace DEG
+}  // namespace blender::deg

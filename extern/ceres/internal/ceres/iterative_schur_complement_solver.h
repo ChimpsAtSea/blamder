@@ -31,9 +31,12 @@
 #ifndef CERES_INTERNAL_ITERATIVE_SCHUR_COMPLEMENT_SOLVER_H_
 #define CERES_INTERNAL_ITERATIVE_SCHUR_COMPLEMENT_SOLVER_H_
 
-#include "ceres/linear_solver.h"
+#include <memory>
+
+#include "ceres/internal/disable_warnings.h"
 #include "ceres/internal/eigen.h"
-#include "ceres/internal/scoped_ptr.h"
+#include "ceres/internal/export.h"
+#include "ceres/linear_solver.h"
 #include "ceres/types.h"
 
 namespace ceres {
@@ -67,26 +70,33 @@ class Preconditioner;
 // a proof of this fact and others related to this solver please see
 // the section on Domain Decomposition Methods in Saad's book
 // "Iterative Methods for Sparse Linear Systems".
-class IterativeSchurComplementSolver : public BlockSparseMatrixSolver {
+class CERES_NO_EXPORT IterativeSchurComplementSolver final
+    : public BlockSparseMatrixSolver {
  public:
-  explicit IterativeSchurComplementSolver(const LinearSolver::Options& options);
-  virtual ~IterativeSchurComplementSolver();
+  explicit IterativeSchurComplementSolver(LinearSolver::Options options);
+  IterativeSchurComplementSolver(const IterativeSchurComplementSolver&) =
+      delete;
+  void operator=(const IterativeSchurComplementSolver&) = delete;
+
+  ~IterativeSchurComplementSolver() override;
 
  private:
-  virtual LinearSolver::Summary SolveImpl(
-      BlockSparseMatrix* A,
-      const double* b,
-      const LinearSolver::PerSolveOptions& options,
-      double* x);
+  LinearSolver::Summary SolveImpl(BlockSparseMatrix* A,
+                                  const double* b,
+                                  const LinearSolver::PerSolveOptions& options,
+                                  double* x) final;
+
+  void CreatePreconditioner(BlockSparseMatrix* A);
 
   LinearSolver::Options options_;
-  scoped_ptr<internal::ImplicitSchurComplement> schur_complement_;
-  scoped_ptr<Preconditioner> preconditioner_;
+  std::unique_ptr<internal::ImplicitSchurComplement> schur_complement_;
+  std::unique_ptr<Preconditioner> preconditioner_;
   Vector reduced_linear_system_solution_;
-  CERES_DISALLOW_COPY_AND_ASSIGN(IterativeSchurComplementSolver);
 };
 
 }  // namespace internal
 }  // namespace ceres
+
+#include "ceres/internal/reenable_warnings.h"
 
 #endif  // CERES_INTERNAL_ITERATIVE_SCHUR_COMPLEMENT_SOLVER_H_

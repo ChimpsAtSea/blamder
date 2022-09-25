@@ -1,32 +1,19 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * Copyright 2011, Blender Foundation.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2011 Blender Foundation. */
 
-#ifndef __COM_SETVALUEOPERATION_H__
-#define __COM_SETVALUEOPERATION_H__
-#include "COM_NodeOperation.h"
+#pragma once
+
+#include "COM_ConstantOperation.h"
+
+namespace blender::compositor {
 
 /**
  * this program converts an input color to an output value.
  * it assumes we are in sRGB color space.
  */
-class SetValueOperation : public NodeOperation {
+class SetValueOperation : public ConstantOperation {
  private:
-  float m_value;
+  float value_;
 
  public:
   /**
@@ -34,24 +21,26 @@ class SetValueOperation : public NodeOperation {
    */
   SetValueOperation();
 
-  float getValue()
+  const float *get_constant_elem() override
   {
-    return this->m_value;
+    return &value_;
   }
-  void setValue(float value)
+
+  float get_value()
   {
-    this->m_value = value;
+    return value_;
+  }
+  void set_value(float value)
+  {
+    value_ = value;
   }
 
   /**
-   * the inner loop of this program
+   * The inner loop of this operation.
    */
-  void executePixelSampled(float output[4], float x, float y, PixelSampler sampler);
-  void determineResolution(unsigned int resolution[2], unsigned int preferredResolution[2]);
+  void execute_pixel_sampled(float output[4], float x, float y, PixelSampler sampler) override;
 
-  bool isSetOperation() const
-  {
-    return true;
-  }
+  void determine_canvas(const rcti &preferred_area, rcti &r_area) override;
 };
-#endif
+
+}  // namespace blender::compositor

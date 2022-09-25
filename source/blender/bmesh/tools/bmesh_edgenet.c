@@ -1,23 +1,9 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later */
 
 /** \file
  * \ingroup bmesh
  *
- * Edgenet Fill.
+ * Edge-net Fill.
  */
 
 #include <limits.h>
@@ -51,7 +37,7 @@ enum {
  */
 static bool bm_edge_step_ok(BMEdge *e)
 {
-  return BM_elem_flag_test(e, BM_ELEM_TAG) && ((e->l == NULL) || (e->l->radial_next == e->l));
+  return BM_elem_flag_test(e, BM_ELEM_TAG) && (ELEM(e->l, NULL, e->l->radial_next));
 }
 
 static int bm_edge_face(BMEdge *e)
@@ -60,7 +46,7 @@ static int bm_edge_face(BMEdge *e)
 }
 
 /**
- * Get the next available edge we can use to attempt tp calculate a path from.
+ * Get the next available edge we can use to attempt to calculate a path from.
  */
 static BMEdge *bm_edgenet_edge_get_next(BMesh *bm,
                                         LinkNode **edge_queue,
@@ -143,9 +129,7 @@ static bool bm_edgenet_path_check_overlap(BMVert *v1, BMVert *v2, VertNetInfo *v
 
     return BM_face_exists_overlap_subset(vert_arr, (int)v_ls_tot);
   }
-  else {
-    return false;
-  }
+  return false;
 }
 
 /**
@@ -297,7 +281,7 @@ static LinkNode *bm_edgenet_path_calc(BMEdge *e,
 
   vn_1->flag = vn_2->flag = (f_index == -1) ? VNINFO_FLAG_IS_MIXFACE : 0;
 
-  /* prime the searchlist */
+  /* Prime the search-list. */
   BLI_linklist_prepend_pool(&v_ls_prev, e->v1, path_pool);
   BLI_linklist_prepend_pool(&v_ls_prev, e->v2, path_pool);
 
@@ -331,11 +315,10 @@ static LinkNode *bm_edgenet_path_calc(BMEdge *e,
         *r_path_cost = path_cost_accum;
         return path;
       }
-      else {
-        /* check if a change was made */
-        if (v_ls_next_old != v_ls_next) {
-          found = true;
-        }
+
+      /* check if a change was made */
+      if (v_ls_next_old != v_ls_next) {
+        found = true;
       }
     }
     BLI_assert(v_ls_prev == NULL);
@@ -379,61 +362,52 @@ static LinkNode *bm_edgenet_path_calc_best(BMEdge *e,
   if (path == NULL) {
     return NULL;
   }
-  else if (path_cost < 1) {
+  if (path_cost < 1) {
     /* any face that takes 1 iteration to find we consider valid */
     return path;
   }
-  else {
-    /* Check every edge to see if any can give a better path.
-     * This avoids very strange/long paths from being created. */
 
-    const uint path_len = *r_path_len;
-    uint i, i_prev;
-    BMVert **vert_arr = BLI_array_alloca(vert_arr, path_len);
-    LinkNode *v_lnk;
+  /* Check every edge to see if any can give a better path.
+   * This avoids very strange/long paths from being created. */
 
-    for (v_lnk = path, i = 0; v_lnk; v_lnk = v_lnk->next, i++) {
-      vert_arr[i] = v_lnk->link;
-    }
+  const uint path_len = *r_path_len;
+  uint i, i_prev;
+  BMVert **vert_arr = BLI_array_alloca(vert_arr, path_len);
+  LinkNode *v_lnk;
 
-    i_prev = path_len - 1;
-    for (i = 0; i < path_len; i++) {
-      BMEdge *e_other = BM_edge_exists(vert_arr[i], vert_arr[i_prev]);
-      if (e_other != e) {
-        LinkNode *path_test;
-        uint path_len_test;
-        uint path_cost_test;
-
-        path_test = bm_edgenet_path_calc(
-            e_other, *pass_nr, path_cost, &path_len_test, &path_cost_test, vnet_info, path_pool);
-        (*pass_nr)++;
-
-        if (path_test) {
-          BLI_assert(path_cost_test < path_cost);
-
-          BLI_linklist_free_pool(path, NULL, path_pool);
-          path = path_test;
-          *r_path_len = path_len_test;
-          *r_path_cost = path_cost_test;
-          path_cost = path_cost_test;
-        }
-      }
-
-      i_prev = i;
-    }
+  for (v_lnk = path, i = 0; v_lnk; v_lnk = v_lnk->next, i++) {
+    vert_arr[i] = v_lnk->link;
   }
+
+  i_prev = path_len - 1;
+  for (i = 0; i < path_len; i++) {
+    BMEdge *e_other = BM_edge_exists(vert_arr[i], vert_arr[i_prev]);
+    if (e_other != e) {
+      LinkNode *path_test;
+      uint path_len_test;
+      uint path_cost_test;
+
+      path_test = bm_edgenet_path_calc(
+          e_other, *pass_nr, path_cost, &path_len_test, &path_cost_test, vnet_info, path_pool);
+      (*pass_nr)++;
+
+      if (path_test) {
+        BLI_assert(path_cost_test < path_cost);
+
+        BLI_linklist_free_pool(path, NULL, path_pool);
+        path = path_test;
+        *r_path_len = path_len_test;
+        *r_path_cost = path_cost_test;
+        path_cost = path_cost_test;
+      }
+    }
+
+    i_prev = i;
+  }
+
   return path;
 }
 
-/**
- * Fill in faces from an edgenet made up of boundary and wire edges.
- *
- * \note New faces currently don't have their normals calculated and are flipped randomly.
- *       The caller needs to flip faces correctly.
- *
- * \param bm: The mesh to operate on.
- * \param use_edge_tag: Only fill tagged edges.
- */
 void BM_mesh_edgenet(BMesh *bm, const bool use_edge_tag, const bool use_new_face_tag)
 {
   VertNetInfo *vnet_info = MEM_callocN(sizeof(*vnet_info) * (size_t)bm->totvert, __func__);

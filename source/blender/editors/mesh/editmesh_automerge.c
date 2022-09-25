@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2019 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup edmesh
@@ -26,12 +10,9 @@
  * - #EDBM_automerge_and_split
  */
 
-#include "MEM_guardedalloc.h"
-
 #include "BKE_editmesh.h"
 
 #include "DNA_object_types.h"
-#include "DNA_scene_types.h"
 
 #include "ED_mesh.h"
 
@@ -79,7 +60,12 @@ void EDBM_automerge(Object *obedit, bool update, const char hflag, const float d
   BMO_op_finish(bm, &weldop);
 
   if ((totvert_prev != bm->totvert) && update) {
-    EDBM_update_generic(obedit->data, true, true);
+    EDBM_update(obedit->data,
+                &(const struct EDBMUpdate_Params){
+                    .calc_looptri = true,
+                    .calc_normals = false,
+                    .is_destructive = true,
+                });
   }
 }
 
@@ -137,7 +123,12 @@ void EDBM_automerge_and_split(Object *obedit,
 #endif
 
   if (LIKELY(ok) && update) {
-    EDBM_update_generic(obedit->data, true, true);
+    EDBM_update(obedit->data,
+                &(const struct EDBMUpdate_Params){
+                    .calc_looptri = true,
+                    .calc_normals = false,
+                    .is_destructive = true,
+                });
   }
 }
 

@@ -1,24 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- *
- * The Original Code is: some of this file.
- *
- * */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup bli
@@ -28,21 +9,21 @@
 #include "BLI_math_color.h"
 #include "BLI_utildefines.h"
 
-#include "math.h"
+#include <math.h>
 
 #ifndef __MATH_COLOR_INLINE_C__
 #  define __MATH_COLOR_INLINE_C__
 
 /******************************** Color Space ********************************/
 
-#  ifdef __SSE2__
+#  ifdef BLI_HAVE_SSE2
 
 MALWAYS_INLINE __m128 srgb_to_linearrgb_v4_simd(const __m128 c)
 {
   __m128 cmp = _mm_cmplt_ps(c, _mm_set1_ps(0.04045f));
   __m128 lt = _mm_max_ps(_mm_mul_ps(c, _mm_set1_ps(1.0f / 12.92f)), _mm_set1_ps(0.0f));
   __m128 gtebase = _mm_mul_ps(_mm_add_ps(c, _mm_set1_ps(0.055f)),
-                              _mm_set1_ps(1.0f / 1.055f)); /* fma */
+                              _mm_set1_ps(1.0f / 1.055f)); /* FMA. */
   __m128 gte = _bli_math_fastpow24(gtebase);
   return _bli_math_blend_sse(cmp, lt, gte);
 }
@@ -76,7 +57,7 @@ MINLINE void linearrgb_to_srgb_v3_v3(float srgb[3], const float linear[3])
   srgb[2] = r[2];
 }
 
-#  else  /* __SSE2__ */
+#  else  /* BLI_HAVE_SSE2 */
 
 MINLINE void srgb_to_linearrgb_v3_v3(float linear[3], const float srgb[3])
 {
@@ -91,7 +72,7 @@ MINLINE void linearrgb_to_srgb_v3_v3(float srgb[3], const float linear[3])
   srgb[1] = linearrgb_to_srgb(linear[1]);
   srgb[2] = linearrgb_to_srgb(linear[2]);
 }
-#  endif /* __SSE2__ */
+#  endif /* BLI_HAVE_SSE2 */
 
 MINLINE void srgb_to_linearrgb_v4(float linear[4], const float srgb[4])
 {
@@ -261,7 +242,8 @@ MINLINE void cpack_cpy_3ub(unsigned char r_col[3], const unsigned int pack)
   r_col[2] = ((pack) >> 16) & 0xFF;
 }
 
-/** \name RGB/Grayscale Functions
+/* -------------------------------------------------------------------- */
+/** \name RGB/Gray-Scale Functions
  *
  * \warning
  * These are only an approximation,
@@ -271,20 +253,6 @@ MINLINE void cpack_cpy_3ub(unsigned char r_col[3], const unsigned int pack)
  *
  * \{ */
 
-/**
- * ITU-R BT.709 primaries
- * https://en.wikipedia.org/wiki/Relative_luminance
- *
- * Real values are:
- * ``Y = 0.2126390059(R) + 0.7151686788(G) + 0.0721923154(B)``
- * according to: "Derivation of Basic Television Color Equations", RP 177-1993
- *
- * As this sums slightly above 1.0, the document recommends to use:
- * ``0.2126(R) + 0.7152(G) + 0.0722(B)``, as used here.
- *
- * The high precision values are used to calculate the rounded byte weights so they add up to 255:
- * ``54(R) + 182(G) + 19(B)``
- */
 MINLINE float rgb_to_grayscale(const float rgb[3])
 {
   return (0.2126f * rgb[0]) + (0.7152f * rgb[1]) + (0.0722f * rgb[2]);
@@ -317,21 +285,19 @@ MINLINE int compare_rgb_uchar(const unsigned char col_a[3],
   return 0;
 }
 
-/* Using a triangle distribution which gives a more final uniform noise.
- * See Banding in Games:A Noisy Rant(revision 5) Mikkel Gjøl, Playdead (slide 27) */
-/* Return triangle noise in [-0.5..1.5[ range */
 MINLINE float dither_random_value(float s, float t)
 {
-  /* Original code from https://www.shadertoy.com/view/4t2SDh */
-  /* The noise reshaping technique does not work on CPU.
-   * We generate and merge two distribution instead */
-  /* Uniform noise in [0..1[ range */
-  float nrnd0 = sinf(s * 12.9898f + t * 78.233f) * 43758.5453f;
-  float nrnd1 = sinf(s * 19.9898f + t * 119.233f) * 43798.5453f;
-  nrnd0 -= floorf(nrnd0);
-  nrnd1 -= floorf(nrnd1);
+  /* Using a triangle distribution which gives a more final uniform noise.
+   * See Banding in Games:A Noisy Rant(revision 5) Mikkel Gjøl, Playdead (slide 27) */
+
+  /* Uniform noise in [0..1[ range, using common GLSL hash function.
+   * https://stackoverflow.com/questions/12964279/whats-the-origin-of-this-glsl-rand-one-liner. */
+  float hash0 = sinf(s * 12.9898f + t * 78.233f) * 43758.5453f;
+  float hash1 = sinf(s * 19.9898f + t * 119.233f) * 43798.5453f;
+  hash0 -= floorf(hash0);
+  hash1 -= floorf(hash1);
   /* Convert uniform distribution into triangle-shaped distribution. */
-  return nrnd0 + nrnd1 - 0.5f;
+  return hash0 + hash1 - 0.5f;
 }
 
 MINLINE void float_to_byte_dither_v3(

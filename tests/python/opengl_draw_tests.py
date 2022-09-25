@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Apache License, Version 2.0
+# SPDX-License-Identifier: Apache-2.0
 
 import argparse
 import os
@@ -39,6 +39,8 @@ def get_arguments(filepath, output_filepath):
         "-noaudio",
         "--factory-startup",
         "--enable-autoexec",
+        "--debug-memory",
+        "--debug-exit-on-error",
         filepath,
         "-P",
         os.path.realpath(__file__),

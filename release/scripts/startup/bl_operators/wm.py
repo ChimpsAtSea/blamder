@@ -1,27 +1,11 @@
-# ##### BEGIN GPL LICENSE BLOCK #####
-#
-#  This program is free software; you can redistribute it and/or
-#  modify it under the terms of the GNU General Public License
-#  as published by the Free Software Foundation; either version 2
-#  of the License, or (at your option) any later version.
-#
-#  This program is distributed in the hope that it will be useful,
-#  but WITHOUT ANY WARRANTY; without even the implied warranty of
-#  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#  GNU General Public License for more details.
-#
-#  You should have received a copy of the GNU General Public License
-#  along with this program; if not, write to the Free Software Foundation,
-#  Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
-#
-# ##### END GPL LICENSE BLOCK #####
-
-# <pep8 compliant>
+# SPDX-License-Identifier: GPL-2.0-or-later
+from __future__ import annotations
 
 import bpy
 from bpy.types import (
     Menu,
     Operator,
+    bpy_prop_array,
 )
 from bpy.props import (
     BoolProperty,
@@ -30,35 +14,95 @@ from bpy.props import (
     FloatProperty,
     IntProperty,
     StringProperty,
+    IntVectorProperty,
+    FloatVectorProperty,
 )
+from bpy.app.translations import pgettext_iface as iface_
+from bpy.app.translations import pgettext_tip as tip_
 
-# FIXME, we need a way to detect key repeat events.
-# unfortunately checking event previous values isn't reliable.
-use_toolbar_release_hack = True
+
+def _rna_path_prop_search_for_context_impl(context, edit_text, unique_attrs):
+    # Use the same logic as auto-completing in the Python console to expand the data-path.
+    from bl_console_utils.autocomplete import intellisense
+    context_prefix = "context."
+    line = context_prefix + edit_text
+    cursor = len(line)
+    namespace = {"context": context}
+    comp_prefix, _, comp_options = intellisense.expand(line=line, cursor=len(line), namespace=namespace, private=False)
+    prefix = comp_prefix[len(context_prefix):]  # Strip "context."
+    for attr in comp_options.split("\n"):
+        if attr.endswith((
+                # Exclude function calls because they are generally not part of data-paths.
+                "(", ")",
+                # RNA properties for introspection, not useful to expand.
+                ".bl_rna", ".rna_type",
+        )):
+            continue
+        attr_full = prefix + attr.lstrip()
+        if attr_full in unique_attrs:
+            continue
+        unique_attrs.add(attr_full)
+        yield attr_full
+
+
+def rna_path_prop_search_for_context(self, context, edit_text):
+    # NOTE(@campbellbarton): Limiting data-path expansion is rather arbitrary.
+    # It's possible for e.g. that someone would want to set a shortcut in the preferences or
+    # in other region types than those currently expanded. Unless there is a reasonable likelihood
+    # users might expand these space-type/region-type combinations - exclude them from this search.
+    # After all, this list is mainly intended as a hint, users are not prevented from constructing
+    # the data-paths themselves.
+    unique_attrs = set()
+
+    for window in context.window_manager.windows:
+        for area in window.screen.areas:
+            # Users are very unlikely to be setting shortcuts in the preferences, skip this.
+            if area.type == 'PREFERENCES':
+                continue
+            space = area.spaces.active
+            # Ignore the same region type multiple times in an area.
+            # Prevents the 3D-viewport quad-view from attempting to expand 3 extra times for e.g.
+            region_type_unique = set()
+            for region in area.regions:
+                if region.type not in {'WINDOW', 'PREVIEW'}:
+                    continue
+                if region.type in region_type_unique:
+                    continue
+                region_type_unique.add(region.type)
+                with context.temp_override(window=window, area=area, region=region):
+                    yield from _rna_path_prop_search_for_context_impl(context, edit_text, unique_attrs)
+
+    if not unique_attrs:
+        # Users *might* only have a preferences area shown, in that case just expand the current context.
+        yield from _rna_path_prop_search_for_context_impl(context, edit_text, unique_attrs)
 
 
 rna_path_prop = StringProperty(
     name="Context Attributes",
-    description="RNA context string",
+    description="Context data-path (expanded using visible windows in the current .blend file)",
     maxlen=1024,
+    search=rna_path_prop_search_for_context,
 )
 
 rna_reverse_prop = BoolProperty(
     name="Reverse",
     description="Cycle backwards",
     default=False,
+    options={'SKIP_SAVE'},
 )
 
 rna_wrap_prop = BoolProperty(
     name="Wrap",
     description="Wrap back to the first/last values",
     default=False,
+    options={'SKIP_SAVE'},
 )
 
 rna_relative_prop = BoolProperty(
     name="Relative",
     description="Apply relative to the current value (delta)",
     default=False,
+    options={'SKIP_SAVE'},
 )
 
 rna_space_type_prop = EnumProperty(
@@ -95,6 +139,76 @@ def context_path_validate(context, data_path):
     return value
 
 
+def context_path_to_rna_property(context, data_path):
+    from bl_rna_utils.data_path import property_definition_from_data_path
+    rna_prop = property_definition_from_data_path(context, "." + data_path)
+    if rna_prop is not None:
+        return rna_prop
+    return None
+
+
+def context_path_decompose(data_path):
+    # Decompose a data_path into 3 components:
+    # base_path, prop_attr, prop_item, where:
+    # `"foo.bar["baz"].fiz().bob.buz[10][2]"`, returns...
+    # `("foo.bar["baz"].fiz().bob", "buz", "[10][2]")`
+    #
+    # This is useful as we often want the base and the property, ignoring any item access.
+    # Note that item access includes function calls since these aren't properties.
+    #
+    # Note that the `.` is removed from the start of the first and second values,
+    # this is done because `.attr` isn't convenient to use as an argument,
+    # also the convention is not to include this within the data paths or the operator logic for `bpy.ops.wm.*`.
+    from bl_rna_utils.data_path import decompose_data_path
+    path_split = decompose_data_path("." + data_path)
+
+    # Find the last property that isn't a function call.
+    value_prev = ""
+    i = len(path_split)
+    while (i := i - 1) >= 0:
+        value = path_split[i]
+        if value.startswith("."):
+            if not value_prev.startswith("("):
+                break
+        value_prev = value
+
+    if i != -1:
+        base_path = "".join(path_split[:i])
+        prop_attr = path_split[i]
+        prop_item = "".join(path_split[i + 1:])
+
+        if base_path:
+            assert(base_path.startswith("."))
+            base_path = base_path[1:]
+        if prop_attr:
+            assert(prop_attr.startswith("."))
+            prop_attr = prop_attr[1:]
+    else:
+        # If there are no properties, everything is an item.
+        # Note that should not happen in practice with values which are added onto `context`,
+        # include since it's correct to account for this case and not doing so will create a confusing exception.
+        base_path = ""
+        prop_attr = ""
+        prop_item = "".join(path_split)
+
+    return (base_path, prop_attr, prop_item)
+
+
+def description_from_data_path(base, data_path, *, prefix, value=Ellipsis):
+    if context_path_validate(base, data_path) is Ellipsis:
+        return None
+
+    if (
+            (rna_prop := context_path_to_rna_property(base, data_path)) and
+            (description := rna_prop.description)
+    ):
+        description = "%s: %s" % (prefix, description)
+        if value != Ellipsis:
+            description = "%s\n%s: %s" % (description, iface_("Value"), str(value))
+        return description
+    return None
+
+
 def operator_value_is_undo(value):
     if value in {None, Ellipsis}:
         return False
@@ -120,12 +234,9 @@ def operator_value_is_undo(value):
 
 
 def operator_path_is_undo(context, data_path):
-    # note that if we have data paths that use strings this could fail
-    # luckily we don't do this!
-    #
-    # When we can't find the data owner assume no undo is needed.
-    data_path_head = data_path.rpartition(".")[0]
+    data_path_head, _, _ = context_path_decompose(data_path)
 
+    # When we can't find the data owner assume no undo is needed.
     if not data_path_head:
         return False
 
@@ -168,6 +279,10 @@ class WM_OT_context_set_boolean(Operator):
         default=True,
     )
 
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Assign"), value=props.value)
+
     execute = execute_context_assign
 
 
@@ -185,6 +300,10 @@ class WM_OT_context_set_int(Operator):  # same as enum
     )
     relative: rna_relative_prop
 
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix="Assign", value=props.value)
+
     execute = execute_context_assign
 
 
@@ -200,6 +319,10 @@ class WM_OT_context_scale_float(Operator):
         description="Assign value",
         default=1.0,
     )
+
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Scale"), value=props.value)
 
     def execute(self, context):
         data_path = self.data_path
@@ -232,7 +355,12 @@ class WM_OT_context_scale_int(Operator):
         name="Always Step",
         description="Always adjust the value by a minimum of 1 when 'value' is not 1.0",
         default=True,
+        options={'SKIP_SAVE'},
     )
+
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Scale"), value=props.value)
 
     def execute(self, context):
         data_path = self.data_path
@@ -273,6 +401,10 @@ class WM_OT_context_set_float(Operator):  # same as enum
     )
     relative: rna_relative_prop
 
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix="Assign", value=props.value)
+
     execute = execute_context_assign
 
 
@@ -288,6 +420,10 @@ class WM_OT_context_set_string(Operator):  # same as enum
         description="Assign value",
         maxlen=1024,
     )
+
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Assign"), value=props.value)
 
     execute = execute_context_assign
 
@@ -305,6 +441,10 @@ class WM_OT_context_set_enum(Operator):
         maxlen=1024,
     )
 
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Assign"), value=props.value)
+
     execute = execute_context_assign
 
 
@@ -320,6 +460,10 @@ class WM_OT_context_set_value(Operator):
         description="Assignment value (as a string)",
         maxlen=1024,
     )
+
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Assign"), value=props.value)
 
     def execute(self, context):
         data_path = self.data_path
@@ -337,6 +481,13 @@ class WM_OT_context_toggle(Operator):
 
     data_path: rna_path_prop
     module: rna_module_prop
+
+    @classmethod
+    def description(cls, context, props):
+        # Currently unsupported, it might be possible to extract this.
+        if props.module:
+            return None
+        return description_from_data_path(context, props.data_path, prefix=iface_("Toggle"))
 
     def execute(self, context):
         data_path = self.data_path
@@ -374,6 +525,11 @@ class WM_OT_context_toggle_enum(Operator):
         maxlen=1024,
     )
 
+    @classmethod
+    def description(cls, context, props):
+        value = "(%r, %r)" % (props.value_1, props.value_2)
+        return description_from_data_path(context, props.data_path, prefix=iface_("Toggle"), value=value)
+
     def execute(self, context):
         data_path = self.data_path
 
@@ -404,6 +560,10 @@ class WM_OT_context_cycle_int(Operator):
     data_path: rna_path_prop
     reverse: rna_reverse_prop
     wrap: rna_wrap_prop
+
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Cycle"))
 
     def execute(self, context):
         data_path = self.data_path
@@ -441,6 +601,10 @@ class WM_OT_context_cycle_enum(Operator):
     reverse: rna_reverse_prop
     wrap: rna_wrap_prop
 
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Cycle"))
+
     def execute(self, context):
         data_path = self.data_path
         value = context_path_validate(context, data_path)
@@ -449,27 +613,16 @@ class WM_OT_context_cycle_enum(Operator):
 
         orig_value = value
 
-        # Have to get rna enum values
-        rna_struct_str, rna_prop_str = data_path.rsplit('.', 1)
-        i = rna_prop_str.find('[')
-
-        # just in case we get "context.foo.bar[0]"
-        if i != -1:
-            rna_prop_str = rna_prop_str[0:i]
-
-        rna_struct = eval("context.%s.rna_type" % rna_struct_str)
-
-        rna_prop = rna_struct.properties[rna_prop_str]
-
+        rna_prop = context_path_to_rna_property(context, data_path)
         if type(rna_prop) != bpy.types.EnumProperty:
             raise Exception("expected an enum property")
 
-        enums = rna_struct.properties[rna_prop_str].enum_items.keys()
+        enums = rna_prop.enum_items.keys()
         orig_index = enums.index(orig_value)
 
         # Have the info we need, advance to the next item.
         #
-        # When wrap's disabled we may set the value to its self,
+        # When wrap's disabled we may set the value to itself,
         # this is done to ensure update callbacks run.
         if self.reverse:
             if orig_index == 0:
@@ -497,6 +650,10 @@ class WM_OT_context_cycle_array(Operator):
     data_path: rna_path_prop
     reverse: rna_reverse_prop
 
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Cycle"))
+
     def execute(self, context):
         data_path = self.data_path
         value = context_path_validate(context, data_path)
@@ -522,6 +679,10 @@ class WM_OT_context_menu_enum(Operator):
 
     data_path: rna_path_prop
 
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Menu"))
+
     def execute(self, context):
         data_path = self.data_path
         value = context_path_validate(context, data_path)
@@ -529,15 +690,15 @@ class WM_OT_context_menu_enum(Operator):
         if value is Ellipsis:
             return {'PASS_THROUGH'}
 
-        base_path, prop_string = data_path.rsplit(".", 1)
+        base_path, prop_attr, _ = context_path_decompose(data_path)
         value_base = context_path_validate(context, base_path)
-        prop = value_base.bl_rna.properties[prop_string]
+        rna_prop = context_path_to_rna_property(context, data_path)
 
         def draw_cb(self, context):
             layout = self.layout
-            layout.prop(value_base, prop_string, expand=True)
+            layout.prop(value_base, prop_attr, expand=True)
 
-        context.window_manager.popup_menu(draw_func=draw_cb, title=prop.name, icon=prop.icon)
+        context.window_manager.popup_menu(draw_func=draw_cb, title=rna_prop.name, icon=rna_prop.icon)
 
         return {'FINISHED'}
 
@@ -549,6 +710,10 @@ class WM_OT_context_pie_enum(Operator):
 
     data_path: rna_path_prop
 
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Pie Menu"))
+
     def invoke(self, context, event):
         wm = context.window_manager
         data_path = self.data_path
@@ -557,15 +722,15 @@ class WM_OT_context_pie_enum(Operator):
         if value is Ellipsis:
             return {'PASS_THROUGH'}
 
-        base_path, prop_string = data_path.rsplit(".", 1)
+        base_path, prop_attr, _ = context_path_decompose(data_path)
         value_base = context_path_validate(context, base_path)
-        prop = value_base.bl_rna.properties[prop_string]
+        rna_prop = context_path_to_rna_property(context, data_path)
 
         def draw_cb(self, context):
             layout = self.layout
-            layout.prop(value_base, prop_string, expand=True)
+            layout.prop(value_base, prop_attr, expand=True)
 
-        wm.popup_menu_pie(draw_func=draw_cb, title=prop.name, icon=prop.icon, event=event)
+        wm.popup_menu_pie(draw_func=draw_cb, title=rna_prop.name, icon=rna_prop.icon, event=event)
 
         return {'FINISHED'}
 
@@ -586,11 +751,15 @@ class WM_OT_operator_pie_enum(Operator):
         maxlen=1024,
     )
 
+    @classmethod
+    def description(cls, context, props):
+        return description_from_data_path(context, props.data_path, prefix=iface_("Pie Menu"))
+
     def invoke(self, context, event):
         wm = context.window_manager
 
         data_path = self.data_path
-        prop_string = self.prop_string
+        prop_attr = self.prop_string
 
         # same as eval("bpy.ops." + data_path)
         op_mod_str, ob_id_str = data_path.split(".", 1)
@@ -606,7 +775,7 @@ class WM_OT_operator_pie_enum(Operator):
         def draw_cb(self, context):
             layout = self.layout
             pie = layout.menu_pie()
-            pie.operator_enum(data_path, prop_string)
+            pie.operator_enum(data_path, prop_attr)
 
         wm.popup_menu_pie(draw_func=draw_cb, title=op_rna.name, event=event)
 
@@ -630,17 +799,17 @@ class WM_OT_context_set_id(Operator):
         value = self.value
         data_path = self.data_path
 
-        # match the pointer type from the target property to bpy.data.*
+        # Match the pointer type from the target property to `bpy.data.*`
         # so we lookup the correct list.
-        data_path_base, data_path_prop = data_path.rsplit(".", 1)
-        data_prop_rna = eval("context.%s" % data_path_base).rna_type.properties[data_path_prop]
-        data_prop_rna_type = data_prop_rna.fixed_type
+
+        rna_prop = context_path_to_rna_property(context, data_path)
+        rna_prop_fixed_type = rna_prop.fixed_type
 
         id_iter = None
 
         for prop in bpy.data.rna_type.properties:
             if prop.rna_type.identifier == "CollectionProperty":
-                if prop.fixed_type == data_prop_rna_type:
+                if prop.fixed_type == rna_prop_fixed_type:
                     id_iter = prop.identifier
                     break
 
@@ -740,10 +909,12 @@ class WM_OT_context_modal_mouse(Operator):
     input_scale: FloatProperty(
         description="Scale the mouse movement by this value before applying the delta",
         default=0.01,
+        options={'SKIP_SAVE'},
     )
     invert: BoolProperty(
         description="Invert the mouse input",
         default=False,
+        options={'SKIP_SAVE'},
     )
     initial_x: IntProperty(options={'HIDDEN'})
 
@@ -833,7 +1004,7 @@ class WM_OT_context_modal_mouse(Operator):
 
 
 class WM_OT_url_open(Operator):
-    """Open a website in the web-browser"""
+    """Open a website in the web browser"""
     bl_idname = "wm.url_open"
     bl_label = ""
     bl_options = {'INTERNAL'}
@@ -850,16 +1021,18 @@ class WM_OT_url_open(Operator):
 
 
 class WM_OT_url_open_preset(Operator):
-    """Open a preset website in the web-browser"""
+    """Open a preset website in the web browser"""
     bl_idname = "wm.url_open_preset"
     bl_label = "Open Preset Website"
     bl_options = {'INTERNAL'}
 
+    @staticmethod
+    def _wm_url_open_preset_type_items(_self, _context):
+        return [item for (item, _) in WM_OT_url_open_preset.preset_items]
+
     type: EnumProperty(
         name="Site",
-        items=lambda self, _context: (
-            item for (item, _) in WM_OT_url_open_preset.preset_items
-        ),
+        items=WM_OT_url_open_preset._wm_url_open_preset_type_items,
     )
 
     id: StringProperty(
@@ -879,38 +1052,40 @@ class WM_OT_url_open_preset(Operator):
         return "https://www.blender.org/download/releases/%d-%d/" % bpy.app.version[:2]
 
     def _url_from_manual(self, _context):
-        if bpy.app.version_cycle in {"rc", "release"}:
-            manual_version = "%d.%d" % bpy.app.version[:2]
-        else:
-            manual_version = "dev"
-        return "https://docs.blender.org/manual/en/" + manual_version + "/"
+        return "https://docs.blender.org/manual/en/%d.%d/" % bpy.app.version[:2]
+
+    def _url_from_api(self, _context):
+        return "https://docs.blender.org/api/%d.%d/" % bpy.app.version[:2]
 
     # This list is: (enum_item, url) pairs.
     # Allow dynamically extending.
     preset_items = [
         # Dynamic URL's.
-        (('BUG', "Bug",
-          "Report a bug with pre-filled version information"),
+        (('BUG', iface_("Bug"),
+          tip_("Report a bug with pre-filled version information")),
          _url_from_bug),
-        (('BUG_ADDON', "Add-On Bug",
-          "Report a bug in an add-on"),
+        (('BUG_ADDON', iface_("Add-on Bug"),
+          tip_("Report a bug in an add-on")),
          _url_from_bug_addon),
-        (('RELEASE_NOTES', "Release Notes",
-          "Read about whats new in this version of Blender"),
+        (('RELEASE_NOTES', iface_("Release Notes"),
+          tip_("Read about what's new in this version of Blender")),
          _url_from_release_notes),
-        (('MANUAL', "Manual",
-          "The reference manual for this version of Blender"),
+        (('MANUAL', iface_("User Manual"),
+          tip_("The reference manual for this version of Blender")),
          _url_from_manual),
+        (('API', iface_("Python API Reference"),
+          tip_("The API reference manual for this version of Blender")),
+         _url_from_api),
 
         # Static URL's.
-        (('FUND', "Development Fund",
-          "The donation program to support maintenance and improvements"),
+        (('FUND', iface_("Development Fund"),
+          tip_("The donation program to support maintenance and improvements")),
          "https://fund.blender.org"),
-        (('BLENDER', "blender.org",
-          "Blender's official web-site"),
+        (('BLENDER', iface_("blender.org"),
+          tip_("Blender's official web-site")),
          "https://www.blender.org"),
-        (('CREDITS', "Credits",
-          "Lists committers to Blender's source code"),
+        (('CREDITS', iface_("Credits"),
+          tip_("Lists committers to Blender's source code")),
          "https://www.blender.org/about/credits/"),
     ]
 
@@ -973,7 +1148,7 @@ class WM_OT_path_open(Operator):
         return {'FINISHED'}
 
 
-def _wm_doc_get_id(doc_id, do_url=True, url_prefix=""):
+def _wm_doc_get_id(doc_id, *, do_url=True, url_prefix="", report=None):
 
     def operator_exists_pair(a, b):
         # Not fast, this is only for docs.
@@ -1024,6 +1199,11 @@ def _wm_doc_get_id(doc_id, do_url=True, url_prefix=""):
                 # Check class for dynamically registered types.
                 rna_class = bpy.types.PropertyGroup.bl_rna_get_subclass_py(class_name)
 
+            if rna_class is None:
+                if report is not None:
+                    report({'ERROR'}, iface_("Type \"%s\" can not be found") % class_name)
+                return None
+
             # Detect if this is a inherited member and use that name instead.
             rna_parent = rna_class.bl_rna
             rna_prop = rna_parent.properties.get(class_prop)
@@ -1058,7 +1238,7 @@ class WM_OT_doc_view_manual(Operator):
     doc_id: doc_id
 
     @staticmethod
-    def _find_reference(rna_id, url_mapping, verbose=True):
+    def _find_reference(rna_id, url_mapping, *, verbose=True):
         if verbose:
             print("online manual check for: '%s'... " % rna_id)
         from fnmatch import fnmatchcase
@@ -1083,9 +1263,9 @@ class WM_OT_doc_view_manual(Operator):
                 return url
 
     def execute(self, _context):
-        rna_id = _wm_doc_get_id(self.doc_id, do_url=False)
+        rna_id = _wm_doc_get_id(self.doc_id, do_url=False, report=self.report)
         if rna_id is None:
-            return {'PASS_THROUGH'}
+            return {'CANCELLED'}
 
         url = self._lookup_rna_url(rna_id)
 
@@ -1110,16 +1290,12 @@ class WM_OT_doc_view(Operator):
     bl_label = "View Documentation"
 
     doc_id: doc_id
-    if bpy.app.version_cycle in {"release", "rc", "beta"}:
-        _prefix = ("https://docs.blender.org/api/%d.%d" %
-                   (bpy.app.version[0], bpy.app.version[1]))
-    else:
-        _prefix = ("https://docs.blender.org/api/master")
+    _prefix = "https://docs.blender.org/api/%d.%d" % bpy.app.version[:2]
 
     def execute(self, _context):
-        url = _wm_doc_get_id(self.doc_id, do_url=True, url_prefix=self._prefix)
+        url = _wm_doc_get_id(self.doc_id, do_url=True, url_prefix=self._prefix, report=self.report)
         if url is None:
-            return {'PASS_THROUGH'}
+            return {'CANCELLED'}
 
         import webbrowser
         webbrowser.open(url)
@@ -1134,47 +1310,20 @@ rna_path = StringProperty(
     options={'HIDDEN'},
 )
 
-rna_value = StringProperty(
-    name="Property Value",
-    description="Property value edit",
-    maxlen=1024,
-)
-
-rna_default = StringProperty(
-    name="Default Value",
-    description="Default value of the property. Important for NLA mixing",
-    maxlen=1024,
-)
-
-rna_property = StringProperty(
+rna_custom_property_name = StringProperty(
     name="Property Name",
     description="Property name edit",
-    maxlen=1024,
+    # Match `MAX_IDPROP_NAME - 1` in Blender's source.
+    maxlen=63,
 )
 
-rna_min = FloatProperty(
-    name="Min",
-    description="Minimum value of the property",
-    default=-10000.0,
-    precision=3,
-)
-
-rna_max = FloatProperty(
-    name="Max",
-    description="Maximum value of the property",
-    default=10000.0,
-    precision=3,
-)
-
-rna_use_soft_limits = BoolProperty(
-    name="Use Soft Limits",
-    description="Limits the Property Value slider to a range, values outside the range must be inputted numerically",
-)
-
-rna_is_overridable_library = BoolProperty(
-    name="Is Library Overridable",
-    description="Allow the property to be overridden when the Data-Block is linked",
-    default=False,
+rna_custom_property_type_items = (
+    ('FLOAT', "Float", "A single floating-point value"),
+    ('FLOAT_ARRAY', "Float Array", "An array of floating-point values"),
+    ('INT', "Integer", "A single integer"),
+    ('INT_ARRAY', "Integer Array", "An array of integers"),
+    ('STRING', "String", "A string value"),
+    ('PYTHON', "Python", "Edit a python value directly, for unsupported property types"),
 )
 
 # Most useful entries of rna_enum_property_subtype_items for number arrays:
@@ -1188,33 +1337,193 @@ rna_vector_subtype_items = (
 
 
 class WM_OT_properties_edit(Operator):
-    """Edit the attributes of the property"""
+    """Change a custom property's type, or adjust how it is displayed in the interface"""
     bl_idname = "wm.properties_edit"
     bl_label = "Edit Property"
     # register only because invoke_props_popup requires.
     bl_options = {'REGISTER', 'INTERNAL'}
 
+    # Common settings used for all property types. Generally, separate properties are used for each
+    # type to improve the experience when choosing UI data values.
+
     data_path: rna_path
-    property: rna_property
-    value: rna_value
-    default: rna_default
-    min: rna_min
-    max: rna_max
-    use_soft_limits: rna_use_soft_limits
-    is_overridable_library: rna_is_overridable_library
-    soft_min: rna_min
-    soft_max: rna_max
+    property_name: rna_custom_property_name
+    property_type: EnumProperty(
+        name="Type",
+        items=rna_custom_property_type_items,
+    )
+    is_overridable_library: BoolProperty(
+        name="Library Overridable",
+        description="Allow the property to be overridden when the data-block is linked",
+        default=False,
+    )
     description: StringProperty(
-        name="Tooltip",
+        name="Description",
+    )
+
+    # Shared for integer and string properties.
+
+    use_soft_limits: BoolProperty(
+        name="Soft Limits",
+        description=(
+            "Limits the Property Value slider to a range, "
+            "values outside the range must be inputted numerically"
+        ),
+    )
+    array_length: IntProperty(
+        name="Array Length",
+        default=3,
+        min=1,
+        max=32,  # 32 is the maximum size for RNA array properties.
+    )
+
+    # Integer properties.
+
+    # This property stores values for both array and non-array properties.
+    default_int: IntVectorProperty(
+        name="Default Value",
+        size=32,
+    )
+    min_int: IntProperty(
+        name="Min",
+        default=-10000,
+    )
+    max_int: IntProperty(
+        name="Max",
+        default=10000,
+    )
+    soft_min_int: IntProperty(
+        name="Soft Min",
+        default=-10000,
+    )
+    soft_max_int: IntProperty(
+        name="Soft Max",
+        default=10000,
+    )
+    step_int: IntProperty(
+        name="Step",
+        min=1,
+        default=1,
+    )
+
+    # Float properties.
+
+    # This property stores values for both array and non-array properties.
+    default_float: FloatVectorProperty(
+        name="Default Value",
+        size=32,
+    )
+    min_float: FloatProperty(
+        name="Min",
+        default=-10000.0,
+    )
+    max_float: FloatProperty(
+        name="Max",
+        default=-10000.0,
+    )
+    soft_min_float: FloatProperty(
+        name="Soft Min",
+        default=-10000.0,
+    )
+    soft_max_float: FloatProperty(
+        name="Soft Max",
+        default=-10000.0,
+    )
+    precision: IntProperty(
+        name="Precision",
+        default=3,
+        min=0,
+        max=8,
+    )
+    step_float: FloatProperty(
+        name="Step",
+        default=0.1,
+        min=0.001,
     )
     subtype: EnumProperty(
         name="Subtype",
-        items=lambda self, _context: WM_OT_properties_edit.subtype_items,
+        items=WM_OT_properties_edit.subtype_items,
     )
 
+    # String properties.
+
+    default_string: StringProperty(
+        name="Default Value",
+        maxlen=1024,
+    )
+
+    # Store the value converted to a string as a fallback for otherwise unsupported types.
+    eval_string: StringProperty(
+        name="Value",
+        description="Python value for unsupported custom property types"
+    )
+
+    type_items = rna_custom_property_type_items
     subtype_items = rna_vector_subtype_items
 
-    def _init_subtype(self, prop_type, is_array, subtype):
+    # Helper method to avoid repetitive code to retrieve a single value from sequences and non-sequences.
+    @staticmethod
+    def _convert_new_value_single(old_value, new_type):
+        if hasattr(old_value, "__len__") and len(old_value) > 0:
+            return new_type(old_value[0])
+        return new_type(old_value)
+
+    # Helper method to create a list of a given value and type, using a sequence or non-sequence old value.
+    @staticmethod
+    def _convert_new_value_array(old_value, new_type, new_len):
+        if hasattr(old_value, "__len__"):
+            new_array = [new_type()] * new_len
+            for i in range(min(len(old_value), new_len)):
+                new_array[i] = new_type(old_value[i])
+            return new_array
+        return [new_type(old_value)] * new_len
+
+    # Convert an old property for a string, avoiding unhelpful string representations for custom list types.
+    @staticmethod
+    def convert_custom_property_to_string(item, name):
+        # The IDProperty group view API currently doesn't have a "lookup" method.
+        for key, value in item.items():
+            if key == name:
+                old_value = value
+                break
+
+        # In order to get a better string conversion, convert the property to a builtin sequence type first.
+        to_dict = getattr(old_value, "to_dict", None)
+        to_list = getattr(old_value, "to_list", None)
+        if to_dict:
+            old_value = to_dict()
+        elif to_list:
+            old_value = to_list()
+
+        return str(old_value)
+
+    # Retrieve the current type of the custom property on the RNA struct. Some properties like group properties
+    # can be created in the UI, but editing their meta-data isn't supported. In that case, return 'PYTHON'.
+    @staticmethod
+    def get_property_type(item, property_name):
+        from rna_prop_ui import (
+            rna_idprop_value_item_type,
+        )
+
+        prop_value = item[property_name]
+
+        prop_type, is_array = rna_idprop_value_item_type(prop_value)
+        if prop_type == int:
+            if is_array:
+                return 'INT_ARRAY'
+            return 'INT'
+        elif prop_type == float:
+            if is_array:
+                return 'FLOAT_ARRAY'
+            return 'FLOAT'
+        elif prop_type == str:
+            if is_array:
+                return 'PYTHON'
+            return 'STRING'
+
+        return 'PYTHON'
+
+    def _init_subtype(self, subtype):
         subtype = subtype or 'NONE'
         subtype_items = rna_vector_subtype_items
 
@@ -1225,105 +1534,139 @@ class WM_OT_properties_edit(Operator):
         WM_OT_properties_edit.subtype_items = subtype_items
         self.subtype = subtype
 
-    def _cmp_props_get(self):
-        # Changing these properties will refresh the UI
-        return {
-            "use_soft_limits": self.use_soft_limits,
-            "soft_range": (self.soft_min, self.soft_max),
-            "hard_range": (self.min, self.max),
-        }
+    # Fill the operator's properties with the UI data properties from the existing custom property.
+    # Note that if the UI data doesn't exist yet, the access will create it and use those default values.
+    def _fill_old_ui_data(self, item, name):
+        ui_data = item.id_properties_ui(name)
+        rna_data = ui_data.as_dict()
 
-    def get_value_eval(self):
-        try:
-            value_eval = eval(self.value)
-            # assert else None -> None, not "None", see [#33431]
-            assert(type(value_eval) in {str, float, int, bool, tuple, list})
-        except:
-            value_eval = self.value
+        if self.property_type in {'FLOAT', 'FLOAT_ARRAY'}:
+            self.min_float = rna_data["min"]
+            self.max_float = rna_data["max"]
+            self.soft_min_float = rna_data["soft_min"]
+            self.soft_max_float = rna_data["soft_max"]
+            self.precision = rna_data["precision"]
+            self.step_float = rna_data["step"]
+            self.subtype = rna_data["subtype"]
+            self.use_soft_limits = (
+                self.min_float != self.soft_min_float or
+                self.max_float != self.soft_max_float
+            )
+            default = self._convert_new_value_array(rna_data["default"], float, 32)
+            self.default_float = default if isinstance(default, list) else [default] * 32
+        elif self.property_type in {'INT', 'INT_ARRAY'}:
+            self.min_int = rna_data["min"]
+            self.max_int = rna_data["max"]
+            self.soft_min_int = rna_data["soft_min"]
+            self.soft_max_int = rna_data["soft_max"]
+            self.step_int = rna_data["step"]
+            self.use_soft_limits = (
+                self.min_int != self.soft_min_int or
+                self.max_int != self.soft_max_int
+            )
+            self.default_int = self._convert_new_value_array(rna_data["default"], int, 32)
+        elif self.property_type == 'STRING':
+            self.default_string = rna_data["default"]
 
-        return value_eval
+        if self.property_type in {'FLOAT_ARRAY', 'INT_ARRAY'}:
+            self.array_length = len(item[name])
 
-    def get_default_eval(self):
-        try:
-            default_eval = eval(self.default)
-            # assert else None -> None, not "None", see [#33431]
-            assert(type(default_eval) in {str, float, int, bool, tuple, list})
-        except:
-            default_eval = self.default
+        # The dictionary does not contain the description if it was empty.
+        self.description = rna_data.get("description", "")
 
-        return default_eval
+        self._init_subtype(self.subtype)
+        escaped_name = bpy.utils.escape_identifier(name)
+        self.is_overridable_library = bool(item.is_property_overridable_library('["%s"]' % escaped_name))
 
-    def execute(self, context):
+    # When the operator chooses a different type than the original property,
+    # attempt to convert the old value to the new type for continuity and speed.
+    def _get_converted_value(self, item, name_old, prop_type_new):
+        if prop_type_new == 'INT':
+            return self._convert_new_value_single(item[name_old], int)
+
+        if prop_type_new == 'FLOAT':
+            return self._convert_new_value_single(item[name_old], float)
+
+        if prop_type_new == 'INT_ARRAY':
+            prop_type_old = self.get_property_type(item, name_old)
+            if prop_type_old in {'INT', 'FLOAT', 'INT_ARRAY', 'FLOAT_ARRAY'}:
+                return self._convert_new_value_array(item[name_old], int, self.array_length)
+
+        if prop_type_new == 'FLOAT_ARRAY':
+            prop_type_old = self.get_property_type(item, name_old)
+            if prop_type_old in {'INT', 'FLOAT', 'FLOAT_ARRAY', 'INT_ARRAY'}:
+                return self._convert_new_value_array(item[name_old], float, self.array_length)
+
+        if prop_type_new == 'STRING':
+            return self.convert_custom_property_to_string(item, name_old)
+
+        # If all else fails, create an empty string property. That should avoid errors later on anyway.
+        return ""
+
+    # Any time the target type is changed in the dialog, it's helpful to convert the UI data values
+    # to the new type as well, when possible, currently this only applies for floats and ints.
+    def _convert_old_ui_data_to_new_type(self, prop_type_old, prop_type_new):
+        if prop_type_new in {'INT', 'INT_ARRAY'} and prop_type_old in {'FLOAT', 'FLOAT_ARRAY'}:
+            self.min_int = int(self.min_float)
+            self.max_int = int(self.max_float)
+            self.soft_min_int = int(self.soft_min_float)
+            self.soft_max_int = int(self.soft_max_float)
+            self.default_int = self._convert_new_value_array(self.default_float, int, 32)
+        elif prop_type_new in {'FLOAT', 'FLOAT_ARRAY'} and prop_type_old in {'INT', 'INT_ARRAY'}:
+            self.min_float = float(self.min_int)
+            self.max_float = float(self.max_int)
+            self.soft_min_float = float(self.soft_min_int)
+            self.soft_max_float = float(self.soft_max_int)
+            self.default_float = self._convert_new_value_array(self.default_int, float, 32)
+        # Don't convert between string and float/int defaults here, it's not expected like the other conversions.
+
+    # Fill the property's UI data with the values chosen in the operator.
+    def _create_ui_data_for_new_prop(self, item, name, prop_type_new):
+        if prop_type_new in {'INT', 'INT_ARRAY'}:
+            ui_data = item.id_properties_ui(name)
+            ui_data.update(
+                min=self.min_int,
+                max=self.max_int,
+                soft_min=self.soft_min_int if self.use_soft_limits else self.min_int,
+                soft_max=self.soft_max_int if self.use_soft_limits else self.max_int,
+                step=self.step_int,
+                default=self.default_int[0] if prop_type_new == 'INT' else self.default_int[:self.array_length],
+                description=self.description,
+            )
+        elif prop_type_new in {'FLOAT', 'FLOAT_ARRAY'}:
+            ui_data = item.id_properties_ui(name)
+            ui_data.update(
+                min=self.min_float,
+                max=self.max_float,
+                soft_min=self.soft_min_float if self.use_soft_limits else self.min_float,
+                soft_max=self.soft_max_float if self.use_soft_limits else self.max_float,
+                step=self.step_float,
+                precision=self.precision,
+                default=self.default_float[0] if prop_type_new == 'FLOAT' else self.default_float[:self.array_length],
+                description=self.description,
+                subtype=self.subtype,
+            )
+        elif prop_type_new == 'STRING':
+            ui_data = item.id_properties_ui(name)
+            ui_data.update(
+                default=self.default_string,
+                description=self.description,
+            )
+
+        escaped_name = bpy.utils.escape_identifier(name)
+        item.property_overridable_library_set('["%s"]' % escaped_name, self.is_overridable_library)
+
+    def _update_blender_for_prop_change(self, context, item, name, prop_type_old, prop_type_new):
         from rna_prop_ui import (
-            rna_idprop_ui_prop_get,
-            rna_idprop_ui_prop_clear,
             rna_idprop_ui_prop_update,
-            rna_idprop_ui_prop_default_set,
-            rna_idprop_value_item_type,
         )
 
-        data_path = self.data_path
-        prop = self.property
-
-        prop_old = getattr(self, "_last_prop", [None])[0]
-
-        if prop_old is None:
-            self.report({'ERROR'}, "Direct execution not supported")
-            return {'CANCELLED'}
-
-        value_eval = self.get_value_eval()
-        default_eval = self.get_default_eval()
-
-        # First remove
-        item = eval("context.%s" % data_path)
-        prop_type_old = type(item[prop_old])
-
-        rna_idprop_ui_prop_clear(item, prop_old)
-        exec_str = "del item[%r]" % prop_old
-        # print(exec_str)
-        exec(exec_str)
-
-        # Reassign
-        exec_str = "item[%r] = %s" % (prop, repr(value_eval))
-        # print(exec_str)
-        exec(exec_str)
-
-        exec_str = "item.property_overridable_library_set('[\"%s\"]', %s)" % (prop, self.is_overridable_library)
-        exec(exec_str)
-
-        rna_idprop_ui_prop_update(item, prop)
-
-        self._last_prop[:] = [prop]
-
-        prop_value = item[prop]
-        prop_type_new = type(prop_value)
-        prop_type, is_array = rna_idprop_value_item_type(prop_value)
-
-        prop_ui = rna_idprop_ui_prop_get(item, prop)
-
-        if prop_type in {float, int}:
-            prop_ui["min"] = prop_type(self.min)
-            prop_ui["max"] = prop_type(self.max)
-
-            if self.use_soft_limits:
-                prop_ui["soft_min"] = prop_type(self.soft_min)
-                prop_ui["soft_max"] = prop_type(self.soft_max)
-            else:
-                prop_ui["soft_min"] = prop_type(self.min)
-                prop_ui["soft_max"] = prop_type(self.max)
-
-        if prop_type == float and is_array and self.subtype != 'NONE':
-            prop_ui["subtype"] = self.subtype
-        else:
-            prop_ui.pop("subtype", None)
-
-        prop_ui["description"] = self.description
-
-        rna_idprop_ui_prop_default_set(item, prop, default_eval)
+        rna_idprop_ui_prop_update(item, name)
 
         # If we have changed the type of the property, update its potential anim curves!
         if prop_type_old != prop_type_new:
-            data_path = '["%s"]' % bpy.utils.escape_identifier(prop)
+            escaped_name = bpy.utils.escape_identifier(name)
+            data_path = '["%s"]' % escaped_name
             done = set()
 
             def _update(fcurves):
@@ -1349,134 +1692,252 @@ class WM_OT_properties_edit(Operator):
                     for nt in adt.nla_tracks:
                         _update_strips(nt.strips)
 
-        # otherwise existing buttons which reference freed
-        # memory may crash blender [#26510]
-        # context.area.tag_redraw()
+        # Otherwise existing buttons which reference freed memory may crash Blender (T26510).
         for win in context.window_manager.windows:
             for area in win.screen.areas:
                 area.tag_redraw()
 
+    def execute(self, context):
+        name_old = getattr(self, "_old_prop_name", [None])[0]
+        if name_old is None:
+            self.report({'ERROR'}, "Direct execution not supported")
+            return {'CANCELLED'}
+
+        data_path = self.data_path
+        name = self.property_name
+
+        item = eval("context.%s" % data_path)
+        if (item.id_data and item.id_data.override_library and item.id_data.override_library.reference):
+            self.report({'ERROR'}, "Cannot edit properties from override data")
+            return {'CANCELLED'}
+
+        prop_type_old = self.get_property_type(item, name_old)
+        prop_type_new = self.property_type
+        self._old_prop_name[:] = [name]
+
+        if prop_type_new == 'PYTHON':
+            try:
+                new_value = eval(self.eval_string)
+            except Exception as ex:
+                self.report({'WARNING'}, "Python evaluation failed: " + str(ex))
+                return {'CANCELLED'}
+            try:
+                item[name] = new_value
+            except Exception as ex:
+                self.report({'ERROR'}, "Failed to assign value: " + str(ex))
+                return {'CANCELLED'}
+            if name_old != name:
+                del item[name_old]
+        else:
+            new_value = self._get_converted_value(item, name_old, prop_type_new)
+            del item[name_old]
+            item[name] = new_value
+
+            self._create_ui_data_for_new_prop(item, name, prop_type_new)
+
+        self._update_blender_for_prop_change(context, item, name, prop_type_old, prop_type_new)
+
         return {'FINISHED'}
 
     def invoke(self, context, _event):
-        from rna_prop_ui import (
-            rna_idprop_ui_prop_get,
-            rna_idprop_value_to_python,
-            rna_idprop_value_item_type
-        )
-
         data_path = self.data_path
-
         if not data_path:
             self.report({'ERROR'}, "Data path not set")
             return {'CANCELLED'}
 
-        self._last_prop = [self.property]
+        name = self.property_name
+
+        self._old_prop_name = [name]
 
         item = eval("context.%s" % data_path)
+        if (item.id_data and item.id_data.override_library and item.id_data.override_library.reference):
+            self.report({'ERROR'}, "Properties from override data can not be edited")
+            return {'CANCELLED'}
 
-        # retrieve overridable static
-        exec_str = "item.is_property_overridable_library('[\"%s\"]')" % (self.property)
-        self.is_overridable_library = bool(eval(exec_str))
+        # Set operator's property type with the type of the existing property, to display the right settings.
+        old_type = self.get_property_type(item, name)
+        self.property_type = old_type
+        self.last_property_type = old_type
 
-        # default default value
-        prop_type, is_array = rna_idprop_value_item_type(self.get_value_eval())
-        if prop_type in {int, float}:
-            self.default = str(prop_type(0))
-        else:
-            self.default = ""
+        # So that the operator can do something for unsupported properties, change the property into
+        # a string, just for editing in the dialog. When the operator executes, it will be converted back
+        # into a python value. Always do this conversion, in case the Python property edit type is selected.
+        self.eval_string = self.convert_custom_property_to_string(item, name)
 
-        # setup defaults
-        prop_ui = rna_idprop_ui_prop_get(item, self.property, False)  # don't create
-        if prop_ui:
-            self.min = prop_ui.get("min", -1000000000)
-            self.max = prop_ui.get("max", 1000000000)
-            self.description = prop_ui.get("description", "")
-
-            defval = prop_ui.get("default", None)
-            if defval is not None:
-                self.default = str(rna_idprop_value_to_python(defval))
-
-            self.soft_min = prop_ui.get("soft_min", self.min)
-            self.soft_max = prop_ui.get("soft_max", self.max)
-            self.use_soft_limits = (
-                self.min != self.soft_min or
-                self.max != self.soft_max
-            )
-
-            subtype = prop_ui.get("subtype", None)
-        else:
-            subtype = None
-
-        self._init_subtype(prop_type, is_array, subtype)
-
-        # store for comparison
-        self._cmp_props = self._cmp_props_get()
+        if old_type != 'PYTHON':
+            self._fill_old_ui_data(item, name)
 
         wm = context.window_manager
         return wm.invoke_props_dialog(self)
 
-    def check(self, _context):
-        cmp_props = self._cmp_props_get()
+    def check(self, context):
         changed = False
-        if self._cmp_props != cmp_props:
-            if cmp_props["use_soft_limits"]:
-                if cmp_props["soft_range"] != self._cmp_props["soft_range"]:
-                    self.min = min(self.min, self.soft_min)
-                    self.max = max(self.max, self.soft_max)
+
+        # In order to convert UI data between types for type changes before the operator has actually executed,
+        # compare against the type the last time the check method was called (the last time a value was edited).
+        if self.property_type != self.last_property_type:
+            self._convert_old_ui_data_to_new_type(self.last_property_type, self.property_type)
+            changed = True
+
+        # Make sure that min is less than max, soft range is inside hard range, etc.
+        if self.property_type in {'FLOAT', 'FLOAT_ARRAY'}:
+            if self.min_float > self.max_float:
+                self.min_float, self.max_float = self.max_float, self.min_float
+                changed = True
+            if self.use_soft_limits:
+                if self.soft_min_float > self.soft_max_float:
+                    self.soft_min_float, self.soft_max_float = self.soft_max_float, self.soft_min_float
                     changed = True
-                if cmp_props["hard_range"] != self._cmp_props["hard_range"]:
-                    self.soft_min = max(self.min, self.soft_min)
-                    self.soft_max = min(self.max, self.soft_max)
+                if self.soft_max_float > self.max_float:
+                    self.soft_max_float = self.max_float
                     changed = True
-            else:
-                if cmp_props["soft_range"] != cmp_props["hard_range"]:
-                    self.soft_min = self.min
-                    self.soft_max = self.max
+                if self.soft_min_float < self.min_float:
+                    self.soft_min_float = self.min_float
+                    changed = True
+        elif self.property_type in {'INT', 'INT_ARRAY'}:
+            if self.min_int > self.max_int:
+                self.min_int, self.max_int = self.max_int, self.min_int
+                changed = True
+            if self.use_soft_limits:
+                if self.soft_min_int > self.soft_max_int:
+                    self.soft_min_int, self.soft_max_int = self.soft_max_int, self.soft_min_int
+                    changed = True
+                if self.soft_max_int > self.max_int:
+                    self.soft_max_int = self.max_int
+                    changed = True
+                if self.soft_min_int < self.min_int:
+                    self.soft_min_int = self.min_int
                     changed = True
 
-            changed |= (cmp_props["use_soft_limits"] != self._cmp_props["use_soft_limits"])
-
-            if changed:
-                cmp_props = self._cmp_props_get()
-
-            self._cmp_props = cmp_props
+        self.last_property_type = self.property_type
 
         return changed
 
     def draw(self, _context):
-        from rna_prop_ui import (
-            rna_idprop_value_item_type,
-        )
+        layout = self.layout
+
+        layout.use_property_split = True
+        layout.use_property_decorate = False
+
+        layout.prop(self, "property_type")
+        layout.prop(self, "property_name")
+
+        if self.property_type in {'FLOAT', 'FLOAT_ARRAY'}:
+            if self.property_type == 'FLOAT_ARRAY':
+                layout.prop(self, "array_length")
+                col = layout.column(align=True)
+                col.prop(self, "default_float", index=0, text="Default")
+                for i in range(1, self.array_length):
+                    col.prop(self, "default_float", index=i, text=" ")
+            else:
+                layout.prop(self, "default_float", index=0)
+
+            col = layout.column(align=True)
+            col.prop(self, "min_float")
+            col.prop(self, "max_float")
+
+            col = layout.column()
+            col.prop(self, "is_overridable_library")
+            col.prop(self, "use_soft_limits")
+
+            col = layout.column(align=True)
+            col.enabled = self.use_soft_limits
+            col.prop(self, "soft_min_float", text="Soft Min")
+            col.prop(self, "soft_max_float", text="Max")
+
+            layout.prop(self, "step_float")
+            layout.prop(self, "precision")
+
+            # Subtype is only supported for float properties currently.
+            if self.property_type != 'FLOAT':
+                layout.prop(self, "subtype")
+        elif self.property_type in {'INT', 'INT_ARRAY'}:
+            if self.property_type == 'INT_ARRAY':
+                layout.prop(self, "array_length")
+                col = layout.column(align=True)
+                col.prop(self, "default_int", index=0, text="Default")
+                for i in range(1, self.array_length):
+                    col.prop(self, "default_int", index=i, text=" ")
+            else:
+                layout.prop(self, "default_int", index=0)
+
+            col = layout.column(align=True)
+            col.prop(self, "min_int")
+            col.prop(self, "max_int")
+
+            col = layout.column()
+            col.prop(self, "is_overridable_library")
+            col.prop(self, "use_soft_limits")
+
+            col = layout.column(align=True)
+            col.enabled = self.use_soft_limits
+            col.prop(self, "soft_min_int", text="Soft Min")
+            col.prop(self, "soft_max_int", text="Max")
+
+            layout.prop(self, "step_int")
+        elif self.property_type == 'STRING':
+            layout.prop(self, "default_string")
+
+        if self.property_type == 'PYTHON':
+            layout.prop(self, "eval_string")
+        else:
+            layout.prop(self, "description")
+
+
+# Edit the value of a custom property with the given name on the RNA struct at the given data path.
+# For supported types, this simply acts as a convenient way to create a popup for a specific property
+# and draws the custom property value directly in the popup. For types like groups which can't be edited
+# directly with buttons, instead convert the value to a string, evaluate the changed string when executing.
+class WM_OT_properties_edit_value(Operator):
+    """Edit the value of a custom property"""
+    bl_idname = "wm.properties_edit_value"
+    bl_label = "Edit Property Value"
+    # register only because invoke_props_popup requires.
+    bl_options = {'REGISTER', 'INTERNAL'}
+
+    data_path: rna_path
+    property_name: rna_custom_property_name
+
+    # Store the value converted to a string as a fallback for otherwise unsupported types.
+    eval_string: StringProperty(
+        name="Value",
+        description="Value for custom property types that can only be edited as a Python expression"
+    )
+
+    def execute(self, context):
+        if self.eval_string:
+            rna_item = eval("context.%s" % self.data_path)
+            try:
+                new_value = eval(self.eval_string)
+            except Exception as ex:
+                self.report({'WARNING'}, "Python evaluation failed: " + str(ex))
+                return {'CANCELLED'}
+            rna_item[self.property_name] = new_value
+        return {'FINISHED'}
+
+    def invoke(self, context, _event):
+        rna_item = eval("context.%s" % self.data_path)
+
+        if WM_OT_properties_edit.get_property_type(rna_item, self.property_name) == 'PYTHON':
+            self.eval_string = WM_OT_properties_edit.convert_custom_property_to_string(rna_item,
+                                                                                       self.property_name)
+        else:
+            self.eval_string = ""
+
+        wm = context.window_manager
+        return wm.invoke_props_dialog(self)
+
+    def draw(self, context):
+        from bpy.utils import escape_identifier
+
+        rna_item = eval("context.%s" % self.data_path)
 
         layout = self.layout
-        layout.prop(self, "property")
-        layout.prop(self, "value")
-
-        value = self.get_value_eval()
-        proptype, is_array = rna_idprop_value_item_type(value)
-
-        row = layout.row()
-        row.enabled = proptype in {int, float}
-        row.prop(self, "default")
-
-        row = layout.row(align=True)
-        row.prop(self, "min")
-        row.prop(self, "max")
-
-        row = layout.row()
-        row.prop(self, "use_soft_limits")
-        if bpy.app.use_override_library:
-            row.prop(self, "is_overridable_library")
-
-        row = layout.row(align=True)
-        row.enabled = self.use_soft_limits
-        row.prop(self, "soft_min", text="Soft Min")
-        row.prop(self, "soft_max", text="Soft Max")
-        layout.prop(self, "description")
-
-        if is_array and proptype == float:
-            layout.prop(self, "subtype")
+        if WM_OT_properties_edit.get_property_type(rna_item, self.property_name) == 'PYTHON':
+            layout.prop(self, "eval_string")
+        else:
+            col = layout.column(align=True)
+            col.prop(rna_item, '["%s"]' % escape_identifier(self.property_name), text="")
 
 
 class WM_OT_properties_add(Operator):
@@ -1494,6 +1955,10 @@ class WM_OT_properties_add(Operator):
 
         data_path = self.data_path
         item = eval("context.%s" % data_path)
+
+        if (item.id_data and item.id_data.override_library and item.id_data.override_library.reference):
+            self.report({'ERROR'}, "Cannot add properties to override data")
+            return {'CANCELLED'}
 
         def unique_name(names):
             prop = "prop"
@@ -1538,19 +2003,22 @@ class WM_OT_properties_remove(Operator):
     bl_options = {'UNDO', 'INTERNAL'}
 
     data_path: rna_path
-    property: rna_property
+    property_name: rna_custom_property_name
 
     def execute(self, context):
         from rna_prop_ui import (
-            rna_idprop_ui_prop_clear,
             rna_idprop_ui_prop_update,
         )
         data_path = self.data_path
         item = eval("context.%s" % data_path)
-        prop = self.property
-        rna_idprop_ui_prop_update(item, prop)
-        del item[prop]
-        rna_idprop_ui_prop_clear(item, prop)
+
+        if (item.id_data and item.id_data.override_library and item.id_data.override_library.reference):
+            self.report({'ERROR'}, "Cannot remove properties from override data")
+            return {'CANCELLED'}
+
+        name = self.property_name
+        rna_idprop_ui_prop_update(item, name)
+        del item[name]
 
         return {'FINISHED'}
 
@@ -1584,7 +2052,7 @@ class WM_OT_sysinfo(Operator):
 
 
 class WM_OT_operator_cheat_sheet(Operator):
-    """List all the Operators in a text-block, useful for scripting"""
+    """List all the operators in a text-block, useful for scripting"""
     bl_idname = "wm.operator_cheat_sheet"
     bl_label = "Operator Cheat Sheet"
 
@@ -1605,7 +2073,7 @@ class WM_OT_operator_cheat_sheet(Operator):
         textblock = bpy.data.texts.new("OperatorList.txt")
         textblock.write('# %d Operators\n\n' % tot)
         textblock.write('\n'.join(op_strings))
-        self.report({'INFO'}, "See OperatorList.txt textblock")
+        self.report({'INFO'}, "See OperatorList.txt text block")
         return {'FINISHED'}
 
 
@@ -1646,7 +2114,7 @@ class WM_OT_owner_disable(Operator):
 class WM_OT_tool_set_by_id(Operator):
     """Set the tool by name (for keymaps)"""
     bl_idname = "wm.tool_set_by_id"
-    bl_label = "Set Tool By Name"
+    bl_label = "Set Tool by Name"
 
     name: StringProperty(
         name="Identifier",
@@ -1667,18 +2135,6 @@ class WM_OT_tool_set_by_id(Operator):
 
     space_type: rna_space_type_prop
 
-    if use_toolbar_release_hack:
-        def invoke(self, context, event):
-            # Hack :S
-            if not self.properties.is_property_set("name"):
-                WM_OT_toolbar._key_held = False
-                return {'PASS_THROUGH'}
-            elif (WM_OT_toolbar._key_held == event.type) and (event.value != 'RELEASE'):
-                return {'PASS_THROUGH'}
-            WM_OT_toolbar._key_held = None
-
-            return self.execute(context)
-
     def execute(self, context):
         from bl_ui.space_toolsystem_common import (
             activate_by_id,
@@ -1697,16 +2153,16 @@ class WM_OT_tool_set_by_id(Operator):
                 tool_settings.workspace_tool_type = 'FALLBACK'
             return {'FINISHED'}
         else:
-            self.report({'WARNING'}, f"Tool {self.name!r:s} not found for space {space_type!r:s}.")
+            self.report({'WARNING'}, "Tool %r not found for space %r" % (self.name, space_type))
             return {'CANCELLED'}
 
 
 class WM_OT_tool_set_by_index(Operator):
     """Set the tool by index (for keymaps)"""
     bl_idname = "wm.tool_set_by_index"
-    bl_label = "Set Tool By Index"
+    bl_label = "Set Tool by Index"
     index: IntProperty(
-        name="Index in toolbar",
+        name="Index in Toolbar",
         default=0,
     )
     cycle: BoolProperty(
@@ -1717,8 +2173,9 @@ class WM_OT_tool_set_by_index(Operator):
     )
 
     expand: BoolProperty(
-        description="Include tool sub-groups",
+        description="Include tool subgroups",
         default=True,
+        options={'SKIP_SAVE'},
     )
 
     as_fallback: BoolProperty(
@@ -1769,15 +2226,8 @@ class WM_OT_toolbar(Operator):
     def poll(cls, context):
         return context.space_data is not None
 
-    if use_toolbar_release_hack:
-        _key_held = None
-
-        def invoke(self, context, event):
-            WM_OT_toolbar._key_held = event.type
-            return self.execute(context)
-
     @staticmethod
-    def keymap_from_toolbar(context, space_type, use_fallback_keys=True, use_reset=True):
+    def keymap_from_toolbar(context, space_type, *, use_fallback_keys=True, use_reset=True):
         from bl_ui.space_toolsystem_common import ToolSelectPanelHelper
         from bl_keymap_utils import keymap_from_toolbar
 
@@ -2033,32 +2483,37 @@ class BatchRenameAction(bpy.types.PropertyGroup):
     )
 
     # Weak, add/remove as properties.
-    op_add: BoolProperty()
-    op_remove: BoolProperty()
+    op_add: BoolProperty(name="Add")
+    op_remove: BoolProperty(name="Remove")
 
 
 class WM_OT_batch_rename(Operator):
     bl_idname = "wm.batch_rename"
     bl_label = "Batch Rename"
 
+    bl_description = "Rename multiple items at once"
     bl_options = {'UNDO'}
 
     data_type: EnumProperty(
         name="Type",
         items=(
             ('OBJECT', "Objects", ""),
+            ('COLLECTION', "Collections", ""),
             ('MATERIAL', "Materials", ""),
             None,
             # Enum identifiers are compared with 'object.type'.
+            # Follow order in "Add" menu.
             ('MESH', "Meshes", ""),
             ('CURVE', "Curves", ""),
-            ('META', "Meta Balls", ""),
+            ('META', "Metaballs", ""),
+            ('VOLUME', "Volumes", ""),
+            ('GPENCIL', "Grease Pencils", ""),
             ('ARMATURE', "Armatures", ""),
             ('LATTICE', "Lattices", ""),
-            ('GPENCIL', "Grease Pencils", ""),
+            ('LIGHT', "Light", ""),
+            ('LIGHT_PROBE', "Light Probes", ""),
             ('CAMERA', "Cameras", ""),
             ('SPEAKER', "Speakers", ""),
-            ('LIGHT_PROBE', "Light Probes", ""),
             None,
             ('BONE', "Bones", ""),
             ('NODE', "Nodes", ""),
@@ -2078,7 +2533,26 @@ class WM_OT_batch_rename(Operator):
     actions: CollectionProperty(type=BatchRenameAction)
 
     @staticmethod
-    def _data_from_context(context, data_type, only_selected, check_context=False):
+    def _selected_ids_from_outliner_by_type(context, ty):
+        return [
+            id for id in context.selected_ids
+            if isinstance(id, ty)
+            if id.library is None
+        ]
+
+    @staticmethod
+    def _selected_ids_from_outliner_by_type_for_object_data(context, ty):
+        # Include selected object-data as well as the selected ID's.
+        from bpy.types import Object
+        # De-duplicate the result as object-data may cause duplicates.
+        return tuple(set([
+            id for id_base in context.selected_ids
+            if isinstance(id := id_base.data if isinstance(id_base, Object) else id_base, ty)
+            if id.library is None
+        ]))
+
+    @classmethod
+    def _data_from_context(cls, context, data_type, only_selected, *, check_context=False):
 
         mode = context.mode
         scene = context.scene
@@ -2092,12 +2566,11 @@ class WM_OT_batch_rename(Operator):
                 return data_type_test
             if data_type == data_type_test:
                 data = (
-                    # TODO, we don't have access to seqbasep, this won't work when inside metas.
-                    [seq for seq in context.scene.sequence_editor.sequences_all if seq.select]
+                    context.selected_sequences
                     if only_selected else
-                    context.scene.sequence_editor.sequences_all,
+                    scene.sequence_editor.sequences_all,
                     "name",
-                    "Strip(s)",
+                    iface_("Strip(s)"),
                 )
         elif space_type == 'NODE_EDITOR':
             data_type_test = 'NODE'
@@ -2109,7 +2582,19 @@ class WM_OT_batch_rename(Operator):
                     if only_selected else
                     list(space.node_tree.nodes),
                     "name",
-                    "Node(s)",
+                    iface_("Node(s)"),
+                )
+        elif space_type == 'OUTLINER':
+            data_type_test = 'COLLECTION'
+            if check_context:
+                return data_type_test
+            if data_type == data_type_test:
+                data = (
+                    cls._selected_ids_from_outliner_by_type(context, bpy.types.Collection)
+                    if only_selected else
+                    scene.collection.children_recursive,
+                    "name",
+                    iface_("Collection(s)"),
                 )
         else:
             if mode == 'POSE' or (mode == 'WEIGHT_PAINT' and context.pose_object):
@@ -2122,7 +2607,7 @@ class WM_OT_batch_rename(Operator):
                         if only_selected else
                         [pbone.bone for ob in context.objects_in_mode_unique_data for pbone in ob.pose.bones],
                         "name",
-                        "Bone(s)",
+                        iface_("Bone(s)"),
                     )
             elif mode == 'EDIT_ARMATURE':
                 data_type_test = 'BONE'
@@ -2134,22 +2619,24 @@ class WM_OT_batch_rename(Operator):
                         if only_selected else
                         [ebone for ob in context.objects_in_mode_unique_data for ebone in ob.data.edit_bones],
                         "name",
-                        "Edit Bone(s)",
+                        iface_("Edit Bone(s)"),
                     )
 
         if check_context:
             return 'OBJECT'
 
         object_data_type_attrs_map = {
-            'MESH': ("meshes", "Mesh(es)"),
-            'CURVE': ("curves", "Curve(s)"),
-            'META': ("metaballs", "MetaBall(s)"),
-            'ARMATURE': ("armatures", "Armature(s)"),
-            'LATTICE': ("lattices", "Lattice(s)"),
-            'GPENCIL': ("grease_pencils", "Grease Pencil(s)"),
-            'CAMERA': ("cameras", "Camera(s)"),
-            'SPEAKER': ("speakers", "Speaker(s)"),
-            'LIGHT_PROBE': ("light_probes", "LightProbe(s)"),
+            'MESH': ("meshes", iface_("Mesh(es)"), bpy.types.Mesh),
+            'CURVE': ("curves", iface_("Curve(s)"), bpy.types.Curve),
+            'META': ("metaballs", iface_("Metaball(s)"), bpy.types.MetaBall),
+            'VOLUME': ("volumes", iface_("Volume(s)"), bpy.types.Volume),
+            'GPENCIL': ("grease_pencils", iface_("Grease Pencil(s)"), bpy.types.GreasePencil),
+            'ARMATURE': ("armatures", iface_("Armature(s)"), bpy.types.Armature),
+            'LATTICE': ("lattices", iface_("Lattice(s)"), bpy.types.Lattice),
+            'LIGHT': ("lights", iface_("Light(s)"), bpy.types.Light),
+            'LIGHT_PROBE': ("light_probes", iface_("Light Probe(s)"), bpy.types.LightProbe),
+            'CAMERA': ("cameras", iface_("Camera(s)"), bpy.types.Camera),
+            'SPEAKER': ("speakers", iface_("Speaker(s)"), bpy.types.Speaker),
         }
 
         # Finish with space types.
@@ -2157,35 +2644,67 @@ class WM_OT_batch_rename(Operator):
 
             if data_type == 'OBJECT':
                 data = (
-                    context.selected_editable_objects
+                    (
+                        # Outliner.
+                        cls._selected_ids_from_outliner_by_type(context, bpy.types.Object)
+                        if space_type == 'OUTLINER' else
+                        # 3D View (default).
+                        context.selected_editable_objects
+                    )
                     if only_selected else
                     [id for id in bpy.data.objects if id.library is None],
                     "name",
-                    "Object(s)",
+                    iface_("Object(s)"),
+                )
+            elif data_type == 'COLLECTION':
+                data = (
+                    # Outliner case is handled already.
+                    tuple(set(
+                        ob.instance_collection
+                        for ob in context.selected_objects
+                        if ((ob.instance_type == 'COLLECTION') and
+                            (collection := ob.instance_collection) is not None and
+                            (collection.library is None))
+                    ))
+                    if only_selected else
+                    [id for id in bpy.data.collections if id.library is None],
+                    "name",
+                    iface_("Collection(s)"),
                 )
             elif data_type == 'MATERIAL':
                 data = (
-                    tuple(set(
-                        slot.material
-                        for ob in context.selected_objects
-                        for slot in ob.material_slots
-                        if slot.material is not None
-                    ))
+                    (
+                        # Outliner.
+                        cls._selected_ids_from_outliner_by_type(context, bpy.types.Material)
+                        if space_type == 'OUTLINER' else
+                        # 3D View (default).
+                        tuple(set(
+                            id
+                            for ob in context.selected_objects
+                            for slot in ob.material_slots
+                            if (id := slot.material) is not None and id.library is None
+                        ))
+                    )
                     if only_selected else
                     [id for id in bpy.data.materials if id.library is None],
                     "name",
-                    "Material(s)",
+                    iface_("Material(s)"),
                 )
             elif data_type in object_data_type_attrs_map.keys():
-                attr, descr = object_data_type_attrs_map[data_type]
+                attr, descr, ty = object_data_type_attrs_map[data_type]
                 data = (
-                    tuple(set(
-                        id
-                        for ob in context.selected_objects
-                        if ob.type == data_type
-                        for id in (ob.data,)
-                        if id is not None and id.library is None
-                    ))
+                    (
+                        # Outliner.
+                        cls._selected_ids_from_outliner_by_type_for_object_data(context, ty)
+                        if space_type == 'OUTLINER' else
+                        # 3D View (default).
+                        tuple(set(
+                            id
+                            for ob in context.selected_objects
+                            if ob.type == data_type
+                            if (id := ob.data) is not None and id.library is None
+                        ))
+                    )
                     if only_selected else
                     [id for id in getattr(bpy.data, attr) if id.library is None],
                     "name",
@@ -2216,8 +2735,8 @@ class WM_OT_batch_rename(Operator):
             elif ty == 'STRIP':
                 chars = action.strip_chars
                 chars_strip = (
-                    "{:s}{:s}{:s}"
-                ).format(
+                    "%s%s%s"
+                ) % (
                     string.punctuation if 'PUNCT' in chars else "",
                     string.digits if 'DIGIT' in chars else "",
                     " " if 'SPACE' in chars else "",
@@ -2277,32 +2796,57 @@ class WM_OT_batch_rename(Operator):
 
         layout = self.layout
 
-        split = layout.split(factor=0.5)
-        split.label(text="Data Type:")
+        split = layout.split(align=True)
+        split.row(align=True).prop(self, "data_source", expand=True)
         split.prop(self, "data_type", text="")
-
-        split = layout.split(factor=0.5)
-        split.label(text="Rename {:d} {:s}:".format(len(self._data[0]), self._data[2]))
-        split.row().prop(self, "data_source", expand=True)
 
         for action in self.actions:
             box = layout.box()
+            split = box.split(factor=0.87)
 
-            row = box.row(align=True)
+            # Column 1: main content.
+            col = split.column()
+
+            # Label's width.
+            fac = 0.25
+
+            # Row 1: type.
+            row = col.split(factor=fac)
+            row.alignment = 'RIGHT'
+            row.label(text="Type")
             row.prop(action, "type", text="")
-            row.prop(action, "op_add", text="", icon='ADD')
-            row.prop(action, "op_remove", text="", icon='REMOVE')
 
             ty = action.type
             if ty == 'SET':
-                box.prop(action, "set_method")
-                box.prop(action, "set_name")
-            elif ty == 'STRIP':
-                box.row().prop(action, "strip_chars")
-                box.row().prop(action, "strip_part")
-            elif ty == 'REPLACE':
+                # Row 2: method.
+                row = col.split(factor=fac)
+                row.alignment = 'RIGHT'
+                row.label(text="Method")
+                row.row().prop(action, "set_method", expand=True)
 
-                row = box.row(align=True)
+                # Row 3: name.
+                row = col.split(factor=fac)
+                row.alignment = 'RIGHT'
+                row.label(text="Name")
+                row.prop(action, "set_name", text="")
+
+            elif ty == 'STRIP':
+                # Row 2: chars.
+                row = col.split(factor=fac)
+                row.alignment = 'RIGHT'
+                row.label(text="Characters")
+                row.row().prop(action, "strip_chars")
+
+                # Row 3: part.
+                row = col.split(factor=fac)
+                row.alignment = 'RIGHT'
+                row.label(text="Strip From")
+                row.row().prop(action, "strip_part")
+
+            elif ty == 'REPLACE':
+                # Row 2: find.
+                row = col.split(factor=fac)
+
                 re_error_src = None
                 if action.use_replace_regex_src:
                     try:
@@ -2310,13 +2854,24 @@ class WM_OT_batch_rename(Operator):
                     except Exception as ex:
                         re_error_src = str(ex)
                         row.alert = True
-                row.prop(action, "replace_src")
-                row.prop(action, "use_replace_regex_src", text="", icon='SORTBYEXT')
+
+                row.alignment = 'RIGHT'
+                row.label(text="Find")
+                sub = row.row(align=True)
+                sub.prop(action, "replace_src", text="")
+                sub.prop(action, "use_replace_regex_src", text="", icon='SORTBYEXT')
+
+                # Row.
                 if re_error_src is not None:
-                    box.label(text=re_error_src)
+                    row = col.split(factor=fac)
+                    row.label(text="")
+                    row.alert = True
+                    row.label(text=re_error_src)
+
+                # Row 3: replace.
+                row = col.split(factor=fac)
 
                 re_error_dst = None
-                row = box.row(align=True)
                 if action.use_replace_regex_src:
                     if action.use_replace_regex_dst:
                         if re_error_src is None:
@@ -2326,17 +2881,39 @@ class WM_OT_batch_rename(Operator):
                                 re_error_dst = str(ex)
                                 row.alert = True
 
-                row.prop(action, "replace_dst")
-                rowsub = row.row(align=True)
-                rowsub.active = action.use_replace_regex_src
-                rowsub.prop(action, "use_replace_regex_dst", text="", icon='SORTBYEXT')
-                if re_error_dst is not None:
-                    box.label(text=re_error_dst)
+                row.alignment = 'RIGHT'
+                row.label(text="Replace")
+                sub = row.row(align=True)
+                sub.prop(action, "replace_dst", text="")
+                subsub = sub.row(align=True)
+                subsub.active = action.use_replace_regex_src
+                subsub.prop(action, "use_replace_regex_dst", text="", icon='SORTBYEXT')
 
-                row = box.row()
+                # Row.
+                if re_error_dst is not None:
+                    row = col.split(factor=fac)
+                    row.label(text="")
+                    row.alert = True
+                    row.label(text=re_error_dst)
+
+                # Row 4: case.
+                row = col.split(factor=fac)
+                row.label(text="")
                 row.prop(action, "replace_match_case")
+
             elif ty == 'CASE':
-                box.row().prop(action, "case_method", expand=True)
+                # Row 2: method.
+                row = col.split(factor=fac)
+                row.alignment = 'RIGHT'
+                row.label(text="Convert To")
+                row.row().prop(action, "case_method", expand=True)
+
+            # Column 2: add-remove.
+            row = split.split(align=True)
+            row.prop(action, "op_remove", text="", icon='REMOVE')
+            row.prop(action, "op_add", text="", icon='ADD')
+
+        layout.label(text=iface_("Rename %d %s") % (len(self._data[0]), self._data[2]))
 
     def check(self, context):
         changed = False
@@ -2397,7 +2974,7 @@ class WM_OT_batch_rename(Operator):
                 change_len += 1
             total_len += 1
 
-        self.report({'INFO'}, "Renamed {:d} of {:d} {:s}".format(change_len, total_len, descr))
+        self.report({'INFO'}, tip_("Renamed %d of %d %s") % (change_len, total_len, descr))
 
         return {'FINISHED'}
 
@@ -2411,109 +2988,85 @@ class WM_OT_batch_rename(Operator):
         return wm.invoke_props_dialog(self, width=400)
 
 
-class WM_MT_splash(Menu):
-    bl_label = "Splash"
+class WM_MT_splash_quick_setup(Menu):
+    bl_label = "Quick Setup"
 
-    def draw_setup(self, context):
-        wm = context.window_manager
-        # prefs = context.preferences
-
+    def draw(self, context):
         layout = self.layout
-
         layout.operator_context = 'EXEC_DEFAULT'
 
         layout.label(text="Quick Setup")
 
-        split = layout.split(factor=0.25)
+        split = layout.split(factor=0.14)  # Left margin.
         split.label()
-        split = split.split(factor=2.0 / 3.0)
+        split = split.split(factor=0.73)  # Content width.
 
         col = split.column()
 
-        sub = col.split(factor=0.35)
-        row = sub.row()
-        row.alignment = 'RIGHT'
-        row.label(text="Language")
-        prefs = context.preferences
-        sub.prop(prefs.view, "language", text="")
+        col.use_property_split = True
+        col.use_property_decorate = False
 
-        col.separator()
+        # Languages.
+        if bpy.app.build_options.international:
+            prefs = context.preferences
+            col.prop(prefs.view, "language")
+            col.separator()
 
-        sub = col.split(factor=0.35)
-        row = sub.row()
-        row.alignment = 'RIGHT'
-        row.label(text="Shortcuts")
-        text = bpy.path.display_name(wm.keyconfigs.active.name)
+        # Shortcuts.
+        wm = context.window_manager
+        kc = wm.keyconfigs.active
+        kc_prefs = kc.preferences
+
+        sub = col.column(heading="Shortcuts")
+        text = bpy.path.display_name(kc.name)
         if not text:
             text = "Blender"
         sub.menu("USERPREF_MT_keyconfigs", text=text)
 
-        kc = wm.keyconfigs.active
-        kc_prefs = kc.preferences
         has_select_mouse = hasattr(kc_prefs, "select_mouse")
         if has_select_mouse:
-            sub = col.split(factor=0.35)
-            row = sub.row()
-            row.alignment = 'RIGHT'
-            row.label(text="Select With")
-            sub.row().prop(kc_prefs, "select_mouse", expand=True)
-            has_select_mouse = True
+            col.row().prop(kc_prefs, "select_mouse", text="Select With", expand=True)
 
         has_spacebar_action = hasattr(kc_prefs, "spacebar_action")
         if has_spacebar_action:
-            sub = col.split(factor=0.35)
-            row = sub.row()
-            row.alignment = 'RIGHT'
-            row.label(text="Spacebar")
-            sub.row().prop(kc_prefs, "spacebar_action", expand=True)
-            has_select_mouse = True
+            col.row().prop(kc_prefs, "spacebar_action", text="Spacebar")
 
         col.separator()
 
-        sub = col.split(factor=0.35)
-        row = sub.row()
-        row.alignment = 'RIGHT'
-        row.label(text="Theme")
+        # Themes.
+        sub = col.column(heading="Theme")
         label = bpy.types.USERPREF_MT_interface_theme_presets.bl_label
         if label == "Presets":
             label = "Blender Dark"
         sub.menu("USERPREF_MT_interface_theme_presets", text=label)
 
-        # Keep height constant
+        # Keep height constant.
         if not has_select_mouse:
             col.label()
         if not has_spacebar_action:
             col.label()
 
-        layout.label()
+        layout.separator(factor=2.0)
 
-        row = layout.row()
+        # Save settings buttons.
+        sub = layout.row()
 
-        sub = row.row()
         old_version = bpy.types.PREFERENCES_OT_copy_prev.previous_version()
         if bpy.types.PREFERENCES_OT_copy_prev.poll(context) and old_version:
-            sub.operator("preferences.copy_prev", text="Load %d.%d Settings" % old_version)
+            sub.operator("preferences.copy_prev", text=iface_("Load %d.%d Settings", "Operator") % old_version)
             sub.operator("wm.save_userpref", text="Save New Settings")
         else:
             sub.label()
             sub.label()
             sub.operator("wm.save_userpref", text="Next")
 
-        layout.separator()
-        layout.separator()
+        layout.separator(factor=2.4)
+
+
+class WM_MT_splash(Menu):
+    bl_label = "Splash"
 
     def draw(self, context):
-        # Draw setup screen if no preferences have been saved yet.
-        import os
-
-        userconfig_path = bpy.utils.user_resource('CONFIG')
-        userdef_path = os.path.join(userconfig_path, "userpref.blend")
-
-        if not os.path.isfile(userdef_path):
-            self.draw_setup(context)
-            return
-
-        # Pass
         layout = self.layout
         layout.operator_context = 'EXEC_DEFAULT'
         layout.emboss = 'PULLDOWN_MENU'
@@ -2570,26 +3123,28 @@ class WM_MT_splash_about(Menu):
         layout = self.layout
         layout.operator_context = 'EXEC_DEFAULT'
 
-        layout.label(text="Blender is free software")
-        layout.label(text="Licensed under the GNU General Public License")
-        layout.separator()
-        layout.separator()
+        split = layout.split(factor=0.65)
 
-        split = layout.split()
-        split.emboss = 'PULLDOWN_MENU'
-        split.scale_y = 1.3
+        col = split.column(align=True)
+        col.scale_y = 0.8
+        col.label(text=bpy.app.version_string, translate=False)
+        col.separator(factor=2.5)
+        col.label(text=iface_("Date: %s %s") % (bpy.app.build_commit_date.decode('utf-8', 'replace'),
+                                                bpy.app.build_commit_time.decode('utf-8', 'replace')), translate=False)
+        col.label(text=iface_("Hash: %s") % bpy.app.build_hash.decode('ascii'), translate=False)
+        col.label(text=iface_("Branch: %s") % bpy.app.build_branch.decode('utf-8', 'replace'), translate=False)
+        col.separator(factor=2.0)
+        col.label(text="Blender is free software")
+        col.label(text="Licensed under the GNU General Public License")
 
-        col1 = split.column()
-
-        col1.operator("wm.url_open_preset", text="Release Notes", icon='URL').type = 'RELEASE_NOTES'
-        col1.operator("wm.url_open_preset", text="Credits", icon='URL').type = 'CREDITS'
-        col1.operator("wm.url_open", text="License", icon='URL').url = "https://www.blender.org/about/license/"
-
-        col2 = split.column()
-
-        col2.operator("wm.url_open_preset", text="Blender Website", icon='URL').type = 'BLENDER'
-        col2.operator("wm.url_open", text="Blender Store", icon='URL').url = "https://store.blender.org"
-        col2.operator("wm.url_open_preset", text="Development Fund", icon='FUND').type = 'FUND'
+        col = split.column(align=True)
+        col.emboss = 'PULLDOWN_MENU'
+        col.operator("wm.url_open_preset", text="Release Notes", icon='URL').type = 'RELEASE_NOTES'
+        col.operator("wm.url_open_preset", text="Credits", icon='URL').type = 'CREDITS'
+        col.operator("wm.url_open", text="License", icon='URL').url = "https://www.blender.org/about/license/"
+        col.operator("wm.url_open_preset", text="Blender Website", icon='URL').type = 'BLENDER'
+        col.operator("wm.url_open", text="Blender Store", icon='URL').url = "https://store.blender.org"
+        col.operator("wm.url_open_preset", text="Development Fund", icon='FUND').type = 'FUND'
 
 
 class WM_OT_drop_blend_file(Operator):
@@ -2647,6 +3202,7 @@ classes = (
     WM_OT_properties_add,
     WM_OT_properties_context_change,
     WM_OT_properties_edit,
+    WM_OT_properties_edit_value,
     WM_OT_properties_remove,
     WM_OT_sysinfo,
     WM_OT_owner_disable,
@@ -2660,6 +3216,7 @@ classes = (
     WM_OT_toolbar_prompt,
     BatchRenameAction,
     WM_OT_batch_rename,
+    WM_MT_splash_quick_setup,
     WM_MT_splash,
     WM_MT_splash_about,
 )

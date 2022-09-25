@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2019 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2019 Blender Foundation. All rights reserved. */
 #include "usd.h"
 
 #include "usd_hierarchy_iterator.h"
@@ -26,6 +10,7 @@
 #include "usd_writer_mesh.h"
 #include "usd_writer_metaball.h"
 #include "usd_writer_transform.h"
+#include "usd_writer_volume.h"
 
 #include <string>
 
@@ -34,6 +19,7 @@
 #include "BKE_duplilist.h"
 
 #include "BLI_assert.h"
+#include "BLI_utildefines.h"
 
 #include "DEG_depsgraph_query.h"
 
@@ -41,12 +27,13 @@
 #include "DNA_layer_types.h"
 #include "DNA_object_types.h"
 
-namespace USD {
+namespace blender::io::usd {
 
-USDHierarchyIterator::USDHierarchyIterator(Depsgraph *depsgraph,
+USDHierarchyIterator::USDHierarchyIterator(Main *bmain,
+                                           Depsgraph *depsgraph,
                                            pxr::UsdStageRefPtr stage,
                                            const USDExportParams &params)
-    : AbstractHierarchyIterator(depsgraph), stage_(stage), params_(params)
+    : AbstractHierarchyIterator(bmain, depsgraph), stage_(stage), params_(params)
 {
 }
 
@@ -58,7 +45,7 @@ bool USDHierarchyIterator::mark_as_weak_export(const Object *object) const
   return false;
 }
 
-void USDHierarchyIterator::delete_object_writer(AbstractHierarchyWriter *writer)
+void USDHierarchyIterator::release_writer(AbstractHierarchyWriter *writer)
 {
   delete static_cast<USDAbstractWriter *>(writer);
 }
@@ -70,8 +57,17 @@ std::string USDHierarchyIterator::make_valid_name(const std::string &name) const
 
 void USDHierarchyIterator::set_export_frame(float frame_nr)
 {
-  // The USD stage is already set up to have FPS timecodes per frame.
+  /* The USD stage is already set up to have FPS time-codes per frame. */
   export_time_ = pxr::UsdTimeCode(frame_nr);
+}
+
+std::string USDHierarchyIterator::get_export_file_path() const
+{
+  /* Returns the same path that was passed to `stage_` object during it's creation (via
+   * `pxr::UsdStage::CreateNew` function). */
+  const pxr::SdfLayerHandle root_layer = stage_->GetRootLayer();
+  const std::string usd_export_file_path = root_layer->GetRealPath();
+  return usd_export_file_path;
 }
 
 const pxr::UsdTimeCode &USDHierarchyIterator::get_export_time_code() const
@@ -81,7 +77,8 @@ const pxr::UsdTimeCode &USDHierarchyIterator::get_export_time_code() const
 
 USDExporterContext USDHierarchyIterator::create_usd_export_context(const HierarchyContext *context)
 {
-  return USDExporterContext{depsgraph_, stage_, pxr::SdfPath(context->export_path), this, params_};
+  return USDExporterContext{
+      bmain_, depsgraph_, stage_, pxr::SdfPath(context->export_path), this, params_};
 }
 
 AbstractHierarchyWriter *USDHierarchyIterator::create_transform_writer(
@@ -108,9 +105,12 @@ AbstractHierarchyWriter *USDHierarchyIterator::create_data_writer(const Hierarch
     case OB_MBALL:
       data_writer = new USDMetaballWriter(usd_export_context);
       break;
+    case OB_VOLUME:
+      data_writer = new USDVolumeWriter(usd_export_context);
+      break;
 
     case OB_EMPTY:
-    case OB_CURVE:
+    case OB_CURVES_LEGACY:
     case OB_SURF:
     case OB_FONT:
     case OB_SPEAKER:
@@ -120,7 +120,7 @@ AbstractHierarchyWriter *USDHierarchyIterator::create_data_writer(const Hierarch
     case OB_GPENCIL:
       return nullptr;
     case OB_TYPE_MAX:
-      BLI_assert(!"OB_TYPE_MAX should not be used");
+      BLI_assert_msg(0, "OB_TYPE_MAX should not be used");
       return nullptr;
   }
 
@@ -140,9 +140,10 @@ AbstractHierarchyWriter *USDHierarchyIterator::create_hair_writer(const Hierarch
   return new USDHairWriter(create_usd_export_context(context));
 }
 
-AbstractHierarchyWriter *USDHierarchyIterator::create_particle_writer(const HierarchyContext *)
+AbstractHierarchyWriter *USDHierarchyIterator::create_particle_writer(
+    const HierarchyContext *UNUSED(context))
 {
   return nullptr;
 }
 
-}  // namespace USD
+}  // namespace blender::io::usd

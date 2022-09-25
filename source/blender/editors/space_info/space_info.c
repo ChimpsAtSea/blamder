@@ -1,21 +1,5 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2008 Blender Foundation.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2008 Blender Foundation. All rights reserved. */
 
 /** \file
  * \ingroup spinfo
@@ -29,8 +13,6 @@
 #include "BLI_blenlib.h"
 #include "BLI_utildefines.h"
 
-#include "BLT_translation.h"
-
 #include "BKE_context.h"
 #include "BKE_screen.h"
 
@@ -43,17 +25,14 @@
 
 #include "RNA_access.h"
 
-#include "UI_interface.h"
 #include "UI_resources.h"
 #include "UI_view2d.h"
 
-#include "BLO_readfile.h"
-#include "GPU_framebuffer.h"
 #include "info_intern.h" /* own include */
 
 /* ******************** default callbacks for info space ***************** */
 
-static SpaceLink *info_new(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
+static SpaceLink *info_create(const ScrArea *UNUSED(area), const Scene *UNUSED(scene))
 {
   ARegion *region;
   SpaceInfo *sinfo;
@@ -77,7 +56,7 @@ static SpaceLink *info_new(const ScrArea *UNUSED(area), const Scene *UNUSED(scen
   region->regiontype = RGN_TYPE_WINDOW;
 
   /* keep in sync with console */
-  region->v2d.scroll |= (V2D_SCROLL_RIGHT);
+  region->v2d.scroll |= V2D_SCROLL_RIGHT;
   region->v2d.align |= V2D_ALIGN_NO_NEG_X | V2D_ALIGN_NO_NEG_Y; /* align bottom left */
   region->v2d.keepofs |= V2D_LOCKOFS_X;
   region->v2d.keepzoom = (V2D_LOCKZOOM_X | V2D_LOCKZOOM_Y | V2D_LIMITZOOM | V2D_KEEPASPECT);
@@ -139,11 +118,9 @@ static void info_main_region_draw(const bContext *C, ARegion *region)
   /* draw entirely, view changes should be handled here */
   SpaceInfo *sinfo = CTX_wm_space_info(C);
   View2D *v2d = &region->v2d;
-  View2DScrollers *scrollers;
 
   /* clear and setup matrix */
   UI_ThemeClearColor(TH_BACK);
-  GPU_clear(GPU_COLOR_BIT);
 
   /* quick way to avoid drawing if not bug enough */
   if (region->winy < 16) {
@@ -152,7 +129,7 @@ static void info_main_region_draw(const bContext *C, ARegion *region)
 
   info_textview_update_rect(C, region);
 
-  /* worlks best with no view2d matrix set */
+  /* Works best with no view2d matrix set. */
   UI_view2d_view_ortho(v2d);
 
   info_textview_main(sinfo, region, CTX_wm_reports(C));
@@ -161,9 +138,7 @@ static void info_main_region_draw(const bContext *C, ARegion *region)
   UI_view2d_view_restore(C);
 
   /* scrollers */
-  scrollers = UI_view2d_scrollers_calc(v2d, NULL);
-  UI_view2d_scrollers_draw(v2d, scrollers);
-  UI_view2d_scrollers_free(scrollers);
+  UI_view2d_scrollers_draw(v2d, NULL);
 }
 
 static void info_operatortypes(void)
@@ -208,13 +183,10 @@ static void info_header_region_draw(const bContext *C, ARegion *region)
   ED_region_header(C, region);
 }
 
-static void info_main_region_listener(wmWindow *UNUSED(win),
-                                      ScrArea *UNUSED(area),
-                                      ARegion *region,
-                                      wmNotifier *wmn,
-                                      const Scene *UNUSED(scene))
+static void info_main_region_listener(const wmRegionListenerParams *params)
 {
-  // SpaceInfo *sinfo = area->spacedata.first;
+  ARegion *region = params->region;
+  wmNotifier *wmn = params->notifier;
 
   /* context changes */
   switch (wmn->category) {
@@ -227,12 +199,11 @@ static void info_main_region_listener(wmWindow *UNUSED(win),
   }
 }
 
-static void info_header_listener(wmWindow *UNUSED(win),
-                                 ScrArea *UNUSED(area),
-                                 ARegion *region,
-                                 wmNotifier *wmn,
-                                 const Scene *UNUSED(scene))
+static void info_header_listener(const wmRegionListenerParams *params)
 {
+  ARegion *region = params->region;
+  wmNotifier *wmn = params->notifier;
+
   /* context changes */
   switch (wmn->category) {
     case NC_SCREEN:
@@ -263,25 +234,20 @@ static void info_header_listener(wmWindow *UNUSED(win),
   }
 }
 
-static void info_header_region_message_subscribe(const bContext *UNUSED(C),
-                                                 WorkSpace *UNUSED(workspace),
-                                                 Scene *UNUSED(scene),
-                                                 bScreen *UNUSED(screen),
-                                                 ScrArea *UNUSED(area),
-                                                 ARegion *region,
-                                                 struct wmMsgBus *mbus)
+static void info_header_region_message_subscribe(const wmRegionMessageSubscribeParams *params)
 {
-  wmMsgSubscribeValue msg_sub_value_region_tag_redraw = {
-      .owner = region,
-      .user_data = region,
-      .notify = ED_region_do_msg_notify_tag_redraw,
-  };
+  struct wmMsgBus *mbus = params->message_bus;
+  ARegion *region = params->region;
+
+  wmMsgSubscribeValue msg_sub_value_region_tag_redraw = {NULL};
+  msg_sub_value_region_tag_redraw.owner = region;
+  msg_sub_value_region_tag_redraw.user_data = region;
+  msg_sub_value_region_tag_redraw.notify = ED_region_do_msg_notify_tag_redraw;
 
   WM_msg_subscribe_rna_anon_prop(mbus, Window, view_layer, &msg_sub_value_region_tag_redraw);
   WM_msg_subscribe_rna_anon_prop(mbus, ViewLayer, name, &msg_sub_value_region_tag_redraw);
 }
 
-/* only called once, from space/spacetypes.c */
 void ED_spacetype_info(void)
 {
   SpaceType *st = MEM_callocN(sizeof(SpaceType), "spacetype info");
@@ -290,7 +256,7 @@ void ED_spacetype_info(void)
   st->spaceid = SPACE_INFO;
   strncpy(st->name, "Info", BKE_ST_MAXNAME);
 
-  st->new = info_new;
+  st->create = info_create;
   st->free = info_free;
   st->init = info_init;
   st->duplicate = info_duplicate;

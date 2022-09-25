@@ -1,31 +1,18 @@
-/*
- * This program is free software; you can redistribute it and/or
- * modify it under the terms of the GNU General Public License
- * as published by the Free Software Foundation; either version 2
- * of the License, or (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software Foundation,
- * Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301, USA.
- *
- * The Original Code is Copyright (C) 2001-2002 by NaN Holding BV.
- * All rights reserved.
- */
+/* SPDX-License-Identifier: GPL-2.0-or-later
+ * Copyright 2001-2002 NaN Holding BV. All rights reserved. */
 
 /** \file
  * \ingroup DNA
  */
 
-#ifndef __DNA_MESHDATA_TYPES_H__
-#define __DNA_MESHDATA_TYPES_H__
+#pragma once
 
 #include "DNA_customdata_types.h"
 #include "DNA_listBase.h"
+
+#ifdef __cplusplus
+extern "C" {
+#endif
 
 /* -------------------------------------------------------------------- */
 /** \name Geometry Elements
@@ -38,22 +25,14 @@
  */
 typedef struct MVert {
   float co[3];
-  /**
-   * Cache the normal, can always be recalculated from surrounding faces.
-   * See #CD_CUSTOMLOOPNORMAL for custom normals.
-   */
-  short no[3];
   char flag, bweight;
+  char _pad[2];
 } MVert;
 
 /** #MVert.flag */
 enum {
   /*  SELECT = (1 << 0), */
-  ME_VERT_TMP_TAG = (1 << 2),
   ME_HIDE = (1 << 4),
-  ME_VERT_FACEDOT = (1 << 5),
-  /*  ME_VERT_MERGED = (1 << 6), */
-  ME_VERT_PBVH_UPDATE = (1 << 7),
 };
 
 /**
@@ -103,19 +82,15 @@ enum {
 };
 
 /**
- * Mesh Loops.
- * Each loop represents the corner of a polygon (#MPoly).
+ * Mesh Face Corners.
+ * "Loop" is an internal name for the corner of a polygon (#MPoly).
  *
  * Typically accessed from #Mesh.mloop.
  */
 typedef struct MLoop {
-  /** Vertex index. */
+  /** Vertex index into an #MVert array. */
   unsigned int v;
-  /**
-   * Edge index.
-   *
-   * \note The e here is because we want to move away from relying on edge hashes.
-   */
+  /** Edge index into an #MEdge array. */
   unsigned int e;
 } MLoop;
 
@@ -127,7 +102,7 @@ typedef struct MLoop {
 
 /**
  * Optionally store the order of selected elements.
- * This wont always be set since only some selection operations have an order.
+ * This won't always be set since only some selection operations have an order.
  *
  * Typically accessed from #Mesh.mselect
  */
@@ -148,7 +123,7 @@ enum {
 /** \} */
 
 /* -------------------------------------------------------------------- */
-/** \name Loop Tesselation Runtime Data
+/** \name Loop Tessellation Runtime Data
  * \{ */
 
 /**
@@ -268,6 +243,12 @@ typedef struct MIntProperty {
 typedef struct MStringProperty {
   char s[255], s_len;
 } MStringProperty;
+typedef struct MBoolProperty {
+  uint8_t b;
+} MBoolProperty;
+typedef struct MInt8Property {
+  int8_t i;
+} MInt8Property;
 
 /** \} */
 
@@ -285,8 +266,22 @@ typedef struct MDeformWeight {
   float weight;
 } MDeformWeight;
 
+/**
+ * Stores all of an element's vertex groups, and their weight values.
+ */
 typedef struct MDeformVert {
+  /**
+   * Array of weight indices and values.
+   * - There must not be any duplicate #def_nr indices.
+   * - Groups in the array are unordered.
+   * - Indices outside the usable range of groups are ignored.
+   */
   struct MDeformWeight *dw;
+  /**
+   * The length of the #dw array.
+   * \note This is not necessarily the same length as the total number of vertex groups.
+   * However, generally it isn't larger.
+   */
   int totweight;
   /** Flag is only in use as a run-time tag at the moment. */
   int flag;
@@ -309,7 +304,7 @@ typedef enum eMVertSkinFlag {
    */
   MVERT_SKIN_ROOT = 1,
 
-  /** Marks a branch vertex (vertex with more than two connected edges), so that it's neighbors
+  /** Marks a branch vertex (vertex with more than two connected edges), so that its neighbors
    * are directly hulled together, rather than the default of generating intermediate frames.
    */
   MVERT_SKIN_LOOSE = 2,
@@ -331,13 +326,13 @@ typedef struct MLoopUV {
 
 /** #MLoopUV.flag */
 enum {
-  /* MLOOPUV_DEPRECATED = (1 << 0), MLOOPUV_EDGESEL removed */
+  MLOOPUV_EDGESEL = (1 << 0),
   MLOOPUV_VERTSEL = (1 << 1),
   MLOOPUV_PINNED = (1 << 2),
 };
 
 /**
- * \note While alpha is currently is not in the view-port,
+ * \note While alpha is not currently in the 3D Viewport,
  * this may eventually be added back, keep this value set to 255.
  */
 typedef struct MLoopCol {
@@ -345,7 +340,7 @@ typedef struct MLoopCol {
 } MLoopCol;
 
 typedef struct MPropCol {
-  float col[4];
+  float color[4];
 } MPropCol;
 
 /** Multi-Resolution loop data. */
@@ -411,7 +406,6 @@ typedef struct OrigSpaceLoop {
 
 typedef struct FreestyleEdge {
   char flag;
-  char _pad[3];
 } FreestyleEdge;
 
 /** #FreestyleEdge.flag */
@@ -421,7 +415,6 @@ enum {
 
 typedef struct FreestyleFace {
   char flag;
-  char _pad[3];
 } FreestyleFace;
 
 /** #FreestyleFace.flag */
@@ -519,56 +512,8 @@ typedef struct MRecast {
   int i;
 } MRecast;
 
-/** Multires structs kept for compatibility with old files. */
-typedef struct MultiresCol {
-  float a, r, g, b;
-} MultiresCol;
-
-typedef struct MultiresColFace {
-  /* vertex colors */
-  MultiresCol col[4];
-} MultiresColFace;
-
-typedef struct MultiresFace {
-  unsigned int v[4];
-  unsigned int mid;
-  char flag, mat_nr, _pad[2];
-} MultiresFace;
-
-typedef struct MultiresEdge {
-  unsigned int v[2];
-  unsigned int mid;
-} MultiresEdge;
-
-typedef struct MultiresLevel {
-  struct MultiresLevel *next, *prev;
-
-  MultiresFace *faces;
-  MultiresColFace *colfaces;
-  MultiresEdge *edges;
-
-  unsigned int totvert, totface, totedge;
-  char _pad[4];
-
-  /* Kept for compatibility with even older files */
-  MVert *verts;
-} MultiresLevel;
-
-typedef struct Multires {
-  ListBase levels;
-  MVert *verts;
-
-  unsigned char level_count, current, newlvl, edgelvl, pinlvl, renderlvl;
-  unsigned char use_col, flag;
-
-  /* Special level 1 data that cannot be modified from other levels */
-  CustomData vdata;
-  CustomData fdata;
-  short *edge_flags;
-  char *edge_creases;
-} Multires;
-/* End multi-res structs. */
-
 /** \} */
 
-#endif /* __DNA_MESHDATA_TYPES_H__ */
+#ifdef __cplusplus
+}
+#endif
