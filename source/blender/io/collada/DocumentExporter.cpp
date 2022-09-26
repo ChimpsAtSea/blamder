@@ -217,6 +217,14 @@ int DocumentExporter::exportCurrentScene()
         unitname = "yard";
       }
       break;
+    case USER_UNIT_HALO:
+      if (linearmeasure == 0.03048f) {
+        unitname = "jms";
+      }
+      else if (linearmeasure == 3.048f) {
+        unitname = "unit";
+      }
+      break;
     default:
       break;
   }

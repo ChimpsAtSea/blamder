@@ -4148,6 +4148,7 @@ static void rna_def_unit_settings(BlenderRNA *brna)
       {USER_UNIT_NONE, "NONE", 0, "None", ""},
       {USER_UNIT_METRIC, "METRIC", 0, "Metric", ""},
       {USER_UNIT_IMPERIAL, "IMPERIAL", 0, "Imperial", ""},
+      {USER_UNIT_HALO, "HALO", 0, "Halo", ""},
       {0, NULL, 0, NULL, NULL},
   };
 

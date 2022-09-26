@@ -118,6 +118,7 @@ set(SRC
   nodes/node_shader_volume_scatter.cc
   nodes/node_shader_wavelength.cc
   nodes/node_shader_wireframe.cc
+  nodes/node_shader_halo_gen3.cc
 
   node_shader_tree.cc
   node_shader_util.cc

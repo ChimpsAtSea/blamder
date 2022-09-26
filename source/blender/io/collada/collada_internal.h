@@ -35,6 +35,7 @@ class UnitConverter {
     None,
     Metric,
     Imperial,
+    Halo,
   };
 
   /* Initialize with Z_UP, since Blender uses right-handed, z-up */

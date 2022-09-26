@@ -499,6 +499,10 @@ static ShaderNode *add_node(Scene *scene,
 
     node = aniso;
   }
+  else if (b_node.is_a(&RNA_ShaderNodeHaloGen3Shader)) {
+    BL::ShaderNodeHaloGen3Shader b_halo_gen3_shader(b_node);
+    node = graph->create_node<HaloGen3ShaderNode>();
+  }
   else if (b_node.is_a(&RNA_ShaderNodeBsdfDiffuse)) {
     node = graph->create_node<DiffuseBsdfNode>();
   }
@@ -520,6 +524,25 @@ static ShaderNode *add_node(Scene *scene,
     }
 
     node = subsurface;
+  }
+  else if (b_node.is_a(&RNA_ShaderNodeHaloGen3Shader)) {
+    BL::ShaderNodeHaloGen3Shader b_halo_gen3_shader_node(b_node);
+
+    HaloGen3Node *halo_gen3 = graph->create_node<HaloGen3Node>();
+
+    //switch (b_halo_gen3_shader_node.falloff()) {
+    //  case BL::ShaderNodeSubsurfaceScattering::falloff_BURLEY:
+    halo_gen3->set_method(CLOSURE_BSSRDF_BURLEY_ID);
+    //    break;
+    //  case BL::ShaderNodeSubsurfaceScattering::falloff_RANDOM_WALK_FIXED_RADIUS:
+    //    halo_gen3->set_method(CLOSURE_BSSRDF_RANDOM_WALK_FIXED_RADIUS_ID);
+    //    break;
+    //  case BL::ShaderNodeSubsurfaceScattering::falloff_RANDOM_WALK:
+    //    halo_gen3->set_method(CLOSURE_BSSRDF_RANDOM_WALK_ID);
+    //    break;
+    //}
+
+    node = halo_gen3;
   }
   else if (b_node.is_a(&RNA_ShaderNodeBsdfGlossy)) {
     BL::ShaderNodeBsdfGlossy b_glossy_node(b_node);

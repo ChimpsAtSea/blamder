@@ -197,6 +197,9 @@ void DocumentImporter::finish()
         case UnitConverter::Imperial:
           RNA_property_enum_set(&unit_settings, system, USER_UNIT_IMPERIAL);
           break;
+        case UnitConverter::Halo:
+          RNA_property_enum_set(&unit_settings, system, USER_UNIT_HALO);
+          break;
         default:
           RNA_property_enum_set(&unit_settings, system, USER_UNIT_NONE);
           break;

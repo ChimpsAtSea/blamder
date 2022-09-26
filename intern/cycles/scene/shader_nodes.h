@@ -730,6 +730,26 @@ class SubsurfaceScatteringNode : public BsdfNode {
   NODE_SOCKET_API(ClosureType, method)
 };
 
+class HaloGen3Node : public BsdfNode {
+ public:
+  SHADER_NODE_CLASS(HaloGen3Node)
+  bool has_surface_bssrdf()
+  {
+    return true;
+  }
+  bool has_bssrdf_bump();
+  ClosureType get_closure_type()
+  {
+    return method;
+  }
+
+  NODE_SOCKET_API(float, scale)
+  NODE_SOCKET_API(float3, radius)
+  NODE_SOCKET_API(float, subsurface_ior)
+  NODE_SOCKET_API(float, subsurface_anisotropy)
+  NODE_SOCKET_API(ClosureType, method)
+};
+
 class EmissionNode : public ShaderNode {
  public:
   SHADER_NODE_CLASS(EmissionNode)

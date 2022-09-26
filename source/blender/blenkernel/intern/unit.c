@@ -51,6 +51,9 @@
 #define UN_SC_IN    0.0254f
 #define UN_SC_MIL   0.0000254f
 
+#define UN_SC_HALO_UNIT_JMS   0.03048f
+#define UN_SC_HALO_UNIT       3.048f
+
 #define UN_SC_MTON  1000.0f /* Metric ton. */
 #define UN_SC_QL    100.0f
 #define UN_SC_KG    1.0f
@@ -158,6 +161,13 @@ static struct bUnitDef buImperialLenDef[] = {
   NULL_UNIT,
 };
 static struct bUnitCollection buImperialLenCollection = {buImperialLenDef, 4, 0, UNIT_COLLECTION_LENGTH(buImperialLenDef)};
+
+static struct bUnitDef buHaloLenDef[] = {
+  {"jms",     "jms",      "j",    NULL, "Jms",      "JMS",      UN_SC_HALO_UNIT_JMS,  0.0, B_UNIT_DEF_NONE},
+  {"unit",    "unit",     "u",    NULL, "Unit",     "UNIT",     UN_SC_HALO_UNIT,      0.0, B_UNIT_DEF_NONE},
+  NULL_UNIT,
+};
+static struct bUnitCollection buHaloLenCollection = {buHaloLenDef, 0, 0, UNIT_COLLECTION_LENGTH(buHaloLenDef)};
 
 /* Areas. */
 static struct bUnitDef buMetricAreaDef[] = {
@@ -378,6 +388,20 @@ static const struct bUnitCollection *bUnitSystems[][B_UNIT_TYPE_TOT] = {
      &buCameraLenCollection,
      &buPowerCollection,
      &buImperialTempCollection},
+    /* Halo. */
+    {NULL,
+     &buHaloLenCollection,
+     &buMetricAreaCollection,
+     &buMetricVolCollection,
+     &buMetricMassCollection,
+     &buNaturalRotCollection,
+     &buNaturalTimeCollection,
+     &buNaturalTimeCollection,
+     &buMetricVelCollection,
+     &buMetricAclCollection,
+     &buCameraLenCollection,
+     &buPowerCollection,
+     &buMetricTempCollection},
     {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL},
 };
 

@@ -3167,6 +3167,59 @@ bool SubsurfaceScatteringNode::has_bssrdf_bump()
           normal_in->link->parent->special_type != SHADER_SPECIAL_TYPE_GEOMETRY);
 }
 
+/* Halo Gen3 Closure */
+
+NODE_DEFINE(HaloGen3Node)
+{
+  NodeType *type = NodeType::add("halo_gen3", create, NodeType::SHADER);
+
+  SOCKET_IN_COLOR(color, "Color", make_float3(0.8f, 0.8f, 0.8f));
+  SOCKET_IN_NORMAL(normal, "Normal", zero_float3(), SocketType::LINK_NORMAL);
+  SOCKET_IN_FLOAT(surface_mix_weight, "SurfaceMixWeight", 0.0f, SocketType::SVM_INTERNAL);
+
+  static NodeEnum method_enum;
+  method_enum.insert("burley", CLOSURE_BSSRDF_BURLEY_ID);
+  method_enum.insert("random_walk_fixed_radius", CLOSURE_BSSRDF_RANDOM_WALK_FIXED_RADIUS_ID);
+  method_enum.insert("random_walk", CLOSURE_BSSRDF_RANDOM_WALK_ID);
+  SOCKET_ENUM(method, "Method", method_enum, CLOSURE_BSSRDF_RANDOM_WALK_ID);
+
+  SOCKET_IN_FLOAT(scale, "Scale", 0.01f);
+  SOCKET_IN_VECTOR(radius, "Radius", make_float3(0.1f, 0.1f, 0.1f));
+
+  SOCKET_IN_FLOAT(subsurface_ior, "IOR", 1.4f);
+  SOCKET_IN_FLOAT(subsurface_anisotropy, "Anisotropy", 0.0f);
+
+  SOCKET_OUT_CLOSURE(BSSRDF, "BSSRDF");
+
+  return type;
+}
+
+HaloGen3Node::HaloGen3Node() : BsdfNode(get_node_type())
+{
+  closure = method;
+}
+
+void HaloGen3Node::compile(SVMCompiler &compiler)
+{
+  closure = method;
+  BsdfNode::compile(compiler, input("Scale"), input("IOR"), input("Radius"), input("Anisotropy"));
+}
+
+void HaloGen3Node::compile(OSLCompiler &compiler)
+{
+  closure = method;
+  compiler.parameter(this, "method");
+  compiler.add(this, "node_halo3_gen3");
+}
+
+bool HaloGen3Node::has_bssrdf_bump()
+{
+  /* detect if anything is plugged into the normal input besides the default */
+  ShaderInput *normal_in = input("Normal");
+  return (normal_in->link &&
+          normal_in->link->parent->special_type != SHADER_SPECIAL_TYPE_GEOMETRY);
+}
+
 /* Emissive Closure */
 
 NODE_DEFINE(EmissionNode)
