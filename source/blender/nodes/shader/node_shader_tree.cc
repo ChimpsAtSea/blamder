@@ -939,6 +939,7 @@ static bool closure_node_filter(const bNode *node)
     case SH_NODE_VOLUME_ABSORPTION:
     case SH_NODE_VOLUME_PRINCIPLED:
     case SH_NODE_VOLUME_SCATTER:
+    case SH_NODE_HALO_GEN3_SHADER:
       return true;
     default:
       return false;

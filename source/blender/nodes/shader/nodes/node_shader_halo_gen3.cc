@@ -10,7 +10,7 @@ namespace blender::nodes::node_shader_halo3_gen3_cc {
 
 static void node_declare(NodeDeclarationBuilder &b)
 {
-  b.add_input<decl::Color>(N_("Color")).default_value({0.8f, 0.8f, 0.8f, 1.0f});
+  b.add_input<decl::Color>(N_("Base Color")).default_value({0.8f, 0.8f, 0.8f, 1.0f});
   b.add_input<decl::Float>(N_("Scale")).default_value(1.0f).min(0.0f).max(1000.0f);
   b.add_input<decl::Vector>(N_("Radius"))
       .default_value({1.0f, 0.2f, 0.1f})
@@ -26,12 +26,16 @@ static void node_declare(NodeDeclarationBuilder &b)
       .subtype(PROP_FACTOR);
   b.add_input<decl::Vector>(N_("Normal")).hide_value();
   b.add_input<decl::Float>(N_("Weight")).unavailable();
+
   b.add_output<decl::Shader>(N_("BSSRDF"));
 }
 
-static void node_shader_buts_halo3_gen3(uiLayout *layout, bContext *UNUSED(C), PointerRNA *ptr)
+static void node_shader_buts_halo3_gen3(uiLayout *layout, bContext *b, PointerRNA *ptr)
 {
-  uiItemR(layout, ptr, "falloff", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  uiItemR(layout, ptr, "albedo_option", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  if (RNA_enum_get(ptr, "albedo_option") == 1) {
+    uiItemR(layout, ptr, "bump_mapping_option", UI_ITEM_R_SPLIT_EMPTY_NAME, "", ICON_NONE);
+  }
 }
 
 static void node_shader_init_halo3_gen3(bNodeTree *UNUSED(ntree), bNode *node)

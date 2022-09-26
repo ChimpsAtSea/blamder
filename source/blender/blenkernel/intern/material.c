@@ -1966,7 +1966,7 @@ static void material_default_surface_init(Material *ma)
   ma->nodetree = ntree;
   ma->use_nodes = true;
 
-  bNode *principled = nodeAddStaticNode(NULL, ntree, SH_NODE_BSDF_PRINCIPLED);
+  bNode *principled = nodeAddStaticNode(NULL, ntree, SH_NODE_HALO_GEN3_SHADER);
   bNodeSocket *base_color = nodeFindSocket(principled, SOCK_IN, "Base Color");
   copy_v3_v3(((bNodeSocketValueRGBA *)base_color->default_value)->value, &ma->r);
 
@@ -1974,7 +1974,7 @@ static void material_default_surface_init(Material *ma)
 
   nodeAddLink(ntree,
               principled,
-              nodeFindSocket(principled, SOCK_OUT, "BSDF"),
+              nodeFindSocket(principled, SOCK_OUT, "BSSRDF"),
               output,
               nodeFindSocket(output, SOCK_IN, "Surface"));
 
