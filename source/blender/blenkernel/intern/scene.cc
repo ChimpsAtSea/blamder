@@ -154,12 +154,12 @@ static void scene_init_data(ID *id)
                      CURVE_PRESET_BELL,
                      CURVEMAP_SLOPE_POSITIVE);
 
-  scene->unit.system = USER_UNIT_METRIC;
+  scene->unit.system = USER_UNIT_HALO;
   scene->unit.scale_length = 1.0f;
-  scene->unit.length_unit = (uchar)BKE_unit_base_of_type_get(USER_UNIT_METRIC, B_UNIT_LENGTH);
-  scene->unit.mass_unit = (uchar)BKE_unit_base_of_type_get(USER_UNIT_METRIC, B_UNIT_MASS);
-  scene->unit.time_unit = (uchar)BKE_unit_base_of_type_get(USER_UNIT_METRIC, B_UNIT_TIME);
-  scene->unit.temperature_unit = (uchar)BKE_unit_base_of_type_get(USER_UNIT_METRIC,
+  scene->unit.length_unit = (uchar)BKE_unit_base_of_type_get(USER_UNIT_HALO, B_UNIT_LENGTH);
+  scene->unit.mass_unit = (uchar)BKE_unit_base_of_type_get(USER_UNIT_HALO, B_UNIT_MASS);
+  scene->unit.time_unit = (uchar)BKE_unit_base_of_type_get(USER_UNIT_HALO, B_UNIT_TIME);
+  scene->unit.temperature_unit = (uchar)BKE_unit_base_of_type_get(USER_UNIT_HALO,
                                                                   B_UNIT_TEMPERATURE);
 
   /* Anti-Aliasing threshold. */

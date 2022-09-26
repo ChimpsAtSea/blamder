@@ -167,7 +167,7 @@ static struct bUnitDef buHaloLenDef[] = {
   {"unit",    "unit",     "u",    NULL, "Unit",     "UNIT",     UN_SC_HALO_UNIT,      0.0, B_UNIT_DEF_NONE},
   NULL_UNIT,
 };
-static struct bUnitCollection buHaloLenCollection = {buHaloLenDef, 0, 0, UNIT_COLLECTION_LENGTH(buHaloLenDef)};
+static struct bUnitCollection buHaloLenCollection = {buHaloLenDef, 1, 0, UNIT_COLLECTION_LENGTH(buHaloLenDef)};
 
 /* Areas. */
 static struct bUnitDef buMetricAreaDef[] = {
